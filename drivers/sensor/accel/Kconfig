@@ -1,0 +1,31 @@
+#
+# Accelerometer Sensor Configuration
+#
+
+
+
+config ACCEL                                                              
+	bool "Accelerometer Sensor"
+	default y
+	help
+	This option enables accelerometer sensors  
+	   
+
+config ACCEL_BMA020
+	depends on ACCEL
+	tristate "BMA020 driver for s3c6410"
+	default y
+	help
+	  This option enables accelerometer sensors using bma020 driver.
+	  It is optimized for s3c6410.
+
+
+config ACCEL_KXSD9
+	depends on ACCEL
+	tristate "KXSD9 driver for s3c6410"
+	default n
+	help
+	  This option enables accelerometer sensors using KXSD9 driver.
+	  It is optimized for s3c6410.
+	  
+

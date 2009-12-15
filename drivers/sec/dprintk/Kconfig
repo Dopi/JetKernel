@@ -1,0 +1,11 @@
+#
+# dprintk Configuration
+#
+
+config SEC_DPRINTK
+
+	bool "dprintk support"
+	default y
+	help
+	This option enables dprintk function  
+

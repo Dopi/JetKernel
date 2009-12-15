@@ -1,0 +1,27 @@
+
+		HOWTO for multiqueue network device support
+		===========================================
+
+Section 1: Base driver requirements for implementing multiqueue support
+
+Intro: Kernel support for multiqueue devices
+---------------------------------------------------------
+
+Kernel support for multiqueue devices is always present.
+
+Section 1: Base driver requirements for implementing multiqueue support
+-----------------------------------------------------------------------
+
+Base drivers are required to use the new alloc_etherdev_mq() or
+alloc_netdev_mq() functions to allocate the subqueues for the device.  The
+underlying kernel API will take care of the allocation and deallocation of
+the subqueue memory, as well as netdev configuration of where the queues
+exist in memory.
+
+The base driver will also need to manage the queues as it does the global
+netdev->queue_lock today.  Therefore base drivers should use the
+netif_{start|stop|wake}_subqueue() functions to manage each queue while the
+device is still operational.  netdev->queue_lock is still used when the device
+comes online or when it's completely shut down (unregister_netdev(), etc.).
+
+Author: Peter P. Waskiewicz Jr. <peter.p.waskiewicz.jr@intel.com>

@@ -1,0 +1,26 @@
+if ARCH_MXC
+
+menu "Freescale MXC Implementations"
+
+choice
+	prompt "MXC/iMX Base Type"
+	default ARCH_MX3
+
+config ARCH_MX2
+	bool "MX2-based"
+	help
+	  This enables support for systems based on the Freescale i.MX2 family
+
+config ARCH_MX3
+	bool "MX3-based"
+	help
+	  This enables support for systems based on the Freescale i.MX3 family
+
+endchoice
+
+source "arch/arm/mach-mx2/Kconfig"
+source "arch/arm/mach-mx3/Kconfig"
+
+endmenu
+
+endif

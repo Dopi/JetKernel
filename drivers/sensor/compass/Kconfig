@@ -1,0 +1,22 @@
+#
+# MAGNETIC Sensor Configuration
+#
+
+
+
+config COMPASS                                                              
+	bool "MAGNETIC Sensor"
+	default y
+	help
+	This option enables magnetic sensors  
+	   
+
+config COMPASS_AK8973B
+	depends on COMPASS
+	tristate "AK8973B driver for s3c6410"
+	default y
+	help
+	  This option enables magnetic sensors using ak8973b driver.
+	  It is optimized for s3c6410.
+	  
+

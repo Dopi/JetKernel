@@ -1,0 +1,573 @@
+#
+# Misc strange devices
+#
+
+menuconfig MISC_DEVICES
+	bool "Misc devices"
+	default y
+	---help---
+	  Say Y here to get to see options for device drivers from various
+	  different categories. This option alone does not add any kernel code.
+
+	  If you say N, all options in this submenu will be skipped and disabled.
+
+if MISC_DEVICES
+
+config ANDROID_PMEM
+	bool "Android pmem allocator"
+	default y
+
+config TIMED_OUTPUT
+	bool "Timed output class driver"
+	default y
+
+config TIMED_GPIO
+	bool "Android timed gpio driver"
+	depends on GENERIC_GPIO && TIMED_OUTPUT
+	default y
+
+config ATMEL_PWM
+	tristate "Atmel AT32/AT91 PWM support"
+	depends on AVR32 || ARCH_AT91
+	help
+	  This option enables device driver support for the PWM channels
+	  on certain Atmel prcoessors.  Pulse Width Modulation is used for
+	  purposes including software controlled power-efficent backlights
+	  on LCD displays, motor control, and waveform generation.
+
+config ATMEL_TCLIB
+	bool "Atmel AT32/AT91 Timer/Counter Library"
+	depends on (AVR32 || ARCH_AT91)
+	help
+	  Select this if you want a library to allocate the Timer/Counter
+	  blocks found on many Atmel processors.  This facilitates using
+	  these blocks by different drivers despite processor differences.
+
+config ATMEL_TCB_CLKSRC
+	bool "TC Block Clocksource"
+	depends on ATMEL_TCLIB && GENERIC_TIME
+	default y
+	help
+	  Select this to get a high precision clocksource based on a
+	  TC block with a 5+ MHz base clock rate.  Two timer channels
+	  are combined to make a single 32-bit timer.
+
+	  When GENERIC_CLOCKEVENTS is defined, the third timer channel
+	  may be used as a clock event device supporting oneshot mode
+	  (delays of up to two seconds) based on the 32 KiHz clock.
+
+config ATMEL_TCB_CLKSRC_BLOCK
+	int
+	depends on ATMEL_TCB_CLKSRC
+	prompt "TC Block" if ARCH_AT91RM9200 || ARCH_AT91SAM9260 || CPU_AT32AP700X
+	default 0
+	range 0 1
+	help
+	  Some chips provide more than one TC block, so you have the
+	  choice of which one to use for the clock framework.  The other
+	  TC can be used for other purposes, such as PWM generation and
+	  interval timing.
+
+config BINDER_IPC
+	tristate "Binder IPC Driver"
+	default y
+
+config IBM_ASM
+	tristate "Device driver for IBM RSA service processor"
+	depends on X86 && PCI && INPUT && EXPERIMENTAL
+	---help---
+	  This option enables device driver support for in-band access to the
+	  IBM RSA (Condor) service processor in eServer xSeries systems.
+	  The ibmasm device driver allows user space application to access
+	  ASM (Advanced Systems Management) functions on the service
+	  processor. The driver is meant to be used in conjunction with
+	  a user space API.
+	  The ibmasm driver also enables the OS to use the UART on the
+	  service processor board as a regular serial port. To make use of
+	  this feature serial driver support (CONFIG_SERIAL_8250) must be
+	  enabled.
+
+	  WARNING: This software may not be supported or function
+	  correctly on your IBM server. Please consult the IBM ServerProven
+	  website <http://www.pc.ibm.com/ww/eserver/xseries/serverproven> for
+	  information on the specific driver level and support statement
+	  for your IBM server.
+
+config PHANTOM
+	tristate "Sensable PHANToM (PCI)"
+	depends on PCI
+	help
+	  Say Y here if you want to build a driver for Sensable PHANToM device.
+
+	  This driver is only for PCI PHANToMs.
+
+	  If you choose to build module, its name will be phantom. If unsure,
+	  say N here.
+
+config EEPROM_93CX6
+	tristate "EEPROM 93CX6 support"
+	---help---
+	  This is a driver for the EEPROM chipsets 93c46 and 93c66.
+	  The driver supports both read as well as write commands.
+
+	  If unsure, say N.
+
+config SGI_IOC4
+	tristate "SGI IOC4 Base IO support"
+	depends on PCI
+	---help---
+	  This option enables basic support for the IOC4 chip on certain
+	  SGI IO controller cards (IO9, IO10, and PCI-RT).  This option
+	  does not enable any specific functions on such a card, but provides
+	  necessary infrastructure for other drivers to utilize.
+
+	  If you have an SGI Altix with an IOC4-based card say Y.
+	  Otherwise say N.
+
+config TIFM_CORE
+	tristate "TI Flash Media interface support (EXPERIMENTAL)"
+	depends on EXPERIMENTAL && PCI
+	help
+	  If you want support for Texas Instruments(R) Flash Media adapters
+	  you should select this option and then also choose an appropriate
+	  host adapter, such as 'TI Flash Media PCI74xx/PCI76xx host adapter
+	  support', if you have a TI PCI74xx compatible card reader, for
+	  example.
+	  You will also have to select some flash card format drivers. MMC/SD
+	  cards are supported via 'MMC/SD Card support: TI Flash Media MMC/SD
+	  Interface support (MMC_TIFM_SD)'.
+
+          To compile this driver as a module, choose M here: the module will
+	  be called tifm_core.
+
+config TIFM_7XX1
+	tristate "TI Flash Media PCI74xx/PCI76xx host adapter support (EXPERIMENTAL)"
+	depends on PCI && TIFM_CORE && EXPERIMENTAL
+	default TIFM_CORE
+	help
+	  This option enables support for Texas Instruments(R) PCI74xx and
+	  PCI76xx families of Flash Media adapters, found in many laptops.
+	  To make actual use of the device, you will have to select some
+	  flash card format drivers, as outlined in the TIFM_CORE Help.
+
+          To compile this driver as a module, choose M here: the module will
+	  be called tifm_7xx1.
+
+config ACER_WMI
+        tristate "Acer WMI Laptop Extras (EXPERIMENTAL)"
+	depends on X86
+	depends on EXPERIMENTAL
+	depends on ACPI
+	depends on LEDS_CLASS
+	depends on NEW_LEDS
+	depends on BACKLIGHT_CLASS_DEVICE
+	depends on SERIO_I8042
+	select ACPI_WMI
+	---help---
+	  This is a driver for newer Acer (and Wistron) laptops. It adds
+	  wireless radio and bluetooth control, and on some laptops,
+	  exposes the mail LED and LCD backlight.
+
+	  For more information about this driver see
+	  <file:Documentation/laptops/acer-wmi.txt>
+
+	  If you have an ACPI-WMI compatible Acer/ Wistron laptop, say Y or M
+	  here.
+
+config ASUS_LAPTOP
+        tristate "Asus Laptop Extras (EXPERIMENTAL)"
+        depends on X86
+        depends on ACPI
+	depends on EXPERIMENTAL && !ACPI_ASUS
+	depends on LEDS_CLASS
+	depends on NEW_LEDS
+	depends on BACKLIGHT_CLASS_DEVICE
+        ---help---
+	  This is the new Linux driver for Asus laptops. It may also support some
+	  MEDION, JVC or VICTOR laptops. It makes all the extra buttons generate
+	  standard ACPI events that go through /proc/acpi/events. It also adds
+	  support for video output switching, LCD backlight control, Bluetooth and
+	  Wlan control, and most importantly, allows you to blink those fancy LEDs.
+
+	  For more information and a userspace daemon for handling the extra
+	  buttons see <http://acpi4asus.sf.net/>.
+
+	  If you have an ACPI-compatible ASUS laptop, say Y or M here.
+
+config FUJITSU_LAPTOP
+        tristate "Fujitsu Laptop Extras"
+        depends on X86
+        depends on ACPI
+	depends on INPUT
+        depends on BACKLIGHT_CLASS_DEVICE
+        ---help---
+	  This is a driver for laptops built by Fujitsu:
+
+	    * P2xxx/P5xxx/S6xxx/S7xxx series Lifebooks
+	    * Possibly other Fujitsu laptop models
+	    * Tested with S6410 and S7020
+
+	  It adds support for LCD brightness control and some hotkeys.
+
+	  If you have a Fujitsu laptop, say Y or M here.
+
+config FUJITSU_LAPTOP_DEBUG
+	bool "Verbose debug mode for Fujitsu Laptop Extras"
+	depends on FUJITSU_LAPTOP
+	default n
+	---help---
+	  Enables extra debug output from the fujitsu extras driver, at the
+	  expense of a slight increase in driver size.
+
+	  If you are not sure, say N here.
+
+config TC1100_WMI
+	tristate "HP Compaq TC1100 Tablet WMI Extras (EXPERIMENTAL)"
+	depends on X86 && !X86_64
+	depends on EXPERIMENTAL
+	depends on ACPI
+	select ACPI_WMI
+	---help---
+	  This is a driver for the WMI extensions (wireless and bluetooth power
+	  control) of the HP Compaq TC1100 tablet.
+
+config HP_WMI
+       tristate "HP WMI extras"
+       depends on ACPI_WMI
+       depends on INPUT
+       depends on RFKILL
+       help
+         Say Y here if you want to support WMI-based hotkeys on HP laptops and
+	 to read data from WMI such as docking or ambient light sensor state.
+
+         To compile this driver as a module, choose M here: the module will
+         be called hp-wmi.
+
+config MSI_LAPTOP
+        tristate "MSI Laptop Extras"
+        depends on X86
+        depends on ACPI_EC
+        depends on BACKLIGHT_CLASS_DEVICE
+        ---help---
+	  This is a driver for laptops built by MSI (MICRO-STAR
+	  INTERNATIONAL):
+
+	  MSI MegaBook S270 (MS-1013)
+	  Cytron/TCM/Medion/Tchibo MD96100/SAM2000
+
+	  It adds support for Bluetooth, WLAN and LCD brightness control.
+
+	  More information about this driver is available at
+	  <http://0pointer.de/lennart/tchibo.html>.
+
+	  If you have an MSI S270 laptop, say Y or M here.
+
+config COMPAL_LAPTOP
+	tristate "Compal Laptop Extras"
+	depends on X86
+	depends on ACPI_EC
+	depends on BACKLIGHT_CLASS_DEVICE
+	---help---
+	  This is a driver for laptops built by Compal:
+
+	  Compal FL90/IFL90
+	  Compal FL91/IFL91
+	  Compal FL92/JFL92
+	  Compal FT00/IFT00
+
+	  It adds support for Bluetooth, WLAN and LCD brightness control.
+
+	  If you have an Compal FL9x/IFL9x/FT00 laptop, say Y or M here.
+
+config SONY_LAPTOP
+	tristate "Sony Laptop Extras"
+	depends on X86 && ACPI
+	select BACKLIGHT_CLASS_DEVICE
+	depends on INPUT
+	  ---help---
+	  This mini-driver drives the SNC and SPIC devices present in the ACPI
+	  BIOS of the Sony Vaio laptops.
+
+	  It gives access to some extra laptop functionalities like Bluetooth,
+	  screen brightness control, Fn keys and allows powering on/off some
+	  devices.
+
+	  Read <file:Documentation/laptops/sony-laptop.txt> for more information.
+
+config SONYPI_COMPAT
+	bool "Sonypi compatibility"
+	depends on SONY_LAPTOP
+	  ---help---
+	  Build the sonypi driver compatibility code into the sony-laptop driver.
+
+config THINKPAD_ACPI
+	tristate "ThinkPad ACPI Laptop Extras"
+	depends on X86 && ACPI
+	select BACKLIGHT_LCD_SUPPORT
+	select BACKLIGHT_CLASS_DEVICE
+	select HWMON
+	select NVRAM
+	select INPUT
+	select NEW_LEDS
+	select LEDS_CLASS
+	select NET
+	select RFKILL
+	---help---
+	  This is a driver for the IBM and Lenovo ThinkPad laptops. It adds
+	  support for Fn-Fx key combinations, Bluetooth control, video
+	  output switching, ThinkLight control, UltraBay eject and more.
+	  For more information about this driver see
+	  <file:Documentation/laptops/thinkpad-acpi.txt> and
+	  <http://ibm-acpi.sf.net/> .
+
+	  This driver was formerly known as ibm-acpi.
+
+	  If you have an IBM or Lenovo ThinkPad laptop, say Y or M here.
+
+config THINKPAD_ACPI_DEBUG
+	bool "Verbose debug mode"
+	depends on THINKPAD_ACPI
+	default n
+	---help---
+	  Enables extra debugging information, at the expense of a slightly
+	  increase in driver size.
+
+	  If you are not sure, say N here.
+
+config THINKPAD_ACPI_DOCK
+	bool "Legacy Docking Station Support"
+	depends on THINKPAD_ACPI
+	depends on ACPI_DOCK=n
+	default n
+	---help---
+	  Allows the thinkpad_acpi driver to handle docking station events.
+	  This support was made obsolete by the generic ACPI docking station
+	  support (CONFIG_ACPI_DOCK).  It will allow locking and removing the
+	  laptop from the docking station, but will not properly connect PCI
+	  devices.
+
+	  If you are not sure, say N here.
+
+config THINKPAD_ACPI_BAY
+	bool "Legacy Removable Bay Support"
+	depends on THINKPAD_ACPI
+	default y
+	---help---
+	  Allows the thinkpad_acpi driver to handle removable bays.  It will
+	  electrically disable the device in the bay, and also generate
+	  notifications when the bay lever is ejected or inserted.
+
+	  If you are not sure, say Y here.
+
+config THINKPAD_ACPI_VIDEO
+	bool "Video output control support"
+	depends on THINKPAD_ACPI
+	default y
+	---help---
+	  Allows the thinkpad_acpi driver to provide an interface to control
+	  the various video output ports.
+
+	  This feature often won't work well, depending on ThinkPad model,
+	  display state, video output devices in use, whether there is a X
+	  server running, phase of the moon, and the current mood of
+	  Schroedinger's cat.  If you can use X.org's RandR to control
+	  your ThinkPad's video output ports instead of this feature,
+	  don't think twice: do it and say N here to save some memory.
+
+	  If you are not sure, say Y here.
+
+config THINKPAD_ACPI_HOTKEY_POLL
+	bool "Support NVRAM polling for hot keys"
+	depends on THINKPAD_ACPI
+	default y
+	---help---
+	  Some thinkpad models benefit from NVRAM polling to detect a few of
+	  the hot key press events.  If you know your ThinkPad model does not
+	  need to do NVRAM polling to support any of the hot keys you use,
+	  unselecting this option will save about 1kB of memory.
+
+	  ThinkPads T40 and newer, R52 and newer, and X31 and newer are
+	  unlikely to need NVRAM polling in their latest BIOS versions.
+
+	  NVRAM polling can detect at most the following keys: ThinkPad/Access
+	  IBM, Zoom, Switch Display (fn+F7), ThinkLight, Volume up/down/mute,
+	  Brightness up/down, Display Expand (fn+F8), Hibernate (fn+F12).
+
+	  If you are not sure, say Y here.  The driver enables polling only if
+	  it is strictly necessary to do so.
+
+config ATMEL_SSC
+	tristate "Device driver for Atmel SSC peripheral"
+	depends on AVR32 || ARCH_AT91
+	---help---
+	  This option enables device driver support for Atmel Syncronized
+	  Serial Communication peripheral (SSC).
+
+	  The SSC peripheral supports a wide variety of serial frame based
+	  communications, i.e. I2S, SPI, etc.
+
+	  If unsure, say N.
+
+config INTEL_MENLOW
+	tristate "Thermal Management driver for Intel menlow platform"
+	depends on ACPI_THERMAL
+	select THERMAL
+	depends on X86
+	---help---
+	  ACPI thermal management enhancement driver on
+	  Intel Menlow platform.
+
+	  If unsure, say N.
+
+config EEEPC_LAPTOP
+	tristate "Eee PC Hotkey Driver (EXPERIMENTAL)"
+	depends on X86
+	depends on ACPI
+	depends on BACKLIGHT_CLASS_DEVICE
+	depends on HWMON
+	depends on EXPERIMENTAL
+	---help---
+	  This driver supports the Fn-Fx keys on Eee PC laptops.
+	  It also adds the ability to switch camera/wlan on/off.
+
+	  If you have an Eee PC laptop, say Y or M here.
+
+config ENCLOSURE_SERVICES
+	tristate "Enclosure Services"
+	default n
+	help
+	  Provides support for intelligent enclosures (bays which
+	  contain storage devices).  You also need either a host
+	  driver (SCSI/ATA) which supports enclosures
+	  or a SCSI enclosure device (SES) to use these services.
+
+config KERNEL_DEBUGGER_CORE
+	bool "Kernel Debugger Core"
+	default n
+	---help---
+	  Generic kernel debugging command processor used by low level
+	  (interrupt context) platform-specific debuggers.
+
+config SGI_XP
+	tristate "Support communication between SGI SSIs"
+	depends on NET
+	depends on (IA64_GENERIC || IA64_SGI_SN2 || IA64_SGI_UV || X86_64) && SMP
+	select IA64_UNCACHED_ALLOCATOR if IA64_GENERIC || IA64_SGI_SN2
+	select GENERIC_ALLOCATOR if IA64_GENERIC || IA64_SGI_SN2
+	select SGI_GRU if (IA64_GENERIC || IA64_SGI_UV || X86_64) && SMP
+	---help---
+	  An SGI machine can be divided into multiple Single System
+	  Images which act independently of each other and have
+	  hardware based memory protection from the others.  Enabling
+	  this feature will allow for direct communication between SSIs
+	  based on a network adapter and DMA messaging.
+
+config HP_ILO
+	tristate "Channel interface driver for HP iLO/iLO2 processor"
+	depends on PCI
+	default n
+	help
+	  The channel interface driver allows applications to communicate
+	  with iLO/iLO2 management processors present on HP ProLiant
+	  servers.  Upon loading, the driver creates /dev/hpilo/dXccbN files,
+	  which can be used to gather data from the management processor,
+	  via read and write system calls.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called hpilo.
+
+config SGI_GRU
+	tristate "SGI GRU driver"
+	depends on (X86_64 || IA64_SGI_UV || IA64_GENERIC) && SMP
+	default n
+	select MMU_NOTIFIER
+	---help---
+	The GRU is a hardware resource located in the system chipset. The GRU
+	contains memory that can be mmapped into the user address space. This memory is
+	used to communicate with the GRU to perform functions such as load/store,
+	scatter/gather, bcopy, AMOs, etc.  The GRU is directly accessed by user
+	instructions using user virtual addresses. GRU instructions (ex., bcopy) use
+	user virtual addresses for operands.
+
+	If you are not running on a SGI UV system, say N.
+
+config SGI_GRU_DEBUG
+	bool  "SGI GRU driver debug"
+	depends on SGI_GRU
+	default n
+	---help---
+	This option enables addition debugging code for the SGI GRU driver. If
+	you are unsure, say N.
+
+config LOW_MEMORY_KILLER
+	tristate "Low Memory Killer"
+	---help---
+          Register processes to be killed when memory is low
+
+config LOGGER
+	bool "High-speed in-kernel logging driver"
+	default y
+
+config UID_STAT
+	bool "UID based statistics tracking exported to /proc/uid_stat"
+	default n
+
+config ANDROID_RAM_CONSOLE
+        bool "RAM buffer console"
+        default n
+
+config ANDROID_RAM_CONSOLE_ENABLE_VERBOSE
+        bool "Enable verbose console messages"
+        default y
+        depends on ANDROID_RAM_CONSOLE
+
+menuconfig ANDROID_RAM_CONSOLE_ERROR_CORRECTION
+        bool "Enable error correction"
+        default n
+        depends on ANDROID_RAM_CONSOLE
+        depends on !ANDROID_RAM_CONSOLE_EARLY_INIT
+        select REED_SOLOMON
+        select REED_SOLOMON_ENC8
+        select REED_SOLOMON_DEC8
+
+if ANDROID_RAM_CONSOLE_ERROR_CORRECTION
+
+config ANDROID_RAM_CONSOLE_ERROR_CORRECTION_DATA_SIZE
+        int "Data data size"
+        default 128
+        help
+          Must be a power of 2.
+
+config ANDROID_RAM_CONSOLE_ERROR_CORRECTION_ECC_SIZE
+        int "ECC size"
+        default 16
+
+config ANDROID_RAM_CONSOLE_ERROR_CORRECTION_SYMBOL_SIZE
+        int "Symbol size"
+        default 8
+config ANDROID_RAM_CONSOLE_ERROR_CORRECTION_POLYNOMIAL
+        hex "Polynomial"
+        default 0x19 if (ANDROID_RAM_CONSOLE_ERROR_CORRECTION_SYMBOL_SIZE = 4)
+        default 0x29 if (ANDROID_RAM_CONSOLE_ERROR_CORRECTION_SYMBOL_SIZE = 5)
+        default 0x61 if (ANDROID_RAM_CONSOLE_ERROR_CORRECTION_SYMBOL_SIZE = 6)
+        default 0x89 if (ANDROID_RAM_CONSOLE_ERROR_CORRECTION_SYMBOL_SIZE = 7)
+        default 0x11d if (ANDROID_RAM_CONSOLE_ERROR_CORRECTION_SYMBOL_SIZE = 8)
+
+endif #ANDROID_RAM_CONSOLE_ERROR_CORRECTION
+
+config ANDROID_RAM_CONSOLE_EARLY_INIT
+        bool "Start ram console early"
+        default n
+        depends on ANDROID_RAM_CONSOLE
+
+config ANDROID_RAM_CONSOLE_EARLY_ADDR
+        hex "RAM console virtual address"
+        default 0
+        depends on ANDROID_RAM_CONSOLE_EARLY_INIT
+
+config ANDROID_RAM_CONSOLE_EARLY_SIZE
+        hex "RAM console buffer size"
+        default 0
+        depends on ANDROID_RAM_CONSOLE_EARLY_INIT
+
+endif # MISC_DEVICES

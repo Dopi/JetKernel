@@ -1,0 +1,15 @@
+#
+# PWM Timer configuration
+#
+
+menu "Pulse Width Modulation Timer"
+
+config PWM
+	tristate "Pulse Width Modulation (PWM) Timer support"
+
+config S3C6410_PWM
+         bool "S3C6410/30 PWM support"
+         depends on CPU_S3C6410 && PWM
+         help
+           S3C6410 PWM support.
+endmenu
