@@ -15,4 +15,8 @@
 #include <mach/spica.h> 
 #endif
 
+#ifdef CONFIG_MACH_JET
+#include <mach/jet.h> 
+#endif
+
 #endif /* __ASM_ARCH_IRQ_H */
