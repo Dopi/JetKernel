@@ -43,10 +43,6 @@
 #include <mach/map.h>
 #include <linux/i2c/pmic.h>
 
-#ifdef CONFIG_S3C64XX_DOMAIN_GATING
-#define USE_LCD_DOMAIN_GATING
-#endif /* CONFIG_S3C64XX_DOMAIN_GATING */
-
 #if defined(CONFIG_PM)
 #include <plat/pm.h>
 #include <plat/power-clock-domain.h>
@@ -1971,22 +1967,22 @@ static int s3cfb_suspend_sub(s3c_fb_info_t *fbi)
 
         clk_disable(fbi->clk);
 
-#ifdef USE_LCD_DOMAIN_GATING
+#ifdef CONFIG_S3C64XX_DOMAIN_GATING
         s3c_set_normal_cfg(S3C64XX_DOMAIN_F, S3C64XX_LP_MODE, S3C64XX_LCD);
-#endif /* USE_LCD_DOMAIN_GATING */
+#endif /* CONFIG_S3C64XX_DOMAIN_GATING */
 
         return 0;
 }
 
 static int s3cfb_resume_sub(s3c_fb_info_t *fbi)
 {
-#ifdef USE_LCD_DOMAIN_GATING
+#ifdef CONFIG_S3C64XX_DOMAIN_GATING
         s3c_set_normal_cfg(S3C64XX_DOMAIN_F, S3C64XX_ACTIVE_MODE, S3C64XX_LCD);
         if(s3c_wait_blk_pwr_ready(S3C64XX_BLK_F)) {
                 printk(KERN_ERR "[%s] Domain F is not ready\n", __func__);
                 return -1;
         }
-#endif /* USE_LCD_DOMAIN_GATING */
+#endif /* CONFIG_S3C64XX_DOMAIN_GATING */
 
         clk_enable(fbi->clk);
 
