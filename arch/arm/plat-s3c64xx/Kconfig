@@ -55,7 +55,7 @@ config S3C64XX_SETUP_I2C1
 
 config S3C64XX_ADCTS
 	bool
-	default n
+	default y
 	help
 	  Common setup code for adc and touchscreen
 
