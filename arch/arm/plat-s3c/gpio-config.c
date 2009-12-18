@@ -12,11 +12,6 @@
  * published by the Free Software Foundation.
 */
 
-/*
- *  <YAMAIA><drkim> - 2009.09.21
- *  local_irq_save() and local_irq_restore() adds in each function
- */
- 
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/gpio.h>
@@ -103,7 +98,6 @@ int s3c_gpio_setcfg_s3c24xx_banka(struct s3c_gpio_chip *chip,
 {
 	void __iomem *reg = chip->base;
 	unsigned int shift = off;
-	unsigned long flags;
 	u32 con;
 
 	if (s3c_gpio_is_cfg_special(cfg)) {
@@ -117,15 +111,11 @@ int s3c_gpio_setcfg_s3c24xx_banka(struct s3c_gpio_chip *chip,
 		cfg <<= shift;
 	}
 
-	local_irq_save(flags);
-	
 	con = __raw_readl(reg);
 	con &= ~(0x1 << shift);
 	con |= cfg;
 	__raw_writel(con, reg);
-	
-	local_irq_restore(flags);
-	
+
 	return 0;
 }
 
@@ -134,7 +124,6 @@ int s3c_gpio_setcfg_s3c24xx(struct s3c_gpio_chip *chip,
 {
 	void __iomem *reg = chip->base;
 	unsigned int shift = off * 2;
-	unsigned long flags;
 	u32 con;
 
 	if (s3c_gpio_is_cfg_special(cfg)) {
@@ -144,15 +133,11 @@ int s3c_gpio_setcfg_s3c24xx(struct s3c_gpio_chip *chip,
 
 		cfg <<= shift;
 	}
-	
-	local_irq_save(flags);
 
 	con = __raw_readl(reg);
 	con &= ~(0x3 << shift);
 	con |= cfg;
 	__raw_writel(con, reg);
-
-	local_irq_restore(flags);
 
 	return 0;
 }
@@ -178,7 +163,6 @@ int s3c_gpio_setcfg_s3c64xx_4bit(struct s3c_gpio_chip *chip,
 {
 	void __iomem *reg = chip->base;
 	unsigned int shift = (off & 7) * 4;
-	unsigned long flags;	
 	u32 con;
 
 	if (off < 8 && chip->chip.ngpio > 8)
@@ -189,15 +173,11 @@ int s3c_gpio_setcfg_s3c64xx_4bit(struct s3c_gpio_chip *chip,
 		cfg <<= shift;
 	}
 
-	local_irq_save(flags);
-	
 	con = __raw_readl(reg);
 	con &= ~(0xf << shift);
 	con |= cfg;
 	__raw_writel(con, reg);
 
-	local_irq_restore(flags);
-	
 	return 0;
 }
 
@@ -225,7 +205,6 @@ int s3c_gpio_setcfg_s5pc1xx(struct s3c_gpio_chip *chip,
 {
 	void __iomem *reg = chip->base;
 	unsigned int shift = (off & 7) * 4;
-	unsigned long flags;	
 	u32 con;
 
 	if (off < 8 && chip->chip.ngpio >= 8)
@@ -236,14 +215,10 @@ int s3c_gpio_setcfg_s5pc1xx(struct s3c_gpio_chip *chip,
 		cfg <<= shift;
 	}
 
-	local_irq_save(flags);
-	
 	con = __raw_readl(reg);
 	con &= ~(0xf << shift);
 	con |= cfg;
 	__raw_writel(con, reg);
-
-	local_irq_restore(flags);	
 
 	return 0;
 }
@@ -255,18 +230,13 @@ int s3c_gpio_setpull_updown(struct s3c_gpio_chip *chip,
 {
 	void __iomem *reg = chip->base + 0x08;
 	int shift = off * 2;
-	unsigned long flags;
 	u32 pup;
-
-	local_irq_save(flags);	
 
 	pup = __raw_readl(reg);
 	pup &= ~(3 << shift);
 	pup |= pull << shift;
 	__raw_writel(pup, reg);
 
-	local_irq_restore(flags);	
-	
 	return 0;
 }
 

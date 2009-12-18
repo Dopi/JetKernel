@@ -91,6 +91,8 @@
 #define ECS_IOCTL_APP_GET_DELAY		ECS_IOCTL_GET_DELAY
 #define ECS_IOCTL_APP_SET_MVFLAG	_IOW(AKMIO, 0x19, short)	/* Set raw magnetic vector flag */
 #define ECS_IOCTL_APP_GET_MVFLAG	_IOR(AKMIO, 0x1A, short)	/* Get raw magnetic vector flag */
+#define ECS_IOCTL_APP_SET_PFLAG		_IOW(AKMIO, 0x1B, short)
+#define ECS_IOCTL_APP_GET_PFLAG		_IOR(AKMIO, 0x1C, short)
 
 /* IOCTLs for pedometer */
 #define ECS_IOCTL_SET_STEP_CNT          _IOW(AKMIO, 0x20, short)
@@ -118,7 +120,7 @@ struct akm8976_platform_data {
 	int intr;
 };
 
-extern char *get_akm_cal_ram(void);
+extern short gp2a_get_proximity_value(void);
 
 #endif
 

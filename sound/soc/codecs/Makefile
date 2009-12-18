@@ -1,6 +1,8 @@
 snd-soc-ac97-objs := ac97.o
 snd-soc-ak4535-objs := ak4535.o
-snd-soc-ak4671-spica-objs := ak4671.o ak4671_spica.o 
+
+snd-soc-ak4671-instinctq-objs := ak4671.o ak4671_instinctq.o 
+
 snd-soc-uda1380-objs := uda1380.o
 snd-soc-wm8510-objs := wm8510.o
 snd-soc-wm8580-objs := wm8580.o
@@ -16,7 +18,7 @@ snd-soc-tlv320aic3x-objs := tlv320aic3x.o
 
 obj-$(CONFIG_SND_SOC_AC97_CODEC)	+= snd-soc-ac97.o
 obj-$(CONFIG_SND_SOC_AK4535)	+= snd-soc-ak4535.o
-obj-$(CONFIG_SND_SOC_AK4671)	+= snd-soc-ak4671-spica.o
+obj-$(CONFIG_SND_SOC_AK4671)	+= snd-soc-ak4671-instinctq.o
 obj-$(CONFIG_SND_SOC_UDA1380)	+= snd-soc-uda1380.o
 obj-$(CONFIG_SND_SOC_WM8510)	+= snd-soc-wm8510.o
 obj-$(CONFIG_SND_SOC_WM8580)    += snd-soc-wm8580.o

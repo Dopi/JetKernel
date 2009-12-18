@@ -536,7 +536,6 @@ void __init __weak thread_info_cache_init(void)
 {
 }
 
-int start_kernel_ok = 0;
 asmlinkage void __init start_kernel(void)
 {
 	char * command_line;
@@ -546,7 +545,7 @@ asmlinkage void __init start_kernel(void)
 	printk("!@kernel start\n");
 /* [LINUSYS] added by khoonk for calculating boot-time on 20070508 */
 	smp_setup_processor_id();
-	start_kernel_ok=1;
+
 	/*
 	 * Need to run as early as possible, to initialize the
 	 * lockdep hash:
@@ -555,7 +554,7 @@ asmlinkage void __init start_kernel(void)
 	lockdep_init();
 	debug_objects_early_init();
 	cgroup_init_early();
-	start_kernel_ok=2;
+
 	local_irq_disable();
 	early_boot_irqs_off();
 	early_init_irq_lock_class();
@@ -564,7 +563,6 @@ asmlinkage void __init start_kernel(void)
  * Interrupts are still disabled. Do necessary setups, then
  * enable them
  */
-	start_kernel_ok=3;
 	lock_kernel();
 	tick_init();
 	boot_cpu_init();
@@ -584,13 +582,11 @@ asmlinkage void __init start_kernel(void)
 	 * timer interrupt). Full topology setup happens at smp_init()
 	 * time - but meanwhile we still have a functioning scheduler.
 	 */
-	start_kernel_ok=4;
 	sched_init();
 	/*
 	 * Disable preemption - early bootup scheduling is extremely
 	 * fragile until we cpu_idle() for the first time.
 	 */
-	start_kernel_ok=5;
 	preempt_disable();
 	build_all_zonelists();
 	page_alloc_init();
@@ -604,7 +600,6 @@ asmlinkage void __init start_kernel(void)
 				"enabled *very* early, fixing it\n");
 		local_irq_disable();
 	}
-	start_kernel_ok=6;	
 	sort_main_extable();
 	trap_init();
 	rcu_init();
@@ -627,7 +622,6 @@ asmlinkage void __init start_kernel(void)
 	 * we've done PCI setups etc, and console_init() must be aware of
 	 * this. But we do want output early, in case something goes wrong.
 	 */
-	start_kernel_ok=7;
 	console_init();
 	if (panic_later)
 		panic(panic_later, panic_param);
@@ -639,7 +633,6 @@ asmlinkage void __init start_kernel(void)
 	 * to self-test [hard/soft]-irqs on/off lock inversion bugs
 	 * too:
 	 */
-	start_kernel_ok=8;	 
 	locking_selftest();
 
 #ifdef CONFIG_BLK_DEV_INITRD
@@ -652,7 +645,6 @@ asmlinkage void __init start_kernel(void)
 		initrd_start = 0;
 	}
 #endif
-	start_kernel_ok=9;
 	vfs_caches_init_early();
 	cpuset_init_early();
 	mem_init();
@@ -694,10 +686,8 @@ asmlinkage void __init start_kernel(void)
 	taskstats_init_early();
 	delayacct_init();
 
-	start_kernel_ok=10;
 	check_bugs();
 
-	start_kernel_ok=11;
 	acpi_early_init(); /* before LAPIC and SMP init */
 
 	/* Do the rest non-__init'ed, we're now alive */

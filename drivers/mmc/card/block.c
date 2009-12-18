@@ -298,20 +298,17 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 		 * programming mode even when things go wrong.
 		 */
 		if (brq.cmd.error) {
-			/* Change from KERN_ERR to KERN_DEBUG to eliminate SD card notification sound crach. */
-			printk(KERN_DEBUG "%s: error %d sending read/write command\n",
+			printk(KERN_ERR "%s: error %d sending read/write command\n",
 			       req->rq_disk->disk_name, brq.cmd.error);
 		}
 
 		if (brq.data.error) {
-			/* Change from KERN_ERR to KERN_DEBUG to eliminate SD card notification sound crach. */
-			printk(KERN_DEBUG "%s: error %d transferring data\n",
+			printk(KERN_ERR "%s: error %d transferring data\n",
 			       req->rq_disk->disk_name, brq.data.error);
 		}
 
 		if (brq.stop.error) {
-			/* Change from KERN_ERR to KERN_DEBUG to eliminate SD card notification sound crach. */
-			printk(KERN_DEBUG "%s: error %d sending stop command\n",
+			printk(KERN_ERR "%s: error %d sending stop command\n",
 			       req->rq_disk->disk_name, brq.stop.error);
 		}
 
@@ -324,8 +321,7 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 				cmd.flags = MMC_RSP_R1 | MMC_CMD_AC;
 				err = mmc_wait_for_cmd(card->host, &cmd, 5);
 				if (err) {
-					/* Change from KERN_ERR to KERN_DEBUG to eliminate SD card notification sound crach. */
-					printk(KERN_DEBUG "%s: error %d requesting status\n",
+					printk(KERN_ERR "%s: error %d requesting status\n",
 					       req->rq_disk->disk_name, err);
 					goto cmd_err;
 				}

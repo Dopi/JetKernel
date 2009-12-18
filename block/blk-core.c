@@ -1547,8 +1547,7 @@ static int __end_that_request_first(struct request *req, int error,
 		req->errors = 0;
 
 	if (error && (blk_fs_request(req) && !(req->cmd_flags & REQ_QUIET))) {
-		/* Change from KERN_ERR to KERN_DEBUG to eliminate SD card notification sound crach. */
-		printk(KERN_DEBUG "end_request: I/O error, dev %s, sector %llu\n",
+		printk(KERN_ERR "end_request: I/O error, dev %s, sector %llu\n",
 				req->rq_disk ? req->rq_disk->disk_name : "?",
 				(unsigned long long)req->sector);
 	}

@@ -77,12 +77,6 @@ EXPORT_SYMBOL(panic_blink);
  *	This function never returns.
  */
 
-#define REBOOT_WHEN_PANIC_IN_START_KERNEL
-
-extern int start_kernel_ok;
-
-extern void arch_reset(char mode);
-
 NORET_TYPE void panic(const char * fmt, ...)
 {
 	long i;
@@ -109,12 +103,6 @@ NORET_TYPE void panic(const char * fmt, ...)
 
 #ifdef CONFIG_KERNEL_PANIC_DUMP
 	PANIC_Current += sprintf(PANIC_Current,"Kernel panic - not syncing: %s\n",buf);
-#ifdef REBOOT_WHEN_PANIC_IN_START_KERNEL
-	if(start_kernel_ok < 11) {
-		printk("panic in statr_kernel() : %d\n", start_kernel_ok);
-		arch_reset('r');	
-	}
-#endif
 	if (!multiple_panic) {
 		multiple_panic++;	
 		printk(KERN_EMERG "PANIC_DUMP Test : \n");
@@ -144,17 +132,21 @@ NORET_TYPE void panic(const char * fmt, ...)
 			mm_segment_t old_fs;
 			struct file *filp;
 			int writelen;
+			loff_t pos =0;
 			fl_owner_t id = current->files;
-			struct timeval val;
-			struct tm *ptm,ptmTemp;
-			char dt[35];
 
 			preempt_enable();
 
 			old_fs = get_fs();
 			set_fs(KERNEL_DS);
 
+			struct timeval val;
+			struct tm *ptm,ptmTemp;
+			char dt[35];
+
+
 			do_gettimeofday(&val);
+
 
 			ptm = localtime_r(&val.tv_sec,&ptmTemp);
 

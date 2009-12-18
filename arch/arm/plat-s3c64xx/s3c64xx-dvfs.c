@@ -24,6 +24,8 @@
 #include <asm/system.h>
 #include <plat/s3c64xx-dvfs.h>
 
+#define CPU_FREQ_EARLY_FLAG   0x100
+
 unsigned int S3C64XX_MAXFREQLEVEL = 3;
 static unsigned int s3c64xx_cpufreq_level = 3;
 static char cpufreq_governor_name[CPUFREQ_NAME_LEN] = "userspace";
@@ -44,7 +46,8 @@ static struct cpufreq_frequency_table freq_table_532MHz[] = {
 #else
 	{3, 66*KHZ_T},
 	{4, CPUFREQ_TABLE_END},		
-#endif /* USE_DVFS_AL1_LEVEL */
+#endif
+
 };
 
 static struct cpufreq_frequency_table freq_table_800MHz[] = {
@@ -59,7 +62,7 @@ static struct cpufreq_frequency_table freq_table_800MHz[] = {
 #else
 	{4, (66)*KHZ_T},
 	{5, CPUFREQ_TABLE_END},
-#endif /* USE_DVFS_AL1_LEVEL */
+#endif
 };
 
 static unsigned char transition_state_800MHz[][2] = {
@@ -72,7 +75,7 @@ static unsigned char transition_state_800MHz[][2] = {
 	{5, 4},
 #else
 	{4, 3},
-#endif /* USE_DVFS_AL1_LEVEL */
+#endif
 };
 
 static unsigned char transition_state_532MHz[][2] = {
@@ -84,7 +87,7 @@ static unsigned char transition_state_532MHz[][2] = {
 	{4, 3},		
 #else
 	{3, 2},
-#endif /* USE_DVFS_AL1_LEVEL */
+#endif
 };
 
 /* frequency voltage matching table */
@@ -98,7 +101,7 @@ static const unsigned int frequency_match_532MHz[][4] = {
 	{66000, 1050, 1050, 4},
 #else
 	{66000, 1050, 1050, 3},
-#endif /* USE_DVFS_AL1_LEVEL */
+#endif
 };
 
 /* frequency voltage matching table */
@@ -113,7 +116,7 @@ static const unsigned int frequency_match_800MHz[][4] = {
 	{66000, 1050, 1050, 5},		// 1000, 1000
 #else
 	{66000, 1050, 1050, 4},		// 1000, 1000
-#endif /* USE_DVFS_AL1_LEVEL */
+#endif
 };
 
 extern int is_pmic_initialized(void);
@@ -145,32 +148,17 @@ void set_dvfs_perf_level(void)
 }
 EXPORT_SYMBOL(set_dvfs_perf_level);
 
-static int dvfs_level_count = 0;
 void set_dvfs_level(int flag)
 {
 	spin_lock(&dvfs_lock);	
-	if(flag == 0) {
-		if (dvfs_level_count > 0) {
-			dvfs_level_count++;	
-			spin_unlock(&dvfs_lock);
-			return;
-		}
+	if(flag == 0)
 #ifdef USE_DVFS_AL1_LEVEL
 		s3c64xx_cpufreq_level = S3C64XX_MAXFREQLEVEL - 2;
 #else
 		s3c64xx_cpufreq_level = S3C64XX_MAXFREQLEVEL - 1;
-#endif /* USE_DVFS_AL1_LEVEL */
-		dvfs_level_count++;
-	}
-	else {
-		if (dvfs_level_count > 1) {
-			dvfs_level_count--;
-			spin_unlock(&dvfs_lock);
-			return;
-		}
+#endif
+	else
 		s3c64xx_cpufreq_level = S3C64XX_MAXFREQLEVEL;
-		dvfs_level_count--;
-	}
 	spin_unlock(&dvfs_lock);
 }
 EXPORT_SYMBOL(set_dvfs_level);
@@ -236,7 +224,7 @@ unsigned int s3c64xx_target_frq(unsigned int pred_freq,
 	}
 
 	if((flag != 1)&&(flag != -1)) {
-		printk(KERN_ERR "s3c64xx_target_frq: flag error!!!!!!!!!!!!!");
+		printk("s3c64xx_target_frq: flag error!!!!!!!!!!!!!");
 	}
 
 	index = s3c64xx_cpufreq_index;
@@ -315,12 +303,32 @@ int is_userspace_gov(void)
 
 int s3c6410_verify_speed(struct cpufreq_policy *policy)
 {
+#ifndef USE_FREQ_TABLE
+	struct clk *mpu_clk;
+#endif	/* USE_FREQ_TABLE */
 	if(policy->cpu)
 		return -EINVAL;
-
+#ifdef USE_FREQ_TABLE
 	return cpufreq_frequency_table_verify(policy, s3c6410_freq_table[S3C64XX_FREQ_TAB]);
-}
+#else
+	cpufreq_verify_within_limits(policy, policy->cpuinfo.min_freq,
+				     policy->cpuinfo.max_freq);
+	mpu_clk = clk_get(NULL, MPU_CLK);
 
+	if(IS_ERR(mpu_clk))
+		return PTR_ERR(mpu_clk);
+
+	policy->min = clk_round_rate(mpu_clk, policy->min * KHZ_T) / KHZ_T;
+	policy->max = clk_round_rate(mpu_clk, policy->max * KHZ_T) / KHZ_T;
+
+	cpufreq_verify_within_limits(policy, policy->cpuinfo.min_freq,
+				     policy->cpuinfo.max_freq);
+
+	clk_put(mpu_clk);
+
+	return 0;
+#endif	/* USE_FREQ_TABLE */
+}
 extern unsigned long s3c_fclk_get_rate(void);
 unsigned int s3c6410_getspeed(unsigned int cpu)
 {
@@ -374,7 +382,7 @@ static int s3c6410_target(struct cpufreq_policy *policy,
 	
 	index = s3c64xx_target_freq_index(target_freq);
 	if(index == INDX_ERROR) {
-		printk(KERN_ERR "s3c6410_target: INDX_ERROR \n");
+		printk("s3c6410_target: INDX_ERROR \n");
 		return -EINVAL;
 	}
 	
@@ -399,7 +407,7 @@ static int s3c6410_target(struct cpufreq_policy *policy,
 		/* frequency scaling */
 		ret = clk_set_rate(mpu_clk, target_freq * KHZ_T);
 		if(ret != 0) {
-			printk(KERN_ERR "frequency scaling error\n");
+			printk("frequency scaling error\n");
 			ret = -EINVAL;
 			goto s3c6410_target_end;
 		}
@@ -412,7 +420,7 @@ static int s3c6410_target(struct cpufreq_policy *policy,
 		/* frequency scaling */
 		ret = clk_set_rate(mpu_clk, target_freq * KHZ_T);
 		if(ret != 0) {
-			printk(KERN_ERR "frequency scaling error\n");
+			printk("frequency scaling error\n");
 			ret = -EINVAL;
 			goto s3c6410_target_end;
 		}
@@ -420,7 +428,7 @@ static int s3c6410_target(struct cpufreq_policy *policy,
 #else
 	ret = clk_set_rate(mpu_clk, target_freq * KHZ_T);
 	if(ret != 0) {
-		printk(KERN_ERR "frequency scaling error\n");
+		printk("frequency scaling error\n");
 		ret = -EINVAL;
 		goto s3c6410_target_end;
 	}
@@ -448,7 +456,7 @@ int s3c6410_pm_target(unsigned int target_freq)
 
 	index = s3c64xx_target_freq_index(target_freq);
 	if(index == INDX_ERROR) {
-	   printk(KERN_ERR "s3c6410_target: INDX_ERROR \n");
+	   printk("s3c6410_target: INDX_ERROR \n");
 	   return -EINVAL;
 	}
 	
@@ -461,7 +469,7 @@ int s3c6410_pm_target(unsigned int target_freq)
 	/* frequency scaling */
 	ret = clk_set_rate(mpu_clk, target_freq * KHZ_T);
 	if(ret != 0) {
-		printk(KERN_ERR "frequency scaling error\n");
+		printk("frequency scaling error\n");
 		return -EINVAL;
 	}
 	
@@ -492,7 +500,7 @@ static int __init s3c6410_cpu_init(struct cpufreq_policy *policy)
 		S3C64XX_MAXFREQLEVEL = 5;
 #else
 		S3C64XX_MAXFREQLEVEL = 4;
-#endif /* USE_DVFS_AL1_LEVEL */
+#endif
 	}
 	else {
 		S3C64XX_FREQ_TAB = 0;
@@ -500,28 +508,36 @@ static int __init s3c6410_cpu_init(struct cpufreq_policy *policy)
 		S3C64XX_MAXFREQLEVEL = 4;
 #else
 		S3C64XX_MAXFREQLEVEL = 3;
-#endif /* USE_DVFS_AL1_LEVEL */
+#endif
 	}
 	s3c64xx_cpufreq_level = S3C64XX_MAXFREQLEVEL;
 
+#ifdef USE_FREQ_TABLE
 	cpufreq_frequency_table_get_attr(s3c6410_freq_table[S3C64XX_FREQ_TAB], policy->cpu);
-
+#else
+	policy->cpuinfo.min_freq = clk_round_rate(mpu_clk, 0) / KHZ_T;
+	policy->cpuinfo.max_freq = clk_round_rate(mpu_clk, VERY_HI_RATE) / KHZ_T;
+#endif	/* USE_FREQ_TABLE */
 	policy->cpuinfo.transition_latency = 10000;
 
 	clk_put(mpu_clk);
 
 	spin_lock_init(&dvfs_lock);
 
+#ifdef USE_FREQ_TABLE
 	return cpufreq_frequency_table_cpuinfo(policy, s3c6410_freq_table[S3C64XX_FREQ_TAB]);
+#else
+	return 0;
+#endif	/* USE_FREQ_TABLE */
 }
 
 static struct cpufreq_driver s3c6410_driver = {
 	.flags		= CPUFREQ_STICKY,
 	.verify		= s3c6410_verify_speed,
 	.target		= s3c6410_target,
-	.get		= s3c6410_getspeed,
-	.init		= s3c6410_cpu_init,
-	.name		= "s3c6410",
+	.get			= s3c6410_getspeed,
+	.init			= s3c6410_cpu_init,
+	.name			= "s3c6410",
 };
 
 static int __init s3c6410_cpufreq_init(void)

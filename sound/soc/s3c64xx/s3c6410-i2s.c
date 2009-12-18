@@ -89,6 +89,7 @@ static void s3c_snd_txctrl(int on)
 	iiscon  = readl(s3c_i2s.regs + S3C_IISCON);
 
 	if (on) {
+		printk("I2S, Tx DMA on\n");
 		iiscon |= S3C_IISCON_I2SACTIVE;
 		iiscon  &= ~S3C_IISCON_TXCHPAUSE;
 		iiscon  &= ~S3C_IISCON_TXDMAPAUSE;
@@ -102,6 +103,8 @@ static void s3c_snd_txctrl(int on)
 		iiscon &= ~S3C_IISCON_I2SACTIVE;
 			debug_msg("I2S off\n");
 			}
+		printk("Tx DMA off\n");
+		
 		iiscon  |= S3C_IISCON_TXCHPAUSE;
 		iiscon  |= S3C_IISCON_TXDMAPAUSE;
 		iiscon  &= ~S3C_IISCON_TXDMACTIVE;
@@ -118,6 +121,8 @@ static void s3c_snd_rxctrl(int on)
 	iiscon  = readl(s3c_i2s.regs + S3C_IISCON);
 
 	if(on){
+		printk("I2S, Rx DMA on\n");
+
 		iiscon |= S3C_IISCON_I2SACTIVE;
 		iiscon  &= ~S3C_IISCON_RXCHPAUSE;
 		iiscon  &= ~S3C_IISCON_RXDMAPAUSE;
@@ -131,6 +136,7 @@ static void s3c_snd_rxctrl(int on)
 			iiscon &= ~S3C_IISCON_I2SACTIVE;
 			debug_msg("I2S off\n");
 			}
+		printk("Rx DMA off\n");
 		
 		iiscon  |= S3C_IISCON_RXCHPAUSE;
 		iiscon  |= S3C_IISCON_RXDMAPAUSE;

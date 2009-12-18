@@ -84,7 +84,11 @@ void __init s3c6410_map_io(void)
 
 	s3c6410_default_sdhci0();
 
-#if defined(CONFIG_MACH_SPICA)
+#ifdef CONFIG_MACH_CAPELA
+	s3c6410_default_sdhci1(); // yoohyuk 2009-03-10 Enable SDHC1
+#endif
+
+#if defined(CONFIG_MACH_INSTINCTQ)
 	s3c6410_default_sdhci2();
 #endif
 

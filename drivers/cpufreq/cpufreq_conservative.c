@@ -476,17 +476,14 @@ static void do_dbs_timer(struct work_struct *work)
 	mutex_unlock(&dbs_mutex);
 }
 
-static int dbs_timer_count = 0;
 static inline void dbs_timer_init(void)
 {
-	if (dbs_timer_count == 0) {
-		schedule_delayed_work(&dbs_work, 100 * HZ);
-		dbs_timer_count++;
-	}
-	else {
-		schedule_delayed_work(&dbs_work,
+#if 0	// start DVFS after 100 second.
+	schedule_delayed_work(&dbs_work,
 			usecs_to_jiffies(dbs_tuners_ins.sampling_rate));
-	}
+#else
+	schedule_delayed_work(&dbs_work, 100 * HZ);
+#endif
 	return;
 }
 

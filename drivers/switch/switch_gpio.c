@@ -22,7 +22,6 @@
 #include <linux/switch.h>
 #include <linux/workqueue.h>
 #include <linux/gpio.h>
-#include <linux/interrupt.h>
 
 struct gpio_switch_data {
 	struct switch_dev sdev;

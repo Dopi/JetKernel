@@ -11,10 +11,13 @@
 #define __PLAT_S3C64XX_DVFS_H __FILE__
 
 #define MAXIMUM_FREQ 800000
+#define USE_FREQ_TABLE
 //#undef USE_DVS
 #define USE_DVS
 //#define USE_DVFS_AL1_LEVEL
 #undef USE_DVFS_AL1_LEVEL
+#define VERY_HI_RATE  532*1000*1000
+#define APLL_GEN_CLK  532*1000
 #define KHZ_T		1000
 
 #define MPU_CLK		"clk_cpu"

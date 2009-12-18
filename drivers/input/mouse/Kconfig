@@ -220,19 +220,18 @@ config MOUSE_RISCPC
 	  To compile this driver as a module, choose M here: the
 	  module will be called rpcmouse.
 
-
-config MOUSE_ICTHM02S
-    tristate "hall mouse driver for icthm02s"
-    depends on ARCH_S3C64XX
-    default y
-    help
-     Say Y here to enable the driver for the hall mouse on the
-     S3C spica board.
-		 
-     If unsure, say N.
-						    
-     To compile this driver as a module, choose M here: the
-     module will be called hall mouse.
+config MOUSE_OPTJOY
+    tristate "Optjoystick driver"
+	depends on ARCH_S3C64XX
+	default y
+	help
+	  Say Y here to enable the driver for the optical joystick on the
+	  S3C Instinctq board.
+					   
+	  If unsure, say N.
+							 
+	  To compile this driver as a module, choose M here: the
+	  module will be called hall mouse.
 
 config MOUSE_VSXXXAA
 	tristate "DEC VSXXX-AA/GA mouse and VSXXX-AB tablet"

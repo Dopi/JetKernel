@@ -13,7 +13,7 @@
  *
  */
 
-/* Control bluetooth power for spica platform */
+/* Control bluetooth power for instinctq platform */
 
 #include <linux/platform_device.h>
 #include <linux/module.h>
@@ -22,7 +22,7 @@
 #include <linux/delay.h>
 #include <asm/gpio.h>
 #include <mach/gpio.h>
-#include <mach/spica.h>	/*Updated by kumar.gvs 22 Apr 2009*/
+#include <mach/instinctq.h>	/*Updated by kumar.gvs 22 Apr 2009*/
 #include <plat/gpio-cfg.h>
 #include <plat/egpio.h>
 #include <linux/wakelock.h>
@@ -54,14 +54,14 @@ static int bluetooth_set_power(void *data, enum rfkill_state state)
 	switch (state) {
 
 		case RFKILL_STATE_UNBLOCKED:
-			printk(KERN_DEBUG "[BT] Device Powering ON \n");
+			printk("[BT] Device Powering ON \n");
 			s3c_setup_uart_cfg_gpio(1);
 
 			if (gpio_is_valid(GPIO_BT_WLAN_REG_ON))
 			{
 				ret = gpio_request(GPIO_BT_WLAN_REG_ON, S3C_GPIO_LAVEL(GPIO_BT_WLAN_REG_ON));
 				if (ret < 0) {
-					printk(KERN_ERR "[BT] Failed to request GPIO_BT_WLAN_REG_ON!\n");
+					printk("[BT] Failed to request GPIO_BT_WLAN_REG_ON!\n");
 					return ret;
 				}
 				gpio_direction_output(GPIO_BT_WLAN_REG_ON, GPIO_LEVEL_HIGH);
@@ -72,7 +72,7 @@ static int bluetooth_set_power(void *data, enum rfkill_state state)
 				ret = gpio_request(GPIO_BT_RST_N, S3C_GPIO_LAVEL(GPIO_BT_RST_N));
 				if (ret < 0) {
 					gpio_free(GPIO_BT_WLAN_REG_ON);
-					printk(KERN_ERR "[BT] Failed to request GPIO_BT_RST_N!\n");
+					printk("[BT] Failed to request GPIO_BT_RST_N!\n");
 					return ret;			
 				}
 				gpio_direction_output(GPIO_BT_RST_N, GPIO_LEVEL_LOW);
@@ -85,9 +85,9 @@ static int bluetooth_set_power(void *data, enum rfkill_state state)
 			s3c_gpio_slp_cfgpin(GPIO_BT_WLAN_REG_ON, S3C_GPIO_SLP_OUT1);  
 			s3c_gpio_slp_setpull_updown(GPIO_BT_WLAN_REG_ON, S3C_GPIO_PULL_NONE);
 
-			printk(KERN_DEBUG "[BT] GPIO_BT_WLAN_REG_ON = %d\n", gpio_get_value(GPIO_BT_WLAN_REG_ON));		
+			printk("[BT] GPIO_BT_WLAN_REG_ON = %d\n", gpio_get_value(GPIO_BT_WLAN_REG_ON));		
 
-			msleep(150);  // 100msec, delay  between reg_on & rst. (bcm4325 powerup sequence)
+			mdelay(150);  // 100msec, delay  between reg_on & rst. (bcm4325 powerup sequence)
 
 			/* Set GPIO_BT_RST_N high */
 			s3c_gpio_setpull(GPIO_BT_RST_N, S3C_GPIO_PULL_NONE);
@@ -96,7 +96,7 @@ static int bluetooth_set_power(void *data, enum rfkill_state state)
 			s3c_gpio_slp_cfgpin(GPIO_BT_RST_N, S3C_GPIO_SLP_OUT1);
 			s3c_gpio_slp_setpull_updown(GPIO_BT_RST_N, S3C_GPIO_PULL_NONE);
 
-			printk(KERN_DEBUG "[BT] GPIO_BT_RST_N = %d\n", gpio_get_value(GPIO_BT_RST_N));
+			printk("[BT] GPIO_BT_RST_N = %d\n", gpio_get_value(GPIO_BT_RST_N));
 
 			gpio_free(GPIO_BT_RST_N);
 			gpio_free(GPIO_BT_WLAN_REG_ON);
@@ -104,7 +104,7 @@ static int bluetooth_set_power(void *data, enum rfkill_state state)
 			break;
 
 		case RFKILL_STATE_SOFT_BLOCKED:
-			printk(KERN_DEBUG "[BT] Device Powering OFF \n");
+			printk("[BT] Device Powering OFF \n");
 			s3c_reset_uart_cfg_gpio(1);
 
 			s3c_gpio_setpull(GPIO_BT_RST_N, S3C_GPIO_PULL_NONE);
@@ -113,7 +113,7 @@ static int bluetooth_set_power(void *data, enum rfkill_state state)
 			s3c_gpio_slp_cfgpin(GPIO_BT_RST_N, S3C_GPIO_SLP_OUT0);
 			s3c_gpio_slp_setpull_updown(GPIO_BT_RST_N, S3C_GPIO_PULL_NONE);
 
-			printk(KERN_DEBUG "[BT] GPIO_BT_RST_N = %d\n",gpio_get_value(GPIO_BT_RST_N));
+			printk("[BT] GPIO_BT_RST_N = %d\n",gpio_get_value(GPIO_BT_RST_N));
 
 			if(gpio_get_value(GPIO_WLAN_RST_N) == 0)
 			{		
@@ -123,7 +123,7 @@ static int bluetooth_set_power(void *data, enum rfkill_state state)
 				s3c_gpio_slp_cfgpin(GPIO_BT_WLAN_REG_ON, S3C_GPIO_SLP_OUT0);
 				s3c_gpio_slp_setpull_updown(GPIO_BT_WLAN_REG_ON, S3C_GPIO_PULL_NONE);
 
-				printk(KERN_DEBUG "[BT] GPIO_BT_WLAN_REG_ON = %d\n", gpio_get_value(GPIO_BT_WLAN_REG_ON));
+				printk("[BT] GPIO_BT_WLAN_REG_ON = %d\n", gpio_get_value(GPIO_BT_WLAN_REG_ON));
 			}
 
 			gpio_free(GPIO_BT_RST_N);
@@ -141,28 +141,28 @@ static int bluetooth_set_power(void *data, enum rfkill_state state)
 
 static void bt_host_wake_work_func(struct work_struct *ignored)
 {
-	int gpio_val;
+    int gpio_val;
 
 	gpio_val = gpio_get_value(GPIO_BT_HOST_WAKE);
-	printk(KERN_DEBUG "[BT] GPIO_BT_HOST_WAKE = %d\n", gpio_val);
-/*
+	printk("[BT] GPIO_BT_HOST_WAKE = %d\n", gpio_val);	
+/*	
 	if(gpio_val == GPIO_LEVEL_LOW)
 	{
-		//wake_unlock^M
-		printk("[BT]:wake_unlock \n");
-		wake_unlock(&rfkill_wake_lock);
+		//wake_unlock
+		printk("[BT]:wake_unlock \n");	
+		wake_unlock(&rfkill_wake_lock);	
 	}
 	else
 	{
 		//wake_lock
-		printk("[BT]:wake_lock \n");
+		printk("[BT]:wake_lock \n");	
 		wake_lock(&rfkill_wake_lock);
 	}
 */
 
 	if(gpio_val == GPIO_LEVEL_HIGH)
 	{
-		printk(KERN_DEBUG "[BT] wake_lock timeout = 5 sec\n");
+		printk("[BT] wake_lock timeout = 5 sec\n");	
 		wake_lock_timeout(&rfkill_wake_lock, 5*HZ);
 	}
 
@@ -175,17 +175,17 @@ irqreturn_t bt_host_wake_irq_handler(int irq, void *dev_id)
 {
 	disable_irq(IRQ_EINT(22));
 	schedule_work(&bt_host_wake_work);
-
+		
 	return IRQ_HANDLED;
 }
 
 
-static int __init spica_rfkill_probe(struct platform_device *pdev)
+static int __init instinctq_rfkill_probe(struct platform_device *pdev)
 {
 	int rc = 0;
 	int irq,ret;
 
-	//Initialize wake locks
+	//Initialize wake lockes
 	wake_lock_init(&rfkill_wake_lock, WAKE_LOCK_SUSPEND, "board-rfkill");
 	wake_lock_init(&bt_wake_lock, WAKE_LOCK_SUSPEND, "bt-rfkill");
 
@@ -194,12 +194,12 @@ static int __init spica_rfkill_probe(struct platform_device *pdev)
 
 	ret = request_irq(irq, bt_host_wake_irq_handler, 0, "bt_host_wake_irq_handler", NULL);
 	if(ret < 0)
-		printk(KERN_DEBUG "[BT] Request_irq failed \n");
+		printk("[BT] Request_irq failed \n");
 
 	set_irq_type(irq, IRQ_TYPE_EDGE_BOTH);
 	enable_irq(IRQ_EINT(22));
 
-	//RFKILL init - default to bluetooth off
+	//RFKILL init - default to bluetooth off */
 	rfkill_switch_all(RFKILL_TYPE_BLUETOOTH, RFKILL_STATE_SOFT_BLOCKED);
 
 	bt_rfk = rfkill_allocate(&pdev->dev, RFKILL_TYPE_BLUETOOTH);
@@ -214,7 +214,7 @@ static int __init spica_rfkill_probe(struct platform_device *pdev)
 	bt_rfk->data = NULL;  // user data
 	bt_rfk->toggle_radio = bluetooth_set_power;
 
-	printk(KERN_DEBUG "[BT] rfkill_register(bt_rfk) \n");
+	printk("[BT] rfkill_register(bt_rfk) \n");
 	rc = rfkill_register(bt_rfk);
 	if (rc)
 		rfkill_free(bt_rfk);
@@ -224,8 +224,8 @@ static int __init spica_rfkill_probe(struct platform_device *pdev)
 	return rc;
 }
 
-static struct platform_driver spica_device_rfkill = {
-	.probe = spica_rfkill_probe,
+static struct platform_driver instinctq_device_rfkill = {
+	.probe = instinctq_rfkill_probe,
 	.driver = {
 		.name = "bt_rfkill",
 		.owner = THIS_MODULE,
@@ -244,7 +244,7 @@ static int bluetooth_set_sleep(void *data, enum rfkill_state state)
 			{
 				ret = gpio_request(GPIO_BT_WAKE, S3C_GPIO_LAVEL(GPIO_BT_WAKE));
 				if(ret < 0) {
-					printk(KERN_DEBUG "[BT] Failed to request GPIO_BT_WAKE!\n");
+					printk("[BT] Failed to request GPIO_BT_WAKE!\n");
 					return ret;
 				}
 				gpio_direction_output(GPIO_BT_WAKE, GPIO_LEVEL_LOW);
@@ -253,10 +253,11 @@ static int bluetooth_set_sleep(void *data, enum rfkill_state state)
 			s3c_gpio_setpull(GPIO_BT_WAKE, S3C_GPIO_PULL_NONE);
 			gpio_set_value(GPIO_BT_WAKE, GPIO_LEVEL_LOW);
 
-			printk(KERN_DEBUG "[BT] GPIO_BT_WAKE = %d\n", gpio_get_value(GPIO_BT_WAKE) );
+			mdelay(50);  // 50msec, why?
+			printk("[BT] GPIO_BT_WAKE = %d\n", gpio_get_value(GPIO_BT_WAKE) );
 			gpio_free(GPIO_BT_WAKE);
 			//billy's changes
-			printk(KERN_DEBUG "[BT] wake_unlock(bt_wake_lock)\n");
+			printk("[BT] wake_unlock(bt_wake_lock)\n");
 			wake_unlock(&bt_wake_lock);
 			break;
 
@@ -265,7 +266,7 @@ static int bluetooth_set_sleep(void *data, enum rfkill_state state)
 			{
 				ret = gpio_request(GPIO_BT_WAKE, S3C_GPIO_LAVEL(GPIO_BT_WAKE));
 				if(ret < 0) {
-					printk(KERN_DEBUG "[BT] Failed to request GPIO_BT_WAKE!\n");
+					printk("[BT] Failed to request GPIO_BT_WAKE!\n");
 					return ret;
 				}
 				gpio_direction_output(GPIO_BT_WAKE, GPIO_LEVEL_HIGH);
@@ -274,20 +275,21 @@ static int bluetooth_set_sleep(void *data, enum rfkill_state state)
 			s3c_gpio_setpull(GPIO_BT_WAKE, S3C_GPIO_PULL_NONE);
 			gpio_set_value(GPIO_BT_WAKE, GPIO_LEVEL_HIGH);
 
-			printk(KERN_DEBUG "[BT] GPIO_BT_WAKE = %d\n", gpio_get_value(GPIO_BT_WAKE) );
+			mdelay(50);
+			printk("[BT] GPIO_BT_WAKE = %d\n", gpio_get_value(GPIO_BT_WAKE) );
 			gpio_free(GPIO_BT_WAKE);
 			//billy's changes
-			printk(KERN_DEBUG "[BT] wake_lock(bt_wake_lock)\n");
+			printk("[BT] wake_lock(bt_wake_lock)\n");
 			wake_lock(&bt_wake_lock);
 			break;
 
 		default:
-			printk(KERN_ERR "[BT] bad bluetooth rfkill state %d\n", state);
+			printk(KERN_ERR "[BT] Bad bluetooth rfkill state %d\n", state);
 	}
 	return 0;
 }
 
-static int __init spica_btsleep_probe(struct platform_device *pdev)
+static int __init instinctq_btsleep_probe(struct platform_device *pdev)
 {
 	int rc = 0;
 
@@ -306,17 +308,17 @@ static int __init spica_btsleep_probe(struct platform_device *pdev)
 	rc = rfkill_register(bt_sleep);
 	if (rc)
 		rfkill_free(bt_sleep);
-
-	printk(KERN_DEBUG "[BT] rfkill_force_state(bt_sleep, RFKILL_STATE_UNBLOCKED) \n");
+	
+	printk("[BT] rfkill_force_state(bt_sleep, RFKILL_STATE_UNBLOCKED) \n");
 	rfkill_force_state(bt_sleep, RFKILL_STATE_UNBLOCKED);
-
+	
 	bluetooth_set_sleep(NULL, RFKILL_STATE_UNBLOCKED);
 
 	return rc;
 }
 
-static struct platform_driver spica_device_btsleep = {
-	.probe = spica_btsleep_probe,
+static struct platform_driver instinctq_device_btsleep = {
+	.probe = instinctq_btsleep_probe,
 	.driver = {
 		.name = "bt_sleep",
 		.owner = THIS_MODULE,
@@ -324,19 +326,19 @@ static struct platform_driver spica_device_btsleep = {
 };
 #endif
 
-static int __init spica_rfkill_init(void)
+static int __init instinctq_rfkill_init(void)
 {
 	int rc = 0;
-	rc = platform_driver_register(&spica_device_rfkill);
+	rc = platform_driver_register(&instinctq_device_rfkill);
 
 #ifdef BT_SLEEP_ENABLER
-	platform_driver_register(&spica_device_btsleep);
+	platform_driver_register(&instinctq_device_btsleep);
 #endif
 
 	return rc;
 }
 
-module_init(spica_rfkill_init);
-MODULE_DESCRIPTION("spica rfkill");
+module_init(instinctq_rfkill_init);
+MODULE_DESCRIPTION("instinctq rfkill");
 MODULE_AUTHOR("Nick Pelly <npelly@google.com>");
 MODULE_LICENSE("GPL");

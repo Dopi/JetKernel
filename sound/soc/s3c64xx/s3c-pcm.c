@@ -46,6 +46,9 @@
 #endif
 
 #define ANDROID_BUF_SIZE	4096
+#define ANDROID_BUF_NUM		16
+
+unsigned int ring_buf_num = 1;
 
 //#define CONFIG_SND_DEBUG
 #ifdef CONFIG_SND_DEBUG
@@ -112,6 +115,7 @@ static void s3c24xx_pcm_enqueue(struct snd_pcm_substream *substream)
 		len  = prtd->dma_end - pos;
 		s3cdbg(KERN_DEBUG "%s: corrected dma len %ld\n", __FUNCTION__, len);
 	}
+
 #if defined (CONFIG_CPU_S3C6400) || defined (CONFIG_CPU_S3C6410)
     /* DMA with I2S might be unstable when length is too short. */
     pred_pos = pos + prtd->dma_period;
@@ -185,13 +189,16 @@ static int s3c24xx_pcm_hw_params(struct snd_pcm_substream *substream,
 	
 	s3cdbg("Entered %s, params = %p \n", __FUNCTION__, prtd->params);
 
-	if(substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
-		totbytes = params_buffer_bytes(params) * ANDROID_BUF_NUM;
-	
-	else 
-		totbytes = params_buffer_bytes(params);
+	if(substream->stream == SNDRV_PCM_STREAM_PLAYBACK){
+		if(params_buffer_bytes(params) == ANDROID_BUF_SIZE) 
+			ring_buf_num = ANDROID_BUF_NUM;
+		else 
+			ring_buf_num = 1;
 
-//	printk("[%d]:ring_buf_num %d\n", substream->stream, ring_buf_num);
+		totbytes = params_buffer_bytes(params) * ring_buf_num;
+	}
+	else
+		totbytes = params_buffer_bytes(params);
 
 	/* return if this is a bufferless transfer e.g.
 	 * codec <--> BT codec or GSM modem -- lg FIXME */
@@ -324,15 +331,10 @@ static int s3c24xx_pcm_prepare(struct snd_pcm_substream *substream)
 	/* flush the DMA channel */
 	s3c2410_dma_ctrl(prtd->params->channel, S3C2410_DMAOP_FLUSH);
 
-	if(substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		ring_buf_index 	 = 0;
-		period_index	 = 0;
-	}
-
+	ring_buf_index 	 = 0;
+	period_index	 = 0;
+	
 	prtd->dma_pos = prtd->dma_start;
-
-	/* enqueue dma buffers */
-	s3c24xx_pcm_enqueue(substream);
 
 	return ret;
 }
@@ -352,6 +354,9 @@ static int s3c24xx_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 		prtd->state |= ST_RUNNING;
 		
+		/* enqueue dma buffers */
+		s3c24xx_pcm_enqueue(substream);
+
 		s3c2410_dma_ctrl(prtd->params->channel, S3C2410_DMAOP_START);
 #if !defined (CONFIG_CPU_S3C6400) && !defined (CONFIG_CPU_S3C6410) && !defined (CONFIG_CPU_S5P6440)
 		s3c2410_dma_ctrl(prtd->params->channel, S3C2410_DMAOP_STARTED);
@@ -408,8 +413,8 @@ static snd_pcm_uframes_t
 	
 	/* Playback mode */	
 	if(substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {	
-		if (res >= (snd_pcm_lib_buffer_bytes(substream) * ANDROID_BUF_NUM)) {
-			if (res == (snd_pcm_lib_buffer_bytes(substream) * ANDROID_BUF_NUM))
+		if (res >= (snd_pcm_lib_buffer_bytes(substream) * ring_buf_num)) {
+			if (res == (snd_pcm_lib_buffer_bytes(substream) * ring_buf_num))
 				res = 0;
 		}
 	}
@@ -435,7 +440,6 @@ static int s3c24xx_pcm_open(struct snd_pcm_substream *substream)
 	snd_soc_set_runtime_hwparams(substream, &s3c24xx_pcm_hardware);
 
 	prtd = kzalloc(sizeof(struct s3c24xx_runtime_data), GFP_KERNEL);
-//	printk("[%d]: prtd addr 0x%x\n", substream->stream, prtd);
 	if (prtd == NULL)
 		return -ENOMEM;
 
@@ -451,6 +455,7 @@ static int s3c24xx_pcm_close(struct snd_pcm_substream *substream)
 	struct s3c24xx_runtime_data *prtd = runtime->private_data;
 
 	s3cdbg("Entered %s, prtd = %p\n", __FUNCTION__, prtd);
+        ring_buf_num = 1;
 
 	if (prtd)
 		kfree(prtd);

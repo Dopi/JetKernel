@@ -53,27 +53,36 @@ config TOUCHSCREEN_CORGI
 	  To compile this driver as a module, choose M here: the
 	  module will be called corgi_ts.
 
-config TOUCHSCREEN_QT5480
-	tristate "quantum touchscreen driver"
+config TOUCHSCREEN_MELFAS
+	tristate "melfas touchscreen driver"
 	depends on ARCH_S3C2410 || ARCH_S3C64XX
 	default y
 	help
 	  Say Y here to enable the driver for the touchscreen on the
-	  S3C spica board.
+	  S3C capela/naos/spica/orion_6410 board.
 	  
 	  If unsure, say N.
  
 	  To compile this driver as a module, choose M here: the
 	  module will be called melfas_ts.
 
-config TOUCHSCREEN_KEYPAD
-    tristate "melfas touchscreen keypad"
+config TOUCHSCREEN_MELFAS_KEY
+    bool "melfas touchkey"
 	depends on TOUCHSCREEN_MELFAS
 	default y
 	help
-	  Say Y here to enable the keypad on touchscreen.
+	  Say Y here to enable the touchkey on melfas touchkey.
 
-	  Say N here to disable the keypad on touchscreen.
+	  Say N here to disable the touchkey on melfas touchkey.
+
+config TOUCHSCREEN_MELFAS_FIRMWARE_UPDATE
+    bool "melfas touchscreen firmware update"
+	depends on TOUCHSCREEN_MELFAS
+	default y
+	help
+	  Say Y here to enable the touchscreen firmware update.
+
+	  Say N here to disable the touchscreen firmware update.
 
 config TOUCHSCREEN_S3C
 	tristate "S3C touchscreen driver"

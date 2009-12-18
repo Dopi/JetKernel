@@ -264,19 +264,16 @@ config FB_S3C_LTS222QV
 	---help---
 	TBA
 
-config FB_S3C_S6D04D1
-	bool "S6D04D1"
+config FB_S3C_S6D05A0
+	bool "S6D05A0"
 	---help---
 	TBA
-
-config FB_S3C_S6D05A
-	bool "S6D05A"
+config FB_S3C_AMS320FS01
+	bool "AMS320FS01"
 	---help---
 	TBA
-
 
 endchoice
-
 
 config FB_S3C_BPP
 	tristate "Advanced options for S3C Framebuffer"

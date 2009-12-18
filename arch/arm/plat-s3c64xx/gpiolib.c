@@ -50,11 +50,6 @@
  * [2] BANK has two control registers, GPxCON0 and GPxCON1
  */
 
-/*
- *  <YAMAIA><drkim> - 2009.09.21
- *  local_irq_save() and local_irq_restore() adds in each function
- */
-
 #define OFF_GPCON	(0x00)
 #define OFF_GPDAT	(0x04)
 
@@ -65,7 +60,6 @@
 #else
 #define gpio_dbg(x...) printk(KERN_DEBUG ## x)
 #endif
-
 
 /* The s3c64xx_gpiolib_4bit routines are to control the gpio banks where
  * the gpio configuration register (GPxCON) has 4 bits per GPIO, as the
@@ -87,15 +81,10 @@ static int s3c64xx_gpiolib_4bit_input(struct gpio_chip *chip, unsigned offset)
 	struct s3c_gpio_chip *ourchip = to_s3c_gpio(chip);
 	void __iomem *base = ourchip->base;
 	unsigned long con;
-	unsigned long flags;
-
-	local_irq_save(flags);
 
 	con = __raw_readl(base + OFF_GPCON);
 	con &= ~(0xf << con_4bit_shift(offset));
 	__raw_writel(con, base + OFF_GPCON);
-
-	local_irq_restore(flags);
 
 	gpio_dbg("%s: %p: CON now %08lx\n", __func__, base, con);
 
@@ -109,9 +98,6 @@ static int s3c64xx_gpiolib_4bit_output(struct gpio_chip *chip,
 	void __iomem *base = ourchip->base;
 	unsigned long con;
 	unsigned long dat;
-	unsigned long flags;
-	
-	local_irq_save(flags);
 
 	con = __raw_readl(base + OFF_GPCON);
 	con &= ~(0xf << con_4bit_shift(offset));
@@ -126,8 +112,6 @@ static int s3c64xx_gpiolib_4bit_output(struct gpio_chip *chip,
 	__raw_writel(dat, base + OFF_GPDAT);
 	__raw_writel(con, base + OFF_GPCON);
 	__raw_writel(dat, base + OFF_GPDAT);
-
-	local_irq_restore(flags);	
 
 	gpio_dbg("%s: %p: CON %08lx, DAT %08lx\n", __func__, base, con, dat);
 
@@ -161,10 +145,7 @@ static int s3c64xx_gpiolib_4bit2_input(struct gpio_chip *chip, unsigned offset)
 	void __iomem *base = ourchip->base;
 	void __iomem *regcon = base;
 	unsigned long con;
-	unsigned long flags;
-	
-	local_irq_save(flags);
-	
+
 	if (offset > 7)
 		offset -= 8;
 	else
@@ -173,8 +154,6 @@ static int s3c64xx_gpiolib_4bit2_input(struct gpio_chip *chip, unsigned offset)
 	con = __raw_readl(regcon);
 	con &= ~(0xf << con_4bit_shift(offset));
 	__raw_writel(con, regcon);
-
-	local_irq_restore(flags);		
 
 	gpio_dbg("%s: %p: CON %08lx\n", __func__, base, con);
 
@@ -191,9 +170,6 @@ static int s3c64xx_gpiolib_4bit2_output(struct gpio_chip *chip,
 	unsigned long con;
 	unsigned long dat;
 	unsigned con_offset = offset;
-	unsigned long flags;
-	
-	local_irq_save(flags);	
 
 	if (offset > 7)
 		con_offset = offset - 8;
@@ -213,8 +189,6 @@ static int s3c64xx_gpiolib_4bit2_output(struct gpio_chip *chip,
 	__raw_writel(dat, base + OFF_GPDAT);
 	__raw_writel(con, regcon);
 	__raw_writel(dat, base + OFF_GPDAT);
-	
-	local_irq_restore(flags);		
 
 	gpio_dbg("%s: %p: CON %08lx, DAT %08lx\n", __func__, base, con, dat);
 
@@ -537,7 +511,6 @@ s3c_gpio_pull_t s3c_gpio_get_slp_cfgpin(unsigned int pin)
 	con &= 0x3;
 
 	local_irq_restore(flags);
-	
 	return (__force s3c_gpio_pull_t)con;
 }
 

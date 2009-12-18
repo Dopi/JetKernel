@@ -36,24 +36,23 @@
 #include <asm/mach-types.h>
 #include <mach/sec_headset.h>
 
-//#define CONFIG_DEBUG_SEC_HEADSET
+#define CONFIG_DEBUG_SEC_HEADSET
 
 #ifdef CONFIG_DEBUG_SEC_HEADSET
-#define SEC_HEADSET_DBG(fmt, arg...) printk(KERN_INFO "[HEADSET] " fmt "\r\n", ## arg)
+#define SEC_HEADSET_DBG(fmt, arg...) printk(KERN_INFO "[SEC_HEADSET] %s " fmt "\r\n", __func__, ## arg)
 #else
-#define SEC_HEADSET_DBG(fmt, arg...) 
+#define SEC_HEADSET_DBG(fmt, arg...) do {} while (0)
 #endif
 
 #define KEYCODE_SENDEND 248
 
-#define HEADSET_CHECK_COUNT	3
-#define	HEADSET_CHECK_TIME	get_jiffies_64() + (HZ/5)// 1000ms / 10 = 100ms
-#define	SEND_END_ENABLE_TIME 	get_jiffies_64() + (HZ*2)// 1000ms * 2 = 2sec
+//#define USING_ADC_FOR_EAR_DETECTING
 
-#define SEND_END_CHECK_COUNT	3
-#define SEND_END_CHECK_TIME get_jiffies_64() + 6 //30ms
-//#define SEND_END_CHECK_TIME get_jiffies_64() + 30 /*(HZ/25) //1000ms / 25 = 40ms*/
-//#define SEND_END_CHECK_TIME get_jiffies_64() + (HZ/100) //1000ms / 100 = 10ms 
+/* for short key time limit */
+static u64 pressed_jiffies;
+static u64 irq_jiffies;
+#define SHORTKEY_MS			120
+#define SHORTKEY_JIFFIES	((HZ / 10) * (SHORTKEY_MS / 100)) + (HZ / 100) * ((SHORTKEY_MS % 100) / 10)
 
 extern int s3c_adc_get_adc_data(int channel);
 
@@ -73,13 +72,9 @@ struct switch_dev switch_sendend = {
         .name = "send_end",
 };
 
-static struct timer_list headset_detect_timer;
-static struct timer_list send_end_key_event_timer;
-
-static unsigned int headset_detect_timer_token;
-static unsigned int send_end_key_timer_token;
-static unsigned int send_end_irq_token;
-static unsigned short int headset_status;
+static struct timer_list send_end_enable_timer;
+static unsigned int send_end_irq_token = 0;
+static unsigned short int headset_status = 0;
 static struct wake_lock headset_sendend_wake_lock;
 
 short int get_headset_status()
@@ -87,89 +82,73 @@ short int get_headset_status()
 	SEC_HEADSET_DBG(" headset_status %d", headset_status);
 	return headset_status;
 }
-
 EXPORT_SYMBOL(get_headset_status);
-static void release_headset_event(unsigned long arg)
-{
-	printk("Headset attached\n");
-	headset_status = 1;
-	switch_set_state(&switch_earjack, 1);
-}
-static DECLARE_DELAYED_WORK(release_headset_event_work, release_headset_event);
 
+static void send_end_enable_timer_handler(unsigned long arg)
+{
+	struct sec_gpio_info   *send_end = &hi->port.send_end;
+	enable_irq (send_end->eint);
+	send_end_irq_token++;
+	wake_unlock(&headset_sendend_wake_lock);
+	SEC_HEADSET_DBG("enable send_end event, token is %d", send_end_irq_token);
+}
+static void send_end_press_work_handler(struct work_struct *ignored)
+{
+	SEC_HEADSET_DBG("SEND/END Button is pressed");
+	printk(KERN_ERR "SISO:sendend isr work queue\n");
+
+	switch_set_state(&switch_sendend, 1);
+	input_report_key(hi->input, KEYCODE_SENDEND, 1);
+	input_sync(hi->input);
+}
+static void send_end_release_work_handler(struct work_struct *ignored)
+{
+	switch_set_state(&switch_sendend, 0);
+	input_report_key(hi->input, KEYCODE_SENDEND, 0);
+	input_sync(hi->input);
+
+	SEC_HEADSET_DBG("SEND/END Button is %s.\n", "released");
+}
+#ifdef USING_ADC_FOR_EAR_DETECTING
 static void ear_adc_caculrator(unsigned long arg)
 {
 	int adc = 0;
 	struct sec_gpio_info   *det_headset = &hi->port.det_headset;
-	struct sec_gpio_info   *send_end = &hi->port.send_end;
 	int state = gpio_get_value(det_headset->gpio) ^ det_headset->low_active;
-	
+
 	if (state)
 	{
-		adc = s3c_adc_get_adc_data(3);
-        if((adc > 1700 && adc < 2000) || (adc > 2400 && adc < 2700) || (adc > 2900 && adc < 3400) || (adc > 400 && adc < 700))
+		adc = s3c_adc_get_adc_data(3);//headset adc port is 3
+		if(adc < 3155 && adc > 3140)
 		{
-			printk("4pole ear-mic adc is %d\n", adc);
-			enable_irq (send_end->eint);
-			send_end_irq_token++;
+			SEC_HEADSET_DBG("4pole ear-mic attached adc is %d, send_end interrupt enable 2sec after", adc);
+        		switch_set_state(&switch_earjack, state);
+			send_end_enable_timer.expires = get_jiffies_64() + (20*HZ/10);//2sec HZ is 200
+			add_timer(&send_end_enable_timer);
 		}
+		//else if(adc < 50 && adc > 10) //TV Out
 		else if(adc < 5)
 		{
-			printk("3pole earphone adc is %d\n", adc);
-			headset_status = 0;
+			SEC_HEADSET_DBG("3pole earphone attached adc is %d", adc);
+        		switch_set_state(&switch_earjack, state);
 		}
 		else
 		{
-			printk(KERN_ALERT "Wrong adc value!! adc is %d\n", adc);
-			headset_status = 0;
+			SEC_HEADSET_DBG("Wrong adc value adc is %d", adc);
+        		switch_set_state(&switch_earjack, state);
 		}
+
 	}
 	else
 	{
-		printk(KERN_ALERT "Error : mic bias enable complete but headset detached!!\n");
-		gpio_set_value(GPIO_MICBIAS_EN, 0);
+		SEC_HEADSET_DBG("Error : mic bias enable complete but headset detached!!");
 	}
-
-	wake_unlock(&headset_sendend_wake_lock);
 }
+#endif
 
+#ifdef USING_ADC_FOR_EAR_DETECTING
 static DECLARE_DELAYED_WORK(ear_adc_cal_work, ear_adc_caculrator);
-
-static void headset_detect_timer_handler(unsigned long arg)
-{
-	struct sec_gpio_info   *det_headset = &hi->port.det_headset;
-	int state;
-	state = gpio_get_value(det_headset->gpio) ^ det_headset->low_active;
-
-	if(state)
-	{
-		SEC_HEADSET_DBG("headset_detect_timer_token is %d\n", headset_detect_timer_token);
-		if(headset_detect_timer_token < 3)
-		{
-			headset_detect_timer.expires = HEADSET_CHECK_TIME;
-			add_timer(&headset_detect_timer);
-			headset_detect_timer_token++;
-		}
-		else if(headset_detect_timer_token == 3)
-		{
-			headset_detect_timer.expires = SEND_END_ENABLE_TIME;
-			add_timer(&headset_detect_timer);
-			headset_detect_timer_token++;
-			schedule_work(&release_headset_event_work);
-		}
-		else if(headset_detect_timer_token == 4)
-		{
-			gpio_set_value(GPIO_MICBIAS_EN, 1); 
-			schedule_delayed_work(&ear_adc_cal_work, 200);
-			SEC_HEADSET_DBG("mic bias enable add work queue \n");
-			headset_detect_timer_token = 0;
-		}
-		else
-			printk(KERN_ALERT "wrong headset_detect_timer_token count %d", headset_detect_timer_token);
-	}
-	else
-		printk(KERN_ALERT "headset detach!! %d", headset_detect_timer_token);
-}
+#endif
 
 static void ear_switch_change(struct work_struct *ignored)
 {
@@ -177,64 +156,49 @@ static void ear_switch_change(struct work_struct *ignored)
 	struct sec_gpio_info   *send_end = &hi->port.send_end;
 	int state;
 
-	del_timer(&headset_detect_timer);
+	del_timer(&send_end_enable_timer);
+#ifdef USING_ADC_FOR_EAR_DETECTING
 	cancel_delayed_work_sync(&ear_adc_cal_work);
+#endif
 	state = gpio_get_value(det_headset->gpio) ^ det_headset->low_active;
 
 	if (state && !send_end_irq_token)
-	{		
+	{
+#ifdef USING_ADC_FOR_EAR_DETECTING
+		SEC_HEADSET_DBG("Headset attached, mic bias enable");
+		gpio_set_value(GPIO_MICBIAS_EN, 1);
+		schedule_delayed_work(&ear_adc_cal_work, 150);
+#else
+		SEC_HEADSET_DBG("Headset attached, send end enable 2sec after");
+        	switch_set_state(&switch_earjack, state);
+		headset_status = state;
+		send_end_enable_timer.expires = get_jiffies_64() + (20*HZ/10);//2sec HZ is 200
+		add_timer(&send_end_enable_timer);
 		wake_lock(&headset_sendend_wake_lock);
-		SEC_HEADSET_DBG("Headset attached timer start\n");
-		headset_detect_timer_token = 0;
-		headset_detect_timer.expires = HEADSET_CHECK_TIME;
-		add_timer(&headset_detect_timer);
+#endif
 	}
 	else if(!state)
 	{
-		switch_set_state(&switch_earjack, state);
-		printk("Headset detached %d \n", send_end_irq_token);        	
+		SEC_HEADSET_DBG("Headset detached %d ", send_end_irq_token);
+#ifdef USING_ADC_FOR_EAR_DETECTING
+		gpio_set_value(GPIO_MICBIAS_EN, 0);
+#endif
+		wake_unlock(&headset_sendend_wake_lock);
+        	switch_set_state(&switch_earjack, state);
 		headset_status = state;
 		if(send_end_irq_token > 0)
 		{
 			disable_irq (send_end->eint);
 			send_end_irq_token--;
 		}
-		wake_unlock(&headset_sendend_wake_lock);
 	}
 	else
 		SEC_HEADSET_DBG("Headset state does not valid. or send_end event");
 
 }
-static void send_end_key_event_timer_handler(unsigned long arg)
-{
-	struct sec_gpio_info   *det_headset = &hi->port.det_headset;
-	struct sec_gpio_info   *send_end = &hi->port.send_end;
-	int sendend_state, headset_state = 0;
-	
-	headset_state = gpio_get_value(det_headset->gpio) ^ det_headset->low_active;
-	sendend_state = gpio_get_value(send_end->gpio) ^ send_end->low_active;
 
-	if(headset_state && sendend_state)
-	{
-		if(send_end_key_timer_token < SEND_END_CHECK_COUNT)
-		{	
-			send_end_key_timer_token++;
-			send_end_key_event_timer.expires = SEND_END_CHECK_TIME; 
-			add_timer(&send_end_key_event_timer);
-			SEC_HEADSET_DBG("SendEnd Timer Restart %d", send_end_key_timer_token);
-		}
-		else if(send_end_key_timer_token == SEND_END_CHECK_COUNT)
-		{
-			printk("SEND/END is pressed\n");
-			input_report_key(hi->input, KEYCODE_SENDEND, 1);
-			input_sync(hi->input);
-			send_end_key_timer_token = 0;
-		}
-		else
-			printk(KERN_ALERT "[Headset]wrong timer counter %d\n", send_end_key_timer_token);
-	}else
-			printk(KERN_ALERT "[Headset]GPIO Error\n");
-}
+static DECLARE_DELAYED_WORK(sendend_press_work, send_end_press_work_handler);
+static DECLARE_DELAYED_WORK(sendend_release_work, send_end_release_work_handler);
 
 static void sendend_switch_change(struct work_struct *ignored)
 {
@@ -243,9 +207,6 @@ static void sendend_switch_change(struct work_struct *ignored)
 	struct sec_gpio_info   *send_end = &hi->port.send_end;
 	int state, headset_state;
 
-	del_timer(&send_end_key_event_timer);
-	send_end_key_timer_token = 0;
-    mdelay(10); // for earjack keyevent delay	
 	headset_state = gpio_get_value(det_headset->gpio) ^ det_headset->low_active;
 	state = gpio_get_value(send_end->gpio) ^ send_end->low_active;
 
@@ -253,20 +214,16 @@ static void sendend_switch_change(struct work_struct *ignored)
 	{
 		if(!state)
 		{
-			SEC_HEADSET_DBG(KERN_ERR "SISO:sendend isr work queue\n");
-    			switch_set_state(&switch_sendend, state);
-			input_report_key(hi->input, KEYCODE_SENDEND, state);
-			input_sync(hi->input);
-			printk("SEND/END %s.\n", "released");
+			printk(KERN_ERR "SISO:sendend isr work queue\n");
 			wake_unlock(&headset_sendend_wake_lock);
+			/* if keep pressed event for short key, reconize release event */
+			schedule_delayed_work(&sendend_release_work, SHORTKEY_MS); 	
 		}else{
+			/* if keep pressed event for short key, reconize press event */
+			schedule_delayed_work(&sendend_press_work, SHORTKEY_MS); 	
 			wake_lock(&headset_sendend_wake_lock);
-			send_end_key_event_timer.expires = SEND_END_CHECK_TIME; // 10ms ??
-			add_timer(&send_end_key_event_timer);
-			switch_set_state(&switch_sendend, state);
-			SEC_HEADSET_DBG("SEND/END %s.timer start \n", "pressed");
+			SEC_HEADSET_DBG("SEND/END Button is %s. timer start\n", "pressed");
 		}
-
 	}else{
 		SEC_HEADSET_DBG("SEND/END Button is %s but headset disconnect or irq disable.\n", state?"pressed":"released");
 	}
@@ -277,27 +234,35 @@ static DECLARE_WORK(sendend_switch_work, sendend_switch_change);
 
 static irqreturn_t detect_irq_handler(int irq, void *dev_id)
 {
-	SEC_HEADSET_DBG("headset isr");
 	schedule_work(&ear_switch_work);
 	return IRQ_HANDLED;
 }
  
-
 static irqreturn_t send_end_irq_handler(int irq, void *dev_id)
 {
-   struct sec_gpio_info   *det_headset = &hi->port.det_headset;
-   int headset_state;
+	struct sec_gpio_info   *send_end = &hi->port.send_end;
 
-   SEC_HEADSET_DBG("sendend isr");
-   del_timer(&send_end_key_event_timer);
-   headset_state = gpio_get_value(det_headset->gpio) ^ det_headset->low_active;
+	irq_jiffies = jiffies_64;
 
-   if (headset_state)
-   {
-      schedule_work(&sendend_switch_work);      
-   }
-  
-   return IRQ_HANDLED;
+	/* Pressed */
+	if (gpio_get_value(send_end->gpio) ^ send_end->low_active)
+	{
+		pressed_jiffies = irq_jiffies;
+		schedule_work(&sendend_switch_work);
+	}
+	/* Released */
+	else
+	{
+		/* ignore shortkey */
+		if (irq_jiffies - pressed_jiffies < SHORTKEY_JIFFIES) {
+			cancel_delayed_work_sync(&sendend_press_work);
+			SEC_HEADSET_DBG("Cancel press work queue");
+		}	
+		else
+			schedule_work(&sendend_switch_work);
+	}
+
+	return IRQ_HANDLED;
 }
 
 static int sec_headset_probe(struct platform_device *pdev)
@@ -333,11 +298,8 @@ static int sec_headset_probe(struct platform_device *pdev)
 		goto err_register_input_dev;
 	}
 	
-	init_timer(&headset_detect_timer);
-	headset_detect_timer.function = headset_detect_timer_handler;
-
-	init_timer(&send_end_key_event_timer);
-	send_end_key_event_timer.function = send_end_key_event_timer_handler;
+	init_timer(&send_end_enable_timer);
+	send_end_enable_timer.function = send_end_enable_timer_handler;
 
 	ret = switch_dev_register(&switch_earjack);
 	if (ret < 0) {
