@@ -224,7 +224,7 @@ unsigned int s3c64xx_target_frq(unsigned int pred_freq,
 	}
 
 	if((flag != 1)&&(flag != -1)) {
-		printk("s3c64xx_target_frq: flag error!!!!!!!!!!!!!");
+		printk(KERN_ERR "s3c64xx_target_frq: flag error!!!!!!!!!!!!!");
 	}
 
 	index = s3c64xx_cpufreq_index;
@@ -382,7 +382,7 @@ static int s3c6410_target(struct cpufreq_policy *policy,
 	
 	index = s3c64xx_target_freq_index(target_freq);
 	if(index == INDX_ERROR) {
-		printk("s3c6410_target: INDX_ERROR \n");
+		printk(KERN_ERR "s3c6410_target: INDX_ERROR \n");
 		return -EINVAL;
 	}
 	
@@ -407,7 +407,7 @@ static int s3c6410_target(struct cpufreq_policy *policy,
 		/* frequency scaling */
 		ret = clk_set_rate(mpu_clk, target_freq * KHZ_T);
 		if(ret != 0) {
-			printk("frequency scaling error\n");
+			printk(KERN_ERR "frequency scaling error\n");
 			ret = -EINVAL;
 			goto s3c6410_target_end;
 		}
@@ -420,7 +420,7 @@ static int s3c6410_target(struct cpufreq_policy *policy,
 		/* frequency scaling */
 		ret = clk_set_rate(mpu_clk, target_freq * KHZ_T);
 		if(ret != 0) {
-			printk("frequency scaling error\n");
+			printk(KERN_ERR "frequency scaling error\n");
 			ret = -EINVAL;
 			goto s3c6410_target_end;
 		}
@@ -428,7 +428,7 @@ static int s3c6410_target(struct cpufreq_policy *policy,
 #else
 	ret = clk_set_rate(mpu_clk, target_freq * KHZ_T);
 	if(ret != 0) {
-		printk("frequency scaling error\n");
+		printk(KERN_ERR "frequency scaling error\n");
 		ret = -EINVAL;
 		goto s3c6410_target_end;
 	}
@@ -456,7 +456,7 @@ int s3c6410_pm_target(unsigned int target_freq)
 
 	index = s3c64xx_target_freq_index(target_freq);
 	if(index == INDX_ERROR) {
-	   printk("s3c6410_target: INDX_ERROR \n");
+	   printk(KERN_ERR "s3c6410_target: INDX_ERROR \n");
 	   return -EINVAL;
 	}
 	
@@ -469,7 +469,7 @@ int s3c6410_pm_target(unsigned int target_freq)
 	/* frequency scaling */
 	ret = clk_set_rate(mpu_clk, target_freq * KHZ_T);
 	if(ret != 0) {
-		printk("frequency scaling error\n");
+		printk(KERN_ERR "frequency scaling error\n");
 		return -EINVAL;
 	}
 	

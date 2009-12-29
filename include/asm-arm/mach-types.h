@@ -1857,9 +1857,9 @@ extern unsigned int __machine_arch_type;
 #define MACH_TYPE_IMX27IPCAM           1871
 #define MACH_TYPE_NEMOC                1872
 #define MACH_TYPE_GENEVA               1873
+#define MACH_TYPE_INSTINCTQ            1626
 #define MACH_TYPE_SPICA                1626
 #define MACH_TYPE_JET                  1626
-#define MACH_TYPE_INSTINCTQ            1626
 
 #ifdef CONFIG_ARCH_EBSA110
 # ifdef machine_arch_type
@@ -24001,6 +24001,18 @@ extern unsigned int __machine_arch_type;
 # define machine_is_geneva()	(0)
 #endif
 
+#ifdef CONFIG_MACH_INSTINCTQ
+# ifdef machine_arch_type
+#  undef machine_arch_type
+#  define machine_arch_type	__machine_arch_type
+# else
+#  define machine_arch_type	MACH_TYPE_INSTINCTQ
+# endif
+# define machine_is_instinctq()	(machine_arch_type == MACH_TYPE_INSTINCTQ)
+#else
+# define machine_is_instinctq()	(0)
+#endif
+
 #ifdef CONFIG_MACH_SPICA
 # ifdef machine_arch_type
 #  undef machine_arch_type
@@ -24023,18 +24035,6 @@ extern unsigned int __machine_arch_type;
 # define machine_is_jet()	(machine_arch_type == MACH_TYPE_JET)
 #else
 # define machine_is_jet()	(0)
-#endif
-
-#ifdef CONFIG_MACH_INSTINCTQ
-# ifdef machine_arch_type
-#  undef machine_arch_type
-#  define machine_arch_type	__machine_arch_type
-# else
-#  define machine_arch_type	MACH_TYPE_INSTINCTQ
-# endif
-# define machine_is_instinctq()	(machine_arch_type == MACH_TYPE_INSTINCTQ)
-#else
-# define machine_is_instinctq()	(0)
 #endif
 
 /*
