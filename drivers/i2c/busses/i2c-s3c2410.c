@@ -482,6 +482,9 @@ static int s3c24xx_i2c_set_master(struct s3c24xx_i2c *i2c)
 static int s3c24xx_i2c_doxfer(struct s3c24xx_i2c *i2c,
 			      struct i2c_msg *msgs, int num)
 {
+#ifdef CONFIG_MACH_SPICA
+	struct s3c2410_platform_i2c *pdata = i2c->dev->platform_data;
+#endif
 	unsigned long timeout;
 	int ret;
 
@@ -535,9 +538,14 @@ static int s3c24xx_i2c_doxfer(struct s3c24xx_i2c *i2c,
 		dev_dbg(i2c->dev, "incomplete xfer (%d)\n", ret);
 
 	/* ensure the stop has been through the bus */
+#ifdef CONFIG_MACH_SPICA
+	if (pdata->bus_num == 0)
+		msleep(1);
+#else
 #if 0
 	msleep(1);
-#endif
+#endif // if 0
+#endif // #ifdef CONFIG_MACH_SPICA
  out:
 	return ret;
 }

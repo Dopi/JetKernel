@@ -478,12 +478,23 @@ static void do_dbs_timer(struct work_struct *work)
 
 static inline void dbs_timer_init(void)
 {
+#ifdef CONFIG_MACH_INSTINCTQ
+	schedule_delayed_work(&dbs_work, 100 * HZ);
+#else
 #if 0	// start DVFS after 100 second.
 	schedule_delayed_work(&dbs_work,
-			usecs_to_jiffies(dbs_tuners_ins.sampling_rate));
-#else
-	schedule_delayed_work(&dbs_work, 100 * HZ);
-#endif
+		usecs_to_jiffies(dbs_tuners_ins.sampling_rate));
+#else //#ifdef CONFIG_MACH_SPICA
+	if (dbs_timer_count == 0) {
+		schedule_delayed_work(&dbs_work, 100 * HZ);
+		dbs_timer_count++;
+	}
+	else {	// start DVFS after 100 second.
+		schedule_delayed_work(&dbs_work,
+ 			usecs_to_jiffies(dbs_tuners_ins.sampling_rate));
+	}
+#endif // #if 0
+#endif // #ifdef CONFIG_MACH_INSTINCTQ
 	return;
 }
 
