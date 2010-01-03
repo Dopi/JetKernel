@@ -143,7 +143,7 @@ int drm_getsareactx(struct drm_device *dev, void *data,
 		    struct drm_file *file_priv)
 {
 	struct drm_ctx_priv_map *request = data;
-	struct drm_map *map;
+	struct drm_local_map *map;
 	struct drm_map_list *_entry;
 
 	mutex_lock(&dev->struct_mutex);
@@ -186,7 +186,7 @@ int drm_setsareactx(struct drm_device *dev, void *data,
 		    struct drm_file *file_priv)
 {
 	struct drm_ctx_priv_map *request = data;
-	struct drm_map *map = NULL;
+	struct drm_local_map *map = NULL;
 	struct drm_map_list *r_list = NULL;
 
 	mutex_lock(&dev->struct_mutex);
@@ -256,12 +256,13 @@ static int drm_context_switch(struct drm_device * dev, int old, int new)
  * hardware lock is held, clears the drm_device::context_flag and wakes up
  * drm_device::context_wait.
  */
-static int drm_context_switch_complete(struct drm_device * dev, int new)
+static int drm_context_switch_complete(struct drm_device *dev,
+				       struct drm_file *file_priv, int new)
 {
 	dev->last_context = new;	/* PRE/POST: This is the _only_ writer. */
 	dev->last_switch = jiffies;
 
-	if (!_DRM_LOCK_IS_HELD(dev->lock.hw_lock->lock)) {
+	if (!_DRM_LOCK_IS_HELD(file_priv->master->lock.hw_lock->lock)) {
 		DRM_ERROR("Lock isn't held after context switch\n");
 	}
 
@@ -340,7 +341,7 @@ int drm_addctx(struct drm_device *dev, void *data,
 			}
 	}
 
-	ctx_entry = drm_alloc(sizeof(*ctx_entry), DRM_MEM_CTXLIST);
+	ctx_entry = kmalloc(sizeof(*ctx_entry), GFP_KERNEL);
 	if (!ctx_entry) {
 		DRM_DEBUG("out of memory\n");
 		return -ENOMEM;
@@ -420,7 +421,7 @@ int drm_newctx(struct drm_device *dev, void *data,
 	struct drm_ctx *ctx = data;
 
 	DRM_DEBUG("%d\n", ctx->handle);
-	drm_context_switch_complete(dev, ctx->handle);
+	drm_context_switch_complete(dev, file_priv, ctx->handle);
 
 	return 0;
 }
@@ -442,9 +443,6 @@ int drm_rmctx(struct drm_device *dev, void *data,
 	struct drm_ctx *ctx = data;
 
 	DRM_DEBUG("%d\n", ctx->handle);
-	if (ctx->handle == DRM_KERNEL_CONTEXT + 1) {
-		file_priv->remove_auth_on_close = 1;
-	}
 	if (ctx->handle != DRM_KERNEL_CONTEXT) {
 		if (dev->driver->context_dtor)
 			dev->driver->context_dtor(dev, ctx->handle);
@@ -458,7 +456,7 @@ int drm_rmctx(struct drm_device *dev, void *data,
 		list_for_each_entry_safe(pos, n, &dev->ctxlist, head) {
 			if (pos->handle == ctx->handle) {
 				list_del(&pos->head);
-				drm_free(pos, sizeof(*pos), DRM_MEM_CTXLIST);
+				kfree(pos);
 				--dev->ctx_count;
 			}
 		}
