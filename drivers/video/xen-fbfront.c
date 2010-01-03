@@ -25,7 +25,10 @@
 #include <linux/module.h>
 #include <linux/vmalloc.h>
 #include <linux/mm.h>
+
 #include <asm/xen/hypervisor.h>
+
+#include <xen/xen.h>
 #include <xen/events.h>
 #include <xen/page.h>
 #include <xen/interface/io/fbif.h>
@@ -384,7 +387,7 @@ static int __devinit xenfb_probe(struct xenbus_device *dev,
 		fb_size = XENFB_DEFAULT_FB_LEN;
 	}
 
-	dev->dev.driver_data = info;
+	dev_set_drvdata(&dev->dev, info);
 	info->xbdev = dev;
 	info->irq = -1;
 	info->x1 = info->y1 = INT_MAX;
@@ -440,7 +443,7 @@ static int __devinit xenfb_probe(struct xenbus_device *dev,
 	fb_info->fix.type = FB_TYPE_PACKED_PIXELS;
 	fb_info->fix.accel = FB_ACCEL_NONE;
 
-	fb_info->flags = FBINFO_FLAG_DEFAULT;
+	fb_info->flags = FBINFO_FLAG_DEFAULT | FBINFO_VIRTFB;
 
 	ret = fb_alloc_cmap(&fb_info->cmap, 256, 0);
 	if (ret < 0) {
@@ -454,6 +457,10 @@ static int __devinit xenfb_probe(struct xenbus_device *dev,
 
 	xenfb_init_shared_page(info, fb_info);
 
+	ret = xenfb_connect_backend(dev, info);
+	if (ret < 0)
+		goto error;
+
 	ret = register_framebuffer(fb_info);
 	if (ret) {
 		fb_deferred_io_cleanup(fb_info);
@@ -463,10 +470,6 @@ static int __devinit xenfb_probe(struct xenbus_device *dev,
 		goto error;
 	}
 	info->fb_info = fb_info;
-
-	ret = xenfb_connect_backend(dev, info);
-	if (ret < 0)
-		goto error;
 
 	xenfb_make_preferred_console();
 	return 0;
@@ -503,7 +506,7 @@ xenfb_make_preferred_console(void)
 
 static int xenfb_resume(struct xenbus_device *dev)
 {
-	struct xenfb_info *info = dev->dev.driver_data;
+	struct xenfb_info *info = dev_get_drvdata(&dev->dev);
 
 	xenfb_disconnect_backend(info);
 	xenfb_init_shared_page(info, info->fb_info);
@@ -512,7 +515,7 @@ static int xenfb_resume(struct xenbus_device *dev)
 
 static int xenfb_remove(struct xenbus_device *dev)
 {
-	struct xenfb_info *info = dev->dev.driver_data;
+	struct xenfb_info *info = dev_get_drvdata(&dev->dev);
 
 	xenfb_disconnect_backend(info);
 	if (info->fb_info) {
@@ -621,7 +624,7 @@ static void xenfb_disconnect_backend(struct xenfb_info *info)
 static void xenfb_backend_changed(struct xenbus_device *dev,
 				  enum xenbus_state backend_state)
 {
-	struct xenfb_info *info = dev->dev.driver_data;
+	struct xenfb_info *info = dev_get_drvdata(&dev->dev);
 	int val;
 
 	switch (backend_state) {
@@ -668,7 +671,7 @@ static struct xenbus_device_id xenfb_ids[] = {
 	{ "" }
 };
 
-static struct xenbus_driver xenfb = {
+static struct xenbus_driver xenfb_driver = {
 	.name = "vfb",
 	.owner = THIS_MODULE,
 	.ids = xenfb_ids,
@@ -680,19 +683,19 @@ static struct xenbus_driver xenfb = {
 
 static int __init xenfb_init(void)
 {
-	if (!is_running_on_xen())
+	if (!xen_domain())
 		return -ENODEV;
 
 	/* Nothing to do if running in dom0. */
-	if (is_initial_xendomain())
+	if (xen_initial_domain())
 		return -ENODEV;
 
-	return xenbus_register_frontend(&xenfb);
+	return xenbus_register_frontend(&xenfb_driver);
 }
 
 static void __exit xenfb_cleanup(void)
 {
-	xenbus_unregister_driver(&xenfb);
+	xenbus_unregister_driver(&xenfb_driver);
 }
 
 module_init(xenfb_init);

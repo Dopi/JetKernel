@@ -282,8 +282,17 @@ static int offb_set_par(struct fb_info *info)
 	return 0;
 }
 
+static void offb_destroy(struct fb_info *info)
+{
+	if (info->screen_base)
+		iounmap(info->screen_base);
+	release_mem_region(info->aperture_base, info->aperture_size);
+	framebuffer_release(info);
+}
+
 static struct fb_ops offb_ops = {
 	.owner		= THIS_MODULE,
+	.fb_destroy	= offb_destroy,
 	.fb_setcolreg	= offb_setcolreg,
 	.fb_set_par	= offb_set_par,
 	.fb_blank	= offb_blank,
@@ -378,7 +387,6 @@ static void __init offb_init_fb(const char *name, const char *full_name,
 	struct fb_fix_screeninfo *fix;
 	struct fb_var_screeninfo *var;
 	struct fb_info *info;
-	int size;
 
 	if (!request_mem_region(res_start, res_size, "offb"))
 		return;
@@ -393,15 +401,12 @@ static void __init offb_init_fb(const char *name, const char *full_name,
 		return;
 	}
 
-	size = sizeof(struct fb_info) + sizeof(u32) * 16;
-
-	info = kmalloc(size, GFP_ATOMIC);
+	info = framebuffer_alloc(sizeof(u32) * 16, NULL);
 	
 	if (info == 0) {
 		release_mem_region(res_start, res_size);
 		return;
 	}
-	memset(info, 0, size);
 
 	fix = &info->fix;
 	var = &info->var;
@@ -486,10 +491,14 @@ static void __init offb_init_fb(const char *name, const char *full_name,
 	var->sync = 0;
 	var->vmode = FB_VMODE_NONINTERLACED;
 
+	/* set offb aperture size for generic probing */
+	info->aperture_base = address;
+	info->aperture_size = fix->smem_len;
+
 	info->fbops = &offb_ops;
 	info->screen_base = ioremap(address, fix->smem_len);
 	info->pseudo_palette = (void *) (info + 1);
-	info->flags = FBINFO_DEFAULT | foreign_endian;
+	info->flags = FBINFO_DEFAULT | FBINFO_MISC_FIRMWARE | foreign_endian;
 
 	fb_alloc_cmap(&info->cmap, 256, 0);
 
@@ -497,7 +506,7 @@ static void __init offb_init_fb(const char *name, const char *full_name,
 		iounmap(par->cmap_adr);
 		par->cmap_adr = NULL;
 		iounmap(info->screen_base);
-		kfree(info);
+		framebuffer_release(info);
 		release_mem_region(res_start, res_size);
 		return;
 	}

@@ -29,44 +29,16 @@
 #include <linux/vmalloc.h>
 #include <linux/clk.h>
 
-#include <mach/dma.h>
-#include <mach/omapfb.h>
+#include <mach/lcdc.h>
+#include <plat/dma.h>
 
 #include <asm/mach-types.h>
 
+#include "omapfb.h"
+
+#include "lcdc.h"
+
 #define MODULE_NAME			"lcdc"
-
-#define OMAP_LCDC_BASE			0xfffec000
-#define OMAP_LCDC_SIZE			256
-#define OMAP_LCDC_IRQ			INT_LCD_CTRL
-
-#define OMAP_LCDC_CONTROL		(OMAP_LCDC_BASE + 0x00)
-#define OMAP_LCDC_TIMING0		(OMAP_LCDC_BASE + 0x04)
-#define OMAP_LCDC_TIMING1		(OMAP_LCDC_BASE + 0x08)
-#define OMAP_LCDC_TIMING2		(OMAP_LCDC_BASE + 0x0c)
-#define OMAP_LCDC_STATUS		(OMAP_LCDC_BASE + 0x10)
-#define OMAP_LCDC_SUBPANEL		(OMAP_LCDC_BASE + 0x14)
-#define OMAP_LCDC_LINE_INT		(OMAP_LCDC_BASE + 0x18)
-#define OMAP_LCDC_DISPLAY_STATUS	(OMAP_LCDC_BASE + 0x1c)
-
-#define OMAP_LCDC_STAT_DONE		(1 << 0)
-#define OMAP_LCDC_STAT_VSYNC		(1 << 1)
-#define OMAP_LCDC_STAT_SYNC_LOST	(1 << 2)
-#define OMAP_LCDC_STAT_ABC		(1 << 3)
-#define OMAP_LCDC_STAT_LINE_INT		(1 << 4)
-#define OMAP_LCDC_STAT_FUF		(1 << 5)
-#define OMAP_LCDC_STAT_LOADED_PALETTE	(1 << 6)
-
-#define OMAP_LCDC_CTRL_LCD_EN		(1 << 0)
-#define OMAP_LCDC_CTRL_LCD_TFT		(1 << 7)
-#define OMAP_LCDC_CTRL_LINE_IRQ_CLR_SEL	(1 << 10)
-
-#define OMAP_LCDC_IRQ_VSYNC		(1 << 2)
-#define OMAP_LCDC_IRQ_DONE		(1 << 3)
-#define OMAP_LCDC_IRQ_LOADED_PALETTE	(1 << 4)
-#define OMAP_LCDC_IRQ_LINE_NIRQ		(1 << 5)
-#define OMAP_LCDC_IRQ_LINE		(1 << 6)
-#define OMAP_LCDC_IRQ_MASK		(((1 << 5) - 1) << 2)
 
 #define MAX_PALETTE_SIZE		PAGE_SIZE
 
@@ -798,14 +770,14 @@ static int omap_lcdc_init(struct omapfb_device *fbdev, int ext_mode,
 	/* FIXME:
 	 * According to errata some platforms have a clock rate limitiation
 	 */
-	lcdc.lcd_ck = clk_get(NULL, "lcd_ck");
+	lcdc.lcd_ck = clk_get(fbdev->dev, "lcd_ck");
 	if (IS_ERR(lcdc.lcd_ck)) {
 		dev_err(fbdev->dev, "unable to access LCD clock\n");
 		r = PTR_ERR(lcdc.lcd_ck);
 		goto fail0;
 	}
 
-	tc_ck = clk_get(NULL, "tc_ck");
+	tc_ck = clk_get(fbdev->dev, "tc_ck");
 	if (IS_ERR(tc_ck)) {
 		dev_err(fbdev->dev, "unable to access TC clock\n");
 		r = PTR_ERR(tc_ck);

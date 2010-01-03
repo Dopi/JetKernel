@@ -25,10 +25,11 @@
 #include <linux/fb.h>
 #include <linux/delay.h>
 #include <linux/clk.h>
+#include <linux/interrupt.h>
 
-#include <mach/dma.h>
-#include <mach/omapfb.h>
-#include <mach/hwa742.h>
+#include <plat/dma.h>
+#include <plat/hwa742.h>
+#include "omapfb.h"
 
 #define HWA742_REV_CODE_REG       0x0
 #define HWA742_CONFIG_REG         0x2
@@ -131,10 +132,9 @@ struct {
 
 	struct omapfb_device	*fbdev;
 	struct lcd_ctrl_extif	*extif;
-	struct lcd_ctrl		*int_ctrl;
+	const struct lcd_ctrl	*int_ctrl;
 
-	void			(*power_up)(struct device *dev);
-	void			(*power_down)(struct device *dev);
+	struct clk		*sys_ck;
 } hwa742;
 
 struct lcd_ctrl hwa742_ctrl;
@@ -742,7 +742,7 @@ static int calc_extif_timings(unsigned long sysclk, int *extif_mem_div)
 		if (calc_reg_timing(sysclk, div) == 0)
 			break;
 	}
-	if (div > max_clk_div)
+	if (div >= max_clk_div)
 		goto err;
 
 	*extif_mem_div = div;
@@ -752,7 +752,7 @@ static int calc_extif_timings(unsigned long sysclk, int *extif_mem_div)
 			break;
 	}
 
-	if (div > max_clk_div)
+	if (div >= max_clk_div)
 		goto err;
 
 	return 0;
@@ -915,14 +915,13 @@ static void hwa742_suspend(void)
 	hwa742_set_update_mode(OMAPFB_UPDATE_DISABLED);
 	/* Enable sleep mode */
 	hwa742_write_reg(HWA742_POWER_SAVE, 1 << 1);
-	if (hwa742.power_down != NULL)
-		hwa742.power_down(hwa742.fbdev->dev);
+	clk_disable(hwa742.sys_ck);
 }
 
 static void hwa742_resume(void)
 {
-	if (hwa742.power_up != NULL)
-		hwa742.power_up(hwa742.fbdev->dev);
+	clk_enable(hwa742.sys_ck);
+
 	/* Disable sleep mode */
 	hwa742_write_reg(HWA742_POWER_SAVE, 0);
 	while (1) {
@@ -955,14 +954,13 @@ static int hwa742_init(struct omapfb_device *fbdev, int ext_mode,
 	omapfb_conf = fbdev->dev->platform_data;
 	ctrl_conf = omapfb_conf->ctrl_platform_data;
 
-	if (ctrl_conf == NULL || ctrl_conf->get_clock_rate == NULL) {
+	if (ctrl_conf == NULL) {
 		dev_err(fbdev->dev, "HWA742: missing platform data\n");
 		r = -ENOENT;
 		goto err1;
 	}
 
-	hwa742.power_down = ctrl_conf->power_down;
-	hwa742.power_up = ctrl_conf->power_up;
+	hwa742.sys_ck = clk_get(NULL, "hwa_sys_ck");
 
 	spin_lock_init(&hwa742.req_lock);
 
@@ -972,12 +970,11 @@ static int hwa742_init(struct omapfb_device *fbdev, int ext_mode,
 	if ((r = hwa742.extif->init(fbdev)) < 0)
 		goto err2;
 
-	ext_clk = ctrl_conf->get_clock_rate(fbdev->dev);
+	ext_clk = clk_get_rate(hwa742.sys_ck);
 	if ((r = calc_extif_timings(ext_clk, &extif_mem_div)) < 0)
 		goto err3;
 	hwa742.extif->set_timings(&hwa742.reg_timings);
-	if (hwa742.power_up != NULL)
-		hwa742.power_up(fbdev->dev);
+	clk_enable(hwa742.sys_ck);
 
 	calc_hwa742_clk_rates(ext_clk, &sys_clk, &pix_clk);
 	if ((r = calc_extif_timings(sys_clk, &extif_mem_div)) < 0)
@@ -1040,8 +1037,7 @@ static int hwa742_init(struct omapfb_device *fbdev, int ext_mode,
 
 	return 0;
 err4:
-	if (hwa742.power_down != NULL)
-		hwa742.power_down(fbdev->dev);
+	clk_disable(hwa742.sys_ck);
 err3:
 	hwa742.extif->cleanup();
 err2:
@@ -1055,8 +1051,7 @@ static void hwa742_cleanup(void)
 	hwa742_set_update_mode(OMAPFB_UPDATE_DISABLED);
 	hwa742.extif->cleanup();
 	hwa742.int_ctrl->cleanup();
-	if (hwa742.power_down != NULL)
-		hwa742.power_down(hwa742.fbdev->dev);
+	clk_disable(hwa742.sys_ck);
 }
 
 struct lcd_ctrl hwa742_ctrl = {

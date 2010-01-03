@@ -256,8 +256,8 @@ static void fix_edid(unsigned char *edid, int fix)
 
 static int edid_checksum(unsigned char *edid)
 {
-	unsigned char i, csum = 0, all_null = 0;
-	int err = 0, fix = check_edid(edid);
+	unsigned char csum = 0, all_null = 0;
+	int i, err = 0, fix = check_edid(edid);
 
 	if (fix)
 		fix_edid(edid, fix);
@@ -564,7 +564,13 @@ static void get_detailed_timing(unsigned char *block,
 		mode->sync |= FB_SYNC_VERT_HIGH_ACT;
 	mode->refresh = PIXEL_CLOCK/((H_ACTIVE + H_BLANKING) *
 				     (V_ACTIVE + V_BLANKING));
-	mode->vmode = 0;
+	if (INTERLACED) {
+		mode->yres *= 2;
+		mode->upper_margin *= 2;
+		mode->lower_margin *= 2;
+		mode->vsync_len *= 2;
+		mode->vmode |= FB_VMODE_INTERLACED;
+	}
 	mode->flag = FB_MODE_IS_DETAILED;
 
 	DPRINTK("      %d MHz ",  PIXEL_CLOCK/1000000);

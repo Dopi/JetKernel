@@ -78,16 +78,6 @@
 #include <asm/fb.h>
 #include <asm/irq.h>
 #include <asm/system.h>
-#ifdef CONFIG_ATARI
-#include <asm/atariints.h>
-#endif
-#ifdef CONFIG_MAC
-#include <asm/macints.h>
-#endif
-#if defined(__mc68000__)
-#include <asm/machdep.h>
-#include <asm/setup.h>
-#endif
 
 #include "fbcon.h"
 
@@ -124,6 +114,7 @@ static int last_fb_vc = MAX_NR_CONSOLES - 1;
 static int fbcon_is_default = 1; 
 static int fbcon_has_exited;
 static int primary_device = -1;
+static int fbcon_has_console_bind;
 
 #ifdef CONFIG_FRAMEBUFFER_CONSOLE_DETECT_PRIMARY
 static int map_override;
@@ -157,11 +148,6 @@ static const struct consw fb_con;
 static int fbcon_set_origin(struct vc_data *);
 
 #define CURSOR_DRAW_DELAY		(1)
-
-/* # VBL ints between cursor state changes */
-#define ATARI_CURSOR_BLINK_RATE		(42)
-#define MAC_CURSOR_BLINK_RATE		(32)
-#define DEFAULT_CURSOR_BLINK_RATE	(20)
 
 static int vbl_cursor_cnt;
 static int fbcon_cursor_noblink;
@@ -209,19 +195,6 @@ static void fbcon_set_all_vcs(struct fb_info *info);
 static void fbcon_start(void);
 static void fbcon_exit(void);
 static struct device *fbcon_device;
-
-#ifdef CONFIG_MAC
-/*
- * On the Macintoy, there may or may not be a working VBL int. We need to probe
- */
-static int vbl_detected;
-
-static irqreturn_t fb_vbl_detect(int irq, void *dummy)
-{
-	vbl_detected++;
-	return IRQ_HANDLED;
-}
-#endif
 
 #ifdef CONFIG_FRAMEBUFFER_CONSOLE_ROTATION
 static inline void fbcon_set_rotation(struct fb_info *info)
@@ -421,20 +394,6 @@ static void fb_flashcursor(struct work_struct *work)
 	release_console_sem();
 }
 
-#if defined(CONFIG_ATARI) || defined(CONFIG_MAC)
-static int cursor_blink_rate;
-static irqreturn_t fb_vbl_handler(int irq, void *dev_id)
-{
-	struct fb_info *info = dev_id;
-
-	if (vbl_cursor_cnt && --vbl_cursor_cnt == 0) {
-		schedule_work(&info->queue);	
-		vbl_cursor_cnt = cursor_blink_rate; 
-	}
-	return IRQ_HANDLED;
-}
-#endif
-	
 static void cursor_timer_handler(unsigned long dev_addr)
 {
 	struct fb_info *info = (struct fb_info *) dev_addr;
@@ -586,6 +545,8 @@ static int fbcon_takeover(int show_logo)
 			con2fb_map[i] = -1;
 		}
 		info_idx = -1;
+	} else {
+		fbcon_has_console_bind = 1;
 	}
 
 	return err;
@@ -767,7 +728,7 @@ static int con2fb_release_oldinfo(struct vc_data *vc, struct fb_info *oldinfo,
 				  int oldidx, int found)
 {
 	struct fbcon_ops *ops = oldinfo->fbcon_par;
-	int err = 0;
+	int err = 0, ret;
 
 	if (oldinfo->fbops->fb_release &&
 	    oldinfo->fbops->fb_release(oldinfo, 0)) {
@@ -794,8 +755,14 @@ static int con2fb_release_oldinfo(struct vc_data *vc, struct fb_info *oldinfo,
 		  newinfo in an undefined state. Thus, a call to
 		  fb_set_par() may be needed for the newinfo.
 		*/
-		if (newinfo->fbops->fb_set_par)
-			newinfo->fbops->fb_set_par(newinfo);
+		if (newinfo->fbops->fb_set_par) {
+			ret = newinfo->fbops->fb_set_par(newinfo);
+
+			if (ret)
+				printk(KERN_ERR "con2fb_release_oldinfo: "
+					"detected unhandled fb_set_par error, "
+					"error code %d\n", ret);
+		}
 	}
 
 	return err;
@@ -805,11 +772,18 @@ static void con2fb_init_display(struct vc_data *vc, struct fb_info *info,
 				int unit, int show_logo)
 {
 	struct fbcon_ops *ops = info->fbcon_par;
+	int ret;
 
 	ops->currcon = fg_console;
 
-	if (info->fbops->fb_set_par && !(ops->flags & FBCON_FLAGS_INIT))
-		info->fbops->fb_set_par(info);
+	if (info->fbops->fb_set_par && !(ops->flags & FBCON_FLAGS_INIT)) {
+		ret = info->fbops->fb_set_par(info);
+
+		if (ret)
+			printk(KERN_ERR "con2fb_init_display: detected "
+				"unhandled fb_set_par error, "
+				"error code %d\n", ret);
+	}
 
 	ops->flags |= FBCON_FLAGS_INIT;
 	ops->graphics = 0;
@@ -949,9 +923,7 @@ static const char *fbcon_startup(void)
 	struct fb_info *info = NULL;
 	struct fbcon_ops *ops;
 	int rows, cols;
-	int irqres;
 
-	irqres = 1;
 	/*
 	 *  If num_registered_fb is zero, this is a call for the dummy part.
 	 *  The frame buffer devices weren't initialized yet.
@@ -1037,60 +1009,6 @@ static const char *fbcon_startup(void)
 		info->var.yres,
 		info->var.bits_per_pixel);
 
-#ifdef CONFIG_ATARI
-	if (MACH_IS_ATARI) {
-		cursor_blink_rate = ATARI_CURSOR_BLINK_RATE;
-		irqres =
-		    request_irq(IRQ_AUTO_4, fb_vbl_handler,
-				IRQ_TYPE_PRIO, "framebuffer vbl",
-				info);
-	}
-#endif				/* CONFIG_ATARI */
-
-#ifdef CONFIG_MAC
-	/*
-	 * On a Macintoy, the VBL interrupt may or may not be active. 
-	 * As interrupt based cursor is more reliable and race free, we 
-	 * probe for VBL interrupts.
-	 */
-	if (MACH_IS_MAC) {
-		int ct = 0;
-		/*
-		 * Probe for VBL: set temp. handler ...
-		 */
-		irqres = request_irq(IRQ_MAC_VBL, fb_vbl_detect, 0,
-				     "framebuffer vbl", info);
-		vbl_detected = 0;
-
-		/*
-		 * ... and spin for 20 ms ...
-		 */
-		while (!vbl_detected && ++ct < 1000)
-			udelay(20);
-
-		if (ct == 1000)
-			printk
-			    ("fbcon_startup: No VBL detected, using timer based cursor.\n");
-
-		free_irq(IRQ_MAC_VBL, fb_vbl_detect);
-
-		if (vbl_detected) {
-			/*
-			 * interrupt based cursor ok
-			 */
-			cursor_blink_rate = MAC_CURSOR_BLINK_RATE;
-			irqres =
-			    request_irq(IRQ_MAC_VBL, fb_vbl_handler, 0,
-					"framebuffer vbl", info);
-		} else {
-			/*
-			 * VBL not detected: fall through, use timer based cursor
-			 */
-			irqres = 1;
-		}
-	}
-#endif				/* CONFIG_MAC */
-
 	fbcon_add_cursor_timer(info);
 	fbcon_has_exited = 0;
 	return display_desc;
@@ -1104,7 +1022,7 @@ static void fbcon_init(struct vc_data *vc, int init)
 	struct vc_data *svc = *default_mode;
 	struct display *t, *p = &fb_display[vc->vc_num];
 	int logo = 1, new_rows, new_cols, rows, cols, charcnt = 256;
-	int cap;
+	int cap, ret;
 
 	if (info_idx == -1 || info == NULL)
 	    return;
@@ -1180,7 +1098,6 @@ static void fbcon_init(struct vc_data *vc, int init)
 	new_rows = FBCON_SWAP(ops->rotate, info->var.yres, info->var.xres);
 	new_cols /= vc->vc_font.width;
 	new_rows /= vc->vc_font.height;
-	vc_resize(vc, new_cols, new_rows);
 
 	/*
 	 * We must always set the mode. The mode of the previous console
@@ -1191,8 +1108,15 @@ static void fbcon_init(struct vc_data *vc, int init)
 	 */
 	if (CON_IS_VISIBLE(vc) && vc->vc_mode == KD_TEXT) {
 		if (info->fbops->fb_set_par &&
-		    !(ops->flags & FBCON_FLAGS_INIT))
-			info->fbops->fb_set_par(info);
+		    !(ops->flags & FBCON_FLAGS_INIT)) {
+			ret = info->fbops->fb_set_par(info);
+
+			if (ret)
+				printk(KERN_ERR "fbcon_init: detected "
+					"unhandled fb_set_par error, "
+					"error code %d\n", ret);
+		}
+
 		ops->flags |= FBCON_FLAGS_INIT;
 	}
 
@@ -1209,10 +1133,11 @@ static void fbcon_init(struct vc_data *vc, int init)
 	 *  vc_{cols,rows}, but we must not set those if we are only
 	 *  resizing the console.
 	 */
-	if (!init) {
+	if (init) {
 		vc->vc_cols = new_cols;
 		vc->vc_rows = new_rows;
-	}
+	} else
+		vc_resize(vc, new_cols, new_rows);
 
 	if (logo)
 		fbcon_prepare_logo(vc, info, cols, rows, new_cols, new_rows);
@@ -1855,8 +1780,6 @@ static int fbcon_scroll(struct vc_data *vc, int t, int b, int dir,
 	struct fb_info *info = registered_fb[con2fb_map[vc->vc_num]];
 	struct display *p = &fb_display[vc->vc_num];
 	int scroll_partial = info->flags & FBINFO_PARTIAL_PAN_OK;
-	unsigned short saved_ec;
-	int ret;
 
 	if (fbcon_is_inactive(vc, info))
 		return -EINVAL;
@@ -1868,11 +1791,6 @@ static int fbcon_scroll(struct vc_data *vc, int t, int b, int dir,
 	 * ++Andrew: Only use ypan on hardware text mode when scrolling the
 	 *           whole screen (prevents flicker).
 	 */
-
-	saved_ec = vc->vc_video_erase_char;
-	vc->vc_video_erase_char = vc->vc_scrl_erase_char;
-
-	ret = 0;
 
 	switch (dir) {
 	case SM_UP:
@@ -1890,9 +1808,9 @@ static int fbcon_scroll(struct vc_data *vc, int t, int b, int dir,
 			scr_memsetw((unsigned short *) (vc->vc_origin +
 							vc->vc_size_row *
 							(b - count)),
-				    vc->vc_scrl_erase_char,
+				    vc->vc_video_erase_char,
 				    vc->vc_size_row * count);
-			ret = 1;
+			return 1;
 			break;
 
 		case SCROLL_WRAP_MOVE:
@@ -1962,10 +1880,9 @@ static int fbcon_scroll(struct vc_data *vc, int t, int b, int dir,
 			scr_memsetw((unsigned short *) (vc->vc_origin +
 							vc->vc_size_row *
 							(b - count)),
-				    vc->vc_scrl_erase_char,
+				    vc->vc_video_erase_char,
 				    vc->vc_size_row * count);
-			ret = 1;
-			break;
+			return 1;
 		}
 		break;
 
@@ -1982,9 +1899,9 @@ static int fbcon_scroll(struct vc_data *vc, int t, int b, int dir,
 			scr_memsetw((unsigned short *) (vc->vc_origin +
 							vc->vc_size_row *
 							t),
-				    vc->vc_scrl_erase_char,
+				    vc->vc_video_erase_char,
 				    vc->vc_size_row * count);
-			ret = 1;
+			return 1;
 			break;
 
 		case SCROLL_WRAP_MOVE:
@@ -2052,15 +1969,12 @@ static int fbcon_scroll(struct vc_data *vc, int t, int b, int dir,
 			scr_memsetw((unsigned short *) (vc->vc_origin +
 							vc->vc_size_row *
 							t),
-				    vc->vc_scrl_erase_char,
+				    vc->vc_video_erase_char,
 				    vc->vc_size_row * count);
-			ret = 1;
-			break;
+			return 1;
 		}
-		break;
 	}
-	vc->vc_video_erase_char = saved_ec;
-	return ret;
+	return 0;
 }
 
 
@@ -2129,7 +2043,7 @@ static void fbcon_bmove_rec(struct vc_data *vc, struct display *p, int sy, int s
 		   height, width);
 }
 
-static __inline__ void updatescrollmode(struct display *p,
+static void updatescrollmode(struct display *p,
 					struct fb_info *info,
 					struct vc_data *vc)
 {
@@ -2228,7 +2142,7 @@ static int fbcon_switch(struct vc_data *vc)
 	struct fbcon_ops *ops;
 	struct display *p = &fb_display[vc->vc_num];
 	struct fb_var_screeninfo var;
-	int i, prev_console, charcnt = 256;
+	int i, ret, prev_console, charcnt = 256;
 
 	info = registered_fb[con2fb_map[vc->vc_num]];
 	ops = info->fbcon_par;
@@ -2283,8 +2197,14 @@ static int fbcon_switch(struct vc_data *vc)
 
 	if (old_info != NULL && (old_info != info ||
 				 info->flags & FBINFO_MISC_ALWAYS_SETPAR)) {
-		if (info->fbops->fb_set_par)
-			info->fbops->fb_set_par(info);
+		if (info->fbops->fb_set_par) {
+			ret = info->fbops->fb_set_par(info);
+
+			if (ret)
+				printk(KERN_ERR "fbcon_switch: detected "
+					"unhandled fb_set_par error, "
+					"error code %d\n", ret);
+		}
 
 		if (old_info != info)
 			fbcon_del_cursor_timer(old_info);
@@ -2372,9 +2292,12 @@ static void fbcon_generic_blank(struct vc_data *vc, struct fb_info *info,
 	}
 
 
+	if (!lock_fb_info(info))
+		return;
 	event.info = info;
 	event.data = &blank;
 	fb_notifier_call_chain(FB_EVENT_CONBLANK, &event);
+	unlock_fb_info(info);
 }
 
 static int fbcon_blank(struct vc_data *vc, int blank, int mode_switch)
@@ -2388,28 +2311,22 @@ static int fbcon_blank(struct vc_data *vc, int blank, int mode_switch)
 		ops->graphics = 1;
 
 		if (!blank) {
-			if (info->fbops->fb_save_state)
-				info->fbops->fb_save_state(info);
 			var.activate = FB_ACTIVATE_NOW | FB_ACTIVATE_FORCE;
 			fb_set_var(info, &var);
 			ops->graphics = 0;
 			ops->var = info->var;
-		} else if (info->fbops->fb_restore_state)
-			info->fbops->fb_restore_state(info);
+		}
 	}
 
  	if (!fbcon_is_inactive(vc, info)) {
 		if (ops->blank_state != blank) {
-			int ret = 1;
-
 			ops->blank_state = blank;
 			fbcon_cursor(vc, blank ? CM_ERASE : CM_DRAW);
 			ops->cursor_flash = (!blank);
 
-			if (info->fbops->fb_blank)
-				ret = info->fbops->fb_blank(blank, info);
-			if (ret)
-				fbcon_generic_blank(vc, info, blank);
+			if (!(info->flags & FBINFO_MISC_USEREVENT))
+				if (fb_blank(info, blank))
+					fbcon_generic_blank(vc, info, blank);
 		}
 
 		if (!blank)
@@ -2522,9 +2439,6 @@ static int fbcon_do_set_font(struct vc_data *vc, int w, int h,
 			c = vc->vc_video_erase_char;
 			vc->vc_video_erase_char =
 			    ((c & 0xfe00) >> 1) | (c & 0xff);
-			c = vc->vc_scrl_erase_char;
-			vc->vc_scrl_erase_char =
-			    ((c & 0xFE00) >> 1) | (c & 0xFF);
 			vc->vc_attr >>= 1;
 		}
 	} else if (!vc->vc_hi_font_mask && cnt == 512) {
@@ -2555,14 +2469,9 @@ static int fbcon_do_set_font(struct vc_data *vc, int w, int h,
 			if (vc->vc_can_do_color) {
 				vc->vc_video_erase_char =
 				    ((c & 0xff00) << 1) | (c & 0xff);
-				c = vc->vc_scrl_erase_char;
-				vc->vc_scrl_erase_char =
-				    ((c & 0xFF00) << 1) | (c & 0xFF);
 				vc->vc_attr <<= 1;
-			} else {
+			} else
 				vc->vc_video_erase_char = c & ~0x100;
-				vc->vc_scrl_erase_char = c & ~0x100;
-			}
 		}
 
 	}
@@ -2996,8 +2905,8 @@ static void fbcon_set_all_vcs(struct fb_info *info)
 		p = &fb_display[vc->vc_num];
 		set_blitting_type(vc, info);
 		var_to_display(p, &info->var, info);
-		cols = FBCON_SWAP(p->rotate, info->var.xres, info->var.yres);
-		rows = FBCON_SWAP(p->rotate, info->var.yres, info->var.xres);
+		cols = FBCON_SWAP(ops->rotate, info->var.xres, info->var.yres);
+		rows = FBCON_SWAP(ops->rotate, info->var.yres, info->var.xres);
 		cols /= vc->vc_font.width;
 		rows /= vc->vc_font.height;
 		vc_resize(vc, cols, rows);
@@ -3040,6 +2949,10 @@ static int fbcon_unbind(void)
 
 	ret = unbind_con_driver(&fb_con, first_fb_vc, last_fb_vc,
 				fbcon_is_default);
+
+	if (!ret)
+		fbcon_has_console_bind = 0;
+
 	return ret;
 }
 #else
@@ -3052,6 +2965,9 @@ static inline int fbcon_unbind(void)
 static int fbcon_fb_unbind(int idx)
 {
 	int i, new_idx = -1, ret = 0;
+
+	if (!fbcon_has_console_bind)
+		return 0;
 
 	for (i = first_fb_vc; i <= last_fb_vc; i++) {
 		if (con2fb_map[i] != idx &&
@@ -3074,8 +2990,9 @@ static int fbcon_fb_unbind(int idx)
 
 static int fbcon_fb_unregistered(struct fb_info *info)
 {
-	int i, idx = info->node;
+	int i, idx;
 
+	idx = info->node;
 	for (i = first_fb_vc; i <= last_fb_vc; i++) {
 		if (con2fb_map[i] == idx)
 			con2fb_map[i] = -1;
@@ -3099,12 +3016,11 @@ static int fbcon_fb_unregistered(struct fb_info *info)
 		}
 	}
 
-	if (!num_registered_fb)
-		unregister_con_driver(&fb_con);
-
-
 	if (primary_device == idx)
 		primary_device = -1;
+
+	if (!num_registered_fb)
+		unregister_con_driver(&fb_con);
 
 	return 0;
 }
@@ -3141,8 +3057,9 @@ static inline void fbcon_select_primary(struct fb_info *info)
 
 static int fbcon_fb_registered(struct fb_info *info)
 {
-	int ret = 0, i, idx = info->node;
+	int ret = 0, i, idx;
 
+	idx = info->node;
 	fbcon_select_primary(info);
 
 	if (info_idx == -1) {
@@ -3244,7 +3161,7 @@ static void fbcon_get_requirement(struct fb_info *info,
 	}
 }
 
-static int fbcon_event_notify(struct notifier_block *self, 
+static int fbcon_event_notify(struct notifier_block *self,
 			      unsigned long action, void *data)
 {
 	struct fb_event *event = data;
@@ -3252,7 +3169,7 @@ static int fbcon_event_notify(struct notifier_block *self,
 	struct fb_videomode *mode;
 	struct fb_con2fbmap *con2fb;
 	struct fb_blit_caps *caps;
-	int ret = 0;
+	int idx, ret = 0;
 
 	/*
 	 * ignore all events except driver registration and deregistration
@@ -3280,7 +3197,8 @@ static int fbcon_event_notify(struct notifier_block *self,
 		ret = fbcon_mode_deleted(info, mode);
 		break;
 	case FB_EVENT_FB_UNBIND:
-		ret = fbcon_fb_unbind(info->node);
+		idx = info->node;
+		ret = fbcon_fb_unbind(idx);
 		break;
 	case FB_EVENT_FB_REGISTERED:
 		ret = fbcon_fb_registered(info);
@@ -3308,7 +3226,6 @@ static int fbcon_event_notify(struct notifier_block *self,
 		fbcon_get_requirement(info, caps);
 		break;
 	}
-
 done:
 	return ret;
 }
@@ -3541,23 +3458,21 @@ static void fbcon_exit(void)
 	if (fbcon_has_exited)
 		return;
 
-#ifdef CONFIG_ATARI
-	free_irq(IRQ_AUTO_4, fb_vbl_handler);
-#endif
-#ifdef CONFIG_MAC
-	if (MACH_IS_MAC && vbl_detected)
-		free_irq(IRQ_MAC_VBL, fb_vbl_handler);
-#endif
-
 	kfree((void *)softback_buf);
 	softback_buf = 0UL;
 
 	for (i = 0; i < FB_MAX; i++) {
+		int pending;
+
 		mapped = 0;
 		info = registered_fb[i];
 
 		if (info == NULL)
 			continue;
+
+		pending = cancel_work_sync(&info->queue);
+		DPRINTK("fbcon: %s pending work\n", (pending ? "canceled" :
+			"no"));
 
 		for (j = first_fb_vc; j <= last_fb_vc; j++) {
 			if (con2fb_map[j] == i)
@@ -3592,8 +3507,8 @@ static int __init fb_console_init(void)
 
 	acquire_console_sem();
 	fb_register_client(&fbcon_event_notifier);
-	fbcon_device = device_create_drvdata(fb_class, NULL, MKDEV(0, 0),
-					     NULL, "fbcon");
+	fbcon_device = device_create(fb_class, NULL, MKDEV(0, 0), NULL,
+				     "fbcon");
 
 	if (IS_ERR(fbcon_device)) {
 		printk(KERN_WARNING "Unable to create device "

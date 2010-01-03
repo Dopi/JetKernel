@@ -1,0 +1,73 @@
+#
+# S3C Video configuration
+#
+
+config FB_S3C
+	tristate "S3C Framebuffer support"
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FRAMEBUFFER_CONSOLE_DETECT_PRIMARY
+	depends on FB && (ARCH_S3C64XX || ARCH_S5P64XX || ARCH_S5PC1XX || ARCH_S5PV2XX)
+	default n
+	---help---
+	  This enables support for Samsung Display Controller (FIMD)
+
+config FB_S3C_DEBUG
+        bool "S3C Framebuffer debug messages"
+        depends on FB_S3C
+
+config FB_S3C_TRACE_UNDERRUN
+	bool "S3C Framebuffer FIFO underrun trace"
+	depends on FB_S3C
+
+config FB_S3C_DEFAULT_WINDOW
+	int "Default Window (0-4)"
+	depends on FB_S3C
+	default "1"
+	---help---
+	  This indicates the default window number, and which is used as console framebuffer
+
+config FB_S3C_YPANSTEP
+	int "Vertical Panning Step (0-2)"
+	depends on FB_S3C
+	default "1"
+	---help---
+	  This indicates the number of vertical steps for pan display, 0 means no pan display and
+	  1 means the double size of video buffer will be allocated for default window
+
+choice
+depends on FB_S3C
+prompt "Select LCD Type"
+default FB_S3C_LTE480WV
+config FB_S3C_LTE480WV
+	bool "LTE480WV"
+	depends on MACH_SMDKC100 || MACH_SMDKV210
+	---help---
+	  This enables support for Samsung LTE480WV 4.8\" WVGA LCD panel
+
+config FB_S3C_TL2796
+	bool "TL2796"
+	depends on MACH_SMDKV210 || MACH_UNIVERSAL
+	select SPI
+	select SPI_GPIO
+	select SPI_BITBANG
+	---help---
+	  This enables support for Samsung TL2796 WVGA LED panel
+
+config FB_S3C_AMS320
+	bool "AMS320"
+	depends on MACH_SMDK6442
+	select SPI
+	select SPI_GPIO
+	select SPI_BITBANG	
+	---help---
+	  This enables support for AMS320 LED panel
+
+config FB_S3C_HT101HD1
+	bool "HT101HD1"
+	depends on MACH_SMDKV210
+	---help---
+	  This enables support for HT101HD1 WXVGA(1366*768) LCD panel
+endchoice	
+

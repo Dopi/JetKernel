@@ -13,6 +13,7 @@
 
 #include <linux/module.h>
 #include <linux/fb.h>
+#include <linux/kernel.h>
 
 #undef DEBUG
 
@@ -264,6 +265,14 @@ static const struct fb_videomode modedb[] = {
 	/* 1280x800, 60 Hz, 47.403 kHz hsync, WXGA 16:10 aspect ratio */
 	NULL, 60, 1280, 800, 12048, 200, 64, 24, 1, 136, 3,
 	0, FB_VMODE_NONINTERLACED
+    }, {
+       /* 720x576i @ 50 Hz, 15.625 kHz hsync (PAL RGB) */
+       NULL, 50, 720, 576, 74074, 64, 16, 39, 5, 64, 5,
+       0, FB_VMODE_INTERLACED
+    }, {
+       /* 800x520i @ 50 Hz, 15.625 kHz hsync (PAL RGB) */
+       NULL, 50, 800, 520, 58823, 144, 64, 72, 28, 80, 5,
+       0, FB_VMODE_INTERLACED
     },
 };
 
@@ -329,7 +338,7 @@ const struct fb_videomode vesa_modes[] = {
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
 	/* 17 1152x864-75 VESA */
-	{ NULL, 75, 1153, 864, 9259, 256, 64, 32, 1, 128, 3,
+	{ NULL, 75, 1152, 864, 9259, 256, 64, 32, 1, 128, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
 	/* 18 1280x960-60 VESA */
@@ -393,21 +402,6 @@ const struct fb_videomode vesa_modes[] = {
 };
 EXPORT_SYMBOL(vesa_modes);
 #endif /* CONFIG_FB_MODE_HELPERS */
-
-static int my_atoi(const char *name)
-{
-    int val = 0;
-
-    for (;; name++) {
-	switch (*name) {
-	    case '0' ... '9':
-		val = 10*val+(*name-'0');
-		break;
-	    default:
-		return val;
-	}
-    }
-}
 
 /**
  *	fb_try_mode - test a video mode
@@ -531,7 +525,7 @@ int fb_find_mode(struct fb_var_screeninfo *var,
 		    namelen = i;
 		    if (!refresh_specified && !bpp_specified &&
 			!yres_specified) {
-			refresh = my_atoi(&name[i+1]);
+			refresh = simple_strtol(&name[i+1], NULL, 10);
 			refresh_specified = 1;
 			if (cvt || rb)
 			    cvt = 0;
@@ -541,7 +535,7 @@ int fb_find_mode(struct fb_var_screeninfo *var,
 		case '-':
 		    namelen = i;
 		    if (!bpp_specified && !yres_specified) {
-			bpp = my_atoi(&name[i+1]);
+			bpp = simple_strtol(&name[i+1], NULL, 10);
 			bpp_specified = 1;
 			if (cvt || rb)
 			    cvt = 0;
@@ -550,7 +544,7 @@ int fb_find_mode(struct fb_var_screeninfo *var,
 		    break;
 		case 'x':
 		    if (!yres_specified) {
-			yres = my_atoi(&name[i+1]);
+			yres = simple_strtol(&name[i+1], NULL, 10);
 			yres_specified = 1;
 		    } else
 			goto done;
@@ -578,7 +572,7 @@ int fb_find_mode(struct fb_var_screeninfo *var,
 	    }
 	}
 	if (i < 0 && yres_specified) {
-	    xres = my_atoi(name);
+	    xres = simple_strtol(name, NULL, 10);
 	    res_specified = 1;
 	}
 done:

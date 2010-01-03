@@ -24,11 +24,12 @@
 #include <linux/vmalloc.h>
 #include <linux/clk.h>
 #include <linux/io.h>
+#include <linux/platform_device.h>
 
-#include <mach/sram.h>
-#include <mach/omapfb.h>
-#include <mach/board.h>
+#include <plat/sram.h>
+#include <plat/board.h>
 
+#include "omapfb.h"
 #include "dispc.h"
 
 #define MODULE_NAME			"dispc"
@@ -155,8 +156,10 @@ struct resmap {
 	unsigned long	*map;
 };
 
+#define MAX_IRQ_HANDLERS            4
+
 static struct {
-	u32		base;
+	void __iomem	*base;
 
 	struct omapfb_mem_desc	mem_desc;
 	struct resmap		*res_map[DISPC_MEMTYPE_NUM];
@@ -167,9 +170,11 @@ static struct {
 
 	int		ext_mode;
 
-	unsigned long	enabled_irqs;
-	void		(*irq_callback)(void *);
-	void		*irq_callback_data;
+	struct {
+		u32	irq_mask;
+		void	(*callback)(void *);
+		void	*data;
+	} irq_handlers[MAX_IRQ_HANDLERS];
 	struct completion	frame_done;
 
 	int		fir_hinc[OMAPFB_PLANE_NUM];
@@ -183,6 +188,11 @@ static struct {
 
 	struct omapfb_color_key	color_key;
 } dispc;
+
+static struct platform_device omapdss_device = {
+	.name		= "omapdss",
+	.id		= -1,
+};
 
 static void enable_lcd_clocks(int enable);
 
@@ -200,6 +210,7 @@ static u32 inline dispc_read_reg(int idx)
 /* Select RFBI or bypass mode */
 static void enable_rfbi_mode(int enable)
 {
+	void __iomem *rfbi_control;
 	u32 l;
 
 	l = dispc_read_reg(DISPC_CONTROL);
@@ -212,9 +223,15 @@ static void enable_rfbi_mode(int enable)
 	dispc_write_reg(DISPC_CONTROL, l);
 
 	/* Set bypass mode in RFBI module */
-	l = __raw_readl(io_p2v(RFBI_CONTROL));
+	rfbi_control = ioremap(RFBI_CONTROL, SZ_1K);
+	if (!rfbi_control) {
+		pr_err("Unable to ioremap rfbi_control\n");
+		return;
+	}
+	l = __raw_readl(rfbi_control);
 	l |= enable ? 0 : (1 << 1);
-	__raw_writel(l, io_p2v(RFBI_CONTROL));
+	__raw_writel(l, rfbi_control);
+	iounmap(rfbi_control);
 }
 
 static void set_lcd_data_lines(int data_lines)
@@ -286,7 +303,7 @@ static void setup_plane_fifo(int plane, int ext_mode)
 	BUG_ON(plane > 2);
 
 	l = dispc_read_reg(fsz_reg[plane]);
-	l &= FLD_MASK(0, 9);
+	l &= FLD_MASK(0, 11);
 	if (ext_mode) {
 		low = l * 3 / 4;
 		high = l;
@@ -294,7 +311,7 @@ static void setup_plane_fifo(int plane, int ext_mode)
 		low = l / 4;
 		high = l * 3 / 4;
 	}
-	MOD_REG_FLD(ftrs_reg[plane], FLD_MASK(16, 9) | FLD_MASK(0, 9),
+	MOD_REG_FLD(ftrs_reg[plane], FLD_MASK(16, 12) | FLD_MASK(0, 12),
 			(high << 16) | low);
 }
 
@@ -809,57 +826,74 @@ static void set_lcd_timings(void)
 	panel->pixel_clock = fck / lck_div / pck_div / 1000;
 }
 
-int omap_dispc_request_irq(void (*callback)(void *data), void *data)
+static void recalc_irq_mask(void)
 {
-	int r = 0;
+	int i;
+	unsigned long irq_mask = DISPC_IRQ_MASK_ERROR;
+
+	for (i = 0; i < MAX_IRQ_HANDLERS; i++) {
+		if (!dispc.irq_handlers[i].callback)
+			continue;
+
+		irq_mask |= dispc.irq_handlers[i].irq_mask;
+	}
+
+	enable_lcd_clocks(1);
+	MOD_REG_FLD(DISPC_IRQENABLE, 0x7fff, irq_mask);
+	enable_lcd_clocks(0);
+}
+
+int omap_dispc_request_irq(unsigned long irq_mask, void (*callback)(void *data),
+			   void *data)
+{
+	int i;
 
 	BUG_ON(callback == NULL);
 
-	if (dispc.irq_callback)
-		r = -EBUSY;
-	else {
-		dispc.irq_callback = callback;
-		dispc.irq_callback_data = data;
+	for (i = 0; i < MAX_IRQ_HANDLERS; i++) {
+		if (dispc.irq_handlers[i].callback)
+			continue;
+
+		dispc.irq_handlers[i].irq_mask = irq_mask;
+		dispc.irq_handlers[i].callback = callback;
+		dispc.irq_handlers[i].data = data;
+		recalc_irq_mask();
+
+		return 0;
 	}
 
-	return r;
+	return -EBUSY;
 }
 EXPORT_SYMBOL(omap_dispc_request_irq);
 
-void omap_dispc_enable_irqs(int irq_mask)
+void omap_dispc_free_irq(unsigned long irq_mask, void (*callback)(void *data),
+			 void *data)
 {
-	enable_lcd_clocks(1);
-	dispc.enabled_irqs = irq_mask;
-	irq_mask |= DISPC_IRQ_MASK_ERROR;
-	MOD_REG_FLD(DISPC_IRQENABLE, 0x7fff, irq_mask);
-	enable_lcd_clocks(0);
-}
-EXPORT_SYMBOL(omap_dispc_enable_irqs);
+	int i;
 
-void omap_dispc_disable_irqs(int irq_mask)
-{
-	enable_lcd_clocks(1);
-	dispc.enabled_irqs &= ~irq_mask;
-	irq_mask &= ~DISPC_IRQ_MASK_ERROR;
-	MOD_REG_FLD(DISPC_IRQENABLE, 0x7fff, irq_mask);
-	enable_lcd_clocks(0);
-}
-EXPORT_SYMBOL(omap_dispc_disable_irqs);
+	for (i = 0; i < MAX_IRQ_HANDLERS; i++) {
+		if (dispc.irq_handlers[i].callback == callback &&
+		    dispc.irq_handlers[i].data == data) {
+			dispc.irq_handlers[i].irq_mask = 0;
+			dispc.irq_handlers[i].callback = NULL;
+			dispc.irq_handlers[i].data = NULL;
+			recalc_irq_mask();
+			return;
+		}
+	}
 
-void omap_dispc_free_irq(void)
-{
-	enable_lcd_clocks(1);
-	omap_dispc_disable_irqs(DISPC_IRQ_MASK_ALL);
-	dispc.irq_callback = NULL;
-	dispc.irq_callback_data = NULL;
-	enable_lcd_clocks(0);
+	BUG();
 }
 EXPORT_SYMBOL(omap_dispc_free_irq);
 
 static irqreturn_t omap_dispc_irq_handler(int irq, void *dev)
 {
-	u32 stat = dispc_read_reg(DISPC_IRQSTATUS);
+	u32 stat;
+	int i = 0;
 
+	enable_lcd_clocks(1);
+
+	stat = dispc_read_reg(DISPC_IRQSTATUS);
 	if (stat & DISPC_IRQ_FRAMEMASK)
 		complete(&dispc.frame_done);
 
@@ -870,30 +904,38 @@ static irqreturn_t omap_dispc_irq_handler(int irq, void *dev)
 		}
 	}
 
-	if ((stat & dispc.enabled_irqs) && dispc.irq_callback)
-		dispc.irq_callback(dispc.irq_callback_data);
+	for (i = 0; i < MAX_IRQ_HANDLERS; i++) {
+		if (unlikely(dispc.irq_handlers[i].callback &&
+			     (stat & dispc.irq_handlers[i].irq_mask)))
+			dispc.irq_handlers[i].callback(
+						dispc.irq_handlers[i].data);
+	}
 
 	dispc_write_reg(DISPC_IRQSTATUS, stat);
+
+	enable_lcd_clocks(0);
 
 	return IRQ_HANDLED;
 }
 
 static int get_dss_clocks(void)
 {
-	if (IS_ERR((dispc.dss_ick = clk_get(dispc.fbdev->dev, "dss_ick")))) {
-		dev_err(dispc.fbdev->dev, "can't get dss_ick\n");
+	dispc.dss_ick = clk_get(&omapdss_device.dev, "ick");
+	if (IS_ERR(dispc.dss_ick)) {
+		dev_err(dispc.fbdev->dev, "can't get ick\n");
 		return PTR_ERR(dispc.dss_ick);
 	}
 
-	if (IS_ERR((dispc.dss1_fck = clk_get(dispc.fbdev->dev, "dss1_fck")))) {
+	dispc.dss1_fck = clk_get(&omapdss_device.dev, "dss1_fck");
+	if (IS_ERR(dispc.dss1_fck)) {
 		dev_err(dispc.fbdev->dev, "can't get dss1_fck\n");
 		clk_put(dispc.dss_ick);
 		return PTR_ERR(dispc.dss1_fck);
 	}
 
-	if (IS_ERR((dispc.dss_54m_fck =
-				clk_get(dispc.fbdev->dev, "dss_54m_fck")))) {
-		dev_err(dispc.fbdev->dev, "can't get dss_54m_fck\n");
+	dispc.dss_54m_fck = clk_get(&omapdss_device.dev, "tv_fck");
+	if (IS_ERR(dispc.dss_54m_fck)) {
+		dev_err(dispc.fbdev->dev, "can't get tv_fck\n");
 		clk_put(dispc.dss_ick);
 		clk_put(dispc.dss1_fck);
 		return PTR_ERR(dispc.dss_54m_fck);
@@ -911,18 +953,13 @@ static void put_dss_clocks(void)
 
 static void enable_lcd_clocks(int enable)
 {
-	if (enable)
-		clk_enable(dispc.dss1_fck);
-	else
-		clk_disable(dispc.dss1_fck);
-}
-
-static void enable_interface_clocks(int enable)
-{
-	if (enable)
+	if (enable) {
 		clk_enable(dispc.dss_ick);
-	else
+		clk_enable(dispc.dss1_fck);
+	} else {
+		clk_disable(dispc.dss1_fck);
 		clk_disable(dispc.dss_ick);
+	}
 }
 
 static void enable_digit_clocks(int enable)
@@ -1011,7 +1048,7 @@ static void mmap_user_close(struct vm_area_struct *vma)
 	atomic_dec(&dispc.map_count[plane]);
 }
 
-static struct vm_operations_struct mmap_user_ops = {
+static const struct vm_operations_struct mmap_user_ops = {
 	.open = mmap_user_open,
 	.close = mmap_user_close,
 };
@@ -1343,22 +1380,33 @@ static int omap_dispc_init(struct omapfb_device *fbdev, int ext_mode,
 	int r;
 	u32 l;
 	struct lcd_panel *panel = fbdev->panel;
+	void __iomem *ram_fw_base;
 	int tmo = 10000;
 	int skip_init = 0;
 	int i;
 
+	r = platform_device_register(&omapdss_device);
+	if (r) {
+		dev_err(fbdev->dev, "can't register omapdss device\n");
+		return r;
+	}
+
 	memset(&dispc, 0, sizeof(dispc));
 
-	dispc.base = io_p2v(DISPC_BASE);
+	dispc.base = ioremap(DISPC_BASE, SZ_1K);
+	if (!dispc.base) {
+		dev_err(fbdev->dev, "can't ioremap DISPC\n");
+		return -ENOMEM;
+	}
+
 	dispc.fbdev = fbdev;
 	dispc.ext_mode = ext_mode;
 
 	init_completion(&dispc.frame_done);
 
 	if ((r = get_dss_clocks()) < 0)
-		return r;
+		goto fail0;
 
-	enable_interface_clocks(1);
 	enable_lcd_clocks(1);
 
 #ifdef CONFIG_FB_OMAP_BOOTLOADER_INIT
@@ -1389,10 +1437,10 @@ static int omap_dispc_init(struct omapfb_device *fbdev, int ext_mode,
 		enable_digit_clocks(0);
 	}
 
-	/* Enable smart idle and autoidle */
-	l = dispc_read_reg(DISPC_CONTROL);
+	/* Enable smart standby/idle, autoidle and wakeup */
+	l = dispc_read_reg(DISPC_SYSCONFIG);
 	l &= ~((3 << 12) | (3 << 3));
-	l |= (2 << 12) | (2 << 3) | (1 << 0);
+	l |= (2 << 12) | (2 << 3) | (1 << 2) | (1 << 0);
 	dispc_write_reg(DISPC_SYSCONFIG, l);
 	omap_writel(1 << 0, DSS_BASE + DSS_SYSCONFIG);
 
@@ -1402,10 +1450,9 @@ static int omap_dispc_init(struct omapfb_device *fbdev, int ext_mode,
 	dispc_write_reg(DISPC_CONFIG, l);
 
 	l = dispc_read_reg(DISPC_IRQSTATUS);
-	dispc_write_reg(l, DISPC_IRQSTATUS);
+	dispc_write_reg(DISPC_IRQSTATUS, l);
 
-	/* Enable those that we handle always */
-	omap_dispc_enable_irqs(DISPC_IRQ_FRAMEMASK);
+	recalc_irq_mask();
 
 	if ((r = request_irq(INT_24XX_DSS_IRQ, omap_dispc_irq_handler,
 			   0, MODULE_NAME, fbdev)) < 0) {
@@ -1414,7 +1461,13 @@ static int omap_dispc_init(struct omapfb_device *fbdev, int ext_mode,
 	}
 
 	/* L3 firewall setting: enable access to OCM RAM */
-	__raw_writel(0x402000b0, io_p2v(0x680050a0));
+	ram_fw_base = ioremap(0x68005000, SZ_1K);
+	if (!ram_fw_base) {
+		dev_err(dispc.fbdev->dev, "Cannot ioremap to enable OCM RAM\n");
+		goto fail1;
+	}
+	__raw_writel(0x402000b0, ram_fw_base + 0xa0);
+	iounmap(ram_fw_base);
 
 	if ((r = alloc_palette_ram()) < 0)
 		goto fail2;
@@ -1462,9 +1515,9 @@ fail2:
 	free_irq(INT_24XX_DSS_IRQ, fbdev);
 fail1:
 	enable_lcd_clocks(0);
-	enable_interface_clocks(0);
 	put_dss_clocks();
-
+fail0:
+	iounmap(dispc.base);
 	return r;
 }
 
@@ -1479,8 +1532,9 @@ static void omap_dispc_cleanup(void)
 	cleanup_fbmem();
 	free_palette_ram();
 	free_irq(INT_24XX_DSS_IRQ, dispc.fbdev);
-	enable_interface_clocks(0);
 	put_dss_clocks();
+	iounmap(dispc.base);
+	platform_device_unregister(&omapdss_device);
 }
 
 const struct lcd_ctrl omap2_int_ctrl = {

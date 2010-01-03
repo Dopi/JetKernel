@@ -22,7 +22,7 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 
-#include <mach/omapfb.h>
+#include "omapfb.h"
 
 static int h4_panel_init(struct lcd_panel *panel, struct omapfb_device *fbdev)
 {
@@ -47,7 +47,7 @@ static unsigned long h4_panel_get_caps(struct lcd_panel *panel)
 	return 0;
 }
 
-struct lcd_panel h4_panel = {
+static struct lcd_panel h4_panel = {
 	.name		= "h4",
 	.config		= OMAP_LCDC_PANEL_TFT,
 
@@ -91,7 +91,7 @@ static int h4_panel_resume(struct platform_device *pdev)
 	return 0;
 }
 
-struct platform_driver h4_panel_driver = {
+static struct platform_driver h4_panel_driver = {
 	.probe		= h4_panel_probe,
 	.remove		= h4_panel_remove,
 	.suspend	= h4_panel_suspend,
@@ -102,12 +102,12 @@ struct platform_driver h4_panel_driver = {
 	},
 };
 
-static int h4_panel_drv_init(void)
+static int __init h4_panel_drv_init(void)
 {
 	return platform_driver_register(&h4_panel_driver);
 }
 
-static void h4_panel_drv_cleanup(void)
+static void __exit h4_panel_drv_cleanup(void)
 {
 	platform_driver_unregister(&h4_panel_driver);
 }

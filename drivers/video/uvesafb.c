@@ -45,7 +45,7 @@ static struct fb_fix_screeninfo uvesafb_fix __devinitdata = {
 static int mtrr		__devinitdata = 3; /* enable mtrr by default */
 static int blank	= 1;		   /* enable blanking by default */
 static int ypan		= 1; 		 /* 0: scroll, 1: ypan, 2: ywrap */
-static int pmi_setpal	__devinitdata = 1; /* use PMI for palette changes */
+static bool pmi_setpal	__devinitdata = true; /* use PMI for palette changes */
 static int nocrtc	__devinitdata; /* ignore CRTC settings */
 static int noedid	__devinitdata; /* don't try DDC transfers */
 static int vram_remap	__devinitdata; /* set amt. of memory to be used */
@@ -55,6 +55,7 @@ static u16 maxvf	__devinitdata; /* maximum vertical frequency */
 static u16 maxhf	__devinitdata; /* maximum horizontal frequency */
 static u16 vbemode	__devinitdata; /* force use of a specific VBE mode */
 static char *mode_option __devinitdata;
+static u8  dac_width	= 6;
 
 static struct uvesafb_ktask *uvfb_tasks[UVESAFB_TASKS_MAX];
 static DEFINE_MUTEX(uvfb_lock);
@@ -66,11 +67,13 @@ static DEFINE_MUTEX(uvfb_lock);
  * find the kernel part of the task struct, copy the registers and
  * the buffer contents and then complete the task.
  */
-static void uvesafb_cn_callback(void *data)
+static void uvesafb_cn_callback(struct cn_msg *msg, struct netlink_skb_parms *nsp)
 {
-	struct cn_msg *msg = data;
 	struct uvesafb_task *utask;
 	struct uvesafb_ktask *task;
+
+	if (!cap_raised(nsp->eff_cap, CAP_SYS_ADMIN))
+		return;
 
 	if (msg->seq >= UVESAFB_TASKS_MAX)
 		return;
@@ -189,7 +192,7 @@ static int uvesafb_exec(struct uvesafb_ktask *task)
 	uvfb_tasks[seq] = task;
 	mutex_unlock(&uvfb_lock);
 
-	err = cn_netlink_send(m, 0, gfp_any());
+	err = cn_netlink_send(m, 0, GFP_KERNEL);
 	if (err == -ESRCH) {
 		/*
 		 * Try to start the userspace helper if sending
@@ -204,8 +207,11 @@ static int uvesafb_exec(struct uvesafb_ktask *task)
 		} else {
 			v86d_started = 1;
 			err = cn_netlink_send(m, 0, gfp_any());
+			if (err == -ENOBUFS)
+				err = 0;
 		}
-	}
+	} else if (err == -ENOBUFS)
+		err = 0;
 
 	if (!err && !(task->t.flags & TF_EXIT))
 		err = !wait_for_completion_timeout(task->done,
@@ -300,22 +306,10 @@ static void uvesafb_setup_var(struct fb_var_screeninfo *var,
 		var->blue.offset   = 0;
 		var->transp.offset = 0;
 
-		/*
-		 * We're assuming that we can switch the DAC to 8 bits. If
-		 * this proves to be incorrect, we'll update the fields
-		 * later in set_par().
-		 */
-		if (par->vbe_ib.capabilities & VBE_CAP_CAN_SWITCH_DAC) {
-			var->red.length    = 8;
-			var->green.length  = 8;
-			var->blue.length   = 8;
-			var->transp.length = 0;
-		} else {
-			var->red.length    = 6;
-			var->green.length  = 6;
-			var->blue.length   = 6;
-			var->transp.length = 0;
-		}
+		var->red.length    = 8;
+		var->green.length  = 8;
+		var->blue.length   = 8;
+		var->transp.length = 0;
 	}
 }
 
@@ -516,10 +510,12 @@ static int __devinit uvesafb_vbe_getmodes(struct uvesafb_ktask *task,
 
 		err = uvesafb_exec(task);
 		if (err || (task->t.regs.eax & 0xffff) != 0x004f) {
-			printk(KERN_ERR "uvesafb: Getting mode info block "
+			printk(KERN_WARNING "uvesafb: Getting mode info block "
 				"for mode 0x%x failed (eax=0x%x, err=%d)\n",
 				*mode, (u32)task->t.regs.eax, err);
-			return -EINVAL;
+			mode++;
+			par->vbe_modes_cnt--;
+			continue;
 		}
 
 		mib = task->buf;
@@ -548,7 +544,10 @@ static int __devinit uvesafb_vbe_getmodes(struct uvesafb_ktask *task,
 			mib->depth = mib->bits_per_pixel;
 	}
 
-	return 0;
+	if (par->vbe_modes_cnt > 0)
+		return 0;
+	else
+		return -EINVAL;
 }
 
 /*
@@ -842,14 +841,16 @@ static int __devinit uvesafb_vbe_init_mode(struct fb_info *info)
 	if (vbemode) {
 		for (i = 0; i < par->vbe_modes_cnt; i++) {
 			if (par->vbe_modes[i].mode_id == vbemode) {
+				modeid = i;
+				uvesafb_setup_var(&info->var, info,
+						&par->vbe_modes[modeid]);
 				fb_get_mode(FB_VSYNCTIMINGS | FB_IGNOREMON, 60,
-							&info->var, info);
+						&info->var, info);
 				/*
 				 * With pixclock set to 0, the default BIOS
 				 * timings will be used in set_par().
 				 */
 				info->var.pixclock = 0;
-				modeid = i;
 				goto gotmode;
 			}
 		}
@@ -896,8 +897,11 @@ static int __devinit uvesafb_vbe_init_mode(struct fb_info *info)
 			fb_videomode_to_var(&info->var, mode);
 		} else {
 			modeid = par->vbe_modes[0].mode_id;
+			uvesafb_setup_var(&info->var, info,
+					&par->vbe_modes[modeid]);
 			fb_get_mode(FB_VSYNCTIMINGS | FB_IGNOREMON, 60,
-				    &info->var, info);
+					&info->var, info);
+
 			goto gotmode;
 		}
 	}
@@ -909,9 +913,9 @@ static int __devinit uvesafb_vbe_init_mode(struct fb_info *info)
 	if (modeid == -1)
 		return -EINVAL;
 
-gotmode:
 	uvesafb_setup_var(&info->var, info, &par->vbe_modes[modeid]);
 
+gotmode:
 	/*
 	 * If we are not VBE3.0+ compliant, we're done -- the BIOS will
 	 * ignore our timings anyway.
@@ -993,7 +997,7 @@ static int uvesafb_setcolreg(unsigned regno, unsigned red, unsigned green,
 		struct fb_info *info)
 {
 	struct uvesafb_pal_entry entry;
-	int shift = 16 - info->var.green.length;
+	int shift = 16 - dac_width;
 	int err = 0;
 
 	if (regno >= info->cmap.len)
@@ -1042,7 +1046,7 @@ static int uvesafb_setcolreg(unsigned regno, unsigned red, unsigned green,
 static int uvesafb_setcmap(struct fb_cmap *cmap, struct fb_info *info)
 {
 	struct uvesafb_pal_entry *entries;
-	int shift = 16 - info->var.green.length;
+	int shift = 16 - dac_width;
 	int i, err = 0;
 
 	if (info->var.bits_per_pixel == 8) {
@@ -1304,13 +1308,9 @@ setmode:
 		err = uvesafb_exec(task);
 		if (err || (task->t.regs.eax & 0xffff) != 0x004f ||
 		    ((task->t.regs.ebx & 0xff00) >> 8) != 8) {
-			/*
-			 * We've failed to set the DAC palette format -
-			 * time to correct var.
-			 */
-			info->var.red.length    = 6;
-			info->var.green.length  = 6;
-			info->var.blue.length   = 6;
+			dac_width = 6;
+		} else {
+			dac_width = 8;
 		}
 	}
 
@@ -1411,23 +1411,6 @@ static int uvesafb_check_var(struct fb_var_screeninfo *var,
 	return 0;
 }
 
-static void uvesafb_save_state(struct fb_info *info)
-{
-	struct uvesafb_par *par = info->par;
-
-	if (par->vbe_state_saved)
-		kfree(par->vbe_state_saved);
-
-	par->vbe_state_saved = uvesafb_vbe_state_save(par);
-}
-
-static void uvesafb_restore_state(struct fb_info *info)
-{
-	struct uvesafb_par *par = info->par;
-
-	uvesafb_vbe_state_restore(par, par->vbe_state_saved);
-}
-
 static struct fb_ops uvesafb_ops = {
 	.owner		= THIS_MODULE,
 	.fb_open	= uvesafb_open,
@@ -1441,8 +1424,6 @@ static struct fb_ops uvesafb_ops = {
 	.fb_imageblit	= cfb_imageblit,
 	.fb_check_var	= uvesafb_check_var,
 	.fb_set_par	= uvesafb_set_par,
-	.fb_save_state	= uvesafb_save_state,
-	.fb_restore_state = uvesafb_restore_state,
 };
 
 static void __devinit uvesafb_init_info(struct fb_info *info,
@@ -1458,15 +1439,6 @@ static void __devinit uvesafb_init_info(struct fb_info *info,
 	info->fix = uvesafb_fix;
 	info->fix.ypanstep = par->ypan ? 1 : 0;
 	info->fix.ywrapstep = (par->ypan > 1) ? 1 : 0;
-
-	/*
-	 * If we were unable to get the state buffer size, disable
-	 * functions for saving and restoring the hardware state.
-	 */
-	if (par->vbe_state_size == 0) {
-		info->fbops->fb_save_state = NULL;
-		info->fbops->fb_restore_state = NULL;
-	}
 
 	/* Disable blanking if the user requested so. */
 	if (!blank)
@@ -1544,7 +1516,7 @@ static void __devinit uvesafb_init_info(struct fb_info *info,
 	}
 
 	info->flags = FBINFO_FLAG_DEFAULT |
-			(par->ypan) ? FBINFO_HWACCEL_YPAN : 0;
+			(par->ypan ? FBINFO_HWACCEL_YPAN : 0);
 
 	if (!par->ypan)
 		info->fbops->fb_pan_display = NULL;
@@ -2004,11 +1976,7 @@ static void __devexit uvesafb_exit(void)
 
 module_exit(uvesafb_exit);
 
-static int param_get_scroll(char *buffer, struct kernel_param *kp)
-{
-	return 0;
-}
-
+#define param_get_scroll NULL
 static int param_set_scroll(const char *val, struct kernel_param *kp)
 {
 	ypan = 0;
@@ -2019,6 +1987,8 @@ static int param_set_scroll(const char *val, struct kernel_param *kp)
 		ypan = 1;
 	else if (!strcmp(val, "ywrap"))
 		ypan = 2;
+	else
+		return -EINVAL;
 
 	return 0;
 }

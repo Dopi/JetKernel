@@ -242,7 +242,6 @@ static int bfin_t350mcqb_fb_release(struct fb_info *info, int user)
 		SSYNC();
 		disable_dma(CH_PPI);
 		bfin_t350mcqb_stop_timers();
-		memset(fbi->fb_buffer, 0, info->fix.smem_len);
 	}
 
 	spin_unlock(&fbi->lock);
@@ -254,8 +253,21 @@ static int bfin_t350mcqb_fb_check_var(struct fb_var_screeninfo *var,
 				   struct fb_info *info)
 {
 
-	if (var->bits_per_pixel != LCD_BPP) {
-		pr_debug("%s: depth not supported: %u BPP\n", __FUNCTION__,
+	switch (var->bits_per_pixel) {
+	case 24:/* TRUECOLOUR, 16m */
+		var->red.offset = 0;
+		var->green.offset = 8;
+		var->blue.offset = 16;
+		var->red.length = var->green.length = var->blue.length = 8;
+		var->transp.offset = 0;
+		var->transp.length = 0;
+		var->transp.msb_right = 0;
+		var->red.msb_right = 0;
+		var->green.msb_right = 0;
+		var->blue.msb_right = 0;
+		break;
+	default:
+		pr_debug("%s: depth not supported: %u BPP\n", __func__,
 			 var->bits_per_pixel);
 		return -EINVAL;
 	}
@@ -264,7 +276,7 @@ static int bfin_t350mcqb_fb_check_var(struct fb_var_screeninfo *var,
 	    info->var.xres_virtual != var->xres_virtual ||
 	    info->var.yres_virtual != var->yres_virtual) {
 		pr_debug("%s: Resolution not supported: X%u x Y%u \n",
-			 __FUNCTION__, var->xres, var->yres);
+			 __func__, var->xres, var->yres);
 		return -EINVAL;
 	}
 
@@ -274,7 +286,7 @@ static int bfin_t350mcqb_fb_check_var(struct fb_var_screeninfo *var,
 
 	if ((info->fix.line_length * var->yres_virtual) > info->fix.smem_len) {
 		pr_debug("%s: Memory Limit requested yres_virtual = %u\n",
-			 __FUNCTION__, var->yres_virtual);
+			 __func__, var->yres_virtual);
 		return -ENOMEM;
 	}
 
@@ -434,7 +446,7 @@ static irqreturn_t bfin_t350mcqb_irq_error(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static int __init bfin_t350mcqb_probe(struct platform_device *pdev)
+static int __devinit bfin_t350mcqb_probe(struct platform_device *pdev)
 {
 	struct bfin_t350mcqbfb_info *info;
 	struct fb_info *fbinfo;
@@ -475,8 +487,8 @@ static int __init bfin_t350mcqb_probe(struct platform_device *pdev)
 
 	fbinfo->var.nonstd = 0;
 	fbinfo->var.activate = FB_ACTIVATE_NOW;
-	fbinfo->var.height = -1;
-	fbinfo->var.width = -1;
+	fbinfo->var.height = 53;
+	fbinfo->var.width = 70;
 	fbinfo->var.accel_flags = 0;
 	fbinfo->var.vmode = FB_VMODE_NONINTERLACED;
 
@@ -513,8 +525,6 @@ static int __init bfin_t350mcqb_probe(struct platform_device *pdev)
 		ret = -ENOMEM;
 		goto out3;
 	}
-
-	memset(info->fb_buffer, 0, fbinfo->fix.smem_len);
 
 	fbinfo->screen_base = (void *)info->fb_buffer + ACTIVE_VIDEO_MEM_OFFSET;
 	fbinfo->fix.smem_start = (int)info->fb_buffer + ACTIVE_VIDEO_MEM_OFFSET;
@@ -589,7 +599,7 @@ out1:
 	return ret;
 }
 
-static int bfin_t350mcqb_remove(struct platform_device *pdev)
+static int __devexit bfin_t350mcqb_remove(struct platform_device *pdev)
 {
 
 	struct fb_info *fbinfo = platform_get_drvdata(pdev);
@@ -625,11 +635,15 @@ static int bfin_t350mcqb_remove(struct platform_device *pdev)
 static int bfin_t350mcqb_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct fb_info *fbinfo = platform_get_drvdata(pdev);
-	struct bfin_t350mcqbfb_info *info = fbinfo->par;
+	struct bfin_t350mcqbfb_info *fbi = fbinfo->par;
 
-	bfin_t350mcqb_disable_ppi();
-	disable_dma(CH_PPI);
-	bfin_write_PPI_STATUS(0xFFFF);
+	if (fbi->lq043_open_cnt) {
+		bfin_t350mcqb_disable_ppi();
+		disable_dma(CH_PPI);
+		bfin_t350mcqb_stop_timers();
+		bfin_write_PPI_STATUS(-1);
+	}
+
 
 	return 0;
 }
@@ -637,10 +651,18 @@ static int bfin_t350mcqb_suspend(struct platform_device *pdev, pm_message_t stat
 static int bfin_t350mcqb_resume(struct platform_device *pdev)
 {
 	struct fb_info *fbinfo = platform_get_drvdata(pdev);
-	struct bfin_t350mcqbfb_info *info = fbinfo->par;
+	struct bfin_t350mcqbfb_info *fbi = fbinfo->par;
 
-	enable_dma(CH_PPI);
-	bfin_t350mcqb_enable_ppi();
+	if (fbi->lq043_open_cnt) {
+		bfin_t350mcqb_config_dma(fbi);
+		bfin_t350mcqb_config_ppi(fbi);
+		bfin_t350mcqb_init_timers();
+
+		/* start dma */
+		enable_dma(CH_PPI);
+		bfin_t350mcqb_enable_ppi();
+		bfin_t350mcqb_start_timers();
+	}
 
 	return 0;
 }
@@ -651,7 +673,7 @@ static int bfin_t350mcqb_resume(struct platform_device *pdev)
 
 static struct platform_driver bfin_t350mcqb_driver = {
 	.probe = bfin_t350mcqb_probe,
-	.remove = bfin_t350mcqb_remove,
+	.remove = __devexit_p(bfin_t350mcqb_remove),
 	.suspend = bfin_t350mcqb_suspend,
 	.resume = bfin_t350mcqb_resume,
 	.driver = {
@@ -660,7 +682,7 @@ static struct platform_driver bfin_t350mcqb_driver = {
 		   },
 };
 
-static int __devinit bfin_t350mcqb_driver_init(void)
+static int __init bfin_t350mcqb_driver_init(void)
 {
 	return platform_driver_register(&bfin_t350mcqb_driver);
 }
