@@ -58,9 +58,11 @@ void drm_sg_cleanup(struct drm_sg_mem * entry)
 
 	vfree(entry->virtual);
 
-	kfree(entry->busaddr);
-	kfree(entry->pagelist);
-	kfree(entry);
+	drm_free(entry->busaddr,
+		 entry->pages * sizeof(*entry->busaddr), DRM_MEM_PAGES);
+	drm_free(entry->pagelist,
+		 entry->pages * sizeof(*entry->pagelist), DRM_MEM_PAGES);
+	drm_free(entry, sizeof(*entry), DRM_MEM_SGLISTS);
 }
 
 #ifdef _LP64
@@ -82,7 +84,7 @@ int drm_sg_alloc(struct drm_device *dev, struct drm_scatter_gather * request)
 	if (dev->sg)
 		return -EINVAL;
 
-	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+	entry = drm_alloc(sizeof(*entry), DRM_MEM_SGLISTS);
 	if (!entry)
 		return -ENOMEM;
 
@@ -91,27 +93,34 @@ int drm_sg_alloc(struct drm_device *dev, struct drm_scatter_gather * request)
 	DRM_DEBUG("size=%ld pages=%ld\n", request->size, pages);
 
 	entry->pages = pages;
-	entry->pagelist = kmalloc(pages * sizeof(*entry->pagelist), GFP_KERNEL);
+	entry->pagelist = drm_alloc(pages * sizeof(*entry->pagelist),
+				    DRM_MEM_PAGES);
 	if (!entry->pagelist) {
-		kfree(entry);
+		drm_free(entry, sizeof(*entry), DRM_MEM_SGLISTS);
 		return -ENOMEM;
 	}
 
 	memset(entry->pagelist, 0, pages * sizeof(*entry->pagelist));
 
-	entry->busaddr = kmalloc(pages * sizeof(*entry->busaddr), GFP_KERNEL);
+	entry->busaddr = drm_alloc(pages * sizeof(*entry->busaddr),
+				   DRM_MEM_PAGES);
 	if (!entry->busaddr) {
-		kfree(entry->pagelist);
-		kfree(entry);
+		drm_free(entry->pagelist,
+			 entry->pages * sizeof(*entry->pagelist),
+			 DRM_MEM_PAGES);
+		drm_free(entry, sizeof(*entry), DRM_MEM_SGLISTS);
 		return -ENOMEM;
 	}
 	memset((void *)entry->busaddr, 0, pages * sizeof(*entry->busaddr));
 
 	entry->virtual = drm_vmalloc_dma(pages << PAGE_SHIFT);
 	if (!entry->virtual) {
-		kfree(entry->busaddr);
-		kfree(entry->pagelist);
-		kfree(entry);
+		drm_free(entry->busaddr,
+			 entry->pages * sizeof(*entry->busaddr), DRM_MEM_PAGES);
+		drm_free(entry->pagelist,
+			 entry->pages * sizeof(*entry->pagelist),
+			 DRM_MEM_PAGES);
+		drm_free(entry, sizeof(*entry), DRM_MEM_SGLISTS);
 		return -ENOMEM;
 	}
 

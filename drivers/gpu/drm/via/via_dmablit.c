@@ -195,8 +195,10 @@ via_free_sg_info(struct pci_dev *pdev, drm_via_sg_info_t *vsg)
 	default:
 		vsg->state = dr_via_sg_init;
 	}
-	vfree(vsg->bounce_buffer);
-	vsg->bounce_buffer = NULL;
+	if (vsg->bounce_buffer) {
+		vfree(vsg->bounce_buffer);
+		vsg->bounce_buffer = NULL;
+	}
 	vsg->free_on_sequence = 0;
 }
 

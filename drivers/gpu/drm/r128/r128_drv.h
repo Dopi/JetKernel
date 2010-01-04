@@ -29,7 +29,7 @@
  *    Rickard E. (Rik) Faith <faith@valinux.com>
  *    Kevin E. Martin <martin@valinux.com>
  *    Gareth Hughes <gareth@valinux.com>
- *    Michel D�zer <daenzerm@student.ethz.ch>
+ *    Michel Dänzer <daenzerm@student.ethz.ch>
  */
 
 #ifndef __R128_DRV_H__
@@ -97,8 +97,6 @@ typedef struct drm_r128_private {
 	u32 crtc_offset;
 	u32 crtc_offset_cntl;
 
-	atomic_t vbl_received;
-
 	u32 color_fmt;
 	unsigned int front_offset;
 	unsigned int front_pitch;
@@ -151,15 +149,13 @@ extern int r128_wait_ring(drm_r128_private_t * dev_priv, int n);
 extern int r128_do_cce_idle(drm_r128_private_t * dev_priv);
 extern int r128_do_cleanup_cce(struct drm_device * dev);
 
-extern int r128_enable_vblank(struct drm_device *dev, int crtc);
-extern void r128_disable_vblank(struct drm_device *dev, int crtc);
-extern u32 r128_get_vblank_counter(struct drm_device *dev, int crtc);
+extern int r128_driver_vblank_wait(struct drm_device * dev, unsigned int *sequence);
+
 extern irqreturn_t r128_driver_irq_handler(DRM_IRQ_ARGS);
 extern void r128_driver_irq_preinstall(struct drm_device * dev);
-extern int r128_driver_irq_postinstall(struct drm_device *dev);
+extern void r128_driver_irq_postinstall(struct drm_device * dev);
 extern void r128_driver_irq_uninstall(struct drm_device * dev);
 extern void r128_driver_lastclose(struct drm_device * dev);
-extern int r128_driver_load(struct drm_device * dev, unsigned long flags);
 extern void r128_driver_preclose(struct drm_device * dev,
 				 struct drm_file *file_priv);
 
@@ -421,14 +417,6 @@ static __inline__ void r128_update_ring_snapshot(drm_r128_private_t * dev_priv)
 /* ================================================================
  * Misc helper macros
  */
-
-#define DEV_INIT_TEST_WITH_RETURN(_dev_priv)				\
-do {									\
-	if (!_dev_priv) {						\
-		DRM_ERROR("called with no initialization\n");		\
-		return -EINVAL;						\
-	}								\
-} while (0)
 
 #define RING_SPACE_TEST_WITH_RETURN( dev_priv )				\
 do {									\

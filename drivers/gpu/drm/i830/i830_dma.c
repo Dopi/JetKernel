@@ -232,7 +232,8 @@ static int i830_dma_cleanup(struct drm_device * dev)
 			I830_WRITE(0x02080, 0x1ffff000);
 		}
 
-		kfree(dev->dev_private);
+		drm_free(dev->dev_private, sizeof(drm_i830_private_t),
+			 DRM_MEM_DRIVER);
 		dev->dev_private = NULL;
 
 		for (i = 0; i < dma->buf_count; i++) {
@@ -458,7 +459,8 @@ static int i830_dma_init(struct drm_device *dev, void *data,
 
 	switch (init->func) {
 	case I830_INIT_DMA:
-		dev_priv = kmalloc(sizeof(drm_i830_private_t), GFP_KERNEL);
+		dev_priv = drm_alloc(sizeof(drm_i830_private_t),
+				     DRM_MEM_DRIVER);
 		if (dev_priv == NULL)
 			return -ENOMEM;
 		retcode = i830_dma_initialize(dev, dev_priv, init);

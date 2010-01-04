@@ -239,7 +239,7 @@ static __inline__ void mga_g200_emit_pipe(drm_mga_private_t * dev_priv)
 		  MGA_WR34, 0x00000000,
 		  MGA_WR42, 0x0000ffff, MGA_WR60, 0x0000ffff);
 
-	/* Padding required due to hardware bug.
+	/* Padding required to to hardware bug.
 	 */
 	DMA_BLOCK(MGA_DMAPAD, 0xffffffff,
 		  MGA_DMAPAD, 0xffffffff,
@@ -317,7 +317,7 @@ static __inline__ void mga_g400_emit_pipe(drm_mga_private_t * dev_priv)
 		  MGA_WR52, MGA_G400_WR_MAGIC,	/* tex1 width        */
 		  MGA_WR60, MGA_G400_WR_MAGIC);	/* tex1 height       */
 
-	/* Padding required due to hardware bug */
+	/* Padding required to to hardware bug */
 	DMA_BLOCK(MGA_DMAPAD, 0xffffffff,
 		  MGA_DMAPAD, 0xffffffff,
 		  MGA_DMAPAD, 0xffffffff,
@@ -1022,7 +1022,7 @@ static int mga_getparam(struct drm_device *dev, void *data, struct drm_file *fil
 
 	switch (param->param) {
 	case MGA_PARAM_IRQ_NR:
-		value = drm_dev_to_irq(dev);
+		value = dev->irq;
 		break;
 	case MGA_PARAM_CARD_TYPE:
 		value = dev_priv->chipset;

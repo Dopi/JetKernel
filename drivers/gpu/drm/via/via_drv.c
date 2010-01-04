@@ -28,6 +28,11 @@
 
 #include "drm_pciids.h"
 
+static int dri_library_name(struct drm_device *dev, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "unichrome");
+}
+
 static struct pci_device_id pciidlist[] = {
 	viadrv_PCI_IDS
 };
@@ -35,18 +40,17 @@ static struct pci_device_id pciidlist[] = {
 static struct drm_driver driver = {
 	.driver_features =
 	    DRIVER_USE_AGP | DRIVER_USE_MTRR | DRIVER_HAVE_IRQ |
-	    DRIVER_IRQ_SHARED,
+	    DRIVER_IRQ_SHARED | DRIVER_IRQ_VBL,
 	.load = via_driver_load,
 	.unload = via_driver_unload,
 	.context_dtor = via_final_context,
-	.get_vblank_counter = via_get_vblank_counter,
-	.enable_vblank = via_enable_vblank,
-	.disable_vblank = via_disable_vblank,
+	.vblank_wait = via_driver_vblank_wait,
 	.irq_preinstall = via_driver_irq_preinstall,
 	.irq_postinstall = via_driver_irq_postinstall,
 	.irq_uninstall = via_driver_irq_uninstall,
 	.irq_handler = via_driver_irq_handler,
 	.dma_quiescent = via_driver_dma_quiescent,
+	.dri_library_name = dri_library_name,
 	.reclaim_buffers = drm_core_reclaim_buffers,
 	.reclaim_buffers_locked = NULL,
 	.reclaim_buffers_idlelocked = via_reclaim_buffers_locked,
@@ -55,17 +59,17 @@ static struct drm_driver driver = {
 	.get_reg_ofs = drm_core_get_reg_ofs,
 	.ioctls = via_ioctls,
 	.fops = {
-		.owner = THIS_MODULE,
-		.open = drm_open,
-		.release = drm_release,
-		.ioctl = drm_ioctl,
-		.mmap = drm_mmap,
-		.poll = drm_poll,
-		.fasync = drm_fasync,
-		},
+		 .owner = THIS_MODULE,
+		 .open = drm_open,
+		 .release = drm_release,
+		 .ioctl = drm_ioctl,
+		 .mmap = drm_mmap,
+		 .poll = drm_poll,
+		 .fasync = drm_fasync,
+	},
 	.pci_driver = {
-		.name = DRIVER_NAME,
-		.id_table = pciidlist,
+		 .name = DRIVER_NAME,
+		 .id_table = pciidlist,
 	},
 
 	.name = DRIVER_NAME,

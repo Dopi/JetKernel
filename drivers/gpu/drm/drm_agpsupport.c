@@ -36,8 +36,6 @@
 
 #if __OS_HAS_AGP
 
-#include <asm/agp.h>
-
 /**
  * Get AGP information.
  *
@@ -203,7 +201,7 @@ int drm_agp_alloc(struct drm_device *dev, struct drm_agp_buffer *request)
 
 	if (!dev->agp || !dev->agp->acquired)
 		return -EINVAL;
-	if (!(entry = kmalloc(sizeof(*entry), GFP_KERNEL)))
+	if (!(entry = drm_alloc(sizeof(*entry), DRM_MEM_AGPLISTS)))
 		return -ENOMEM;
 
 	memset(entry, 0, sizeof(*entry));
@@ -211,7 +209,7 @@ int drm_agp_alloc(struct drm_device *dev, struct drm_agp_buffer *request)
 	pages = (request->size + PAGE_SIZE - 1) / PAGE_SIZE;
 	type = (u32) request->type;
 	if (!(memory = drm_alloc_agp(dev, pages, type))) {
-		kfree(entry);
+		drm_free(entry, sizeof(*entry), DRM_MEM_AGPLISTS);
 		return -ENOMEM;
 	}
 
@@ -369,7 +367,7 @@ int drm_agp_free(struct drm_device *dev, struct drm_agp_buffer *request)
 	list_del(&entry->head);
 
 	drm_free_agp(entry->memory, entry->pages);
-	kfree(entry);
+	drm_free(entry, sizeof(*entry), DRM_MEM_AGPLISTS);
 	return 0;
 }
 EXPORT_SYMBOL(drm_agp_free);
@@ -397,13 +395,13 @@ struct drm_agp_head *drm_agp_init(struct drm_device *dev)
 {
 	struct drm_agp_head *head = NULL;
 
-	if (!(head = kmalloc(sizeof(*head), GFP_KERNEL)))
+	if (!(head = drm_alloc(sizeof(*head), DRM_MEM_AGPLISTS)))
 		return NULL;
 	memset((void *)head, 0, sizeof(*head));
 	head->bridge = agp_find_bridge(dev->pdev);
 	if (!head->bridge) {
 		if (!(head->bridge = agp_backend_acquire(dev->pdev))) {
-			kfree(head);
+			drm_free(head, sizeof(*head), DRM_MEM_AGPLISTS);
 			return NULL;
 		}
 		agp_copy_info(head->bridge, &head->agp_info);
@@ -412,7 +410,7 @@ struct drm_agp_head *drm_agp_init(struct drm_device *dev)
 		agp_copy_info(head->bridge, &head->agp_info);
 	}
 	if (head->agp_info.chipset == NOT_SUPPORTED) {
-		kfree(head);
+		drm_free(head, sizeof(*head), DRM_MEM_AGPLISTS);
 		return NULL;
 	}
 	INIT_LIST_HEAD(&head->memory);
@@ -454,53 +452,4 @@ int drm_agp_unbind_memory(DRM_AGP_MEM * handle)
 	return agp_unbind_memory(handle);
 }
 
-/**
- * Binds a collection of pages into AGP memory at the given offset, returning
- * the AGP memory structure containing them.
- *
- * No reference is held on the pages during this time -- it is up to the
- * caller to handle that.
- */
-DRM_AGP_MEM *
-drm_agp_bind_pages(struct drm_device *dev,
-		   struct page **pages,
-		   unsigned long num_pages,
-		   uint32_t gtt_offset,
-		   u32 type)
-{
-	DRM_AGP_MEM *mem;
-	int ret, i;
-
-	DRM_DEBUG("\n");
-
-	mem = drm_agp_allocate_memory(dev->agp->bridge, num_pages,
-				      type);
-	if (mem == NULL) {
-		DRM_ERROR("Failed to allocate memory for %ld pages\n",
-			  num_pages);
-		return NULL;
-	}
-
-	for (i = 0; i < num_pages; i++)
-		mem->pages[i] = pages[i];
-	mem->page_count = num_pages;
-
-	mem->is_flushed = true;
-	ret = drm_agp_bind_memory(mem, gtt_offset / PAGE_SIZE);
-	if (ret != 0) {
-		DRM_ERROR("Failed to bind AGP memory: %d\n", ret);
-		agp_free_memory(mem);
-		return NULL;
-	}
-
-	return mem;
-}
-EXPORT_SYMBOL(drm_agp_bind_pages);
-
-void drm_agp_chipset_flush(struct drm_device *dev)
-{
-	agp_flush_chipset(dev->agp->bridge);
-}
-EXPORT_SYMBOL(drm_agp_chipset_flush);
-
-#endif /* __OS_HAS_AGP */
+#endif				/* __OS_HAS_AGP */

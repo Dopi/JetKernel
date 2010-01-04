@@ -27,42 +27,226 @@
  *
  */
 
-#include <linux/device.h>
 #include "drmP.h"
 #include "drm.h"
 #include "i915_drm.h"
 #include "i915_drv.h"
 
 #include "drm_pciids.h"
-#include <linux/console.h>
-#include "drm_crtc_helper.h"
-
-static int i915_modeset = -1;
-module_param_named(modeset, i915_modeset, int, 0400);
-
-unsigned int i915_fbpercrtc = 0;
-module_param_named(fbpercrtc, i915_fbpercrtc, int, 0400);
-
-unsigned int i915_powersave = 1;
-module_param_named(powersave, i915_powersave, int, 0400);
-
-static struct drm_driver driver;
 
 static struct pci_device_id pciidlist[] = {
 	i915_PCI_IDS
 };
 
-#if defined(CONFIG_DRM_I915_KMS)
-MODULE_DEVICE_TABLE(pci, pciidlist);
-#endif
+enum pipe {
+    PIPE_A = 0,
+    PIPE_B,
+};
+
+static bool i915_pipe_enabled(struct drm_device *dev, enum pipe pipe)
+{
+	struct drm_i915_private *dev_priv = dev->dev_private;
+
+	if (pipe == PIPE_A)
+		return (I915_READ(DPLL_A) & DPLL_VCO_ENABLE);
+	else
+		return (I915_READ(DPLL_B) & DPLL_VCO_ENABLE);
+}
+
+static void i915_save_palette(struct drm_device *dev, enum pipe pipe)
+{
+	struct drm_i915_private *dev_priv = dev->dev_private;
+	unsigned long reg = (pipe == PIPE_A ? PALETTE_A : PALETTE_B);
+	u32 *array;
+	int i;
+
+	if (!i915_pipe_enabled(dev, pipe))
+		return;
+
+	if (pipe == PIPE_A)
+		array = dev_priv->save_palette_a;
+	else
+		array = dev_priv->save_palette_b;
+
+	for(i = 0; i < 256; i++)
+		array[i] = I915_READ(reg + (i << 2));
+}
+
+static void i915_restore_palette(struct drm_device *dev, enum pipe pipe)
+{
+	struct drm_i915_private *dev_priv = dev->dev_private;
+	unsigned long reg = (pipe == PIPE_A ? PALETTE_A : PALETTE_B);
+	u32 *array;
+	int i;
+
+	if (!i915_pipe_enabled(dev, pipe))
+		return;
+
+	if (pipe == PIPE_A)
+		array = dev_priv->save_palette_a;
+	else
+		array = dev_priv->save_palette_b;
+
+	for(i = 0; i < 256; i++)
+		I915_WRITE(reg + (i << 2), array[i]);
+}
+
+static u8 i915_read_indexed(u16 index_port, u16 data_port, u8 reg)
+{
+	outb(reg, index_port);
+	return inb(data_port);
+}
+
+static u8 i915_read_ar(u16 st01, u8 reg, u16 palette_enable)
+{
+	inb(st01);
+	outb(palette_enable | reg, VGA_AR_INDEX);
+	return inb(VGA_AR_DATA_READ);
+}
+
+static void i915_write_ar(u8 st01, u8 reg, u8 val, u16 palette_enable)
+{
+	inb(st01);
+	outb(palette_enable | reg, VGA_AR_INDEX);
+	outb(val, VGA_AR_DATA_WRITE);
+}
+
+static void i915_write_indexed(u16 index_port, u16 data_port, u8 reg, u8 val)
+{
+	outb(reg, index_port);
+	outb(val, data_port);
+}
+
+static void i915_save_vga(struct drm_device *dev)
+{
+	struct drm_i915_private *dev_priv = dev->dev_private;
+	int i;
+	u16 cr_index, cr_data, st01;
+
+	/* VGA color palette registers */
+	dev_priv->saveDACMASK = inb(VGA_DACMASK);
+	/* DACCRX automatically increments during read */
+	outb(0, VGA_DACRX);
+	/* Read 3 bytes of color data from each index */
+	for (i = 0; i < 256 * 3; i++)
+		dev_priv->saveDACDATA[i] = inb(VGA_DACDATA);
+
+	/* MSR bits */
+	dev_priv->saveMSR = inb(VGA_MSR_READ);
+	if (dev_priv->saveMSR & VGA_MSR_CGA_MODE) {
+		cr_index = VGA_CR_INDEX_CGA;
+		cr_data = VGA_CR_DATA_CGA;
+		st01 = VGA_ST01_CGA;
+	} else {
+		cr_index = VGA_CR_INDEX_MDA;
+		cr_data = VGA_CR_DATA_MDA;
+		st01 = VGA_ST01_MDA;
+	}
+
+	/* CRT controller regs */
+	i915_write_indexed(cr_index, cr_data, 0x11,
+			   i915_read_indexed(cr_index, cr_data, 0x11) &
+			   (~0x80));
+	for (i = 0; i <= 0x24; i++)
+		dev_priv->saveCR[i] =
+			i915_read_indexed(cr_index, cr_data, i);
+	/* Make sure we don't turn off CR group 0 writes */
+	dev_priv->saveCR[0x11] &= ~0x80;
+
+	/* Attribute controller registers */
+	inb(st01);
+	dev_priv->saveAR_INDEX = inb(VGA_AR_INDEX);
+	for (i = 0; i <= 0x14; i++)
+		dev_priv->saveAR[i] = i915_read_ar(st01, i, 0);
+	inb(st01);
+	outb(dev_priv->saveAR_INDEX, VGA_AR_INDEX);
+	inb(st01);
+
+	/* Graphics controller registers */
+	for (i = 0; i < 9; i++)
+		dev_priv->saveGR[i] =
+			i915_read_indexed(VGA_GR_INDEX, VGA_GR_DATA, i);
+
+	dev_priv->saveGR[0x10] =
+		i915_read_indexed(VGA_GR_INDEX, VGA_GR_DATA, 0x10);
+	dev_priv->saveGR[0x11] =
+		i915_read_indexed(VGA_GR_INDEX, VGA_GR_DATA, 0x11);
+	dev_priv->saveGR[0x18] =
+		i915_read_indexed(VGA_GR_INDEX, VGA_GR_DATA, 0x18);
+
+	/* Sequencer registers */
+	for (i = 0; i < 8; i++)
+		dev_priv->saveSR[i] =
+			i915_read_indexed(VGA_SR_INDEX, VGA_SR_DATA, i);
+}
+
+static void i915_restore_vga(struct drm_device *dev)
+{
+	struct drm_i915_private *dev_priv = dev->dev_private;
+	int i;
+	u16 cr_index, cr_data, st01;
+
+	/* MSR bits */
+	outb(dev_priv->saveMSR, VGA_MSR_WRITE);
+	if (dev_priv->saveMSR & VGA_MSR_CGA_MODE) {
+		cr_index = VGA_CR_INDEX_CGA;
+		cr_data = VGA_CR_DATA_CGA;
+		st01 = VGA_ST01_CGA;
+	} else {
+		cr_index = VGA_CR_INDEX_MDA;
+		cr_data = VGA_CR_DATA_MDA;
+		st01 = VGA_ST01_MDA;
+	}
+
+	/* Sequencer registers, don't write SR07 */
+	for (i = 0; i < 7; i++)
+		i915_write_indexed(VGA_SR_INDEX, VGA_SR_DATA, i,
+				   dev_priv->saveSR[i]);
+
+	/* CRT controller regs */
+	/* Enable CR group 0 writes */
+	i915_write_indexed(cr_index, cr_data, 0x11, dev_priv->saveCR[0x11]);
+	for (i = 0; i <= 0x24; i++)
+		i915_write_indexed(cr_index, cr_data, i, dev_priv->saveCR[i]);
+
+	/* Graphics controller regs */
+	for (i = 0; i < 9; i++)
+		i915_write_indexed(VGA_GR_INDEX, VGA_GR_DATA, i,
+				   dev_priv->saveGR[i]);
+
+	i915_write_indexed(VGA_GR_INDEX, VGA_GR_DATA, 0x10,
+			   dev_priv->saveGR[0x10]);
+	i915_write_indexed(VGA_GR_INDEX, VGA_GR_DATA, 0x11,
+			   dev_priv->saveGR[0x11]);
+	i915_write_indexed(VGA_GR_INDEX, VGA_GR_DATA, 0x18,
+			   dev_priv->saveGR[0x18]);
+
+	/* Attribute controller registers */
+	inb(st01);
+	for (i = 0; i <= 0x14; i++)
+		i915_write_ar(st01, i, dev_priv->saveAR[i], 0);
+	inb(st01); /* switch back to index mode */
+	outb(dev_priv->saveAR_INDEX | 0x20, VGA_AR_INDEX);
+	inb(st01);
+
+	/* VGA color palette registers */
+	outb(dev_priv->saveDACMASK, VGA_DACMASK);
+	/* DACCRX automatically increments during read */
+	outb(0, VGA_DACWX);
+	/* Read 3 bytes of color data from each index */
+	for (i = 0; i < 256 * 3; i++)
+		outb(dev_priv->saveDACDATA[i], VGA_DACDATA);
+
+}
 
 static int i915_suspend(struct drm_device *dev, pm_message_t state)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
+	int i;
 
 	if (!dev || !dev_priv) {
-		DRM_ERROR("dev: %p, dev_priv: %p\n", dev, dev_priv);
-		DRM_ERROR("DRM not initialized, aborting suspend.\n");
+		printk(KERN_ERR "dev: %p, dev_priv: %p\n", dev, dev_priv);
+		printk(KERN_ERR "DRM not initialized, aborting suspend.\n");
 		return -ENODEV;
 	}
 
@@ -70,18 +254,122 @@ static int i915_suspend(struct drm_device *dev, pm_message_t state)
 		return 0;
 
 	pci_save_state(dev->pdev);
+	pci_read_config_byte(dev->pdev, LBB, &dev_priv->saveLBB);
 
-	/* If KMS is active, we do the leavevt stuff here */
-	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
-		if (i915_gem_idle(dev))
-			dev_err(&dev->pdev->dev,
-				"GEM idle failed, resume may fail\n");
-		drm_irq_uninstall(dev);
+	/* Display arbitration control */
+	dev_priv->saveDSPARB = I915_READ(DSPARB);
+
+	/* Pipe & plane A info */
+	dev_priv->savePIPEACONF = I915_READ(PIPEACONF);
+	dev_priv->savePIPEASRC = I915_READ(PIPEASRC);
+	dev_priv->saveFPA0 = I915_READ(FPA0);
+	dev_priv->saveFPA1 = I915_READ(FPA1);
+	dev_priv->saveDPLL_A = I915_READ(DPLL_A);
+	if (IS_I965G(dev))
+		dev_priv->saveDPLL_A_MD = I915_READ(DPLL_A_MD);
+	dev_priv->saveHTOTAL_A = I915_READ(HTOTAL_A);
+	dev_priv->saveHBLANK_A = I915_READ(HBLANK_A);
+	dev_priv->saveHSYNC_A = I915_READ(HSYNC_A);
+	dev_priv->saveVTOTAL_A = I915_READ(VTOTAL_A);
+	dev_priv->saveVBLANK_A = I915_READ(VBLANK_A);
+	dev_priv->saveVSYNC_A = I915_READ(VSYNC_A);
+	dev_priv->saveBCLRPAT_A = I915_READ(BCLRPAT_A);
+
+	dev_priv->saveDSPACNTR = I915_READ(DSPACNTR);
+	dev_priv->saveDSPASTRIDE = I915_READ(DSPASTRIDE);
+	dev_priv->saveDSPASIZE = I915_READ(DSPASIZE);
+	dev_priv->saveDSPAPOS = I915_READ(DSPAPOS);
+	dev_priv->saveDSPABASE = I915_READ(DSPABASE);
+	if (IS_I965G(dev)) {
+		dev_priv->saveDSPASURF = I915_READ(DSPASURF);
+		dev_priv->saveDSPATILEOFF = I915_READ(DSPATILEOFF);
 	}
+	i915_save_palette(dev, PIPE_A);
+	dev_priv->savePIPEASTAT = I915_READ(I915REG_PIPEASTAT);
 
-	i915_save_state(dev);
+	/* Pipe & plane B info */
+	dev_priv->savePIPEBCONF = I915_READ(PIPEBCONF);
+	dev_priv->savePIPEBSRC = I915_READ(PIPEBSRC);
+	dev_priv->saveFPB0 = I915_READ(FPB0);
+	dev_priv->saveFPB1 = I915_READ(FPB1);
+	dev_priv->saveDPLL_B = I915_READ(DPLL_B);
+	if (IS_I965G(dev))
+		dev_priv->saveDPLL_B_MD = I915_READ(DPLL_B_MD);
+	dev_priv->saveHTOTAL_B = I915_READ(HTOTAL_B);
+	dev_priv->saveHBLANK_B = I915_READ(HBLANK_B);
+	dev_priv->saveHSYNC_B = I915_READ(HSYNC_B);
+	dev_priv->saveVTOTAL_B = I915_READ(VTOTAL_B);
+	dev_priv->saveVBLANK_B = I915_READ(VBLANK_B);
+	dev_priv->saveVSYNC_B = I915_READ(VSYNC_B);
+	dev_priv->saveBCLRPAT_A = I915_READ(BCLRPAT_A);
 
-	intel_opregion_free(dev, 1);
+	dev_priv->saveDSPBCNTR = I915_READ(DSPBCNTR);
+	dev_priv->saveDSPBSTRIDE = I915_READ(DSPBSTRIDE);
+	dev_priv->saveDSPBSIZE = I915_READ(DSPBSIZE);
+	dev_priv->saveDSPBPOS = I915_READ(DSPBPOS);
+	dev_priv->saveDSPBBASE = I915_READ(DSPBBASE);
+	if (IS_I965GM(dev) || IS_IGD_GM(dev)) {
+		dev_priv->saveDSPBSURF = I915_READ(DSPBSURF);
+		dev_priv->saveDSPBTILEOFF = I915_READ(DSPBTILEOFF);
+	}
+	i915_save_palette(dev, PIPE_B);
+	dev_priv->savePIPEBSTAT = I915_READ(I915REG_PIPEBSTAT);
+
+	/* CRT state */
+	dev_priv->saveADPA = I915_READ(ADPA);
+
+	/* LVDS state */
+	dev_priv->savePP_CONTROL = I915_READ(PP_CONTROL);
+	dev_priv->savePFIT_PGM_RATIOS = I915_READ(PFIT_PGM_RATIOS);
+	dev_priv->saveBLC_PWM_CTL = I915_READ(BLC_PWM_CTL);
+	if (IS_I965G(dev))
+		dev_priv->saveBLC_PWM_CTL2 = I915_READ(BLC_PWM_CTL2);
+	if (IS_MOBILE(dev) && !IS_I830(dev))
+		dev_priv->saveLVDS = I915_READ(LVDS);
+	if (!IS_I830(dev) && !IS_845G(dev))
+		dev_priv->savePFIT_CONTROL = I915_READ(PFIT_CONTROL);
+	dev_priv->saveLVDSPP_ON = I915_READ(LVDSPP_ON);
+	dev_priv->saveLVDSPP_OFF = I915_READ(LVDSPP_OFF);
+	dev_priv->savePP_CYCLE = I915_READ(PP_CYCLE);
+
+	/* FIXME: save TV & SDVO state */
+
+	/* FBC state */
+	dev_priv->saveFBC_CFB_BASE = I915_READ(FBC_CFB_BASE);
+	dev_priv->saveFBC_LL_BASE = I915_READ(FBC_LL_BASE);
+	dev_priv->saveFBC_CONTROL2 = I915_READ(FBC_CONTROL2);
+	dev_priv->saveFBC_CONTROL = I915_READ(FBC_CONTROL);
+
+	/* Interrupt state */
+	dev_priv->saveIIR = I915_READ(I915REG_INT_IDENTITY_R);
+	dev_priv->saveIER = I915_READ(I915REG_INT_ENABLE_R);
+	dev_priv->saveIMR = I915_READ(I915REG_INT_MASK_R);
+
+	/* VGA state */
+	dev_priv->saveVCLK_DIVISOR_VGA0 = I915_READ(VCLK_DIVISOR_VGA0);
+	dev_priv->saveVCLK_DIVISOR_VGA1 = I915_READ(VCLK_DIVISOR_VGA1);
+	dev_priv->saveVCLK_POST_DIV = I915_READ(VCLK_POST_DIV);
+	dev_priv->saveVGACNTRL = I915_READ(VGACNTRL);
+
+	/* Clock gating state */
+	dev_priv->saveD_STATE = I915_READ(D_STATE);
+	dev_priv->saveDSPCLK_GATE_D = I915_READ(DSPCLK_GATE_D);
+
+	/* Cache mode state */
+	dev_priv->saveCACHE_MODE_0 = I915_READ(CACHE_MODE_0);
+
+	/* Memory Arbitration state */
+	dev_priv->saveMI_ARB_STATE = I915_READ(MI_ARB_STATE);
+
+	/* Scratch space */
+	for (i = 0; i < 16; i++) {
+		dev_priv->saveSWF0[i] = I915_READ(SWF0 + (i << 2));
+		dev_priv->saveSWF1[i] = I915_READ(SWF10 + (i << 2));
+	}
+	for (i = 0; i < 3; i++)
+		dev_priv->saveSWF2[i] = I915_READ(SWF30 + (i << 2));
+
+	i915_save_vga(dev);
 
 	if (state.event == PM_EVENT_SUSPEND) {
 		/* Shut down the device */
@@ -89,206 +377,163 @@ static int i915_suspend(struct drm_device *dev, pm_message_t state)
 		pci_set_power_state(dev->pdev, PCI_D3hot);
 	}
 
-	/* Modeset on resume, not lid events */
-	dev_priv->modeset_on_lid = 0;
-
 	return 0;
 }
 
 static int i915_resume(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
-	int ret = 0;
+	int i;
 
+	pci_set_power_state(dev->pdev, PCI_D0);
+	pci_restore_state(dev->pdev);
 	if (pci_enable_device(dev->pdev))
 		return -1;
 	pci_set_master(dev->pdev);
 
-	i915_restore_state(dev);
+	pci_write_config_byte(dev->pdev, LBB, dev_priv->saveLBB);
 
-	intel_opregion_init(dev, 1);
+	I915_WRITE(DSPARB, dev_priv->saveDSPARB);
 
-	/* KMS EnterVT equivalent */
-	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
-		mutex_lock(&dev->struct_mutex);
-		dev_priv->mm.suspended = 0;
-
-		ret = i915_gem_init_ringbuffer(dev);
-		if (ret != 0)
-			ret = -1;
-		mutex_unlock(&dev->struct_mutex);
-
-		drm_irq_install(dev);
+	/* Pipe & plane A info */
+	/* Prime the clock */
+	if (dev_priv->saveDPLL_A & DPLL_VCO_ENABLE) {
+		I915_WRITE(DPLL_A, dev_priv->saveDPLL_A &
+			   ~DPLL_VCO_ENABLE);
+		udelay(150);
 	}
-	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
-		/* Resume the modeset for every activated CRTC */
-		drm_helper_resume_force_mode(dev);
-	}
+	I915_WRITE(FPA0, dev_priv->saveFPA0);
+	I915_WRITE(FPA1, dev_priv->saveFPA1);
+	/* Actually enable it */
+	I915_WRITE(DPLL_A, dev_priv->saveDPLL_A);
+	udelay(150);
+	if (IS_I965G(dev))
+		I915_WRITE(DPLL_A_MD, dev_priv->saveDPLL_A_MD);
+	udelay(150);
 
-	dev_priv->modeset_on_lid = 0;
+	/* Restore mode */
+	I915_WRITE(HTOTAL_A, dev_priv->saveHTOTAL_A);
+	I915_WRITE(HBLANK_A, dev_priv->saveHBLANK_A);
+	I915_WRITE(HSYNC_A, dev_priv->saveHSYNC_A);
+	I915_WRITE(VTOTAL_A, dev_priv->saveVTOTAL_A);
+	I915_WRITE(VBLANK_A, dev_priv->saveVBLANK_A);
+	I915_WRITE(VSYNC_A, dev_priv->saveVSYNC_A);
+	I915_WRITE(BCLRPAT_A, dev_priv->saveBCLRPAT_A);
 
-	return ret;
-}
-
-/**
- * i965_reset - reset chip after a hang
- * @dev: drm device to reset
- * @flags: reset domains
- *
- * Reset the chip.  Useful if a hang is detected. Returns zero on successful
- * reset or otherwise an error code.
- *
- * Procedure is fairly simple:
- *   - reset the chip using the reset reg
- *   - re-init context state
- *   - re-init hardware status page
- *   - re-init ring buffer
- *   - re-init interrupt state
- *   - re-init display
- */
-int i965_reset(struct drm_device *dev, u8 flags)
-{
-	drm_i915_private_t *dev_priv = dev->dev_private;
-	unsigned long timeout;
-	u8 gdrst;
-	/*
-	 * We really should only reset the display subsystem if we actually
-	 * need to
-	 */
-	bool need_display = true;
-
-	mutex_lock(&dev->struct_mutex);
-
-	/*
-	 * Clear request list
-	 */
-	i915_gem_retire_requests(dev);
-
-	if (need_display)
-		i915_save_display(dev);
-
-	if (IS_I965G(dev) || IS_G4X(dev)) {
-		/*
-		 * Set the domains we want to reset, then the reset bit (bit 0).
-		 * Clear the reset bit after a while and wait for hardware status
-		 * bit (bit 1) to be set
-		 */
-		pci_read_config_byte(dev->pdev, GDRST, &gdrst);
-		pci_write_config_byte(dev->pdev, GDRST, gdrst | flags | ((flags == GDRST_FULL) ? 0x1 : 0x0));
-		udelay(50);
-		pci_write_config_byte(dev->pdev, GDRST, gdrst & 0xfe);
-
-		/* ...we don't want to loop forever though, 500ms should be plenty */
-	       timeout = jiffies + msecs_to_jiffies(500);
-		do {
-			udelay(100);
-			pci_read_config_byte(dev->pdev, GDRST, &gdrst);
-		} while ((gdrst & 0x1) && time_after(timeout, jiffies));
-
-		if (gdrst & 0x1) {
-			WARN(true, "i915: Failed to reset chip\n");
-			mutex_unlock(&dev->struct_mutex);
-			return -EIO;
-		}
-	} else {
-		DRM_ERROR("Error occurred. Don't know how to reset this chip.\n");
-		return -ENODEV;
+	/* Restore plane info */
+	I915_WRITE(DSPASIZE, dev_priv->saveDSPASIZE);
+	I915_WRITE(DSPAPOS, dev_priv->saveDSPAPOS);
+	I915_WRITE(PIPEASRC, dev_priv->savePIPEASRC);
+	I915_WRITE(DSPABASE, dev_priv->saveDSPABASE);
+	I915_WRITE(DSPASTRIDE, dev_priv->saveDSPASTRIDE);
+	if (IS_I965G(dev)) {
+		I915_WRITE(DSPASURF, dev_priv->saveDSPASURF);
+		I915_WRITE(DSPATILEOFF, dev_priv->saveDSPATILEOFF);
 	}
 
-	/* Ok, now get things going again... */
+	I915_WRITE(PIPEACONF, dev_priv->savePIPEACONF);
 
-	/*
-	 * Everything depends on having the GTT running, so we need to start
-	 * there.  Fortunately we don't need to do this unless we reset the
-	 * chip at a PCI level.
-	 *
-	 * Next we need to restore the context, but we don't use those
-	 * yet either...
-	 *
-	 * Ring buffer needs to be re-initialized in the KMS case, or if X
-	 * was running at the time of the reset (i.e. we weren't VT
-	 * switched away).
-	 */
-	if (drm_core_check_feature(dev, DRIVER_MODESET) ||
-	    !dev_priv->mm.suspended) {
-		drm_i915_ring_buffer_t *ring = &dev_priv->ring;
-		struct drm_gem_object *obj = ring->ring_obj;
-		struct drm_i915_gem_object *obj_priv = obj->driver_private;
-		dev_priv->mm.suspended = 0;
+	i915_restore_palette(dev, PIPE_A);
+	/* Enable the plane */
+	I915_WRITE(DSPACNTR, dev_priv->saveDSPACNTR);
+	I915_WRITE(DSPABASE, I915_READ(DSPABASE));
 
-		/* Stop the ring if it's running. */
-		I915_WRITE(PRB0_CTL, 0);
-		I915_WRITE(PRB0_TAIL, 0);
-		I915_WRITE(PRB0_HEAD, 0);
+	/* Pipe & plane B info */
+	if (dev_priv->saveDPLL_B & DPLL_VCO_ENABLE) {
+		I915_WRITE(DPLL_B, dev_priv->saveDPLL_B &
+			   ~DPLL_VCO_ENABLE);
+		udelay(150);
+	}
+	I915_WRITE(FPB0, dev_priv->saveFPB0);
+	I915_WRITE(FPB1, dev_priv->saveFPB1);
+	/* Actually enable it */
+	I915_WRITE(DPLL_B, dev_priv->saveDPLL_B);
+	udelay(150);
+	if (IS_I965G(dev))
+		I915_WRITE(DPLL_B_MD, dev_priv->saveDPLL_B_MD);
+	udelay(150);
 
-		/* Initialize the ring. */
-		I915_WRITE(PRB0_START, obj_priv->gtt_offset);
-		I915_WRITE(PRB0_CTL,
-			   ((obj->size - 4096) & RING_NR_PAGES) |
-			   RING_NO_REPORT |
-			   RING_VALID);
-		if (!drm_core_check_feature(dev, DRIVER_MODESET))
-			i915_kernel_lost_context(dev);
-		else {
-			ring->head = I915_READ(PRB0_HEAD) & HEAD_ADDR;
-			ring->tail = I915_READ(PRB0_TAIL) & TAIL_ADDR;
-			ring->space = ring->head - (ring->tail + 8);
-			if (ring->space < 0)
-				ring->space += ring->Size;
-		}
+	/* Restore mode */
+	I915_WRITE(HTOTAL_B, dev_priv->saveHTOTAL_B);
+	I915_WRITE(HBLANK_B, dev_priv->saveHBLANK_B);
+	I915_WRITE(HSYNC_B, dev_priv->saveHSYNC_B);
+	I915_WRITE(VTOTAL_B, dev_priv->saveVTOTAL_B);
+	I915_WRITE(VBLANK_B, dev_priv->saveVBLANK_B);
+	I915_WRITE(VSYNC_B, dev_priv->saveVSYNC_B);
+	I915_WRITE(BCLRPAT_B, dev_priv->saveBCLRPAT_B);
 
-		mutex_unlock(&dev->struct_mutex);
-		drm_irq_uninstall(dev);
-		drm_irq_install(dev);
-		mutex_lock(&dev->struct_mutex);
+	/* Restore plane info */
+	I915_WRITE(DSPBSIZE, dev_priv->saveDSPBSIZE);
+	I915_WRITE(DSPBPOS, dev_priv->saveDSPBPOS);
+	I915_WRITE(PIPEBSRC, dev_priv->savePIPEBSRC);
+	I915_WRITE(DSPBBASE, dev_priv->saveDSPBBASE);
+	I915_WRITE(DSPBSTRIDE, dev_priv->saveDSPBSTRIDE);
+	if (IS_I965G(dev)) {
+		I915_WRITE(DSPBSURF, dev_priv->saveDSPBSURF);
+		I915_WRITE(DSPBTILEOFF, dev_priv->saveDSPBTILEOFF);
 	}
 
-	/*
-	 * Display needs restore too...
-	 */
-	if (need_display)
-		i915_restore_display(dev);
+	I915_WRITE(PIPEBCONF, dev_priv->savePIPEBCONF);
 
-	mutex_unlock(&dev->struct_mutex);
+	i915_restore_palette(dev, PIPE_B);
+	/* Enable the plane */
+	I915_WRITE(DSPBCNTR, dev_priv->saveDSPBCNTR);
+	I915_WRITE(DSPBBASE, I915_READ(DSPBBASE));
+
+	/* CRT state */
+	I915_WRITE(ADPA, dev_priv->saveADPA);
+
+	/* LVDS state */
+	if (IS_I965G(dev))
+		I915_WRITE(BLC_PWM_CTL2, dev_priv->saveBLC_PWM_CTL2);
+	if (IS_MOBILE(dev) && !IS_I830(dev))
+		I915_WRITE(LVDS, dev_priv->saveLVDS);
+	if (!IS_I830(dev) && !IS_845G(dev))
+		I915_WRITE(PFIT_CONTROL, dev_priv->savePFIT_CONTROL);
+
+	I915_WRITE(PFIT_PGM_RATIOS, dev_priv->savePFIT_PGM_RATIOS);
+	I915_WRITE(BLC_PWM_CTL, dev_priv->saveBLC_PWM_CTL);
+	I915_WRITE(LVDSPP_ON, dev_priv->saveLVDSPP_ON);
+	I915_WRITE(LVDSPP_OFF, dev_priv->saveLVDSPP_OFF);
+	I915_WRITE(PP_CYCLE, dev_priv->savePP_CYCLE);
+	I915_WRITE(PP_CONTROL, dev_priv->savePP_CONTROL);
+
+	/* FIXME: restore TV & SDVO state */
+
+	/* FBC info */
+	I915_WRITE(FBC_CFB_BASE, dev_priv->saveFBC_CFB_BASE);
+	I915_WRITE(FBC_LL_BASE, dev_priv->saveFBC_LL_BASE);
+	I915_WRITE(FBC_CONTROL2, dev_priv->saveFBC_CONTROL2);
+	I915_WRITE(FBC_CONTROL, dev_priv->saveFBC_CONTROL);
+
+	/* VGA state */
+	I915_WRITE(VGACNTRL, dev_priv->saveVGACNTRL);
+	I915_WRITE(VCLK_DIVISOR_VGA0, dev_priv->saveVCLK_DIVISOR_VGA0);
+	I915_WRITE(VCLK_DIVISOR_VGA1, dev_priv->saveVCLK_DIVISOR_VGA1);
+	I915_WRITE(VCLK_POST_DIV, dev_priv->saveVCLK_POST_DIV);
+	udelay(150);
+
+	/* Clock gating state */
+	I915_WRITE (D_STATE, dev_priv->saveD_STATE);
+	I915_WRITE (DSPCLK_GATE_D, dev_priv->saveDSPCLK_GATE_D);
+
+	/* Cache mode state */
+	I915_WRITE (CACHE_MODE_0, dev_priv->saveCACHE_MODE_0 | 0xffff0000);
+
+	/* Memory arbitration state */
+	I915_WRITE (MI_ARB_STATE, dev_priv->saveMI_ARB_STATE | 0xffff0000);
+
+	for (i = 0; i < 16; i++) {
+		I915_WRITE(SWF0 + (i << 2), dev_priv->saveSWF0[i]);
+		I915_WRITE(SWF10 + (i << 2), dev_priv->saveSWF1[i+7]);
+	}
+	for (i = 0; i < 3; i++)
+		I915_WRITE(SWF30 + (i << 2), dev_priv->saveSWF2[i]);
+
+	i915_restore_vga(dev);
+
 	return 0;
 }
-
-
-static int __devinit
-i915_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
-{
-	return drm_get_dev(pdev, ent, &driver);
-}
-
-static void
-i915_pci_remove(struct pci_dev *pdev)
-{
-	struct drm_device *dev = pci_get_drvdata(pdev);
-
-	drm_put_dev(dev);
-}
-
-static int
-i915_pci_suspend(struct pci_dev *pdev, pm_message_t state)
-{
-	struct drm_device *dev = pci_get_drvdata(pdev);
-
-	return i915_suspend(dev, state);
-}
-
-static int
-i915_pci_resume(struct pci_dev *pdev)
-{
-	struct drm_device *dev = pci_get_drvdata(pdev);
-
-	return i915_resume(dev);
-}
-
-static struct vm_operations_struct i915_gem_vm_ops = {
-	.fault = i915_gem_fault,
-	.open = drm_gem_vm_open,
-	.close = drm_gem_vm_close,
-};
 
 static struct drm_driver driver = {
 	/* don't use mtrr's here, the Xserver or user space app should
@@ -296,18 +541,17 @@ static struct drm_driver driver = {
 	 */
 	.driver_features =
 	    DRIVER_USE_AGP | DRIVER_REQUIRE_AGP | /* DRIVER_USE_MTRR |*/
-	    DRIVER_HAVE_IRQ | DRIVER_IRQ_SHARED | DRIVER_GEM,
+	    DRIVER_HAVE_IRQ | DRIVER_IRQ_SHARED | DRIVER_IRQ_VBL |
+	    DRIVER_IRQ_VBL2,
 	.load = i915_driver_load,
 	.unload = i915_driver_unload,
-	.open = i915_driver_open,
 	.lastclose = i915_driver_lastclose,
 	.preclose = i915_driver_preclose,
-	.postclose = i915_driver_postclose,
 	.suspend = i915_suspend,
 	.resume = i915_resume,
 	.device_is_agp = i915_driver_device_is_agp,
-	.enable_vblank = i915_enable_vblank,
-	.disable_vblank = i915_disable_vblank,
+	.vblank_wait = i915_driver_vblank_wait,
+	.vblank_wait2 = i915_driver_vblank_wait2,
 	.irq_preinstall = i915_driver_irq_preinstall,
 	.irq_postinstall = i915_driver_irq_postinstall,
 	.irq_uninstall = i915_driver_irq_uninstall,
@@ -315,25 +559,15 @@ static struct drm_driver driver = {
 	.reclaim_buffers = drm_core_reclaim_buffers,
 	.get_map_ofs = drm_core_get_map_ofs,
 	.get_reg_ofs = drm_core_get_reg_ofs,
-	.master_create = i915_master_create,
-	.master_destroy = i915_master_destroy,
-#if defined(CONFIG_DEBUG_FS)
-	.debugfs_init = i915_debugfs_init,
-	.debugfs_cleanup = i915_debugfs_cleanup,
-#endif
-	.gem_init_object = i915_gem_init_object,
-	.gem_free_object = i915_gem_free_object,
-	.gem_vm_ops = &i915_gem_vm_ops,
 	.ioctls = i915_ioctls,
 	.fops = {
 		 .owner = THIS_MODULE,
 		 .open = drm_open,
 		 .release = drm_release,
 		 .ioctl = drm_ioctl,
-		 .mmap = drm_gem_mmap,
+		 .mmap = drm_mmap,
 		 .poll = drm_poll,
 		 .fasync = drm_fasync,
-		 .read = drm_read,
 #ifdef CONFIG_COMPAT
 		 .compat_ioctl = i915_compat_ioctl,
 #endif
@@ -342,12 +576,6 @@ static struct drm_driver driver = {
 	.pci_driver = {
 		 .name = DRIVER_NAME,
 		 .id_table = pciidlist,
-		 .probe = i915_pci_probe,
-		 .remove = i915_pci_remove,
-#ifdef CONFIG_PM
-		 .resume = i915_pci_resume,
-		 .suspend = i915_pci_suspend,
-#endif
 	},
 
 	.name = DRIVER_NAME,
@@ -361,36 +589,11 @@ static struct drm_driver driver = {
 static int __init i915_init(void)
 {
 	driver.num_ioctls = i915_max_ioctl;
-
-	i915_gem_shrinker_init();
-
-	/*
-	 * If CONFIG_DRM_I915_KMS is set, default to KMS unless
-	 * explicitly disabled with the module pararmeter.
-	 *
-	 * Otherwise, just follow the parameter (defaulting to off).
-	 *
-	 * Allow optional vga_text_mode_force boot option to override
-	 * the default behavior.
-	 */
-#if defined(CONFIG_DRM_I915_KMS)
-	if (i915_modeset != 0)
-		driver.driver_features |= DRIVER_MODESET;
-#endif
-	if (i915_modeset == 1)
-		driver.driver_features |= DRIVER_MODESET;
-
-#ifdef CONFIG_VGA_CONSOLE
-	if (vgacon_text_force() && i915_modeset == -1)
-		driver.driver_features &= ~DRIVER_MODESET;
-#endif
-
 	return drm_init(&driver);
 }
 
 static void __exit i915_exit(void)
 {
-	i915_gem_shrinker_exit();
 	drm_exit(&driver);
 }
 

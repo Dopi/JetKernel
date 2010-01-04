@@ -37,8 +37,6 @@
 #include "radeon_drv.h"
 #include "r300_reg.h"
 
-#include <asm/unaligned.h>
-
 #define R300_SIMULTANEOUS_CLIPRECTS		4
 
 /* Values for R300_RE_CLIPRECT_CNTL depending on the number of cliprects
@@ -207,10 +205,6 @@ void r300_init_reg_flags(struct drm_device *dev)
 	ADD_RANGE(0x42C0, 2);
 	ADD_RANGE(R300_RS_CNTL_0, 2);
 
-	ADD_RANGE(R300_SU_REG_DEST, 1);
-	if ((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_RV530)
-		ADD_RANGE(RV530_FG_ZBREG_DEST, 1);
-
 	ADD_RANGE(R300_SC_HYPERZ, 2);
 	ADD_RANGE(0x43E8, 1);
 
@@ -236,7 +230,6 @@ void r300_init_reg_flags(struct drm_device *dev)
 	ADD_RANGE(R300_ZB_DEPTHPITCH, 1);
 	ADD_RANGE(R300_ZB_DEPTHCLEARVALUE, 1);
 	ADD_RANGE(R300_ZB_ZMASK_OFFSET, 13);
-	ADD_RANGE(R300_ZB_ZPASS_DATA, 2); /* ZB_ZPASS_DATA, ZB_ZPASS_ADDR */
 
 	ADD_RANGE(R300_TX_FILTER_0, 16);
 	ADD_RANGE(R300_TX_FILTER1_0, 16);
@@ -867,12 +860,12 @@ static __inline__ void r300_pacify(drm_radeon_private_t *dev_priv)
  * The actual age emit is done by r300_do_cp_cmdbuf, which is why you must
  * be careful about how this function is called.
  */
-static void r300_discard_buffer(struct drm_device *dev, struct drm_master *master, struct drm_buf *buf)
+static void r300_discard_buffer(struct drm_device * dev, struct drm_buf * buf)
 {
+	drm_radeon_private_t *dev_priv = dev->dev_private;
 	drm_radeon_buf_priv_t *buf_priv = buf->dev_private;
-	struct drm_radeon_master_private *master_priv = master->driver_priv;
 
-	buf_priv->age = ++master_priv->sarea_priv->last_dispatch;
+	buf_priv->age = ++dev_priv->sarea_priv->last_dispatch;
 	buf->pending = 1;
 	buf->used = 0;
 }
@@ -924,7 +917,6 @@ static int r300_scratch(drm_radeon_private_t *dev_priv,
 {
 	u32 *ref_age_base;
 	u32 i, buf_idx, h_pending;
-	u64 ptr_addr;
 	RING_LOCALS;
 
 	if (cmdbuf->bufsz <
@@ -938,8 +930,7 @@ static int r300_scratch(drm_radeon_private_t *dev_priv,
 
 	dev_priv->scratch_ages[header.scratch.reg]++;
 
-	ptr_addr = get_unaligned((u64 *)cmdbuf->buf);
-	ref_age_base = (u32 *)(unsigned long)ptr_addr;
+	ref_age_base =  (u32 *)(unsigned long)*((uint64_t *)cmdbuf->buf);
 
 	cmdbuf->buf += sizeof(u64);
 	cmdbuf->bufsz -= sizeof(u64);
@@ -1036,7 +1027,6 @@ int r300_do_cp_cmdbuf(struct drm_device *dev,
 		      drm_radeon_kcmd_buffer_t *cmdbuf)
 {
 	drm_radeon_private_t *dev_priv = dev->dev_private;
-	struct drm_radeon_master_private *master_priv = file_priv->master->driver_priv;
 	struct drm_device_dma *dma = dev->dma;
 	struct drm_buf *buf = NULL;
 	int emit_dispatch_age = 0;
@@ -1144,7 +1134,7 @@ int r300_do_cp_cmdbuf(struct drm_device *dev,
 			}
 
 			emit_dispatch_age = 1;
-			r300_discard_buffer(dev, file_priv->master, buf);
+			r300_discard_buffer(dev, buf);
 			break;
 
 		case R300_CMD_WAIT:
@@ -1199,7 +1189,7 @@ int r300_do_cp_cmdbuf(struct drm_device *dev,
 
 		/* Emit the vertex buffer age */
 		BEGIN_RING(2);
-		RADEON_DISPATCH_AGE(master_priv->sarea_priv->last_dispatch);
+		RADEON_DISPATCH_AGE(dev_priv->sarea_priv->last_dispatch);
 		ADVANCE_RING();
 	}
 

@@ -40,7 +40,7 @@ static int sis_driver_load(struct drm_device *dev, unsigned long chipset)
 	drm_sis_private_t *dev_priv;
 	int ret;
 
-	dev_priv = kzalloc(sizeof(drm_sis_private_t), GFP_KERNEL);
+	dev_priv = drm_calloc(1, sizeof(drm_sis_private_t), DRM_MEM_DRIVER);
 	if (dev_priv == NULL)
 		return -ENOMEM;
 
@@ -48,7 +48,7 @@ static int sis_driver_load(struct drm_device *dev, unsigned long chipset)
 	dev_priv->chipset = chipset;
 	ret = drm_sman_init(&dev_priv->sman, 2, 12, 8);
 	if (ret) {
-		kfree(dev_priv);
+		drm_free(dev_priv, sizeof(dev_priv), DRM_MEM_DRIVER);
 	}
 
 	return ret;
@@ -59,7 +59,7 @@ static int sis_driver_unload(struct drm_device *dev)
 	drm_sis_private_t *dev_priv = dev->dev_private;
 
 	drm_sman_takedown(&dev_priv->sman);
-	kfree(dev_priv);
+	drm_free(dev_priv, sizeof(*dev_priv), DRM_MEM_DRIVER);
 
 	return 0;
 }

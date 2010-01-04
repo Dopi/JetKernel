@@ -36,6 +36,15 @@
 #include <linux/highmem.h>
 #include "drmP.h"
 
+#ifdef DEBUG_MEMORY
+#include "drm_memory_debug.h"
+#else
+
+/** No-op. */
+void drm_mem_init(void)
+{
+}
+
 /**
  * Called when "/proc/dri/%dev%/mem" is read.
  *
@@ -55,15 +64,28 @@ int drm_mem_info(char *buf, char **start, off_t offset,
 	return 0;
 }
 
+/** Wrapper around kmalloc() and kfree() */
+void *drm_realloc(void *oldpt, size_t oldsize, size_t size, int area)
+{
+	void *pt;
+
+	if (!(pt = kmalloc(size, GFP_KERNEL)))
+		return NULL;
+	if (oldpt && oldsize) {
+		memcpy(pt, oldpt, oldsize);
+		kfree(oldpt);
+	}
+	return pt;
+}
+
 #if __OS_HAS_AGP
 static void *agp_remap(unsigned long offset, unsigned long size,
 		       struct drm_device * dev)
 {
-	unsigned long i, num_pages =
+	unsigned long *phys_addr_map, i, num_pages =
 	    PAGE_ALIGN(size) / PAGE_SIZE;
 	struct drm_agp_mem *agpmem;
 	struct page **page_map;
-	struct page **phys_page_map;
 	void *addr;
 
 	size = PAGE_ALIGN(size);
@@ -90,9 +112,10 @@ static void *agp_remap(unsigned long offset, unsigned long size,
 	if (!page_map)
 		return NULL;
 
-	phys_page_map = (agpmem->memory->pages + (offset - agpmem->bound) / PAGE_SIZE);
+	phys_addr_map =
+	    agpmem->memory->memory + (offset - agpmem->bound) / PAGE_SIZE;
 	for (i = 0; i < num_pages; ++i)
-		page_map[i] = phys_page_map[i];
+		page_map[i] = pfn_to_page(phys_addr_map[i] >> PAGE_SHIFT);
 	addr = vmap(page_map, num_pages, VM_IOREMAP, PAGE_AGP);
 	vfree(page_map);
 
@@ -110,7 +133,6 @@ int drm_free_agp(DRM_AGP_MEM * handle, int pages)
 {
 	return drm_agp_free_memory(handle) ? 0 : -EINVAL;
 }
-EXPORT_SYMBOL(drm_free_agp);
 
 /** Wrapper around agp_bind_memory() */
 int drm_bind_agp(DRM_AGP_MEM * handle, unsigned int start)
@@ -123,7 +145,6 @@ int drm_unbind_agp(DRM_AGP_MEM * handle)
 {
 	return drm_agp_unbind_memory(handle);
 }
-EXPORT_SYMBOL(drm_unbind_agp);
 
 #else  /*  __OS_HAS_AGP  */
 static inline void *agp_remap(unsigned long offset, unsigned long size,
@@ -134,7 +155,9 @@ static inline void *agp_remap(unsigned long offset, unsigned long size,
 
 #endif				/* agp */
 
-void drm_core_ioremap(struct drm_local_map *map, struct drm_device *dev)
+#endif				/* debug_memory */
+
+void drm_core_ioremap(struct drm_map *map, struct drm_device *dev)
 {
 	if (drm_core_has_AGP(dev) &&
 	    dev->agp && dev->agp->cant_use_aperture && map->type == _DRM_AGP)
@@ -144,17 +167,12 @@ void drm_core_ioremap(struct drm_local_map *map, struct drm_device *dev)
 }
 EXPORT_SYMBOL(drm_core_ioremap);
 
-void drm_core_ioremap_wc(struct drm_local_map *map, struct drm_device *dev)
+void drm_core_ioremap_wc(struct drm_map *map, struct drm_device *dev)
 {
-	if (drm_core_has_AGP(dev) &&
-	    dev->agp && dev->agp->cant_use_aperture && map->type == _DRM_AGP)
-		map->handle = agp_remap(map->offset, map->size, dev);
-	else
-		map->handle = ioremap_wc(map->offset, map->size);
+	map->handle = ioremap_wc(map->offset, map->size);
 }
 EXPORT_SYMBOL(drm_core_ioremap_wc);
-
-void drm_core_ioremapfree(struct drm_local_map *map, struct drm_device *dev)
+void drm_core_ioremapfree(struct drm_map *map, struct drm_device *dev)
 {
 	if (!map->handle || !map->size)
 		return;
