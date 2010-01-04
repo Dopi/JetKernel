@@ -77,13 +77,9 @@ static int atyfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 	if (par->asleep)
 		return -EPERM;
 
+	/* Hide cursor */
 	wait_for_fifo(1, par);
-	if (cursor->enable)
-		aty_st_le32(GEN_TEST_CNTL, aty_ld_le32(GEN_TEST_CNTL, par)
-			    | HWCURSOR_ENABLE, par);
-	else
-		aty_st_le32(GEN_TEST_CNTL, aty_ld_le32(GEN_TEST_CNTL, par)
-				& ~HWCURSOR_ENABLE, par);
+	aty_st_le32(GEN_TEST_CNTL, aty_ld_le32(GEN_TEST_CNTL, par) & ~HWCURSOR_ENABLE, par);
 
 	/* set position */
 	if (cursor->set & FB_CUR_SETPOS) {
@@ -113,7 +109,7 @@ static int atyfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 			y<<=1;
 			h<<=1;
 		}
-		wait_for_fifo(3, par);
+		wait_for_fifo(4, par);
 		aty_st_le32(CUR_OFFSET, (info->fix.smem_len >> 3) + (yoff << 1), par);
 		aty_st_le32(CUR_HORZ_VERT_OFF,
 			    ((u32) (64 - h + yoff) << 16) | xoff, par);
@@ -181,6 +177,11 @@ static int atyfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 	    }
 	}
 
+	if (cursor->enable) {
+		wait_for_fifo(1, par);
+		aty_st_le32(GEN_TEST_CNTL, aty_ld_le32(GEN_TEST_CNTL, par)
+			    | HWCURSOR_ENABLE, par);
+	}
 	return 0;
 }
 

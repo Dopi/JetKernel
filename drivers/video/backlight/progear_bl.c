@@ -54,7 +54,7 @@ static int progearbl_get_intensity(struct backlight_device *bd)
 	return intensity - HW_LEVEL_MIN;
 }
 
-static const struct backlight_ops progearbl_ops = {
+static struct backlight_ops progearbl_ops = {
 	.get_brightness = progearbl_get_intensity,
 	.update_status = progearbl_set_intensity,
 };
@@ -119,16 +119,20 @@ static int __init progearbl_init(void)
 {
 	int ret = platform_driver_register(&progearbl_driver);
 
-	if (ret)
-		return ret;
-	progearbl_device = platform_device_register_simple("progear-bl", -1,
-								NULL, 0);
-	if (IS_ERR(progearbl_device)) {
-		platform_driver_unregister(&progearbl_driver);
-		return PTR_ERR(progearbl_device);
+	if (!ret) {
+		progearbl_device = platform_device_alloc("progear-bl", -1);
+		if (!progearbl_device)
+			return -ENOMEM;
+
+		ret = platform_device_add(progearbl_device);
+
+		if (ret) {
+			platform_device_put(progearbl_device);
+			platform_driver_unregister(&progearbl_driver);
+		}
 	}
 
-	return 0;
+	return ret;
 }
 
 static void __exit progearbl_exit(void)

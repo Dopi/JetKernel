@@ -112,23 +112,6 @@ static int 		vga_video_font_height;
 static int 		vga_scan_lines		__read_mostly;
 static unsigned int 	vga_rolled_over;
 
-int vgacon_text_mode_force = 0;
-
-bool vgacon_text_force(void)
-{
-	return vgacon_text_mode_force ? true : false;
-}
-EXPORT_SYMBOL(vgacon_text_force);
-
-static int __init text_mode(char *str)
-{
-	vgacon_text_mode_force = 1;
-	return 1;
-}
-
-/* force text mode - used by kernel modesetting */
-__setup("nomodeset", text_mode);
-
 static int __init no_scroll(char *str)
 {
 	/*
@@ -180,6 +163,7 @@ static inline void vga_set_mem_top(struct vc_data *c)
 }
 
 #ifdef CONFIG_VGACON_SOFT_SCROLLBACK
+#include <linux/bootmem.h>
 /* software scrollback */
 static void *vgacon_scrollback;
 static int vgacon_scrollback_tail;
@@ -209,7 +193,8 @@ static void vgacon_scrollback_init(int pitch)
  */
 static void __init_refok vgacon_scrollback_startup(void)
 {
-	vgacon_scrollback = kcalloc(CONFIG_VGACON_SOFT_SCROLLBACK_SIZE, 1024, GFP_NOWAIT);
+	vgacon_scrollback = alloc_bootmem(CONFIG_VGACON_SOFT_SCROLLBACK_SIZE
+					  * 1024);
 	vgacon_scrollback_init(vga_video_num_columns * 2);
 }
 
@@ -254,7 +239,8 @@ static void vgacon_restore_screen(struct vc_data *c)
 
 static int vgacon_scrolldelta(struct vc_data *c, int lines)
 {
-	int start, end, count, soff;
+	int start, end, count, soff, diff;
+	void *d, *s;
 
 	if (!lines) {
 		c->vc_visible_origin = c->vc_origin;
@@ -301,29 +287,29 @@ static int vgacon_scrolldelta(struct vc_data *c, int lines)
 	if (count > c->vc_rows)
 		count = c->vc_rows;
 
-	if (count) {
-		int copysize;
+	diff = c->vc_rows - count;
 
-		int diff = c->vc_rows - count;
-		void *d = (void *) c->vc_origin;
-		void *s = (void *) c->vc_screenbuf;
+	d = (void *) c->vc_origin;
+	s = (void *) c->vc_screenbuf;
 
-		count *= c->vc_size_row;
-		/* how much memory to end of buffer left? */
-		copysize = min(count, vgacon_scrollback_size - soff);
-		scr_memcpyw(d, vgacon_scrollback + soff, copysize);
-		d += copysize;
-		count -= copysize;
+	while (count--) {
+		scr_memcpyw(d, vgacon_scrollback + soff, c->vc_size_row);
+		d += c->vc_size_row;
+		soff += c->vc_size_row;
 
-		if (count) {
-			scr_memcpyw(d, vgacon_scrollback, count);
-			d += count;
-		}
+		if (soff >= vgacon_scrollback_size)
+			soff = 0;
+	}
 
-		if (diff)
-			scr_memcpyw(d, s, diff * c->vc_size_row);
-	} else
+	if (diff == c->vc_rows) {
 		vgacon_cursor(c, CM_MOVE);
+	} else {
+		while (diff--) {
+			scr_memcpyw(d, s, c->vc_size_row);
+			d += c->vc_size_row;
+			s += c->vc_size_row;
+		}
+	}
 
 	return 1;
 }
@@ -585,23 +571,16 @@ static void vgacon_init(struct vc_data *c, int init)
 	vgacon_uni_pagedir[1]++;
 	if (!vgacon_uni_pagedir[0] && p)
 		con_set_default_unimap(c);
-
-	/* Only set the default if the user didn't deliberately override it */
-	if (global_cursor_default == -1)
-		global_cursor_default =
-			!(screen_info.flags & VIDEO_FLAGS_NOCURSOR);
 }
 
 static void vgacon_deinit(struct vc_data *c)
 {
-	/* When closing the active console, reset video origin */
-	if (CON_IS_VISIBLE(c)) {
+	/* When closing the last console, reset video origin */
+	if (!--vgacon_uni_pagedir[1]) {
 		c->vc_visible_origin = vga_vram_base;
 		vga_set_mem_top(c);
-	}
-
-	if (!--vgacon_uni_pagedir[1])
 		con_free_unimap(c);
+	}
 	c->vc_uni_pagedir_loc = &c->vc_uni_pagedir;
 	con_set_default_unimap(c);
 }
@@ -1287,7 +1266,7 @@ static int vgacon_font_get(struct vc_data *c, struct console_font *font)
 	font->charcount = vga_512_chars ? 512 : 256;
 	if (!font->data)
 		return 0;
-	return vgacon_do_font_op(&state, font->data, 0, vga_512_chars);
+	return vgacon_do_font_op(&state, font->data, 0, 0);
 }
 
 #else
@@ -1337,7 +1316,7 @@ static void vgacon_save_screen(struct vc_data *c)
 		c->vc_y = screen_info.orig_y;
 	}
 
-	/* We can't copy in more than the size of the video buffer,
+	/* We can't copy in more then the size of the video buffer,
 	 * or we'll be copying in VGA BIOS */
 
 	if (!vga_is_gfx)
@@ -1371,7 +1350,7 @@ static int vgacon_scroll(struct vc_data *c, int t, int b, int dir,
 		} else
 			c->vc_origin += delta;
 		scr_memsetw((u16 *) (c->vc_origin + c->vc_screenbuf_size -
-				     delta), c->vc_video_erase_char,
+				     delta), c->vc_scrl_erase_char,
 			    delta);
 	} else {
 		if (oldo - delta < vga_vram_base) {
@@ -1384,7 +1363,7 @@ static int vgacon_scroll(struct vc_data *c, int t, int b, int dir,
 		} else
 			c->vc_origin -= delta;
 		c->vc_scr_end = c->vc_origin + c->vc_screenbuf_size;
-		scr_memsetw((u16 *) (c->vc_origin), c->vc_video_erase_char,
+		scr_memsetw((u16 *) (c->vc_origin), c->vc_scrl_erase_char,
 			    delta);
 	}
 	c->vc_scr_end = c->vc_origin + c->vc_screenbuf_size;

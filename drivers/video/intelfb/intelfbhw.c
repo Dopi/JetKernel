@@ -84,11 +84,6 @@ int intelfbhw_get_chipset(struct pci_dev *pdev, struct intelfb_info *dinfo)
 		dinfo->mobile = 0;
 		dinfo->pll_index = PLLS_I8xx;
 		return 0;
-	case PCI_DEVICE_ID_INTEL_854:
-		dinfo->mobile = 1;
-		dinfo->name = "Intel(R) 854";
-		dinfo->chipset = INTEL_854;
-		return 0;
 	case PCI_DEVICE_ID_INTEL_85XGM:
 		tmp = 0;
 		dinfo->mobile = 1;
@@ -148,12 +143,6 @@ int intelfbhw_get_chipset(struct pci_dev *pdev, struct intelfb_info *dinfo)
 		dinfo->mobile = 1;
 		dinfo->pll_index = PLLS_I9xx;
 		return 0;
-	case PCI_DEVICE_ID_INTEL_945GME:
-		dinfo->name = "Intel(R) 945GME";
-		dinfo->chipset = INTEL_945GME;
-		dinfo->mobile = 1;
-		dinfo->pll_index = PLLS_I9xx;
-		return 0;
 	case PCI_DEVICE_ID_INTEL_965G:
 		dinfo->name = "Intel(R) 965G";
 		dinfo->chipset = INTEL_965G;
@@ -197,7 +186,6 @@ int intelfbhw_get_memory(struct pci_dev *pdev, int *aperture_size,
 	case PCI_DEVICE_ID_INTEL_915GM:
 	case PCI_DEVICE_ID_INTEL_945G:
 	case PCI_DEVICE_ID_INTEL_945GM:
-	case PCI_DEVICE_ID_INTEL_945GME:
 	case PCI_DEVICE_ID_INTEL_965G:
 	case PCI_DEVICE_ID_INTEL_965GM:
 		/* 915, 945 and 965 chipsets support a 256MB aperture.
@@ -468,32 +456,6 @@ void intelfbhw_do_blank(int blank, struct fb_info *info)
 	return;
 }
 
-
-/* Check which pipe is connected to an active display plane. */
-int intelfbhw_active_pipe(const struct intelfb_hwstate *hw)
-{
-	int pipe = -1;
-
-	/* keep old default behaviour - prefer PIPE_A */
-	if (hw->disp_b_ctrl & DISPPLANE_PLANE_ENABLE) {
-		pipe = (hw->disp_b_ctrl >> DISPPLANE_SEL_PIPE_SHIFT);
-		pipe &= PIPE_MASK;
-		if (unlikely(pipe == PIPE_A))
-			return PIPE_A;
-	}
-	if (hw->disp_a_ctrl & DISPPLANE_PLANE_ENABLE) {
-		pipe = (hw->disp_a_ctrl >> DISPPLANE_SEL_PIPE_SHIFT);
-		pipe &= PIPE_MASK;
-		if (likely(pipe == PIPE_A))
-			return PIPE_A;
-	}
-	/* Impossible that no pipe is selected - return PIPE_A */
-	WARN_ON(pipe == -1);
-	if (unlikely(pipe == -1))
-		pipe = PIPE_A;
-
-	return pipe;
-}
 
 void intelfbhw_setcolreg(struct intelfb_info *dinfo, unsigned regno,
 			 unsigned red, unsigned green, unsigned blue,
@@ -1045,7 +1007,7 @@ int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 			 struct intelfb_hwstate *hw,
 			 struct fb_var_screeninfo *var)
 {
-	int pipe = intelfbhw_active_pipe(hw);
+	int pipe = PIPE_A;
 	u32 *dpll, *fp0, *fp1;
 	u32 m1, m2, n, p1, p2, clock_target, clock;
 	u32 hsync_start, hsync_end, hblank_start, hblank_end, htotal, hactive;
@@ -1058,6 +1020,12 @@ int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 
 	/* Disable VGA */
 	hw->vgacntrl |= VGA_DISABLE;
+
+	/* Check whether pipe A or pipe B is enabled. */
+	if (hw->pipe_a_conf & PIPECONF_ENABLE)
+		pipe = PIPE_A;
+	else if (hw->pipe_b_conf & PIPECONF_ENABLE)
+		pipe = PIPE_B;
 
 	/* Set which pipe's registers will be set. */
 	if (pipe == PIPE_B) {
@@ -1282,6 +1250,7 @@ int intelfbhw_mode_to_hw(struct intelfb_info *dinfo,
 int intelfbhw_program_mode(struct intelfb_info *dinfo,
 			   const struct intelfb_hwstate *hw, int blank)
 {
+	int pipe = PIPE_A;
 	u32 tmp;
 	const u32 *dpll, *fp0, *fp1, *pipe_conf;
 	const u32 *hs, *ht, *hb, *vs, *vt, *vb, *ss;
@@ -1291,7 +1260,7 @@ int intelfbhw_program_mode(struct intelfb_info *dinfo,
 	u32 src_size_reg;
 	u32 count, tmp_val[3];
 
-	/* Assume single pipe */
+	/* Assume single pipe, display plane A, analog CRT. */
 
 #if VERBOSE > 0
 	DBG_MSG("intelfbhw_program_mode\n");
@@ -1302,9 +1271,15 @@ int intelfbhw_program_mode(struct intelfb_info *dinfo,
 	tmp |= VGA_DISABLE;
 	OUTREG(VGACNTRL, tmp);
 
-	dinfo->pipe = intelfbhw_active_pipe(hw);
+	/* Check whether pipe A or pipe B is enabled. */
+	if (hw->pipe_a_conf & PIPECONF_ENABLE)
+		pipe = PIPE_A;
+	else if (hw->pipe_b_conf & PIPECONF_ENABLE)
+		pipe = PIPE_B;
 
-	if (dinfo->pipe == PIPE_B) {
+	dinfo->pipe = pipe;
+
+	if (pipe == PIPE_B) {
 		dpll = &hw->dpll_b;
 		fp0 = &hw->fpb0;
 		fp1 = &hw->fpb1;

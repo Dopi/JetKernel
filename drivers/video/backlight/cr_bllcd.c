@@ -108,7 +108,7 @@ static int cr_backlight_get_intensity(struct backlight_device *bd)
 	return intensity;
 }
 
-static const struct backlight_ops cr_backlight_ops = {
+static struct backlight_ops cr_backlight_ops = {
 	.get_brightness = cr_backlight_get_intensity,
 	.update_status = cr_backlight_set_intensity,
 };
@@ -201,7 +201,7 @@ static int cr_backlight_probe(struct platform_device *pdev)
 	if (IS_ERR(ldp)) {
 		backlight_device_unregister(bdp);
 		pci_dev_put(lpc_dev);
-		return PTR_ERR(ldp);
+		return PTR_ERR(bdp);
 	}
 
 	pci_read_config_dword(lpc_dev, CRVML_REG_GPIOBAR,
@@ -259,18 +259,22 @@ static int __init cr_backlight_init(void)
 {
 	int ret = platform_driver_register(&cr_backlight_driver);
 
-	if (ret)
-		return ret;
+	if (!ret) {
+		crp = platform_device_alloc("cr_backlight", -1);
+		if (!crp)
+			return -ENOMEM;
 
-	crp = platform_device_register_simple("cr_backlight", -1, NULL, 0);
-	if (IS_ERR(crp)) {
-		platform_driver_unregister(&cr_backlight_driver);
-		return PTR_ERR(crp);
+		ret = platform_device_add(crp);
+
+		if (ret) {
+			platform_device_put(crp);
+			platform_driver_unregister(&cr_backlight_driver);
+		}
 	}
 
 	printk("Carillo Ranch Backlight Driver Initialized.\n");
 
-	return 0;
+	return ret;
 }
 
 static void __exit cr_backlight_exit(void)

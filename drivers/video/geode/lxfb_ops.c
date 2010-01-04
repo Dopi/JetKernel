@@ -13,7 +13,7 @@
 #include <linux/fb.h>
 #include <linux/uaccess.h>
 #include <linux/delay.h>
-#include <linux/cs5535.h>
+#include <asm/geode.h>
 
 #include "lxfb.h"
 
@@ -307,7 +307,7 @@ unsigned int lx_framebuffer_size(void)
 {
 	unsigned int val;
 
-	if (!cs5535_has_vsa2()) {
+	if (!geode_has_vsa2()) {
 		uint32_t hi, lo;
 
 		/* The number of pages is (PMAX - PMIN)+1 */

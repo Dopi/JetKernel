@@ -12,9 +12,9 @@
 #endif
 
 /*** Version/name ***/
-#define INTELFB_VERSION			"0.9.6"
+#define INTELFB_VERSION			"0.9.5"
 #define INTELFB_MODULE_NAME		"intelfb"
-#define SUPPORTED_CHIPSETS		"830M/845G/852GM/855GM/865G/915G/915GM/945G/945GM/945GME/965G/965GM"
+#define SUPPORTED_CHIPSETS		"830M/845G/852GM/855GM/865G/915G/915GM/945G/945GM/965G/965GM"
 
 
 /*** Debug/feature defines ***/
@@ -53,13 +53,11 @@
 #define PCI_DEVICE_ID_INTEL_830M	0x3577
 #define PCI_DEVICE_ID_INTEL_845G	0x2562
 #define PCI_DEVICE_ID_INTEL_85XGM	0x3582
-#define PCI_DEVICE_ID_INTEL_854		0x358E
 #define PCI_DEVICE_ID_INTEL_865G	0x2572
 #define PCI_DEVICE_ID_INTEL_915G	0x2582
 #define PCI_DEVICE_ID_INTEL_915GM	0x2592
 #define PCI_DEVICE_ID_INTEL_945G	0x2772
 #define PCI_DEVICE_ID_INTEL_945GM	0x27A2
-#define PCI_DEVICE_ID_INTEL_945GME	0x27AE
 #define PCI_DEVICE_ID_INTEL_965G	0x29A2
 #define PCI_DEVICE_ID_INTEL_965GM	0x2A02
 
@@ -155,7 +153,6 @@ enum intel_chips {
 	INTEL_85XGM,
 	INTEL_852GM,
 	INTEL_852GME,
-	INTEL_854,
 	INTEL_855GM,
 	INTEL_855GME,
 	INTEL_865G,
@@ -163,7 +160,6 @@ enum intel_chips {
 	INTEL_915GM,
 	INTEL_945G,
 	INTEL_945GM,
-	INTEL_945GME,
 	INTEL_965G,
 	INTEL_965GM,
 };
@@ -367,7 +363,6 @@ struct intelfb_info {
 			((dinfo)->chipset == INTEL_915GM) ||	\
 			((dinfo)->chipset == INTEL_945G) ||	\
 			((dinfo)->chipset == INTEL_945GM) ||	\
-			((dinfo)->chipset == INTEL_945GME) ||	\
 			((dinfo)->chipset == INTEL_965G) ||	\
 			((dinfo)->chipset == INTEL_965GM))
 

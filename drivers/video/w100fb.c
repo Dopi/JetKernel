@@ -523,7 +523,6 @@ static int w100fb_set_par(struct fb_info *info)
 		info->fix.ywrapstep = 0;
 		info->fix.line_length = par->xres * BITS_PER_PIXEL / 8;
 
-		mutex_lock(&info->mm_lock);
 		if ((par->xres*par->yres*BITS_PER_PIXEL/8) > (MEM_INT_SIZE+1)) {
 			par->extmem_active = 1;
 			info->fix.smem_len = par->mach->mem->size+1;
@@ -531,7 +530,6 @@ static int w100fb_set_par(struct fb_info *info)
 			par->extmem_active = 0;
 			info->fix.smem_len = MEM_INT_SIZE+1;
 		}
-		mutex_unlock(&info->mm_lock);
 
 		w100fb_activate_var(par);
 	}
@@ -747,6 +745,8 @@ int __init w100fb_probe(struct platform_device *pdev)
 		err = -EINVAL;
 		goto out;
 	}
+
+	w100fb_set_par(info);
 
 	if (register_framebuffer(info) < 0) {
 		err = -EINVAL;

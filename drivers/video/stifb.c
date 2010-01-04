@@ -756,9 +756,9 @@ hyperResetPlanes(struct stifb_info *fb, int enable)
 		if (fb->info.var.bits_per_pixel == 32)
 			controlPlaneReg = 0x04000F00;
 		else
-			controlPlaneReg = 0x00000F00;   /* 0x00000800 should be enough, but lets clear all 4 bits */
+			controlPlaneReg = 0x00000F00;   /* 0x00000800 should be enought, but lets clear all 4 bits */
 	else
-		controlPlaneReg = 0x00000F00; /* 0x00000100 should be enough, but lets clear all 4 bits */
+		controlPlaneReg = 0x00000F00; /* 0x00000100 should be enought, but lets clear all 4 bits */
 
 	switch (enable) {
 	case ENABLE:
@@ -1115,9 +1115,10 @@ static int __init stifb_init_fb(struct sti_struct *sti, int bpp_pref)
 		  if the device name contains the string "DX" and tell the
 		  user how to reconfigure the card. */
 		if (strstr(sti->outptr.dev_name, "DX")) {
-		   printk(KERN_WARNING
-"WARNING: stifb framebuffer driver does not support '%s' in double-buffer mode.\n"
-"WARNING: Please disable the double-buffer mode in IPL menu (the PARISC-BIOS).\n",
+		   printk(KERN_WARNING "WARNING: stifb framebuffer driver does not "
+			"support '%s' in double-buffer mode.\n"
+			KERN_WARNING "WARNING: Please disable the double-buffer mode "
+			"in IPL menu (the PARISC-BIOS).\n",
 			sti->outptr.dev_name);
 		   goto out_err0;
 		}
@@ -1261,25 +1262,24 @@ static int __init stifb_init_fb(struct sti_struct *sti, int bpp_pref)
 	info->flags = FBINFO_DEFAULT;
 	info->pseudo_palette = &fb->pseudo_palette;
 
-	/* This has to be done !!! */
-	if (fb_alloc_cmap(&info->cmap, NR_PALETTE, 0))
-		goto out_err1;
+	/* This has to been done !!! */
+	fb_alloc_cmap(&info->cmap, NR_PALETTE, 0);
 	stifb_init_display(fb);
 
 	if (!request_mem_region(fix->smem_start, fix->smem_len, "stifb fb")) {
 		printk(KERN_ERR "stifb: cannot reserve fb region 0x%04lx-0x%04lx\n",
 				fix->smem_start, fix->smem_start+fix->smem_len);
-		goto out_err2;
+		goto out_err1;
 	}
 		
 	if (!request_mem_region(fix->mmio_start, fix->mmio_len, "stifb mmio")) {
 		printk(KERN_ERR "stifb: cannot reserve sti mmio region 0x%04lx-0x%04lx\n",
 				fix->mmio_start, fix->mmio_start+fix->mmio_len);
-		goto out_err3;
+		goto out_err2;
 	}
 
 	if (register_framebuffer(&fb->info) < 0)
-		goto out_err4;
+		goto out_err3;
 
 	sti->info = info; /* save for unregister_framebuffer() */
 
@@ -1297,14 +1297,13 @@ static int __init stifb_init_fb(struct sti_struct *sti, int bpp_pref)
 	return 0;
 
 
-out_err4:
-	release_mem_region(fix->mmio_start, fix->mmio_len);
 out_err3:
-	release_mem_region(fix->smem_start, fix->smem_len);
+	release_mem_region(fix->mmio_start, fix->mmio_len);
 out_err2:
-	fb_dealloc_cmap(&info->cmap);
+	release_mem_region(fix->smem_start, fix->smem_len);
 out_err1:
 	iounmap(info->screen_base);
+	fb_dealloc_cmap(&info->cmap);
 out_err0:
 	kfree(fb);
 	return -ENXIO;
@@ -1379,7 +1378,7 @@ stifb_cleanup(void)
 				if (info->screen_base)
 					iounmap(info->screen_base);
 		        fb_dealloc_cmap(&info->cmap);
-		        framebuffer_release(info);
+		        kfree(info); 
 		}
 		sti->info = NULL;
 	}

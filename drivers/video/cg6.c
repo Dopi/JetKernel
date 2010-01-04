@@ -34,11 +34,10 @@ static int cg6_blank(int, struct fb_info *);
 
 static void cg6_imageblit(struct fb_info *, const struct fb_image *);
 static void cg6_fillrect(struct fb_info *, const struct fb_fillrect *);
-static void cg6_copyarea(struct fb_info *info, const struct fb_copyarea *area);
 static int cg6_sync(struct fb_info *);
 static int cg6_mmap(struct fb_info *, struct vm_area_struct *);
 static int cg6_ioctl(struct fb_info *, unsigned int, unsigned long);
-static int cg6_pan_display(struct fb_var_screeninfo *, struct fb_info *);
+static void cg6_copyarea(struct fb_info *info, const struct fb_copyarea *area);
 
 /*
  *  Frame buffer operations
@@ -48,7 +47,6 @@ static struct fb_ops cg6_ops = {
 	.owner			= THIS_MODULE,
 	.fb_setcolreg		= cg6_setcolreg,
 	.fb_blank		= cg6_blank,
-	.fb_pan_display		= cg6_pan_display,
 	.fb_fillrect		= cg6_fillrect,
 	.fb_copyarea		= cg6_copyarea,
 	.fb_imageblit		= cg6_imageblit,
@@ -163,7 +161,6 @@ static struct fb_ops cg6_ops = {
 #define CG6_THC_MISC_INT_ENAB		(1 << 5)
 #define CG6_THC_MISC_INT		(1 << 4)
 #define CG6_THC_MISC_INIT		0x9f
-#define CG6_THC_CURSOFF			((65536-32) | ((65536-32) << 16))
 
 /* The contents are unknown */
 struct cg6_tec {
@@ -263,7 +260,9 @@ struct cg6_par {
 	u32			flags;
 #define CG6_FLAG_BLANKED	0x00000001
 
+	unsigned long		physbase;
 	unsigned long		which_io;
+	unsigned long		fbsize;
 };
 
 static int cg6_sync(struct fb_info *info)
@@ -278,33 +277,6 @@ static int cg6_sync(struct fb_info *info)
 		udelay(10);
 	} while (--limit > 0);
 
-	return 0;
-}
-
-static void cg6_switch_from_graph(struct cg6_par *par)
-{
-	struct cg6_thc __iomem *thc = par->thc;
-	unsigned long flags;
-
-	spin_lock_irqsave(&par->lock, flags);
-
-	/* Hide the cursor. */
-	sbus_writel(CG6_THC_CURSOFF, &thc->thc_cursxy);
-
-	spin_unlock_irqrestore(&par->lock, flags);
-}
-
-static int cg6_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
-{
-	struct cg6_par *par = (struct cg6_par *)info->par;
-
-	/* We just use this to catch switches out of
-	 * graphics mode.
-	 */
-	cg6_switch_from_graph(par);
-
-	if (var->xoffset || var->yoffset || var->vmode)
-		return -EINVAL;
 	return 0;
 }
 
@@ -594,14 +566,16 @@ static int cg6_mmap(struct fb_info *info, struct vm_area_struct *vma)
 	struct cg6_par *par = (struct cg6_par *)info->par;
 
 	return sbusfb_mmap_helper(cg6_mmap_map,
-				  info->fix.smem_start, info->fix.smem_len,
+				  par->physbase, par->fbsize,
 				  par->which_io, vma);
 }
 
 static int cg6_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg)
 {
+	struct cg6_par *par = (struct cg6_par *)info->par;
+
 	return sbusfb_ioctl_helper(cmd, arg, info,
-				   FBTYPE_SUNFAST_COLOR, 8, info->fix.smem_len);
+				   FBTYPE_SUNFAST_COLOR, 8, par->fbsize);
 }
 
 /*
@@ -627,12 +601,12 @@ static void __devinit cg6_init_fix(struct fb_info *info, int linebytes)
 		break;
 	};
 	if (((conf >> CG6_FHC_REV_SHIFT) & CG6_FHC_REV_MASK) >= 11) {
-		if (info->fix.smem_len <= 0x100000)
+		if (par->fbsize <= 0x100000)
 			cg6_card_name = "TGX";
 		else
 			cg6_card_name = "TGX+";
 	} else {
-		if (info->fix.smem_len <= 0x100000)
+		if (par->fbsize <= 0x100000)
 			cg6_card_name = "GX";
 		else
 			cg6_card_name = "GX+";
@@ -669,12 +643,8 @@ static void __devinit cg6_chip_init(struct fb_info *info)
 	struct cg6_par *par = (struct cg6_par *)info->par;
 	struct cg6_tec __iomem *tec = par->tec;
 	struct cg6_fbc __iomem *fbc = par->fbc;
-	struct cg6_thc __iomem *thc = par->thc;
 	u32 rev, conf, mode;
 	int i;
-
-	/* Hide the cursor. */
-	sbus_writel(CG6_THC_CURSOFF, &thc->thc_cursxy);
 
 	/* Turn off stuff in the Transform Engine. */
 	sbus_writel(0, &tec->tec_matrix);
@@ -734,8 +704,7 @@ static void cg6_unmap_regs(struct of_device *op, struct fb_info *info,
 		of_iounmap(&op->resource[0], par->fhc, sizeof(u32));
 
 	if (info->screen_base)
-		of_iounmap(&op->resource[0], info->screen_base,
-			   info->fix.smem_len);
+		of_iounmap(&op->resource[0], info->screen_base, par->fbsize);
 }
 
 static int __devinit cg6_probe(struct of_device *op,
@@ -756,7 +725,7 @@ static int __devinit cg6_probe(struct of_device *op,
 
 	spin_lock_init(&par->lock);
 
-	info->fix.smem_start = op->resource[0].start;
+	par->physbase = op->resource[0].start;
 	par->which_io = op->resource[0].flags & IORESOURCE_BITS;
 
 	sbusfb_fill_var(&info->var, dp, 8);
@@ -766,11 +735,11 @@ static int __devinit cg6_probe(struct of_device *op,
 
 	linebytes = of_getintprop_default(dp, "linebytes",
 					  info->var.xres);
-	info->fix.smem_len = PAGE_ALIGN(linebytes * info->var.yres);
+	par->fbsize = PAGE_ALIGN(linebytes * info->var.yres);
 
 	dblbuf = of_getintprop_default(dp, "dblbuf", 0);
 	if (dblbuf)
-		info->fix.smem_len *= 4;
+		par->fbsize *= 4;
 
 	par->fbc = of_ioremap(&op->resource[0], CG6_FBC_OFFSET,
 				4096, "cgsix fbc");
@@ -789,7 +758,7 @@ static int __devinit cg6_probe(struct of_device *op,
 	info->fbops = &cg6_ops;
 
 	info->screen_base = of_ioremap(&op->resource[0], CG6_RAM_OFFSET,
-					info->fix.smem_len, "cgsix ram");
+					par->fbsize, "cgsix ram");
 	if (!par->fbc || !par->tec || !par->thc ||
 	    !par->bt || !par->fhc || !info->screen_base)
 		goto out_unmap_regs;
@@ -814,7 +783,7 @@ static int __devinit cg6_probe(struct of_device *op,
 
 	printk(KERN_INFO "%s: CGsix [%s] at %lx:%lx\n",
 	       dp->full_name, info->fix.id,
-	       par->which_io, info->fix.smem_start);
+	       par->which_io, par->physbase);
 
 	return 0;
 
@@ -845,7 +814,7 @@ static int __devexit cg6_remove(struct of_device *op)
 	return 0;
 }
 
-static const struct of_device_id cg6_match[] = {
+static struct of_device_id cg6_match[] = {
 	{
 		.name = "cgsix",
 	},

@@ -349,13 +349,10 @@ static int __devinit e3d_pci_register(struct pci_dev *pdev,
 	if (err < 0) {
 		printk(KERN_ERR "e3d: Could not register framebuffer %s\n",
 		       pci_name(pdev));
-		goto err_free_cmap;
+		goto err_unmap_fb;
 	}
 
 	return 0;
-
-err_free_cmap:
-	fb_dealloc_cmap(&info->cmap);
 
 err_unmap_fb:
 	iounmap(ep->fb_base);
@@ -392,7 +389,6 @@ static void __devexit e3d_pci_unregister(struct pci_dev *pdev)
 	pci_release_region(pdev, 0);
 	pci_release_region(pdev, 1);
 
-	fb_dealloc_cmap(&info->cmap);
         framebuffer_release(info);
 
 	pci_disable_device(pdev);

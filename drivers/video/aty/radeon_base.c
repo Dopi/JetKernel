@@ -698,8 +698,8 @@ static void __devinit radeon_get_pllinfo(struct radeonfb_info *rinfo)
 found:
 	/*
 	 * Some methods fail to retrieve SCLK and MCLK values, we apply default
-	 * settings in this case (200Mhz). If that really happens often, we
-	 * could fetch from registers instead...
+	 * settings in this case (200Mhz). If that really happne often, we could
+	 * fetch from registers instead...
 	 */
 	if (rinfo->pll.mclk == 0)
 		rinfo->pll.mclk = 20000;
@@ -1286,10 +1286,11 @@ static void radeon_write_pll_regs(struct radeonfb_info *rinfo, struct radeon_reg
 	radeon_pll_errata_after_data(rinfo);
 
 	/* Set PPLL ref. div */
-	if (IS_R300_VARIANT(rinfo) ||
+	if (rinfo->family == CHIP_FAMILY_R300 ||
 	    rinfo->family == CHIP_FAMILY_RS300 ||
-	    rinfo->family == CHIP_FAMILY_RS400 ||
-	    rinfo->family == CHIP_FAMILY_RS480) {
+	    rinfo->family == CHIP_FAMILY_R350 ||
+	    rinfo->family == CHIP_FAMILY_RV350 ||
+	    rinfo->family == CHIP_FAMILY_RV380 ) {
 		if (mode->ppll_ref_div & R300_PPLL_REF_DIV_ACC_MASK) {
 			/* When restoring console mode, use saved PPLL_REF_DIV
 			 * setting.
@@ -1460,7 +1461,10 @@ static void radeon_calc_pll_regs(struct radeonfb_info *rinfo, struct radeon_regs
 		/* Not all chip revs have the same format for this register,
 		 * extract the source selection
 		 */
-		if (rinfo->family == CHIP_FAMILY_R200 || IS_R300_VARIANT(rinfo)) {
+		if (rinfo->family == CHIP_FAMILY_R200 ||
+		    rinfo->family == CHIP_FAMILY_R300 ||
+		    rinfo->family == CHIP_FAMILY_R350 ||
+		    rinfo->family == CHIP_FAMILY_RV350) {
 			source = (fp2_gen_cntl >> 10) & 0x3;
 			/* sourced from transform unit, check for transform unit
 			 * own source
@@ -1936,8 +1940,8 @@ static void fixup_memory_mappings(struct radeonfb_info *rinfo)
 	OUTREG(CRTC_GEN_CNTL, save_crtc_gen_cntl | CRTC_DISP_REQ_EN_B);
 	mdelay(100);
 
-	aper_base = INREG(CNFG_APER_0_BASE);
-	aper_size = INREG(CNFG_APER_SIZE);
+	aper_base = INREG(CONFIG_APER_0_BASE);
+	aper_size = INREG(CONFIG_APER_SIZE);
 
 #ifdef SET_MC_FB_FROM_APERTURE
 	/* Set framebuffer to be at the same address as set in PCI BAR */
@@ -2001,7 +2005,6 @@ static void radeon_identify_vram(struct radeonfb_info *rinfo)
             (rinfo->family == CHIP_FAMILY_RS200) ||
             (rinfo->family == CHIP_FAMILY_RS300) ||
             (rinfo->family == CHIP_FAMILY_RC410) ||
-            (rinfo->family == CHIP_FAMILY_RS400) ||
 	    (rinfo->family == CHIP_FAMILY_RS480) ) {
           u32 tom = INREG(NB_TOM);
           tmp = ((((tom >> 16) - (tom & 0xffff) + 1) << 6) * 1024);
@@ -2024,11 +2027,11 @@ static void radeon_identify_vram(struct radeonfb_info *rinfo)
                      ~CRTC_H_CUTOFF_ACTIVE_EN);
           }
         } else {
-          tmp = INREG(CNFG_MEMSIZE);
+          tmp = INREG(CONFIG_MEMSIZE);
         }
 
 	/* mem size is bits [28:0], mask off the rest */
-	rinfo->video_ram = tmp & CNFG_MEMSIZE_MASK;
+	rinfo->video_ram = tmp & CONFIG_MEMSIZE_MASK;
 
 	/*
 	 * Hack to get around some busted production M6's
@@ -2228,7 +2231,7 @@ static int __devinit radeonfb_pci_register (struct pci_dev *pdev,
 	 */
 	rinfo->errata = 0;
 	if (rinfo->family == CHIP_FAMILY_R300 &&
-	    (INREG(CNFG_CNTL) & CFG_ATI_REV_ID_MASK)
+	    (INREG(CONFIG_CNTL) & CFG_ATI_REV_ID_MASK)
 	    == CFG_ATI_REV_A11)
 		rinfo->errata |= CHIP_ERRATA_R300_CG;
 

@@ -46,8 +46,8 @@
 #include <linux/fb.h>
 #include <linux/pci.h>
 #include <linux/init.h>
-#include <linux/io.h>
 
+#include <asm/io.h>
 #include <asm/pgtable.h>
 #include <asm/system.h>
 
@@ -1425,7 +1425,7 @@ static void cyberpro_common_resume(struct cfb_info *cfb)
 
 #ifdef CONFIG_ARCH_SHARK
 
-#include <mach/framebuffer.h>
+#include <mach/hardware.h>
 
 static int __devinit cyberpro_vl_probe(void)
 {
@@ -1513,7 +1513,7 @@ static int cyberpro_pci_enable_mmio(struct cfb_info *cfb)
 
 	iop = ioremap(0x3000000, 0x5000);
 	if (iop == NULL) {
-		printk(KERN_ERR "iga5000: cannot map I/O\n");
+		prom_printf("iga5000: cannot map I/O\n");
 		return -ENOMEM;
 	}
 
@@ -1583,7 +1583,8 @@ cyberpro_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 		goto failed_release;
 
 	cfb->dev = dev;
-	cfb->region = pci_ioremap_bar(dev, 0);
+	cfb->region = ioremap(pci_resource_start(dev, 0),
+			      pci_resource_len(dev, 0));
 	if (!cfb->region)
 		goto failed_ioremap;
 
@@ -1736,8 +1737,10 @@ static int __init cyber2000fb_init(void)
 
 #ifdef CONFIG_ARCH_SHARK
 	err = cyberpro_vl_probe();
-	if (!err)
+	if (!err) {
 		ret = 0;
+		__module_get(THIS_MODULE);
+	}
 #endif
 #ifdef CONFIG_PCI
 	err = pci_register_driver(&cyberpro_driver);
@@ -1747,15 +1750,14 @@ static int __init cyber2000fb_init(void)
 
 	return ret ? err : 0;
 }
-module_init(cyber2000fb_init);
 
-#ifndef CONFIG_ARCH_SHARK
 static void __exit cyberpro_exit(void)
 {
 	pci_unregister_driver(&cyberpro_driver);
 }
+
+module_init(cyber2000fb_init);
 module_exit(cyberpro_exit);
-#endif
 
 MODULE_AUTHOR("Russell King");
 MODULE_DESCRIPTION("CyberPro 2000, 2010 and 5000 framebuffer driver");

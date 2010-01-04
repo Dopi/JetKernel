@@ -24,12 +24,11 @@
 #include <linux/platform_device.h>
 
 #include <mach/gpio.h>
-#include <plat/mux.h>
-#include "omapfb.h"
+#include <mach/mux.h>
+#include <mach/omapfb.h>
 
 static int osk_panel_init(struct lcd_panel *panel, struct omapfb_device *fbdev)
 {
-	/* gpio2 was allocated in board init */
 	return 0;
 }
 
@@ -48,8 +47,11 @@ static int osk_panel_enable(struct lcd_panel *panel)
 	/* Set PWL level */
 	omap_writeb(0xFF, OMAP_PWL_ENABLE);
 
-	/* set GPIO2 high (lcd power enabled) */
-	gpio_set_value(2, 1);
+	/* configure GPIO2 as output */
+	omap_set_gpio_direction(2, 0);
+
+	/* set GPIO2 high */
+	omap_set_gpio_dataout(2, 1);
 
 	return 0;
 }
@@ -63,7 +65,7 @@ static void osk_panel_disable(struct lcd_panel *panel)
 	omap_writeb(0x00, OMAP_PWL_CLK_ENABLE);
 
 	/* set GPIO2 low */
-	gpio_set_value(2, 0);
+	omap_set_gpio_dataout(2, 0);
 }
 
 static unsigned long osk_panel_get_caps(struct lcd_panel *panel)
@@ -127,12 +129,12 @@ struct platform_driver osk_panel_driver = {
 	},
 };
 
-static int __init osk_panel_drv_init(void)
+static int osk_panel_drv_init(void)
 {
 	return platform_driver_register(&osk_panel_driver);
 }
 
-static void __exit osk_panel_drv_cleanup(void)
+static void osk_panel_drv_cleanup(void)
 {
 	platform_driver_unregister(&osk_panel_driver);
 }

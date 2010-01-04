@@ -539,10 +539,8 @@ static void pm3fb_imageblit(struct fb_info *info, const struct fb_image *image)
 		bgx = par->palette[image->bg_color];
 		break;
 	}
-	if (image->depth != 1) {
-		cfb_imageblit(info, image);
-		return;
-	}
+	if (image->depth != 1)
+		return cfb_imageblit(info, image);
 
 	if (info->var.bits_per_pixel == 8) {
 		fgx |= fgx << 8;

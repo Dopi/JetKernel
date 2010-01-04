@@ -1663,7 +1663,7 @@ tgafb_register(struct device *dev)
 	if (register_framebuffer(info) < 0) {
 		printk(KERN_ERR "tgafb: Could not register framebuffer\n");
 		ret = -EINVAL;
-		goto err2;
+		goto err1;
 	}
 
 	if (tga_bus_pci) {
@@ -1682,8 +1682,6 @@ tgafb_register(struct device *dev)
 
 	return 0;
 
- err2:
-	fb_dealloc_cmap(&info->cmap);
  err1:
 	if (mem_base)
 		iounmap(mem_base);

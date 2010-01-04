@@ -1421,16 +1421,13 @@ static int __devinit sstfb_probe(struct pci_dev *pdev,
 		goto fail;
 	}
 	
-	if (fb_alloc_cmap(&info->cmap, 256, 0)) {
-		printk(KERN_ERR "sstfb: can't alloc cmap memory.\n");
-		goto fail;
-	}
+	fb_alloc_cmap(&info->cmap, 256, 0);
 
 	/* register fb */
 	info->device = &pdev->dev;
 	if (register_framebuffer(info) < 0) {
 		printk(KERN_ERR "sstfb: can't register framebuffer.\n");
-		goto fail_register;
+		goto fail;
 	}
 
 	sstfb_clear_screen(info);
@@ -1444,9 +1441,8 @@ static int __devinit sstfb_probe(struct pci_dev *pdev,
 
 	return 0;
 
-fail_register:
-	fb_dealloc_cmap(&info->cmap);
 fail:
+	fb_dealloc_cmap(&info->cmap);
 	iounmap(info->screen_base);
 fail_fb_remap:
 	iounmap(par->mmio_vbase);

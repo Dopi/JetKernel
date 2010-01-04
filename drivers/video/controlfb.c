@@ -298,10 +298,10 @@ static int controlfb_mmap(struct fb_info *info,
                        return -EINVAL;
                start = info->fix.mmio_start;
                len = PAGE_ALIGN((start & ~PAGE_MASK)+info->fix.mmio_len);
-	       vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+               pgprot_val(vma->vm_page_prot) |= _PAGE_NO_CACHE|_PAGE_GUARDED;
        } else {
                /* framebuffer */
-	       vma->vm_page_prot = pgprot_cached_wthru(vma->vm_page_prot);
+               pgprot_val(vma->vm_page_prot) |= _PAGE_WRITETHRU;
        }
        start &= PAGE_MASK;
        if ((vma->vm_end - vma->vm_start + off) > len)

@@ -23,11 +23,10 @@
 #include <linux/clk.h>
 #include <linux/irq.h>
 #include <linux/io.h>
-#include <linux/interrupt.h>
 
-#include <plat/dma.h>
+#include <mach/dma.h>
+#include <mach/omapfb.h>
 
-#include "omapfb.h"
 #include "lcdc.h"
 
 #define MODULE_NAME		"omapfb-sossi"
@@ -575,12 +574,7 @@ static int sossi_init(struct omapfb_device *fbdev)
 	struct clk *dpll1out_ck;
 	int r;
 
-	sossi.base = ioremap(OMAP_SOSSI_BASE, SZ_1K);
-	if (!sossi.base) {
-		dev_err(fbdev->dev, "can't ioremap SoSSI\n");
-		return -ENOMEM;
-	}
-
+	sossi.base = (void __iomem *)IO_ADDRESS(OMAP_SOSSI_BASE);
 	sossi.fbdev = fbdev;
 	spin_lock_init(&sossi.lock);
 
@@ -671,7 +665,6 @@ static void sossi_cleanup(void)
 {
 	omap_lcdc_free_dma_callback();
 	clk_put(sossi.fck);
-	iounmap(sossi.base);
 }
 
 struct lcd_ctrl_extif omap1_ext_if = {

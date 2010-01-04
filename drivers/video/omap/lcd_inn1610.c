@@ -23,7 +23,7 @@
 #include <linux/platform_device.h>
 
 #include <mach/gpio.h>
-#include "omapfb.h"
+#include <mach/omapfb.h>
 
 #define MODULE_NAME	"omapfb-lcd_h3"
 
@@ -32,43 +32,43 @@ static int innovator1610_panel_init(struct lcd_panel *panel,
 {
 	int r = 0;
 
-	if (gpio_request(14, "lcd_en0")) {
+	if (omap_request_gpio(14)) {
 		pr_err(MODULE_NAME ": can't request GPIO 14\n");
 		r = -1;
 		goto exit;
 	}
-	if (gpio_request(15, "lcd_en1")) {
+	if (omap_request_gpio(15)) {
 		pr_err(MODULE_NAME ": can't request GPIO 15\n");
-		gpio_free(14);
+		omap_free_gpio(14);
 		r = -1;
 		goto exit;
 	}
 	/* configure GPIO(14, 15) as outputs */
-	gpio_direction_output(14, 0);
-	gpio_direction_output(15, 0);
+	omap_set_gpio_direction(14, 0);
+	omap_set_gpio_direction(15, 0);
 exit:
 	return r;
 }
 
 static void innovator1610_panel_cleanup(struct lcd_panel *panel)
 {
-	gpio_free(15);
-	gpio_free(14);
+	omap_free_gpio(15);
+	omap_free_gpio(14);
 }
 
 static int innovator1610_panel_enable(struct lcd_panel *panel)
 {
 	/* set GPIO14 and GPIO15 high */
-	gpio_set_value(14, 1);
-	gpio_set_value(15, 1);
+	omap_set_gpio_dataout(14, 1);
+	omap_set_gpio_dataout(15, 1);
 	return 0;
 }
 
 static void innovator1610_panel_disable(struct lcd_panel *panel)
 {
 	/* set GPIO13, GPIO14 and GPIO15 low */
-	gpio_set_value(14, 0);
-	gpio_set_value(15, 0);
+	omap_set_gpio_dataout(14, 0);
+	omap_set_gpio_dataout(15, 0);
 }
 
 static unsigned long innovator1610_panel_get_caps(struct lcd_panel *panel)
@@ -133,12 +133,12 @@ struct platform_driver innovator1610_panel_driver = {
 	},
 };
 
-static int __init innovator1610_panel_drv_init(void)
+static int innovator1610_panel_drv_init(void)
 {
 	return platform_driver_register(&innovator1610_panel_driver);
 }
 
-static void __exit innovator1610_panel_drv_cleanup(void)
+static void innovator1610_panel_drv_cleanup(void)
 {
 	platform_driver_unregister(&innovator1610_panel_driver);
 }

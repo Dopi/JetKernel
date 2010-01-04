@@ -36,6 +36,7 @@
 #include <asm/irq.h>
 #include <asm/macintosh.h>
 #include <asm/io.h>
+#include <asm/machw.h>
 
 /* Common DAC base address for the LC, RBV, Valkyrie, and IIvx */
 #define DAC_BASE 0x50f24000
@@ -77,34 +78,34 @@ static int csc_setpalette (unsigned int regno, unsigned int red,
 			   unsigned int green, unsigned int blue,
 			   struct fb_info *fb_info);
 
-static struct {
+static volatile struct {
 	unsigned char addr;
 	/* Note: word-aligned */
 	char pad[3];
 	unsigned char lut;
-} __iomem *valkyrie_cmap_regs;
+} *valkyrie_cmap_regs;
 
-static struct {
+static volatile struct {
 	unsigned char addr;
 	unsigned char lut;
-} __iomem *v8_brazil_cmap_regs;
+} *v8_brazil_cmap_regs;
 
-static struct {
+static volatile struct {
 	unsigned char addr;
 	char pad1[3]; /* word aligned */
 	unsigned char lut;
 	char pad2[3]; /* word aligned */
 	unsigned char cntl; /* a guess as to purpose */
-} __iomem *rbv_cmap_regs;
+} *rbv_cmap_regs;
 
-static struct {
+static volatile struct {
 	unsigned long reset;
 	unsigned long pad1[3];
 	unsigned char pad2[3];
 	unsigned char lut;
-} __iomem *dafb_cmap_regs;
+} *dafb_cmap_regs;
 
-static struct {
+static volatile struct {
 	unsigned char addr;	/* OFFSET: 0x00 */
 	unsigned char pad1[15];
 	unsigned char lut;	/* OFFSET: 0x10 */
@@ -113,16 +114,16 @@ static struct {
 	unsigned char pad3[7];
 	unsigned long vbl_addr;	/* OFFSET: 0x28 */
 	unsigned int  status2;	/* OFFSET: 0x2C */
-} __iomem *civic_cmap_regs;
+} *civic_cmap_regs;
 
-static struct {
+static volatile struct {
 	char    pad1[0x40];
         unsigned char	clut_waddr;	/* 0x40 */
         char    pad2;
         unsigned char	clut_data;	/* 0x42 */
         char	pad3[0x3];
         unsigned char	clut_raddr;	/* 0x46 */
-} __iomem *csc_cmap_regs;
+} *csc_cmap_regs;
 
 /* We will leave these the way they are for the time being */
 struct mdc_cmap_regs {
@@ -163,6 +164,7 @@ static struct fb_var_screeninfo macfb_defined = {
 };
 
 static struct fb_fix_screeninfo macfb_fix = {
+	.id	= "Macintosh ",
 	.type	= FB_TYPE_PACKED_PIXELS,
 	.accel	= FB_ACCEL_NONE,
 };
@@ -506,10 +508,10 @@ static int csc_setpalette (unsigned int regno, unsigned int red,
 			   struct fb_info *info)
 {
 	mdelay(1);
-	nubus_writeb(regno, &csc_cmap_regs->clut_waddr);
-	nubus_writeb(red,   &csc_cmap_regs->clut_data);
-	nubus_writeb(green, &csc_cmap_regs->clut_data);
-	nubus_writeb(blue,  &csc_cmap_regs->clut_data);
+	csc_cmap_regs->clut_waddr = regno;
+	csc_cmap_regs->clut_data = red;
+	csc_cmap_regs->clut_data = green;
+	csc_cmap_regs->clut_data = blue;
 	return 0;
 }
 
@@ -758,22 +760,22 @@ static int __init macfb_init(void)
 
 		switch(ndev->dr_hw) {
 		case NUBUS_DRHW_APPLE_MDC:
-			strcpy(macfb_fix.id, "Mac Disp. Card");
+			strcat( macfb_fix.id, "Display Card" );
 			macfb_setpalette = mdc_setpalette;
 			macfb_defined.activate = FB_ACTIVATE_NOW;
 			break;
 		case NUBUS_DRHW_APPLE_TFB:
-			strcpy(macfb_fix.id, "Toby");
+			strcat( macfb_fix.id, "Toby" );
 			macfb_setpalette = toby_setpalette;
 			macfb_defined.activate = FB_ACTIVATE_NOW;
 			break;
 		case NUBUS_DRHW_APPLE_JET:
-			strcpy(macfb_fix.id, "Jet");
+			strcat( macfb_fix.id, "Jet");
 			macfb_setpalette = jet_setpalette;
 			macfb_defined.activate = FB_ACTIVATE_NOW;
 			break;			
 		default:
-			strcpy(macfb_fix.id, "Generic NuBus");
+			strcat( macfb_fix.id, "Generic NuBus" );
 			break;
 		}
 	}
@@ -784,11 +786,21 @@ static int __init macfb_init(void)
 	if (!video_is_nubus)
 		switch( mac_bi_data.id )
 		{
+			/* These don't have onboard video.  Eventually, we may
+			   be able to write separate framebuffer drivers for
+			   them (tobyfb.c, hiresfb.c, etc, etc) */
+		case MAC_MODEL_II:
+		case MAC_MODEL_IIX:
+		case MAC_MODEL_IICX:
+		case MAC_MODEL_IIFX:
+			strcat( macfb_fix.id, "Generic NuBus" );
+			break;
+
 			/* Valkyrie Quadras */
 		case MAC_MODEL_Q630:
 			/* I'm not sure about this one */
 		case MAC_MODEL_P588:
-			strcpy(macfb_fix.id, "Valkyrie");
+			strcat( macfb_fix.id, "Valkyrie built-in" );
 			macfb_setpalette = valkyrie_setpalette;
 			macfb_defined.activate = FB_ACTIVATE_NOW;
 			valkyrie_cmap_regs = ioremap(DAC_BASE, 0x1000);
@@ -811,7 +823,7 @@ static int __init macfb_init(void)
 		case MAC_MODEL_Q700:
 		case MAC_MODEL_Q900:
 		case MAC_MODEL_Q950:
-			strcpy(macfb_fix.id, "DAFB");
+			strcat( macfb_fix.id, "DAFB built-in" );
 			macfb_setpalette = dafb_setpalette;
 			macfb_defined.activate = FB_ACTIVATE_NOW;
 			dafb_cmap_regs = ioremap(DAFB_BASE, 0x1000);
@@ -819,7 +831,7 @@ static int __init macfb_init(void)
 
 			/* LC II uses the V8 framebuffer */
 		case MAC_MODEL_LCII:
-			strcpy(macfb_fix.id, "V8");
+			strcat( macfb_fix.id, "V8 built-in" );
 			macfb_setpalette = v8_brazil_setpalette;
 			macfb_defined.activate = FB_ACTIVATE_NOW;
 			v8_brazil_cmap_regs = ioremap(DAC_BASE, 0x1000);
@@ -831,7 +843,7 @@ static int __init macfb_init(void)
 		case MAC_MODEL_IIVI:
 		case MAC_MODEL_IIVX:
 		case MAC_MODEL_P600:
-			strcpy(macfb_fix.id, "Brazil");
+			strcat( macfb_fix.id, "Brazil built-in" );
 			macfb_setpalette = v8_brazil_setpalette;
 			macfb_defined.activate = FB_ACTIVATE_NOW;
 			v8_brazil_cmap_regs = ioremap(DAC_BASE, 0x1000);
@@ -848,7 +860,7 @@ static int __init macfb_init(void)
 		case MAC_MODEL_P460:
 			macfb_setpalette = v8_brazil_setpalette;
 			macfb_defined.activate = FB_ACTIVATE_NOW;
-			strcpy(macfb_fix.id, "Sonora");
+			strcat( macfb_fix.id, "Sonora built-in" );
 			v8_brazil_cmap_regs = ioremap(DAC_BASE, 0x1000);
 			break;
 
@@ -859,7 +871,7 @@ static int __init macfb_init(void)
 		case MAC_MODEL_IISI:
 			macfb_setpalette = rbv_setpalette;
 			macfb_defined.activate = FB_ACTIVATE_NOW;
-			strcpy(macfb_fix.id, "RBV");
+			strcat( macfb_fix.id, "RBV built-in" );
 			rbv_cmap_regs = ioremap(DAC_BASE, 0x1000);
 			break;
 
@@ -868,7 +880,7 @@ static int __init macfb_init(void)
 		case MAC_MODEL_C660:
 			macfb_setpalette = civic_setpalette;
 			macfb_defined.activate = FB_ACTIVATE_NOW;
-			strcpy(macfb_fix.id, "Civic");
+			strcat( macfb_fix.id, "Civic built-in" );
 			civic_cmap_regs = ioremap(CIVIC_BASE, 0x1000);
 			break;
 
@@ -889,7 +901,7 @@ static int __init macfb_init(void)
 				v8_brazil_cmap_regs =
 					ioremap(DAC_BASE, 0x1000);
 			}
-			strcpy(macfb_fix.id, "LC");
+			strcat( macfb_fix.id, "LC built-in" );
 			break;
 			/* We think this may be like the LC II */
 		case MAC_MODEL_CCL:
@@ -899,18 +911,18 @@ static int __init macfb_init(void)
 				v8_brazil_cmap_regs =
 					ioremap(DAC_BASE, 0x1000);
 			}
-			strcpy(macfb_fix.id, "Color Classic");
+			strcat( macfb_fix.id, "Color Classic built-in" );
 			break;
 
 			/* And we *do* mean "weirdos" */
 		case MAC_MODEL_TV:
-			strcpy(macfb_fix.id, "Mac TV");
+			strcat( macfb_fix.id, "Mac TV built-in" );
 			break;
 
 			/* These don't have colour, so no need to worry */
 		case MAC_MODEL_SE30:
 		case MAC_MODEL_CLII:
-			strcpy(macfb_fix.id, "Monochrome");
+			strcat( macfb_fix.id, "Monochrome built-in" );
 			break;
 
 			/* Powerbooks are particularly difficult.  Many of
@@ -923,7 +935,7 @@ static int __init macfb_init(void)
 		case MAC_MODEL_PB140:
 		case MAC_MODEL_PB145:
 		case MAC_MODEL_PB170:
-			strcpy(macfb_fix.id, "DDC");
+			strcat( macfb_fix.id, "DDC built-in" );
 			break;
 
 			/* Internal is GSC, External (if present) is ViSC */
@@ -933,13 +945,13 @@ static int __init macfb_init(void)
 		case MAC_MODEL_PB180:
 		case MAC_MODEL_PB210:
 		case MAC_MODEL_PB230:
-			strcpy(macfb_fix.id, "GSC");
+			strcat( macfb_fix.id, "GSC built-in" );
 			break;
 
 			/* Internal is TIM, External is ViSC */
 		case MAC_MODEL_PB165C:
 		case MAC_MODEL_PB180C:
-			strcpy(macfb_fix.id, "TIM");
+			strcat( macfb_fix.id, "TIM built-in" );
 			break;
 
 			/* Internal is CSC, External is Keystone+Ariel. */
@@ -951,12 +963,12 @@ static int __init macfb_init(void)
 		case MAC_MODEL_PB280C:
 			macfb_setpalette = csc_setpalette;
 			macfb_defined.activate = FB_ACTIVATE_NOW;
-			strcpy(macfb_fix.id, "CSC");
+			strcat( macfb_fix.id, "CSC built-in" );
 			csc_cmap_regs = ioremap(CSC_BASE, 0x1000);
 			break;
 		
 		default:
-			strcpy(macfb_fix.id, "Unknown");
+			strcat( macfb_fix.id, "Unknown/Unsupported built-in" );
 			break;
 		}
 
@@ -966,23 +978,16 @@ static int __init macfb_init(void)
 	fb_info.pseudo_palette	= pseudo_palette;
 	fb_info.flags		= FBINFO_DEFAULT;
 
-	err = fb_alloc_cmap(&fb_info.cmap, video_cmap_len, 0);
-	if (err)
-		goto fail_unmap;
+	fb_alloc_cmap(&fb_info.cmap, video_cmap_len, 0);
 	
 	err = register_framebuffer(&fb_info);
-	if (err)
-		goto fail_dealloc;
-
-	printk("fb%d: %s frame buffer device\n",
-	       fb_info.node, fb_info.fix.id);
-	return 0;
-
-fail_dealloc:
-	fb_dealloc_cmap(&fb_info.cmap);
-fail_unmap:
-	iounmap(fb_info.screen_base);
-	iounmap_macfb();
+	if (!err)
+		printk("fb%d: %s frame buffer device\n",
+		       fb_info.node, fb_info.fix.id);
+	else {
+		iounmap(fb_info.screen_base);
+		iounmap_macfb();
+	}
 	return err;
 }
 

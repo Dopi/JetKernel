@@ -44,6 +44,9 @@ static struct fb_fix_screeninfo hitfb_fix __initdata = {
 	.accel		= FB_ACCEL_NONE,
 };
 
+static u32 pseudo_palette[16];
+static struct fb_info fb_info;
+
 static inline void hitfb_accel_wait(void)
 {
 	while (fb_readw(HD64461_GRCFGR) & HD64461_GRCFGR_ACCSTATUS) ;
@@ -328,15 +331,13 @@ static struct fb_ops hitfb_ops = {
 static int __init hitfb_probe(struct platform_device *dev)
 {
 	unsigned short lcdclor, ldr3, ldvndr;
-	struct fb_info *info;
-	int ret;
 
 	if (fb_get_options("hitfb", NULL))
 		return -ENODEV;
 
-	hitfb_fix.mmio_start = HD64461_IO_OFFSET(0x1000);
+	hitfb_fix.mmio_start = CONFIG_HD64461_IOBASE+0x1000;
 	hitfb_fix.mmio_len = 0x1000;
-	hitfb_fix.smem_start = HD64461_IO_OFFSET(0x02000000);
+	hitfb_fix.smem_start = CONFIG_HD64461_IOBASE + 0x02000000;
 	hitfb_fix.smem_len = 512 * 1024;
 
 	lcdclor = fb_readw(HD64461_LCDCLOR);
@@ -383,53 +384,32 @@ static int __init hitfb_probe(struct platform_device *dev)
 		break;
 	}
 
-	info = framebuffer_alloc(sizeof(u32) * 16, &dev->dev);
-	if (unlikely(!info))
-		return -ENOMEM;
-
-	info->fbops = &hitfb_ops;
-	info->var = hitfb_var;
-	info->fix = hitfb_fix;
-	info->pseudo_palette = info->par;
-	info->flags = FBINFO_DEFAULT | FBINFO_HWACCEL_YPAN |
+	fb_info.fbops = &hitfb_ops;
+	fb_info.var = hitfb_var;
+	fb_info.fix = hitfb_fix;
+	fb_info.pseudo_palette = pseudo_palette;
+	fb_info.flags = FBINFO_DEFAULT | FBINFO_HWACCEL_YPAN |
 		FBINFO_HWACCEL_FILLRECT | FBINFO_HWACCEL_COPYAREA;
 
-	info->screen_base = (void *)hitfb_fix.smem_start;
+	fb_info.screen_base = (void *)hitfb_fix.smem_start;
 
-	ret = fb_alloc_cmap(&info->cmap, 256, 0);
-	if (unlikely(ret < 0))
-		goto err_fb;
+	fb_alloc_cmap(&fb_info.cmap, 256, 0);
 
-	ret = register_framebuffer(info);
-	if (unlikely(ret < 0))
-		goto err;
-
-	platform_set_drvdata(dev, info);
+	if (register_framebuffer(&fb_info) < 0)
+		return -EINVAL;
 
 	printk(KERN_INFO "fb%d: %s frame buffer device\n",
-	       info->node, info->fix.id);
-
+	       fb_info.node, fb_info.fix.id);
 	return 0;
-
-err:
-	fb_dealloc_cmap(&info->cmap);
-err_fb:
-	framebuffer_release(info);
-	return ret;
 }
 
 static int __exit hitfb_remove(struct platform_device *dev)
 {
-	struct fb_info *info = platform_get_drvdata(dev);
-
-	unregister_framebuffer(info);
-	fb_dealloc_cmap(&info->cmap);
-	framebuffer_release(info);
-
-	return 0;
+	return unregister_framebuffer(&fb_info);
 }
 
-static int hitfb_suspend(struct device *dev)
+#ifdef CONFIG_PM
+static int hitfb_suspend(struct platform_device *dev, pm_message_t state)
 {
 	u16 v;
 
@@ -441,7 +421,7 @@ static int hitfb_suspend(struct device *dev)
 	return 0;
 }
 
-static int hitfb_resume(struct device *dev)
+static int hitfb_resume(struct platform_device *dev)
 {
 	u16 v;
 
@@ -455,19 +435,17 @@ static int hitfb_resume(struct device *dev)
 
 	return 0;
 }
-
-static const struct dev_pm_ops hitfb_dev_pm_ops = {
-	.suspend	= hitfb_suspend,
-	.resume		= hitfb_resume,
-};
+#endif
 
 static struct platform_driver hitfb_driver = {
 	.probe		= hitfb_probe,
 	.remove		= __exit_p(hitfb_remove),
+#ifdef CONFIG_PM
+	.suspend	= hitfb_suspend,
+	.resume		= hitfb_resume,
+#endif
 	.driver		= {
 		.name	= "hitfb",
-		.owner	= THIS_MODULE,
-		.pm	= &hitfb_dev_pm_ops,
 	},
 };
 

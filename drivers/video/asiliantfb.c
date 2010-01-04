@@ -505,27 +505,19 @@ static struct fb_var_screeninfo asiliantfb_var __devinitdata = {
 	.vsync_len 	= 2,
 };
 
-static int __devinit init_asiliant(struct fb_info *p, unsigned long addr)
+static void __devinit init_asiliant(struct fb_info *p, unsigned long addr)
 {
-	int err;
-
 	p->fix			= asiliantfb_fix;
 	p->fix.smem_start	= addr;
 	p->var			= asiliantfb_var;
 	p->fbops		= &asiliantfb_ops;
 	p->flags		= FBINFO_DEFAULT;
 
-	err = fb_alloc_cmap(&p->cmap, 256, 0);
-	if (err) {
-		printk(KERN_ERR "C&T 69000 fb failed to alloc cmap memory\n");
-		return err;
-	}
+	fb_alloc_cmap(&p->cmap, 256, 0);
 
-	err = register_framebuffer(p);
-	if (err < 0) {
+	if (register_framebuffer(p) < 0) {
 		printk(KERN_ERR "C&T 69000 framebuffer failed to register\n");
-		fb_dealloc_cmap(&p->cmap);
-		return err;
+		return;
 	}
 
 	printk(KERN_INFO "fb%d: Asiliant 69000 frame buffer (%dK RAM detected)\n",
@@ -533,7 +525,6 @@ static int __devinit init_asiliant(struct fb_info *p, unsigned long addr)
 
 	writeb(0xff, mmio_base + 0x78c);
 	chips_hw_init(p);
-	return 0;
 }
 
 static int __devinit
@@ -541,7 +532,6 @@ asiliantfb_pci_init(struct pci_dev *dp, const struct pci_device_id *ent)
 {
 	unsigned long addr, size;
 	struct fb_info *p;
-	int err;
 
 	if ((dp->resource[0].flags & IORESOURCE_MEM) == 0)
 		return -ENODEV;
@@ -570,13 +560,7 @@ asiliantfb_pci_init(struct pci_dev *dp, const struct pci_device_id *ent)
 	pci_write_config_dword(dp, 4, 0x02800083);
 	writeb(3, p->screen_base + 0x400784);
 
-	err = init_asiliant(p, addr);
-	if (err) {
-		iounmap(p->screen_base);
-		release_mem_region(addr, size);
-		framebuffer_release(p);
-		return err;
-	}
+	init_asiliant(p, addr);
 
 	pci_set_drvdata(dp, p);
 	return 0;
@@ -587,7 +571,6 @@ static void __devexit asiliantfb_remove(struct pci_dev *dp)
 	struct fb_info *p = pci_get_drvdata(dp);
 
 	unregister_framebuffer(p);
-	fb_dealloc_cmap(&p->cmap);
 	iounmap(p->screen_base);
 	release_mem_region(pci_resource_start(dp, 0), pci_resource_len(dp, 0));
 	pci_set_drvdata(dp, NULL);

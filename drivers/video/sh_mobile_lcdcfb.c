@@ -14,17 +14,30 @@
 #include <linux/mm.h>
 #include <linux/fb.h>
 #include <linux/clk.h>
-#include <linux/pm_runtime.h>
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
-#include <linux/interrupt.h>
-#include <linux/vmalloc.h>
-#include <video/sh_mobile_lcdc.h>
-#include <asm/atomic.h>
+#include <asm/sh_mobile_lcdc.h>
 
 #define PALETTE_NR 16
-#define SIDE_B_OFFSET 0x1000
-#define MIRROR_OFFSET 0x2000
+
+struct sh_mobile_lcdc_priv;
+struct sh_mobile_lcdc_chan {
+	struct sh_mobile_lcdc_priv *lcdc;
+	unsigned long *reg_offs;
+	unsigned long ldmt1r_value;
+	unsigned long enabled; /* ME and SE in LDCNT2R */
+	struct sh_mobile_lcdc_chan_cfg cfg;
+	u32 pseudo_palette[PALETTE_NR];
+	struct fb_info info;
+	dma_addr_t dma_handle;
+};
+
+struct sh_mobile_lcdc_priv {
+	void __iomem *base;
+	struct clk *clk;
+	unsigned long lddckr;
+	struct sh_mobile_lcdc_chan ch[2];
+};
 
 /* shared registers */
 #define _LDDCKR 0x410
@@ -33,30 +46,17 @@
 #define _LDSR 0x46c
 #define _LDCNT1R 0x470
 #define _LDCNT2R 0x474
-#define _LDRCNTR 0x478
 #define _LDDDSR 0x47c
 #define _LDDWD0R 0x800
 #define _LDDRDR 0x840
 #define _LDDWAR 0x900
 #define _LDDRAR 0x904
 
-/* shared registers and their order for context save/restore */
-static int lcdc_shared_regs[] = {
-	_LDDCKR,
-	_LDDCKSTPR,
-	_LDINTR,
-	_LDDDSR,
-	_LDCNT1R,
-	_LDCNT2R,
-};
-#define NR_SHARED_REGS ARRAY_SIZE(lcdc_shared_regs)
-
 /* per-channel registers */
 enum { LDDCKPAT1R, LDDCKPAT2R, LDMT1R, LDMT2R, LDMT3R, LDDFR, LDSM1R,
-       LDSM2R, LDSA1R, LDMLSR, LDHCNR, LDHSYNR, LDVLNR, LDVSYNR, LDPMR,
-       NR_CH_REGS };
+       LDSA1R, LDMLSR, LDHCNR, LDHSYNR, LDVLNR, LDVSYNR, LDPMR };
 
-static unsigned long lcdc_offs_mainlcd[NR_CH_REGS] = {
+static unsigned long lcdc_offs_mainlcd[] = {
 	[LDDCKPAT1R] = 0x400,
 	[LDDCKPAT2R] = 0x404,
 	[LDMT1R] = 0x418,
@@ -64,7 +64,6 @@ static unsigned long lcdc_offs_mainlcd[NR_CH_REGS] = {
 	[LDMT3R] = 0x420,
 	[LDDFR] = 0x424,
 	[LDSM1R] = 0x428,
-	[LDSM2R] = 0x42c,
 	[LDSA1R] = 0x430,
 	[LDMLSR] = 0x438,
 	[LDHCNR] = 0x448,
@@ -74,7 +73,7 @@ static unsigned long lcdc_offs_mainlcd[NR_CH_REGS] = {
 	[LDPMR] = 0x460,
 };
 
-static unsigned long lcdc_offs_sublcd[NR_CH_REGS] = {
+static unsigned long lcdc_offs_sublcd[] = {
 	[LDDCKPAT1R] = 0x408,
 	[LDDCKPAT2R] = 0x40c,
 	[LDMT1R] = 0x600,
@@ -82,7 +81,6 @@ static unsigned long lcdc_offs_sublcd[NR_CH_REGS] = {
 	[LDMT3R] = 0x608,
 	[LDDFR] = 0x60c,
 	[LDSM1R] = 0x610,
-	[LDSM2R] = 0x614,
 	[LDSA1R] = 0x618,
 	[LDMLSR] = 0x620,
 	[LDHCNR] = 0x624,
@@ -96,81 +94,11 @@ static unsigned long lcdc_offs_sublcd[NR_CH_REGS] = {
 #define LCDC_RESET	0x00000100
 #define DISPLAY_BEU	0x00000008
 #define LCDC_ENABLE	0x00000001
-#define LDINTR_FE	0x00000400
-#define LDINTR_VSE	0x00000200
-#define LDINTR_VEE	0x00000100
-#define LDINTR_FS	0x00000004
-#define LDINTR_VSS	0x00000002
-#define LDINTR_VES	0x00000001
-#define LDRCNTR_SRS	0x00020000
-#define LDRCNTR_SRC	0x00010000
-#define LDRCNTR_MRS	0x00000002
-#define LDRCNTR_MRC	0x00000001
-
-struct sh_mobile_lcdc_priv;
-struct sh_mobile_lcdc_chan {
-	struct sh_mobile_lcdc_priv *lcdc;
-	unsigned long *reg_offs;
-	unsigned long ldmt1r_value;
-	unsigned long enabled; /* ME and SE in LDCNT2R */
-	struct sh_mobile_lcdc_chan_cfg cfg;
-	u32 pseudo_palette[PALETTE_NR];
-	unsigned long saved_ch_regs[NR_CH_REGS];
-	struct fb_info *info;
-	dma_addr_t dma_handle;
-	struct fb_deferred_io defio;
-	struct scatterlist *sglist;
-	unsigned long frame_end;
-	unsigned long pan_offset;
-	unsigned long new_pan_offset;
-	wait_queue_head_t frame_end_wait;
-};
-
-struct sh_mobile_lcdc_priv {
-	void __iomem *base;
-	int irq;
-	atomic_t hw_usecnt;
-	struct device *dev;
-	struct clk *dot_clk;
-	unsigned long lddckr;
-	struct sh_mobile_lcdc_chan ch[2];
-	unsigned long saved_shared_regs[NR_SHARED_REGS];
-	int started;
-};
-
-static bool banked(int reg_nr)
-{
-	switch (reg_nr) {
-	case LDMT1R:
-	case LDMT2R:
-	case LDMT3R:
-	case LDDFR:
-	case LDSM1R:
-	case LDSA1R:
-	case LDMLSR:
-	case LDHCNR:
-	case LDHSYNR:
-	case LDVLNR:
-	case LDVSYNR:
-		return true;
-	}
-	return false;
-}
 
 static void lcdc_write_chan(struct sh_mobile_lcdc_chan *chan,
 			    int reg_nr, unsigned long data)
 {
 	iowrite32(data, chan->lcdc->base + chan->reg_offs[reg_nr]);
-	if (banked(reg_nr))
-		iowrite32(data, chan->lcdc->base + chan->reg_offs[reg_nr] +
-			  SIDE_B_OFFSET);
-}
-
-static void lcdc_write_chan_mirror(struct sh_mobile_lcdc_chan *chan,
-			    int reg_nr, unsigned long data)
-{
-	iowrite32(data, chan->lcdc->base + chan->reg_offs[reg_nr] +
-		  MIRROR_OFFSET);
 }
 
 static unsigned long lcdc_read_chan(struct sh_mobile_lcdc_chan *chan,
@@ -211,7 +139,6 @@ static void lcdc_sys_write_index(void *handle, unsigned long data)
 	lcdc_write(ch->lcdc, _LDDWD0R, data | 0x10000000);
 	lcdc_wait_bit(ch->lcdc, _LDSR, 2, 0);
 	lcdc_write(ch->lcdc, _LDDWAR, 1 | (lcdc_chan_is_sublcd(ch) ? 2 : 0));
-	lcdc_wait_bit(ch->lcdc, _LDSR, 2, 0);
 }
 
 static void lcdc_sys_write_data(void *handle, unsigned long data)
@@ -221,7 +148,6 @@ static void lcdc_sys_write_data(void *handle, unsigned long data)
 	lcdc_write(ch->lcdc, _LDDWD0R, data | 0x11000000);
 	lcdc_wait_bit(ch->lcdc, _LDSR, 2, 0);
 	lcdc_write(ch->lcdc, _LDDWAR, 1 | (lcdc_chan_is_sublcd(ch) ? 2 : 0));
-	lcdc_wait_bit(ch->lcdc, _LDSR, 2, 0);
 }
 
 static unsigned long lcdc_sys_read_data(void *handle)
@@ -232,9 +158,8 @@ static unsigned long lcdc_sys_read_data(void *handle)
 	lcdc_wait_bit(ch->lcdc, _LDSR, 2, 0);
 	lcdc_write(ch->lcdc, _LDDRAR, 1 | (lcdc_chan_is_sublcd(ch) ? 2 : 0));
 	udelay(1);
-	lcdc_wait_bit(ch->lcdc, _LDSR, 2, 0);
 
-	return lcdc_read(ch->lcdc, _LDDRDR) & 0x3ffff;
+	return lcdc_read(ch->lcdc, _LDDRDR) & 0xffff;
 }
 
 struct sh_mobile_lcdc_sys_bus_ops sh_mobile_lcdc_sys_bus_ops = {
@@ -242,147 +167,6 @@ struct sh_mobile_lcdc_sys_bus_ops sh_mobile_lcdc_sys_bus_ops = {
 	lcdc_sys_write_data,
 	lcdc_sys_read_data,
 };
-
-static void sh_mobile_lcdc_clk_on(struct sh_mobile_lcdc_priv *priv)
-{
-	if (atomic_inc_and_test(&priv->hw_usecnt)) {
-		pm_runtime_get_sync(priv->dev);
-		if (priv->dot_clk)
-			clk_enable(priv->dot_clk);
-	}
-}
-
-static void sh_mobile_lcdc_clk_off(struct sh_mobile_lcdc_priv *priv)
-{
-	if (atomic_sub_return(1, &priv->hw_usecnt) == -1) {
-		if (priv->dot_clk)
-			clk_disable(priv->dot_clk);
-		pm_runtime_put(priv->dev);
-	}
-}
-
-static int sh_mobile_lcdc_sginit(struct fb_info *info,
-				  struct list_head *pagelist)
-{
-	struct sh_mobile_lcdc_chan *ch = info->par;
-	unsigned int nr_pages_max = info->fix.smem_len >> PAGE_SHIFT;
-	struct page *page;
-	int nr_pages = 0;
-
-	sg_init_table(ch->sglist, nr_pages_max);
-
-	list_for_each_entry(page, pagelist, lru)
-		sg_set_page(&ch->sglist[nr_pages++], page, PAGE_SIZE, 0);
-
-	return nr_pages;
-}
-
-static void sh_mobile_lcdc_deferred_io(struct fb_info *info,
-				       struct list_head *pagelist)
-{
-	struct sh_mobile_lcdc_chan *ch = info->par;
-	struct sh_mobile_lcdc_board_cfg	*bcfg = &ch->cfg.board_cfg;
-
-	/* enable clocks before accessing hardware */
-	sh_mobile_lcdc_clk_on(ch->lcdc);
-
-	/*
-	 * It's possible to get here without anything on the pagelist via
-	 * sh_mobile_lcdc_deferred_io_touch() or via a userspace fsync()
-	 * invocation. In the former case, the acceleration routines are
-	 * stepped in to when using the framebuffer console causing the
-	 * workqueue to be scheduled without any dirty pages on the list.
-	 *
-	 * Despite this, a panel update is still needed given that the
-	 * acceleration routines have their own methods for writing in
-	 * that still need to be updated.
-	 *
-	 * The fsync() and empty pagelist case could be optimized for,
-	 * but we don't bother, as any application exhibiting such
-	 * behaviour is fundamentally broken anyways.
-	 */
-	if (!list_empty(pagelist)) {
-		unsigned int nr_pages = sh_mobile_lcdc_sginit(info, pagelist);
-
-		/* trigger panel update */
-		dma_map_sg(info->dev, ch->sglist, nr_pages, DMA_TO_DEVICE);
-		if (bcfg->start_transfer)
-			bcfg->start_transfer(bcfg->board_data, ch,
-					     &sh_mobile_lcdc_sys_bus_ops);
-		lcdc_write_chan(ch, LDSM2R, 1);
-		dma_unmap_sg(info->dev, ch->sglist, nr_pages, DMA_TO_DEVICE);
-	} else {
-		if (bcfg->start_transfer)
-			bcfg->start_transfer(bcfg->board_data, ch,
-					     &sh_mobile_lcdc_sys_bus_ops);
-		lcdc_write_chan(ch, LDSM2R, 1);
-	}
-}
-
-static void sh_mobile_lcdc_deferred_io_touch(struct fb_info *info)
-{
-	struct fb_deferred_io *fbdefio = info->fbdefio;
-
-	if (fbdefio)
-		schedule_delayed_work(&info->deferred_work, fbdefio->delay);
-}
-
-static irqreturn_t sh_mobile_lcdc_irq(int irq, void *data)
-{
-	struct sh_mobile_lcdc_priv *priv = data;
-	struct sh_mobile_lcdc_chan *ch;
-	unsigned long tmp;
-	unsigned long ldintr;
-	int is_sub;
-	int k;
-
-	/* acknowledge interrupt */
-	ldintr = tmp = lcdc_read(priv, _LDINTR);
-	/*
-	 * disable further VSYNC End IRQs, preserve all other enabled IRQs,
-	 * write 0 to bits 0-6 to ack all triggered IRQs.
-	 */
-	tmp &= 0xffffff00 & ~LDINTR_VEE;
-	lcdc_write(priv, _LDINTR, tmp);
-
-	/* figure out if this interrupt is for main or sub lcd */
-	is_sub = (lcdc_read(priv, _LDSR) & (1 << 10)) ? 1 : 0;
-
-	/* wake up channel and disable clocks */
-	for (k = 0; k < ARRAY_SIZE(priv->ch); k++) {
-		ch = &priv->ch[k];
-
-		if (!ch->enabled)
-			continue;
-
-		/* Frame Start */
-		if (ldintr & LDINTR_FS) {
-			if (is_sub == lcdc_chan_is_sublcd(ch)) {
-				ch->frame_end = 1;
-				wake_up(&ch->frame_end_wait);
-
-				sh_mobile_lcdc_clk_off(priv);
-			}
-		}
-
-		/* VSYNC End */
-		if (ldintr & LDINTR_VES) {
-			unsigned long ldrcntr = lcdc_read(priv, _LDRCNTR);
-			/* Set the source address for the next refresh */
-			lcdc_write_chan_mirror(ch, LDSA1R, ch->dma_handle +
-					       ch->new_pan_offset);
-			if (lcdc_chan_is_sublcd(ch))
-				lcdc_write(ch->lcdc, _LDRCNTR,
-					   ldrcntr ^ LDRCNTR_SRS);
-			else
-				lcdc_write(ch->lcdc, _LDRCNTR,
-					   ldrcntr ^ LDRCNTR_MRS);
-			ch->pan_offset = ch->new_pan_offset;
-		}
-	}
-
-	return IRQ_HANDLED;
-}
 
 static void sh_mobile_lcdc_start_stop(struct sh_mobile_lcdc_priv *priv,
 				      int start)
@@ -420,11 +204,6 @@ static int sh_mobile_lcdc_start(struct sh_mobile_lcdc_priv *priv)
 	unsigned long tmp;
 	int k, m;
 	int ret = 0;
-
-	/* enable clocks before accessing the hardware */
-	for (k = 0; k < ARRAY_SIZE(priv->ch); k++)
-		if (priv->ch[k].enabled)
-			sh_mobile_lcdc_clk_on(priv);
 
 	/* reset */
 	lcdc_write(priv, _LDCNT2R, lcdc_read(priv, _LDCNT2R) | LCDC_RESET);
@@ -468,7 +247,7 @@ static int sh_mobile_lcdc_start(struct sh_mobile_lcdc_priv *priv)
 	lcdc_write(priv, _LDDCKSTPR, 0);
 	lcdc_wait_bit(priv, _LDDCKSTPR, ~0, 0);
 
-	/* interrupts are disabled to begin with */
+	/* interrupts are disabled */
 	lcdc_write(priv, _LDINTR, 0);
 
 	for (k = 0; k < ARRAY_SIZE(priv->ch); k++) {
@@ -481,11 +260,6 @@ static int sh_mobile_lcdc_start(struct sh_mobile_lcdc_priv *priv)
 		tmp = ch->ldmt1r_value;
 		tmp |= (lcd_cfg->sync & FB_SYNC_VERT_HIGH_ACT) ? 0 : 1 << 28;
 		tmp |= (lcd_cfg->sync & FB_SYNC_HOR_HIGH_ACT) ? 0 : 1 << 27;
-		tmp |= (ch->cfg.flags & LCDC_FLAGS_DWPOL) ? 1 << 26 : 0;
-		tmp |= (ch->cfg.flags & LCDC_FLAGS_DIPOL) ? 1 << 25 : 0;
-		tmp |= (ch->cfg.flags & LCDC_FLAGS_DAPOL) ? 1 << 24 : 0;
-		tmp |= (ch->cfg.flags & LCDC_FLAGS_HSCNT) ? 1 << 17 : 0;
-		tmp |= (ch->cfg.flags & LCDC_FLAGS_DWCNT) ? 1 << 16 : 0;
 		lcdc_write_chan(ch, LDMT1R, tmp);
 
 		/* setup SYS bus */
@@ -529,6 +303,9 @@ static int sh_mobile_lcdc_start(struct sh_mobile_lcdc_priv *priv)
 			return ret;
 	}
 
+	/* --- display_lcdc_data() --- */
+	lcdc_write(priv, _LDINTR, 0x00000f00);
+
 	/* word and long word swap */
 	lcdc_write(priv, _LDDDSR, lcdc_read(priv, _LDDDSR) | 6);
 
@@ -541,33 +318,17 @@ static int sh_mobile_lcdc_start(struct sh_mobile_lcdc_priv *priv)
 		/* set bpp format in PKF[4:0] */
 		tmp = lcdc_read_chan(ch, LDDFR);
 		tmp &= ~(0x0001001f);
-		tmp |= (ch->info->var.bits_per_pixel == 16) ? 3 : 0;
+		tmp |= (priv->ch[k].info.var.bits_per_pixel == 16) ? 3 : 0;
 		lcdc_write_chan(ch, LDDFR, tmp);
 
 		/* point out our frame buffer */
-		lcdc_write_chan(ch, LDSA1R, ch->info->fix.smem_start);
+		lcdc_write_chan(ch, LDSA1R, ch->info.fix.smem_start);
 
 		/* set line size */
-		lcdc_write_chan(ch, LDMLSR, ch->info->fix.line_length);
+		lcdc_write_chan(ch, LDMLSR, ch->info.fix.line_length);
 
-		/* setup deferred io if SYS bus */
-		tmp = ch->cfg.sys_bus_cfg.deferred_io_msec;
-		if (ch->ldmt1r_value & (1 << 12) && tmp) {
-			ch->defio.deferred_io = sh_mobile_lcdc_deferred_io;
-			ch->defio.delay = msecs_to_jiffies(tmp);
-			ch->info->fbdefio = &ch->defio;
-			fb_deferred_io_init(ch->info);
-
-			/* one-shot mode */
-			lcdc_write_chan(ch, LDSM1R, 1);
-
-			/* enable "Frame End Interrupt Enable" bit */
-			lcdc_write(priv, _LDINTR, LDINTR_FE);
-
-		} else {
-			/* continuous read mode */
-			lcdc_write_chan(ch, LDSM1R, 0);
-		}
+		/* continuous read mode */
+		lcdc_write_chan(ch, LDSM1R, 0);
 	}
 
 	/* display output */
@@ -575,14 +336,10 @@ static int sh_mobile_lcdc_start(struct sh_mobile_lcdc_priv *priv)
 
 	/* start the lcdc */
 	sh_mobile_lcdc_start_stop(priv, 1);
-	priv->started = 1;
 
 	/* tell the board code to enable the panel */
 	for (k = 0; k < ARRAY_SIZE(priv->ch); k++) {
 		ch = &priv->ch[k];
-		if (!ch->enabled)
-			continue;
-
 		board_cfg = &ch->cfg.board_cfg;
 		if (board_cfg->display_on)
 			board_cfg->display_on(board_cfg->board_data);
@@ -597,40 +354,16 @@ static void sh_mobile_lcdc_stop(struct sh_mobile_lcdc_priv *priv)
 	struct sh_mobile_lcdc_board_cfg	*board_cfg;
 	int k;
 
-	/* clean up deferred io and ask board code to disable panel */
+	/* tell the board code to disable the panel */
 	for (k = 0; k < ARRAY_SIZE(priv->ch); k++) {
 		ch = &priv->ch[k];
-		if (!ch->enabled)
-			continue;
-
-		/* deferred io mode:
-		 * flush frame, and wait for frame end interrupt
-		 * clean up deferred io and enable clock
-		 */
-		if (ch->info->fbdefio) {
-			ch->frame_end = 0;
-			schedule_delayed_work(&ch->info->deferred_work, 0);
-			wait_event(ch->frame_end_wait, ch->frame_end);
-			fb_deferred_io_cleanup(ch->info);
-			ch->info->fbdefio = NULL;
-			sh_mobile_lcdc_clk_on(priv);
-		}
-
 		board_cfg = &ch->cfg.board_cfg;
 		if (board_cfg->display_off)
 			board_cfg->display_off(board_cfg->board_data);
 	}
 
 	/* stop the lcdc */
-	if (priv->started) {
-		sh_mobile_lcdc_start_stop(priv, 0);
-		priv->started = 0;
-	}
-
-	/* stop clocks */
-	for (k = 0; k < ARRAY_SIZE(priv->ch); k++)
-		if (priv->ch[k].enabled)
-			sh_mobile_lcdc_clk_off(priv);
+	sh_mobile_lcdc_start_stop(priv, 0);
 }
 
 static int sh_mobile_lcdc_check_interface(struct sh_mobile_lcdc_chan *ch)
@@ -673,8 +406,7 @@ static int sh_mobile_lcdc_check_interface(struct sh_mobile_lcdc_chan *ch)
 	return -EINVAL;
 }
 
-static int sh_mobile_lcdc_setup_clocks(struct platform_device *pdev,
-				       int clock_source,
+static int sh_mobile_lcdc_setup_clocks(struct device *dev, int clock_source,
 				       struct sh_mobile_lcdc_priv *priv)
 {
 	char *str;
@@ -691,20 +423,15 @@ static int sh_mobile_lcdc_setup_clocks(struct platform_device *pdev,
 	priv->lddckr = icksel << 16;
 
 	if (str) {
-		priv->dot_clk = clk_get(&pdev->dev, str);
-		if (IS_ERR(priv->dot_clk)) {
-			dev_err(&pdev->dev, "cannot get dot clock %s\n", str);
-			return PTR_ERR(priv->dot_clk);
+		priv->clk = clk_get(dev, str);
+		if (IS_ERR(priv->clk)) {
+			dev_err(dev, "cannot get clock %s\n", str);
+			return PTR_ERR(priv->clk);
 		}
-	}
-	atomic_set(&priv->hw_usecnt, -1);
 
-	/* Runtime PM support involves two step for this driver:
-	 * 1) Enable Runtime PM
-	 * 2) Force Runtime PM Resume since hardware is accessed from probe()
-	 */
-	pm_runtime_enable(priv->dev);
-	pm_runtime_resume(priv->dev);
+		clk_enable(priv->clk);
+	}
+
 	return 0;
 }
 
@@ -737,64 +464,13 @@ static struct fb_fix_screeninfo sh_mobile_lcdc_fix  = {
 	.type =		FB_TYPE_PACKED_PIXELS,
 	.visual =	FB_VISUAL_TRUECOLOR,
 	.accel =	FB_ACCEL_NONE,
-	.xpanstep =	0,
-	.ypanstep =	1,
-	.ywrapstep =	0,
 };
 
-static void sh_mobile_lcdc_fillrect(struct fb_info *info,
-				    const struct fb_fillrect *rect)
-{
-	sys_fillrect(info, rect);
-	sh_mobile_lcdc_deferred_io_touch(info);
-}
-
-static void sh_mobile_lcdc_copyarea(struct fb_info *info,
-				    const struct fb_copyarea *area)
-{
-	sys_copyarea(info, area);
-	sh_mobile_lcdc_deferred_io_touch(info);
-}
-
-static void sh_mobile_lcdc_imageblit(struct fb_info *info,
-				     const struct fb_image *image)
-{
-	sys_imageblit(info, image);
-	sh_mobile_lcdc_deferred_io_touch(info);
-}
-
-static int sh_mobile_fb_pan_display(struct fb_var_screeninfo *var,
-				     struct fb_info *info)
-{
-	struct sh_mobile_lcdc_chan *ch = info->par;
-
-	if (info->var.xoffset == var->xoffset &&
-	    info->var.yoffset == var->yoffset)
-		return 0;	/* No change, do nothing */
-
-	ch->new_pan_offset = (var->yoffset * info->fix.line_length) +
-		(var->xoffset * (info->var.bits_per_pixel / 8));
-
-	if (ch->new_pan_offset != ch->pan_offset) {
-		unsigned long ldintr;
-		ldintr = lcdc_read(ch->lcdc, _LDINTR);
-		ldintr |= LDINTR_VEE;
-		lcdc_write(ch->lcdc, _LDINTR, ldintr);
-		sh_mobile_lcdc_deferred_io_touch(info);
-	}
-
-	return 0;
-}
-
 static struct fb_ops sh_mobile_lcdc_ops = {
-	.owner          = THIS_MODULE,
 	.fb_setcolreg	= sh_mobile_lcdc_setcolreg,
-	.fb_read        = fb_sys_read,
-	.fb_write       = fb_sys_write,
-	.fb_fillrect	= sh_mobile_lcdc_fillrect,
-	.fb_copyarea	= sh_mobile_lcdc_copyarea,
-	.fb_imageblit	= sh_mobile_lcdc_imageblit,
-	.fb_pan_display = sh_mobile_fb_pan_display,
+	.fb_fillrect	= cfb_fillrect,
+	.fb_copyarea	= cfb_copyarea,
+	.fb_imageblit	= cfb_imageblit,
 };
 
 static int sh_mobile_lcdc_set_bpp(struct fb_var_screeninfo *var, int bpp)
@@ -835,76 +511,6 @@ static int sh_mobile_lcdc_set_bpp(struct fb_var_screeninfo *var, int bpp)
 	return 0;
 }
 
-static int sh_mobile_lcdc_suspend(struct device *dev)
-{
-	struct platform_device *pdev = to_platform_device(dev);
-
-	sh_mobile_lcdc_stop(platform_get_drvdata(pdev));
-	return 0;
-}
-
-static int sh_mobile_lcdc_resume(struct device *dev)
-{
-	struct platform_device *pdev = to_platform_device(dev);
-
-	return sh_mobile_lcdc_start(platform_get_drvdata(pdev));
-}
-
-static int sh_mobile_lcdc_runtime_suspend(struct device *dev)
-{
-	struct platform_device *pdev = to_platform_device(dev);
-	struct sh_mobile_lcdc_priv *p = platform_get_drvdata(pdev);
-	struct sh_mobile_lcdc_chan *ch;
-	int k, n;
-
-	/* save per-channel registers */
-	for (k = 0; k < ARRAY_SIZE(p->ch); k++) {
-		ch = &p->ch[k];
-		if (!ch->enabled)
-			continue;
-		for (n = 0; n < NR_CH_REGS; n++)
-			ch->saved_ch_regs[n] = lcdc_read_chan(ch, n);
-	}
-
-	/* save shared registers */
-	for (n = 0; n < NR_SHARED_REGS; n++)
-		p->saved_shared_regs[n] = lcdc_read(p, lcdc_shared_regs[n]);
-
-	/* turn off LCDC hardware */
-	lcdc_write(p, _LDCNT1R, 0);
-	return 0;
-}
-
-static int sh_mobile_lcdc_runtime_resume(struct device *dev)
-{
-	struct platform_device *pdev = to_platform_device(dev);
-	struct sh_mobile_lcdc_priv *p = platform_get_drvdata(pdev);
-	struct sh_mobile_lcdc_chan *ch;
-	int k, n;
-
-	/* restore per-channel registers */
-	for (k = 0; k < ARRAY_SIZE(p->ch); k++) {
-		ch = &p->ch[k];
-		if (!ch->enabled)
-			continue;
-		for (n = 0; n < NR_CH_REGS; n++)
-			lcdc_write_chan(ch, n, ch->saved_ch_regs[n]);
-	}
-
-	/* restore shared registers */
-	for (n = 0; n < NR_SHARED_REGS; n++)
-		lcdc_write(p, lcdc_shared_regs[n], p->saved_shared_regs[n]);
-
-	return 0;
-}
-
-static const struct dev_pm_ops sh_mobile_lcdc_dev_pm_ops = {
-	.suspend = sh_mobile_lcdc_suspend,
-	.resume = sh_mobile_lcdc_resume,
-	.runtime_suspend = sh_mobile_lcdc_runtime_suspend,
-	.runtime_resume = sh_mobile_lcdc_runtime_resume,
-};
-
 static int sh_mobile_lcdc_remove(struct platform_device *pdev);
 
 static int __init sh_mobile_lcdc_probe(struct platform_device *pdev)
@@ -925,9 +531,8 @@ static int __init sh_mobile_lcdc_probe(struct platform_device *pdev)
 	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	i = platform_get_irq(pdev, 0);
-	if (!res || i < 0) {
-		dev_err(&pdev->dev, "cannot get platform resources\n");
+	if (res == NULL) {
+		dev_err(&pdev->dev, "cannot find IO resource\n");
 		error = -ENOENT;
 		goto err0;
 	}
@@ -939,15 +544,6 @@ static int __init sh_mobile_lcdc_probe(struct platform_device *pdev)
 		goto err0;
 	}
 
-	error = request_irq(i, sh_mobile_lcdc_irq, IRQF_DISABLED,
-			    dev_name(&pdev->dev), priv);
-	if (error) {
-		dev_err(&pdev->dev, "unable to request irq\n");
-		goto err1;
-	}
-
-	priv->irq = i;
-	priv->dev = &pdev->dev;
 	platform_set_drvdata(pdev, priv);
 	pdata = pdev->dev.platform_data;
 
@@ -961,9 +557,6 @@ static int __init sh_mobile_lcdc_probe(struct platform_device *pdev)
 			dev_err(&pdev->dev, "unsupported interface type\n");
 			goto err1;
 		}
-		init_waitqueue_head(&priv->ch[i].frame_end_wait);
-		priv->ch[j].pan_offset = 0;
-		priv->ch[j].new_pan_offset = 0;
 
 		switch (pdata->ch[i].chan) {
 		case LCDC_CHAN_MAINLCD:
@@ -985,30 +578,23 @@ static int __init sh_mobile_lcdc_probe(struct platform_device *pdev)
 		goto err1;
 	}
 
-	error = sh_mobile_lcdc_setup_clocks(pdev, pdata->clock_source, priv);
+	error = sh_mobile_lcdc_setup_clocks(&pdev->dev,
+					    pdata->clock_source, priv);
 	if (error) {
 		dev_err(&pdev->dev, "unable to setup clocks\n");
 		goto err1;
 	}
 
+	priv->lddckr = pdata->lddckr;
 	priv->base = ioremap_nocache(res->start, (res->end - res->start) + 1);
 
 	for (i = 0; i < j; i++) {
+		info = &priv->ch[i].info;
 		cfg = &priv->ch[i].cfg;
 
-		priv->ch[i].info = framebuffer_alloc(0, &pdev->dev);
-		if (!priv->ch[i].info) {
-			dev_err(&pdev->dev, "unable to allocate fb_info\n");
-			error = -ENOMEM;
-			break;
-		}
-
-		info = priv->ch[i].info;
 		info->fbops = &sh_mobile_lcdc_ops;
 		info->var.xres = info->var.xres_virtual = cfg->lcd_cfg.xres;
-		info->var.yres = cfg->lcd_cfg.yres;
-		/* Default Y virtual resolution is 2x panel size */
-		info->var.yres_virtual = info->var.yres * 2;
+		info->var.yres = info->var.yres_virtual = cfg->lcd_cfg.yres;
 		info->var.width = cfg->lcd_size_cfg.width;
 		info->var.height = cfg->lcd_size_cfg.height;
 		info->var.activate = FB_ACTIVATE_NOW;
@@ -1018,8 +604,7 @@ static int __init sh_mobile_lcdc_probe(struct platform_device *pdev)
 
 		info->fix = sh_mobile_lcdc_fix;
 		info->fix.line_length = cfg->lcd_cfg.xres * (cfg->bpp / 8);
-		info->fix.smem_len = info->fix.line_length *
-			info->var.yres_virtual;
+		info->fix.smem_len = info->fix.line_length * cfg->lcd_cfg.yres;
 
 		buf = dma_alloc_coherent(&pdev->dev, info->fix.smem_len,
 					 &priv->ch[i].dma_handle, GFP_KERNEL);
@@ -1044,7 +629,6 @@ static int __init sh_mobile_lcdc_probe(struct platform_device *pdev)
 		info->fix.smem_start = priv->ch[i].dma_handle;
 		info->screen_base = buf;
 		info->device = &pdev->dev;
-		info->par = &priv->ch[i];
 	}
 
 	if (error)
@@ -1057,35 +641,21 @@ static int __init sh_mobile_lcdc_probe(struct platform_device *pdev)
 	}
 
 	for (i = 0; i < j; i++) {
-		struct sh_mobile_lcdc_chan *ch = priv->ch + i;
-
-		info = ch->info;
-
-		if (info->fbdefio) {
-			priv->ch->sglist = vmalloc(sizeof(struct scatterlist) *
-					info->fix.smem_len >> PAGE_SHIFT);
-			if (!priv->ch->sglist) {
-				dev_err(&pdev->dev, "cannot allocate sglist\n");
-				goto err1;
-			}
-		}
-
-		error = register_framebuffer(info);
+		error = register_framebuffer(&priv->ch[i].info);
 		if (error < 0)
 			goto err1;
+	}
 
+	for (i = 0; i < j; i++) {
+		info = &priv->ch[i].info;
 		dev_info(info->dev,
 			 "registered %s/%s as %dx%d %dbpp.\n",
 			 pdev->name,
-			 (ch->cfg.chan == LCDC_CHAN_MAINLCD) ?
+			 (priv->ch[i].cfg.chan == LCDC_CHAN_MAINLCD) ?
 			 "mainlcd" : "sublcd",
-			 (int) ch->cfg.lcd_cfg.xres,
-			 (int) ch->cfg.lcd_cfg.yres,
-			 ch->cfg.bpp);
-
-		/* deferred io mode: disable clock to save power */
-		if (info->fbdefio)
-			sh_mobile_lcdc_clk_off(priv);
+			 (int) priv->ch[i].cfg.lcd_cfg.xres,
+			 (int) priv->ch[i].cfg.lcd_cfg.yres,
+			 priv->ch[i].cfg.bpp);
 	}
 
 	return 0;
@@ -1102,36 +672,30 @@ static int sh_mobile_lcdc_remove(struct platform_device *pdev)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(priv->ch); i++)
-		if (priv->ch[i].info->dev)
-			unregister_framebuffer(priv->ch[i].info);
+		if (priv->ch[i].info.dev)
+			unregister_framebuffer(&priv->ch[i].info);
 
 	sh_mobile_lcdc_stop(priv);
 
 	for (i = 0; i < ARRAY_SIZE(priv->ch); i++) {
-		info = priv->ch[i].info;
+		info = &priv->ch[i].info;
 
-		if (!info || !info->device)
+		if (!info->device)
 			continue;
-
-		if (priv->ch[i].sglist)
-			vfree(priv->ch[i].sglist);
 
 		dma_free_coherent(&pdev->dev, info->fix.smem_len,
 				  info->screen_base, priv->ch[i].dma_handle);
 		fb_dealloc_cmap(&info->cmap);
-		framebuffer_release(info);
 	}
 
-	if (priv->dot_clk)
-		clk_put(priv->dot_clk);
-
-	pm_runtime_disable(priv->dev);
+	if (priv->clk) {
+		clk_disable(priv->clk);
+		clk_put(priv->clk);
+	}
 
 	if (priv->base)
 		iounmap(priv->base);
 
-	if (priv->irq)
-		free_irq(priv->irq, priv);
 	kfree(priv);
 	return 0;
 }
@@ -1140,7 +704,6 @@ static struct platform_driver sh_mobile_lcdc_driver = {
 	.driver		= {
 		.name		= "sh_mobile_lcdc_fb",
 		.owner		= THIS_MODULE,
-		.pm		= &sh_mobile_lcdc_dev_pm_ops,
 	},
 	.probe		= sh_mobile_lcdc_probe,
 	.remove		= sh_mobile_lcdc_remove,

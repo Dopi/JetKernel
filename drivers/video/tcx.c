@@ -116,16 +116,17 @@ struct tcx_par {
 	u32			flags;
 #define TCX_FLAG_BLANKED	0x00000001
 
+	unsigned long		physbase;
 	unsigned long		which_io;
+	unsigned long		fbsize;
 
 	struct sbus_mmap_map	mmap_map[TCX_MMAP_ENTRIES];
 	int			lowdepth;
 };
 
 /* Reset control plane so that WID is 8-bit plane. */
-static void __tcx_set_control_plane(struct fb_info *info)
+static void __tcx_set_control_plane(struct tcx_par *par)
 {
-	struct tcx_par *par = info->par;
 	u32 __iomem *p, *pend;
 
 	if (par->lowdepth)
@@ -134,7 +135,7 @@ static void __tcx_set_control_plane(struct fb_info *info)
 	p = par->cplane;
 	if (p == NULL)
 		return;
-	for (pend = p + info->fix.smem_len; p < pend; p++) {
+	for (pend = p + par->fbsize; p < pend; p++) {
 		u32 tmp = sbus_readl(p);
 
 		tmp &= 0xffffff;
@@ -148,7 +149,7 @@ static void tcx_reset(struct fb_info *info)
 	unsigned long flags;
 
 	spin_lock_irqsave(&par->lock, flags);
-	__tcx_set_control_plane(info);
+	__tcx_set_control_plane(par);
 	spin_unlock_irqrestore(&par->lock, flags);
 }
 
@@ -303,7 +304,7 @@ static int tcx_mmap(struct fb_info *info, struct vm_area_struct *vma)
 	struct tcx_par *par = (struct tcx_par *)info->par;
 
 	return sbusfb_mmap_helper(par->mmap_map,
-				  info->fix.smem_start, info->fix.smem_len,
+				  par->physbase, par->fbsize,
 				  par->which_io, vma);
 }
 
@@ -315,7 +316,7 @@ static int tcx_ioctl(struct fb_info *info, unsigned int cmd,
 	return sbusfb_ioctl_helper(cmd, arg, info,
 				   FBTYPE_TCXCOLOR,
 				   (par->lowdepth ? 8 : 24),
-				   info->fix.smem_len);
+				   par->fbsize);
 }
 
 /*
@@ -357,10 +358,10 @@ static void tcx_unmap_regs(struct of_device *op, struct fb_info *info,
 			   par->bt, sizeof(struct bt_regs));
 	if (par->cplane)
 		of_iounmap(&op->resource[4],
-			   par->cplane, info->fix.smem_len * sizeof(u32));
+			   par->cplane, par->fbsize * sizeof(u32));
 	if (info->screen_base)
 		of_iounmap(&op->resource[0],
-			   info->screen_base, info->fix.smem_len);
+			   info->screen_base, par->fbsize);
 }
 
 static int __devinit tcx_probe(struct of_device *op,
@@ -390,7 +391,7 @@ static int __devinit tcx_probe(struct of_device *op,
 
 	linebytes = of_getintprop_default(dp, "linebytes",
 					  info->var.xres);
-	info->fix.smem_len = PAGE_ALIGN(linebytes * info->var.yres);
+	par->fbsize = PAGE_ALIGN(linebytes * info->var.yres);
 
 	par->tec = of_ioremap(&op->resource[7], 0,
 				  sizeof(struct tcx_tec), "tcx tec");
@@ -399,7 +400,7 @@ static int __devinit tcx_probe(struct of_device *op,
 	par->bt = of_ioremap(&op->resource[8], 0,
 				 sizeof(struct bt_regs), "tcx dac");
 	info->screen_base = of_ioremap(&op->resource[0], 0,
-					   info->fix.smem_len, "tcx ram");
+					   par->fbsize, "tcx ram");
 	if (!par->tec || !par->thc ||
 	    !par->bt || !info->screen_base)
 		goto out_unmap_regs;
@@ -407,7 +408,7 @@ static int __devinit tcx_probe(struct of_device *op,
 	memcpy(&par->mmap_map, &__tcx_mmap_map, sizeof(par->mmap_map));
 	if (!par->lowdepth) {
 		par->cplane = of_ioremap(&op->resource[4], 0,
-					     info->fix.smem_len * sizeof(u32),
+					     par->fbsize * sizeof(u32),
 					     "tcx cplane");
 		if (!par->cplane)
 			goto out_unmap_regs;
@@ -418,7 +419,7 @@ static int __devinit tcx_probe(struct of_device *op,
 		par->mmap_map[6].size = SBUS_MMAP_EMPTY;
 	}
 
-	info->fix.smem_start = op->resource[0].start;
+	par->physbase = op->resource[0].start;
 	par->which_io = op->resource[0].flags & IORESOURCE_BITS;
 
 	for (i = 0; i < TCX_MMAP_ENTRIES; i++) {
@@ -472,7 +473,7 @@ static int __devinit tcx_probe(struct of_device *op,
 	printk(KERN_INFO "%s: TCX at %lx:%lx, %s\n",
 	       dp->full_name,
 	       par->which_io,
-	       info->fix.smem_start,
+	       par->physbase,
 	       par->lowdepth ? "8-bit only" : "24-bit depth");
 
 	return 0;
@@ -504,7 +505,7 @@ static int __devexit tcx_remove(struct of_device *op)
 	return 0;
 }
 
-static const struct of_device_id tcx_match[] = {
+static struct of_device_id tcx_match[] = {
 	{
 		.name = "SUNW,tcx",
 	},

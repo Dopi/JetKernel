@@ -13,8 +13,6 @@
  *
  * Thanks to Siegfried Schaefer <s.schaefer at schaefer-edv.de>
  *     for his original source and testing!
- *
- * sh7760_setcolreg get from drivers/video/sh_mobile_lcdcfb.c
  */
 
 #include <linux/completion.h>
@@ -53,6 +51,29 @@ static irqreturn_t sh7760fb_irq(int irq, void *data)
 	complete(c);
 
 	return IRQ_HANDLED;
+}
+
+static void sh7760fb_wait_vsync(struct fb_info *info)
+{
+	struct sh7760fb_par *par = info->par;
+
+	if (par->pd->novsync)
+		return;
+
+	iowrite16(ioread16(par->base + LDINTR) & ~VINT_CHECK,
+		  par->base + LDINTR);
+
+	if (par->irq < 0) {
+		/* poll for vert. retrace: status bit is sticky */
+		while (!(ioread16(par->base + LDINTR) & VINT_CHECK))
+			cpu_relax();
+	} else {
+		/* a "wait_for_irq_event(par->irq)" would be extremely nice */
+		init_completion(&par->vsync);
+		enable_irq(par->irq);
+		wait_for_completion(&par->vsync);
+		disable_irq_nosync(par->irq);
+	}
 }
 
 /* wait_for_lps - wait until power supply has reached a certain state. */
@@ -96,28 +117,67 @@ static int sh7760fb_blank(int blank, struct fb_info *info)
 	return wait_for_lps(par, lps);
 }
 
-static int sh7760_setcolreg (u_int regno,
-	u_int red, u_int green, u_int blue,
-	u_int transp, struct fb_info *info)
+/* set color registers */
+static int sh7760fb_setcmap(struct fb_cmap *cmap, struct fb_info *info)
 {
-	u32 *palette = info->pseudo_palette;
+	struct sh7760fb_par *par = info->par;
+	u32 s = cmap->start;
+	u32 l = cmap->len;
+	u16 *r = cmap->red;
+	u16 *g = cmap->green;
+	u16 *b = cmap->blue;
+	u32 col, tmo;
+	int ret;
 
-	if (regno >= 16)
-		return -EINVAL;
+	ret = 0;
 
-	/* only FB_VISUAL_TRUECOLOR supported */
+	sh7760fb_wait_vsync(info);
 
-	red >>= 16 - info->var.red.length;
-	green >>= 16 - info->var.green.length;
-	blue >>= 16 - info->var.blue.length;
-	transp >>= 16 - info->var.transp.length;
+	/* request palette access */
+	iowrite16(LDPALCR_PALEN, par->base + LDPALCR);
 
-	palette[regno] = (red << info->var.red.offset) |
-		(green << info->var.green.offset) |
-		(blue << info->var.blue.offset) |
-		(transp << info->var.transp.offset);
+	/* poll for access grant */
+	tmo = 100;
+	while (!(ioread16(par->base + LDPALCR) & LDPALCR_PALS) && (--tmo))
+		cpu_relax();
 
-	return 0;
+	if (!tmo) {
+		ret = 1;
+		dev_dbg(info->dev, "no palette access!\n");
+		goto out;
+	}
+
+	while (l && (s < 256)) {
+		col = ((*r) & 0xff) << 16;
+		col |= ((*g) & 0xff) << 8;
+		col |= ((*b) & 0xff);
+		col &= SH7760FB_PALETTE_MASK;
+		iowrite32(col, par->base + LDPR(s));
+
+		if (s < 16)
+			((u32 *) (info->pseudo_palette))[s] = s;
+
+		s++;
+		l--;
+		r++;
+		g++;
+		b++;
+	}
+out:
+	iowrite16(0, par->base + LDPALCR);
+	return ret;
+}
+
+static void encode_fix(struct fb_fix_screeninfo *fix, struct fb_info *info,
+		       unsigned long stride)
+{
+	memset(fix, 0, sizeof(struct fb_fix_screeninfo));
+	strcpy(fix->id, "sh7760-lcdc");
+
+	fix->smem_start = (unsigned long)info->screen_base;
+	fix->smem_len = info->screen_size;
+
+	fix->line_length = stride;
 }
 
 static int sh7760fb_get_color_info(struct device *dev,
@@ -322,8 +382,7 @@ static int sh7760fb_set_par(struct fb_info *info)
 
 	iowrite32(ldsarl, par->base + LDSARL);	/* mem for lower half of DSTN */
 
-	info->fix.line_length = stride;
-
+	encode_fix(&info->fix, info, stride);
 	sh7760fb_check_var(&info->var, info);
 
 	sh7760fb_blank(FB_BLANK_UNBLANK, info);	/* panel on! */
@@ -347,7 +406,7 @@ static struct fb_ops sh7760fb_ops = {
 	.owner = THIS_MODULE,
 	.fb_blank = sh7760fb_blank,
 	.fb_check_var = sh7760fb_check_var,
-	.fb_setcolreg = sh7760_setcolreg,
+	.fb_setcmap = sh7760fb_setcmap,
 	.fb_set_par = sh7760fb_set_par,
 	.fb_fillrect = cfb_fillrect,
 	.fb_copyarea = cfb_copyarea,
@@ -424,8 +483,6 @@ static int sh7760fb_alloc_mem(struct fb_info *info)
 
 	info->screen_base = fbmem;
 	info->screen_size = vram;
-	info->fix.smem_start = (unsigned long)info->screen_base;
-	info->fix.smem_len = info->screen_size;
 
 	return 0;
 }
@@ -510,8 +567,6 @@ static int __devinit sh7760fb_probe(struct platform_device *pdev)
 	info->var.transp.offset = 0;
 	info->var.transp.length = 0;
 	info->var.transp.msb_right = 0;
-
-	strcpy(info->fix.id, "sh7760-lcdc");
 
 	/* set the DON2 bit now, before cmap allocation, as it will randomize
 	 * palette memory.

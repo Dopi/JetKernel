@@ -426,11 +426,11 @@ static void vgaHWProtect(int on)
 {
 	unsigned char tmp;
 
-	tmp = vga_rseq(NULL, 0x01);
 	if (on) {
 		/*
 		 * Turn off screen and disable sequencer.
 		 */
+		tmp = vga_rseq(NULL, 0x01);
 		vga_wseq(NULL, 0x00, 0x01);		/* Synchronous Reset */
 		vga_wseq(NULL, 0x01, tmp | 0x20);	/* disable the display */
 
@@ -439,6 +439,7 @@ static void vgaHWProtect(int on)
 		/*
 		 * Reenable sequencer, then turn on screen.
 		 */
+		tmp = vga_rseq(NULL, 0x01);
 		vga_wseq(NULL, 0x01, tmp & ~0x20);	/* reenable display */
 		vga_wseq(NULL, 0x00, 0x03);		/* clear synchronousreset */
 
@@ -557,12 +558,14 @@ neofb_open(struct fb_info *info, int user)
 {
 	struct neofb_par *par = info->par;
 
+	mutex_lock(&par->open_lock);
 	if (!par->ref_count) {
 		memset(&par->state, 0, sizeof(struct vgastate));
 		par->state.flags = VGA_SAVE_MODE | VGA_SAVE_FONTS;
 		save_vga(&par->state);
 	}
 	par->ref_count++;
+	mutex_unlock(&par->open_lock);
 
 	return 0;
 }
@@ -572,13 +575,16 @@ neofb_release(struct fb_info *info, int user)
 {
 	struct neofb_par *par = info->par;
 
-	if (!par->ref_count)
+	mutex_lock(&par->open_lock);
+	if (!par->ref_count) {
+		mutex_unlock(&par->open_lock);
 		return -EINVAL;
-
+	}
 	if (par->ref_count == 1) {
 		restore_vga(&par->state);
 	}
 	par->ref_count--;
+	mutex_unlock(&par->open_lock);
 
 	return 0;
 }
@@ -642,10 +648,10 @@ neofb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 	var->blue.msb_right = 0;
 	var->transp.msb_right = 0;
 
-	var->transp.offset = 0;
-	var->transp.length = 0;
 	switch (var->bits_per_pixel) {
 	case 8:		/* PSEUDOCOLOUR, 256 */
+		var->transp.offset = 0;
+		var->transp.length = 0;
 		var->red.offset = 0;
 		var->red.length = 8;
 		var->green.offset = 0;
@@ -655,6 +661,8 @@ neofb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		break;
 
 	case 16:		/* DIRECTCOLOUR, 64k */
+		var->transp.offset = 0;
+		var->transp.length = 0;
 		var->red.offset = 11;
 		var->red.length = 5;
 		var->green.offset = 5;
@@ -664,6 +672,8 @@ neofb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		break;
 
 	case 24:		/* TRUECOLOUR, 16m */
+		var->transp.offset = 0;
+		var->transp.length = 0;
 		var->red.offset = 16;
 		var->red.length = 8;
 		var->green.offset = 8;
@@ -694,6 +704,8 @@ neofb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 	if (vramlen > 4 * 1024 * 1024)
 		vramlen = 4 * 1024 * 1024;
 
+	if (var->yres_virtual < var->yres)
+		var->yres_virtual = var->yres;
 	if (var->xres_virtual < var->xres)
 		var->xres_virtual = var->xres;
 
@@ -710,6 +722,8 @@ neofb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 	   if it was possible. We should return -EINVAL, but I disagree */
 	if (var->yres_virtual < var->yres)
 		var->yres = var->yres_virtual;
+	if (var->xres_virtual < var->xres)
+		var->xres = var->xres_virtual;
 	if (var->xoffset + var->xres > var->xres_virtual)
 		var->xoffset = var->xres_virtual - var->xres;
 	if (var->yoffset + var->yres > var->yres_virtual)
@@ -1172,11 +1186,8 @@ static int neofb_set_par(struct fb_info *info)
 	return 0;
 }
 
-/*
- *    Pan or Wrap the Display
- */
-static int neofb_pan_display(struct fb_var_screeninfo *var,
-			     struct fb_info *info)
+static void neofb_update_start(struct fb_info *info,
+			       struct fb_var_screeninfo *var)
 {
 	struct neofb_par *par = info->par;
 	struct vgastate *state = &par->state;
@@ -1205,7 +1216,35 @@ static int neofb_pan_display(struct fb_var_screeninfo *var,
 	vga_wgfx(state->vgabase, 0x0E, (((Base >> 16) & 0x0f) | (oldExtCRTDispAddr & 0xf0)));
 
 	neoLock(state);
+}
 
+/*
+ *    Pan or Wrap the Display
+ */
+static int neofb_pan_display(struct fb_var_screeninfo *var,
+			     struct fb_info *info)
+{
+	u_int y_bottom;
+
+	y_bottom = var->yoffset;
+
+	if (!(var->vmode & FB_VMODE_YWRAP))
+		y_bottom += var->yres;
+
+	if (var->xoffset > (var->xres_virtual - var->xres))
+		return -EINVAL;
+	if (y_bottom > info->var.yres_virtual)
+		return -EINVAL;
+
+	neofb_update_start(info, var);
+
+	info->var.xoffset = var->xoffset;
+	info->var.yoffset = var->yoffset;
+
+	if (var->vmode & FB_VMODE_YWRAP)
+		info->var.vmode |= FB_VMODE_YWRAP;
+	else
+		info->var.vmode &= ~FB_VMODE_YWRAP;
 	return 0;
 }
 
@@ -1453,8 +1492,7 @@ neo2200_imageblit(struct fb_info *info, const struct fb_image *image)
 			 * is less than 16 bits wide. This is due to insufficient
 			 * padding when writing the image. We need to adjust
 			 * struct fb_pixmap. Not yet done. */
-			cfb_imageblit(info, image);
-			return;
+			return cfb_imageblit(info, image);
 		}
 		bltCntl_flags = NEO_BC0_SRC_MONO;
 	} else if (image->depth == info->var.bits_per_pixel) {
@@ -1462,8 +1500,7 @@ neo2200_imageblit(struct fb_info *info, const struct fb_image *image)
 	} else {
 		/* We don't currently support hardware acceleration if image
 		 * depth is different from display */
-		cfb_imageblit(info, image);
-		return;
+		return cfb_imageblit(info, image);
 	}
 
 	switch (info->var.bits_per_pixel) {
@@ -1955,6 +1992,7 @@ static struct fb_info *__devinit neo_alloc_fb_info(struct pci_dev *dev, const st
 
 	info->fix.accel = id->driver_data;
 
+	mutex_init(&par->open_lock);
 	par->pci_burst = !nopciburst;
 	par->lcd_stretch = !nostretch;
 	par->libretto = libretto;

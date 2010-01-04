@@ -10,7 +10,7 @@
 #include <linux/fb.h>
 #include <asm/io.h>
 #include <asm/msr.h>
-#include <linux/cs5535.h>
+#include <asm/geode.h>
 #include <asm/delay.h>
 
 #include "gxfb.h"

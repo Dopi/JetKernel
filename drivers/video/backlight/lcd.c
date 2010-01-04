@@ -27,36 +27,21 @@ static int fb_notifier_callback(struct notifier_block *self,
 	struct fb_event *evdata = data;
 
 	/* If we aren't interested in this event, skip it immediately ... */
-	switch (event) {
-	case FB_EVENT_BLANK:
-	case FB_EVENT_MODE_CHANGE:
-	case FB_EVENT_MODE_CHANGE_ALL:
-		break;
-	default:
+	if (event != FB_EVENT_BLANK)
 		return 0;
-	}
 
 	ld = container_of(self, struct lcd_device, fb_notif);
-	if (!ld->ops)
-		return 0;
-
 	mutex_lock(&ld->ops_lock);
-	if (!ld->ops->check_fb || ld->ops->check_fb(ld, evdata->info)) {
-		if (event == FB_EVENT_BLANK) {
-			if (ld->ops->set_power)
-				ld->ops->set_power(ld, *(int *)evdata->data);
-		} else {
-			if (ld->ops->set_mode)
-				ld->ops->set_mode(ld, evdata->data);
-		}
-	}
+	if (ld->ops)
+		if (!ld->ops->check_fb || ld->ops->check_fb(ld, evdata->info))
+			ld->ops->set_power(ld, *(int *)evdata->data);
 	mutex_unlock(&ld->ops_lock);
 	return 0;
 }
 
 static int lcd_register_fb(struct lcd_device *ld)
 {
-	memset(&ld->fb_notif, 0, sizeof(ld->fb_notif));
+	memset(&ld->fb_notif, 0, sizeof(&ld->fb_notif));
 	ld->fb_notif.notifier_call = fb_notifier_callback;
 	return fb_register_client(&ld->fb_notif);
 }
@@ -101,7 +86,7 @@ static ssize_t lcd_store_power(struct device *dev,
 	int power = simple_strtoul(buf, &endp, 0);
 	size_t size = endp - buf;
 
-	if (isspace(*endp))
+	if (*endp && isspace(*endp))
 		size++;
 	if (size != count)
 		return -EINVAL;
@@ -140,7 +125,7 @@ static ssize_t lcd_store_contrast(struct device *dev,
 	int contrast = simple_strtoul(buf, &endp, 0);
 	size_t size = endp - buf;
 
-	if (isspace(*endp))
+	if (*endp && isspace(*endp))
 		size++;
 	if (size != count)
 		return -EINVAL;
@@ -208,7 +193,7 @@ struct lcd_device *lcd_device_register(const char *name, struct device *parent,
 	new_ld->dev.class = lcd_class;
 	new_ld->dev.parent = parent;
 	new_ld->dev.release = lcd_device_release;
-	dev_set_name(&new_ld->dev, name);
+	strlcpy(new_ld->dev.bus_id, name, BUS_ID_SIZE);
 	dev_set_drvdata(&new_ld->dev, devdata);
 
 	rc = device_register(&new_ld->dev);

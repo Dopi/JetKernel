@@ -98,8 +98,7 @@ static int pmagbafb_setcolreg(unsigned int regno, unsigned int red,
 {
 	struct pmagbafb_par *par = info->par;
 
-	if (regno >= info->cmap.len)
-		return 1;
+	BUG_ON(regno >= info->cmap.len);
 
 	red   >>= 8;	/* The cmap fields are 16 bits    */
 	green >>= 8;	/* wide, but the hardware colormap */
@@ -152,7 +151,7 @@ static int __init pmagbafb_probe(struct device *dev)
 
 	info = framebuffer_alloc(sizeof(struct pmagbafb_par), dev);
 	if (!info) {
-		printk(KERN_ERR "%s: Cannot allocate memory\n", dev_name(dev));
+		printk(KERN_ERR "%s: Cannot allocate memory\n", dev->bus_id);
 		return -ENOMEM;
 	}
 
@@ -161,7 +160,7 @@ static int __init pmagbafb_probe(struct device *dev)
 
 	if (fb_alloc_cmap(&info->cmap, 256, 0) < 0) {
 		printk(KERN_ERR "%s: Cannot allocate color map\n",
-		       dev_name(dev));
+		       dev->bus_id);
 		err = -ENOMEM;
 		goto err_alloc;
 	}
@@ -174,9 +173,8 @@ static int __init pmagbafb_probe(struct device *dev)
 	/* Request the I/O MEM resource.  */
 	start = tdev->resource.start;
 	len = tdev->resource.end - start + 1;
-	if (!request_mem_region(start, len, dev_name(dev))) {
-		printk(KERN_ERR "%s: Cannot reserve FB region\n",
-		       dev_name(dev));
+	if (!request_mem_region(start, len, dev->bus_id)) {
+		printk(KERN_ERR "%s: Cannot reserve FB region\n", dev->bus_id);
 		err = -EBUSY;
 		goto err_cmap;
 	}
@@ -185,7 +183,7 @@ static int __init pmagbafb_probe(struct device *dev)
 	info->fix.mmio_start = start;
 	par->mmio = ioremap_nocache(info->fix.mmio_start, info->fix.mmio_len);
 	if (!par->mmio) {
-		printk(KERN_ERR "%s: Cannot map MMIO\n", dev_name(dev));
+		printk(KERN_ERR "%s: Cannot map MMIO\n", dev->bus_id);
 		err = -ENOMEM;
 		goto err_resource;
 	}
@@ -196,7 +194,7 @@ static int __init pmagbafb_probe(struct device *dev)
 	info->screen_base = ioremap_nocache(info->fix.smem_start,
 					    info->fix.smem_len);
 	if (!info->screen_base) {
-		printk(KERN_ERR "%s: Cannot map FB\n", dev_name(dev));
+		printk(KERN_ERR "%s: Cannot map FB\n", dev->bus_id);
 		err = -ENOMEM;
 		goto err_mmio_map;
 	}
@@ -207,14 +205,14 @@ static int __init pmagbafb_probe(struct device *dev)
 	err = register_framebuffer(info);
 	if (err < 0) {
 		printk(KERN_ERR "%s: Cannot register framebuffer\n",
-		       dev_name(dev));
+		       dev->bus_id);
 		goto err_smem_map;
 	}
 
 	get_device(dev);
 
 	pr_info("fb%d: %s frame buffer device at %s\n",
-		info->node, info->fix.id, dev_name(dev));
+		info->node, info->fix.id, dev->bus_id);
 
 	return 0;
 

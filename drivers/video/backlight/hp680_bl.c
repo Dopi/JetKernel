@@ -19,7 +19,7 @@
 #include <linux/backlight.h>
 
 #include <cpu/dac.h>
-#include <mach/hp6xx.h>
+#include <asm/hp6xx.h>
 #include <asm/hd64461.h>
 
 #define HP680_MAX_INTENSITY 255
@@ -98,12 +98,12 @@ static int hp680bl_get_intensity(struct backlight_device *bd)
 	return current_intensity;
 }
 
-static const struct backlight_ops hp680bl_ops = {
+static struct backlight_ops hp680bl_ops = {
 	.get_brightness = hp680bl_get_intensity,
 	.update_status  = hp680bl_set_intensity,
 };
 
-static int __devinit hp680bl_probe(struct platform_device *pdev)
+static int __init hp680bl_probe(struct platform_device *pdev)
 {
 	struct backlight_device *bd;
 
@@ -151,15 +151,19 @@ static int __init hp680bl_init(void)
 	int ret;
 
 	ret = platform_driver_register(&hp680bl_driver);
-	if (ret)
-		return ret;
-	hp680bl_device = platform_device_register_simple("hp680-bl", -1,
-							NULL, 0);
-	if (IS_ERR(hp680bl_device)) {
-		platform_driver_unregister(&hp680bl_driver);
-		return PTR_ERR(hp680bl_device);
+	if (!ret) {
+		hp680bl_device = platform_device_alloc("hp680-bl", -1);
+		if (!hp680bl_device)
+			return -ENOMEM;
+
+		ret = platform_device_add(hp680bl_device);
+
+		if (ret) {
+			platform_device_put(hp680bl_device);
+			platform_driver_unregister(&hp680bl_driver);
+		}
 	}
-	return 0;
+	return ret;
 }
 
 static void __exit hp680bl_exit(void)
