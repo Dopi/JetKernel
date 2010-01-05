@@ -29,7 +29,7 @@
 #include <plat/gpio-cfg.h>
 #include <plat/regs-lcd.h>
 
-#include "s3cfb.h"
+#include "s3cfb2.h"
 
 #define SLEEPMSEC		0x1000
 #define ENDDEF			0x2000
