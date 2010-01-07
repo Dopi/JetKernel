@@ -13,12 +13,12 @@ obj-$(CONFIG_FB_S3C_S6D05A0)	+= s3cfb_s6d05a0.o
 obj-$(CONFIG_FB_S3C_AMS320FS01)	+= s3cfb_ams320fs01.o
 endif
 
-#ifeq ($(CONFIG_FB_S3C_V2),y)
+ifeq ($(CONFIG_FB_S3C_V2),y)
 obj-y				+= s3cfb2.o
 obj-$(CONFIG_PLAT_S3C64XX)	+= s3cfb2_fimd4x.o
 
 obj-$(CONFIG_FB_S3C_TL2796)     += s3cfb2_tl2796.o
-#endif
+endif
 
 ifeq ($(CONFIG_FB_S3C_DEBUG),y)
 EXTRA_CFLAGS += -DDEBUG

@@ -19,7 +19,7 @@
 #include <plat/fb.h>
 #include <plat/regs-fb.h>
 
-#include "s3cfb.h"
+#include "s3cfb2.h"
 
 void s3cfb_check_line_count(struct s3cfb_global *ctrl)
 {
