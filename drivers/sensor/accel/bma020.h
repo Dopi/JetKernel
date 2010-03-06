@@ -31,6 +31,7 @@
 
 /* BMA150 IOCTL */
 #define BMA150_IOC_MAGIC 				'B'
+#define BMA150_CALIBRATE				_IOW(BMA150_IOC_MAGIC,2, unsigned char)
 #define BMA150_SET_RANGE            	_IOWR(BMA150_IOC_MAGIC,4, unsigned char)
 #define BMA150_SET_MODE             	_IOWR(BMA150_IOC_MAGIC,6, unsigned char)
 #define BMA150_SET_BANDWIDTH            _IOWR(BMA150_IOC_MAGIC,8, unsigned char)
@@ -824,6 +825,7 @@ int bma020_read_reg(unsigned char , unsigned char *, unsigned char);
 
 int bma020_write_reg(unsigned char , unsigned char*, unsigned char );
 
+bma020acc_t bma020_calibrate();
 
 
 

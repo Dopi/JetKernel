@@ -49,7 +49,7 @@ static struct i2c_client *g_client;
 
 static unsigned short ignore[] = { I2C_CLIENT_END };
 static unsigned short normal_addr[] = { I2C_CLIENT_END };
-static unsigned short probe_addr[] = { 5, ACC_SENSOR_ADDRESS, I2C_CLIENT_END };
+static unsigned short probe_addr[] = { 0, ACC_SENSOR_ADDRESS, I2C_CLIENT_END };
 
 
 static struct i2c_client_address_data addr_data = {
@@ -73,7 +73,6 @@ int i2c_acc_bma020_init(void)
 
 void i2c_acc_bma020_exit(void)
 {
-	printk("[BMA020] i2c_exit\n");
 	i2c_del_driver(&acc_bma020_i2c_driver); 
 }
 
@@ -194,7 +193,6 @@ static int i2c_acc_bma020_detach_client(struct i2c_client *client)
         return err;
 	}
 	
-	printk("[BMA020] i2c_detach_client\n");
 
 	kfree(client); /* Frees client data too, if allocated at the same time */
 	g_client = NULL;

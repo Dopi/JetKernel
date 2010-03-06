@@ -843,7 +843,7 @@ void __attribute__((noreturn)) __bug(const char *file, int line)
 	*(int *)0 = 0;
 
 	/* Avoid "noreturn function does return" */
-	for (;;);
+	//for (;;);
 }
 EXPORT_SYMBOL(__bug);
 

@@ -16,35 +16,17 @@
 /* Default Parameter Values */
 
 #define SERIAL_SPEED		7		/* Baudrate */
-#ifdef MACH_TYPE_SPICA
-#define LCD_LEVEL                      0x061   /* Backlight Level */
-#else 
-#define LCD_LEVEL			0x07F	/* Backlight Level */
-#endif
+#define LCD_LEVEL			0x061	/* Backlight Level */
 #define BOOT_DELAY			0		/* Boot Wait Time */
 #define LOAD_RAMDISK		0		/* Enable Ramdisk Loading */
 #define SWITCH_SEL			1		/* Switch Setting (UART[1], USB[0]) */
 #define PHONE_DEBUG_ON		0		/* Enable Phone Debug Mode */
-#ifdef MACH_TYPE_SPICA
-#define LCD_DIM_LEVEL          0x011   /* Backlight Dimming Level */
-#else
-#define LCD_DIM_LEVEL		0x01D	/* Backlight Dimming Level */
-#endif
+#define LCD_DIM_LEVEL		0x011	/* Backlight Dimming Level */
 #define MELODY_MODE			0		/* Melody Mode */
 #define REBOOT_MODE			0		/* Reboot Mode */
 #define NATION_SEL			0		/* Language Configuration */
 #define SET_DEFAULT_PARAM	0		/* Set Param to Default */
-#ifdef MACH_TYPE_SPICA 				/* #ifdef MACH_TYPE_SPICA */
-#define VERSION_LINE           "I8315XXIE00"	/* Set Image Info */
-#else 
-#ifdef MACH_TYPE_INSTINCTQ 			/* #ifdef MACH_TYPE_INSTINCTQ */
-#define VERSION_LINE		"INSTINCTQXXIE00"	/* Set Image Info */
-#else 
-#ifdef MACH_TYPE_JET 				/* #else #ifdef MACH_TYPE_JET */
-#define VERSION_LINE		"JETXXIE00"	/* Set Image Info */
-#endif	/* #ifdef MACH_TYPE_JET */
-#endif 	/* #ifdef MACH_TYPE_INSTINCTQ */ 
-#endif 	/* #ifdef MACH_TYPE_SPICA */ 
+#define VERSION_LINE		"I8315XXIE00"	/* Set Image Info */
 #define COMMAND_LINE		"console=ttySAC2,115200"
 #define	BOOT_VERSION		" version=Sbl(1.0.0) "
 

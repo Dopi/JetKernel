@@ -88,6 +88,10 @@ EXPORT_SYMBOL(sec_get_param_value);
 
 void spica_init_gpio(void);
 
+extern void (*ftm_enable_usb_sw)(int mode);
+extern void fsa9480_SetAutoSWMode(void);
+extern void fsa9480_MakeRxdLow(void);
+
 #define UCON S3C2410_UCON_DEFAULT
 #define ULCON S3C2410_LCON_CS8 | S3C2410_LCON_PNONE
 #define UFCON S3C2410_UFCON_RXTRIG8 | S3C2410_UFCON_FIFOMODE
@@ -474,6 +478,18 @@ static void spica_pm_power_off(void)
 	while (1);
 }
 
+static void spica_ftm_enable_usb_sw(int mode)
+{
+	pr_info("%s: mode(%d)\n", __func__, mode);
+	if (mode) {
+		fsa9480_SetAutoSWMode();
+	} else {
+		fsa9480_MakeRxdLow();
+		mdelay(10);
+		fsa9480_MakeRxdLow();
+	}
+}
+
 static int uart_current_owner = 0;
 
 static ssize_t uart_switch_show(struct device *dev, struct device_attribute *attr, char *buf)
@@ -583,6 +599,8 @@ static void __init spica_machine_init(void)
 	register_reboot_notifier(&spica_reboot_notifier);
 
 	spica_switch_init();
+
+	ftm_enable_usb_sw = spica_ftm_enable_usb_sw;
 }
 
 MACHINE_START(SPICA, "SPICA")

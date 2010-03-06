@@ -104,7 +104,8 @@ static void buffer_io_error(struct buffer_head *bh)
 {
 	char b[BDEVNAME_SIZE];
 
-	printk(KERN_ERR "Buffer I/O error on device %s, logical block %Lu\n",
+	/* Change from KERN_WARNING to KERN_DEBUG to eliminate SD card notification sound crach. */
+	printk(KERN_DEBUG "Buffer I/O error on device %s, logical block %Lu\n",
 			bdevname(bh->b_bdev, b),
 			(unsigned long long)bh->b_blocknr);
 }
@@ -147,7 +148,8 @@ void end_buffer_write_sync(struct buffer_head *bh, int uptodate)
 	} else {
 		if (!buffer_eopnotsupp(bh) && printk_ratelimit()) {
 			buffer_io_error(bh);
-			printk(KERN_WARNING "lost page write due to "
+			/* Change from KERN_WARNING to KERN_DEBUG to eliminate SD card notification sound crach. */
+			printk(KERN_DEBUG "lost page write due to "
 					"I/O error on %s\n",
 				       bdevname(bh->b_bdev, b));
 		}
@@ -458,7 +460,8 @@ static void end_buffer_async_write(struct buffer_head *bh, int uptodate)
 	} else {
 		if (printk_ratelimit()) {
 			buffer_io_error(bh);
-			printk(KERN_WARNING "lost page write due to "
+			/* Change from KERN_WARNING to KERN_DEBUG to eliminate SD card notification sound crach. */
+			printk(KERN_DEBUG "lost page write due to "
 					"I/O error on %s\n",
 			       bdevname(bh->b_bdev, b));
 		}
@@ -3044,6 +3047,7 @@ int sync_dirty_buffer(struct buffer_head *bh)
 		bh->b_end_io = end_buffer_write_sync;
 		ret = submit_bh(WRITE_SYNC, bh);
 		wait_on_buffer(bh);
+
 		if (buffer_eopnotsupp(bh)) {
 			clear_buffer_eopnotsupp(bh);
 			ret = -EOPNOTSUPP;

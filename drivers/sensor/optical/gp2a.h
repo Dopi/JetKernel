@@ -5,7 +5,6 @@
 #define I2c_M_RD 1 /* for i2c */
 
 
-//#define DELAY_PRX 1
 
 #define IRQ_GP2A_INT IRQ_EINT(20)  /*s3c64xx int number */
 
@@ -36,42 +35,23 @@
 #define SHARP_GP2AP_CLOSE   _IO(SHARP_GP2AP_IOC_MAGIC,2)      
 
 /* input device for proximity sensor */
-#define USE_INPUT_DEVICE 	0  /* 0 : No Use  ,  1: Use  */
+#define USE_INPUT_DEVICE 	0
 
 
-#define INT_CLEAR    1 /* 0 = by polling operation, 1 = by interrupt operation */
-#define LIGHT_PERIOD 2 /* per sec */
-#define ADC_CHANNEL  5 /* index for s3c6410 adc */
+#define INT_CLEAR    1 /* 0 = normal operation, 1 = INT operation */
+#define LIGHT_PERIOD 2 /* sec */
+#define ADC_CHANNEL  5 /* s3c6410 channel for adc */
 
 /*for light sensor */
 #define STATE_NUM				3   /* number of states */
 #define STATE_0_BRIGHTNESS    255   /* brightness of lcd */
 #define STATE_1_BRIGHTNESS 	  130    
-#define STATE_2_BRIGHTNESS      1
-
-
-
-/*
- * STATE0 : 30 lux below
- * STATE1 : 31~ 3000 lux
- * STATE2 : 3000 lux over
- */
-
-
-
+#define STATE_2_BRIGHTNESS     40
 
 #define ADC_CUT_HIGH 800            /* boundary line between STATE_0 and STATE_1 */
-#define ADC_CUT_LOW  500            /* boundary line between STATE_1 and STATE_2 */
-#define ADC_CUT_GAP  140            /* in order to prevent chattering condition */
+#define ADC_CUT_LOW  300            /* boundary line between STATE_1 and STATE_2 */
+#define ADC_CUT_GAP  200            /* in order to prevent chattering condition */
 
-
-#define ADC_CUT_HIGH_M900_R3 1000            /* boundary line between STATE_0 and STATE_1 */
-#define ADC_CUT_LOW_M900_R3  130            /* boundary line between STATE_1 and STATE_2 */
-#define ADC_CUT_GAP_M900_R3  50            /* in order to prevent chattering condition */
-
-#define ADC_CUT_HIGH_M900_R4 1400            /* boundary line between STATE_0 and STATE_1 */
-#define ADC_CUT_LOW_M900_R4  250            /* boundary line between STATE_1 and STATE_2 */
-#define ADC_CUT_GAP_M900_R4  50            /* in order to prevent chattering condition */
 
 
 
@@ -81,7 +61,6 @@ typedef enum t_light_state
 	STATE_0   = 0,
 	STATE_1   = 1,
 	STATE_2   = 2,
-	STATE_INIT= 3,
 	
 
 }state_type;
@@ -93,7 +72,7 @@ static u8 gp2a_original_image[8] =
 	0x00,  
 	0x08,  
 	0x40,  	
-	0x2C,  
+	0x04,  
 	0x03,   
 };
 
@@ -111,20 +90,20 @@ struct _light_state {
 
 static struct _light_state light_state[] = {
 	[0] = {
-		.type = STATE_0, // 950~20000
+		.type = STATE_0, // 700~20000
 		.adc_bottom_limit = ADC_CUT_HIGH - ADC_CUT_GAP/2, 
 		.adc_top_limit    = 20000, //unlimited
 		.brightness		  = STATE_0_BRIGHTNESS,
 		},
 	[1] = {
-		.type = STATE_1, //80~1050
+		.type = STATE_1, //200~900
 		.adc_bottom_limit = ADC_CUT_LOW  - ADC_CUT_GAP/2, 
 		.adc_top_limit    = ADC_CUT_HIGH + ADC_CUT_GAP/2, 
 		.brightness		  = STATE_1_BRIGHTNESS,
 		},
 	
 	[2] = {
-		.type = STATE_2,   //1~180
+		.type = STATE_2,   //1~400
 		.adc_bottom_limit = 1,
 		.adc_top_limit    = ADC_CUT_LOW  + ADC_CUT_GAP/2,
 		.brightness		  = STATE_2_BRIGHTNESS,
@@ -140,10 +119,8 @@ struct gp2a_data {
 	struct input_dev *input_dev;
 	struct work_struct work_prox;  /* for proximity sensor */
 	struct work_struct work_light; /* for light_sensor     */
-	//struct work_struct work_light_init;
 	int             irq;
     struct hrtimer timer;
-	struct timer_list light_init_timer;
 
 };
 
@@ -151,10 +128,10 @@ struct gp2a_data {
 struct workqueue_struct *gp2a_wq;
 
 /* prototype */
-static int opt_i2c_read(u8 reg, u8 *val, unsigned int len );
-static int opt_i2c_write( u8 reg, u8 *val );
+int opt_i2c_read(u8 reg, u8 *val, unsigned int len );
+int opt_i2c_write( u8 reg, u8 *val );
 extern int s3c_adc_get_adc_data(int channel);
-extern void backlight_level_ctrl(s32 value);
+void backlight_level_ctrl(s32 value);
 static int opt_attach_adapter(struct i2c_adapter *adap);
 static int proximity_open(struct inode *ip, struct file *fp);
 static int proximity_release(struct inode *ip, struct file *fp);

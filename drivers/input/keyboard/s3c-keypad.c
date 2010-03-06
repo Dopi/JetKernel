@@ -38,6 +38,14 @@
 
 #include <linux/dprintk.h>
 
+
+//[ <<yamaia><system><JKCha>
+#include <linux/wakelock.h>	
+
+static struct wake_lock s3c_key_wake_lock;	
+//] wake lock for keypad scan operation complete
+
+
 //#define S3C_KEYPAD_DEBUG 
 
 #ifdef S3C_KEYPAD_DEBUG
@@ -54,71 +62,11 @@
 #define FIRST_SCAN_INTERVAL    	(1)
 #define SCAN_INTERVAL    	(HZ/50)
 
-#ifdef CONFIG_MACH_INSTINCTQ
-extern void set_lock_oj_event(int num);
-extern struct class *sec_class;
-struct device *kpd_dev;
-static int keypad_wakeup = 0;
-extern int extra_eint0pend;
-struct input_dev *fake_slide_dev;
-
-static ssize_t talk_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	sprintf(buf, "[Keypad] keypad wakeup : %s.\n", (keypad_wakeup?"ENABLE":"DISABLE"));
-	return sprintf(buf, "%s", buf);
-}
-
-static ssize_t talk_store(
-		struct device *dev, struct device_attribute *attr,
-		const char *buf, size_t size)
-{
-	if(strncmp(buf, "0", 1) == 0 ) {
-		keypad_wakeup = 0;
-		printk("[Keypad] keypad wakeup disable.\n");
-	}
-	else if(strncmp(buf, "1", 1) == 0) {
-		keypad_wakeup = 1;
-		printk("[Keypad] keypad wakeup enable.\n");
-	}
-	return size;
-}
-
-static ssize_t slide_store(
-		struct device *dev, struct device_attribute *attr,
-		const char *buf, size_t size)
-{
-	if (strncmp(buf, "p", 1) == 0 || strncmp(buf, "P", 1) == 0) {
-		input_report_switch(fake_slide_dev, SW_LID, 1);
-		input_sync(fake_slide_dev);
-		printk("[Keypad] fake slide event portrait.\n");
-	} else if (strncmp(buf, "l", 1) == 0 || strncmp(buf, "L", 1) == 0) {
-		input_report_switch(fake_slide_dev, SW_LID, 0);
-		input_sync(fake_slide_dev);
-		printk("[Keypad] fake slide event landscape.\n");
-	} else if (strncmp(buf, "e", 1) == 0 || strncmp(buf, "E", 1) == 0) {
-		input_report_key(fake_slide_dev, KEYCODE_ENDCALL, 1);
-	   	input_report_key(fake_slide_dev, KEYCODE_ENDCALL, 0);
-		printk("[Keypad] fake slide event (END key).\n");
-	}
-
-	return size;
-}
-
-static DEVICE_ATTR(talk, S_IRUGO | S_IWUGO, talk_show, talk_store);
-static DEVICE_ATTR(slide, S_IRUGO | S_IWUGO, NULL, slide_store);
-#endif // #ifdef CONFIG_MACH_INSTINCTQ
-
 static struct timer_list keypad_timer;
 static int is_timer_on = FALSE;
 static struct clk *keypad_clock;
 static u32 prevmask_low = 0, prevmask_high = 0;
-#ifdef CONFIG_MACH_SPICA
 static int keypad_sleep_flag = 0;	// Temporay Code by SYS.LSI
-#endif // #ifdef CONFIG_MACH_SPICA
-#ifdef CONFIG_MACH_INSTINCTQ
-static struct timer_list gpiokey_timer;
-static int gpiokey_cnt = 0;
-#endif // #ifdef CONFIG_MACH_INSTINCTQ
 
 static int keypad_scan(u32 *keymask_low, u32 *keymask_high)
 {
@@ -143,6 +91,16 @@ static int keypad_scan(u32 *keymask_low, u32 *keymask_high)
 #endif
 	}
 
+	//[ <<yamaia><system><JKCha>
+	if(*keymask_low == 0x04040404)
+	{
+		//Preventing Send Key Event in the case of Right & Menu & Send & Home Keys... 
+		*keymask_low = *keymask_low & 0xFFFBFFFF;  
+		// 1111 1111 1111 1011 1111 1111 1111 1111  <<yamaia><system><JKCha>
+	}
+	//] wake lock for keypad scan operation complete
+
+
 	writel(KEYIFCOL_CLEAR, key_base+S3C_KEYIFCOL);
 
 	return 0;
@@ -150,12 +108,12 @@ static int keypad_scan(u32 *keymask_low, u32 *keymask_high)
 
 static void process_input_report (struct s3c_keypad *s3c_keypad, u32 prevmask, u32 keymask, u32 index)
 {
-	struct input_dev              *dev = s3c_keypad->dev;
+	struct input_dev             *dev = s3c_keypad->dev;
 	int i=0;
 	u32 press_mask = ((keymask ^ prevmask) & keymask); 
 	u32 release_mask = ((keymask ^ prevmask) & prevmask); 
 
-#ifdef CONFIG_MACH_SPICA 
+
 #if (CONFIG_SPICA_REV == CONFIG_SPICA_TEST_REV01)	// Temporary Code by SYS.LSI
         u32 wake_key;
 
@@ -188,7 +146,7 @@ static void process_input_report (struct s3c_keypad *s3c_keypad, u32 prevmask, u
 		}
 	}
 	else {
-#endif // #if (CONFIG_SPICA_REV == CONFIG_SPICA_TEST_REV01)
+#endif
 		i = 0;
 		while (press_mask) {
 			if (press_mask & 1) {
@@ -209,38 +167,10 @@ static void process_input_report (struct s3c_keypad *s3c_keypad, u32 prevmask, u
 			}
 			release_mask >>= 1;
 			i++;
- 		}
+		}
 #if (CONFIG_SPICA_REV == CONFIG_SPICA_TEST_REV01)	// Temporary Code by SYS.LSI
- 	}
-#endif // #if (CONFIG_SPICA_REV == CONFIG_SPICA_TEST_REV01))
-#else 
-	i = 0;
-	while (press_mask) {
-		if (press_mask & 1) {
-			input_report_key(dev, GET_KEYCODE(i+index),1);
-			DPRINTK(": Pressed (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
-			dprintk(KPD_PRS, ": Pressed (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
-			if(i+index==40)
-				set_lock_oj_event(1);
-		}
-		press_mask >>= 1;
-		i++;
 	}
-
-	i = 0;
-	while (release_mask) {
-		if (release_mask & 1) {
-			input_report_key(dev,GET_KEYCODE(i+index),0);
-			DPRINTK(": Released (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
-			dprintk(KPD_RLS, ": Released (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
-
-			if(i+index==40)
-				set_lock_oj_event(0);
-		}
-		release_mask >>= 1;
-		i++;
-	}
-#endif // #ifdef CONFIG_MACH_SPICA
+#endif
 }
 
 static inline void process_special_key (struct s3c_keypad *s3c_keypad, u32 keymask_low, u32 keymask_high)
@@ -253,11 +183,10 @@ static inline void process_special_key (struct s3c_keypad *s3c_keypad, u32 keyma
 
 	for (i=0; i<extra->special_key_num; i++, special_key+=1)
 	{
-		if (keymask_low == special_key->mask_low 
+	        if (keymask_low == special_key->mask_low 
 		    && keymask_high == special_key->mask_high 
-		    && !(prev_bitmask & (1<<i))) 
-		{
-        		input_report_key(dev, special_key->keycode, 1);
+		    && !(prev_bitmask & (1<<i))) {
+        	        input_report_key(dev, special_key->keycode, 1);
 			DPRINTK(": Pressed (Keycode: %d, SPECIAL KEY)\n", special_key->keycode);
 			dprintk(KPD_PRS, ": Pressed (Keycode: %d, SPECIAL KEY)\n", special_key->keycode);
 			prev_bitmask |= (1<<i);
@@ -267,7 +196,7 @@ static inline void process_special_key (struct s3c_keypad *s3c_keypad, u32 keyma
  		    && keymask_low == 0 
 	    	    && keymask_high == 0)
 		{
-	       		input_report_key(dev, special_key->keycode, 0);
+	       	        input_report_key(dev, special_key->keycode, 0);
 			DPRINTK(": Released (Keycode: %d, SPECIAL KEY)\n", special_key->keycode);
 			dprintk(KPD_RLS, ": Released (Keycode: %d, SPECIAL KEY)\n", special_key->keycode);
 			prev_bitmask ^= (1<<i);
@@ -300,6 +229,7 @@ static void keypad_timer_handler(unsigned long data)
 	} else {
 		writel(KEYIFCON_INIT, key_base+S3C_KEYIFCON);
 		is_timer_on = FALSE;
+		wake_lock_timeout(&s3c_key_wake_lock, 2 * HZ); // <<yamaia><system><JKCha> : wake lock for keypad scan operation complete
 	}	
 }
 
@@ -308,6 +238,9 @@ static irqreturn_t s3c_keypad_isr(int irq, void *dev_id)
 #ifdef  CONFIG_CPU_FREQ
 	set_dvfs_perf_level();
 #endif
+
+	wake_lock(&s3c_key_wake_lock); // <<yamaia><system><JKCha> : wake lock for keypad scan operation complete
+	
 	/* disable keypad interrupt and schedule for keypad timer handler */
 	writel(readl(key_base+S3C_KEYIFCON) & ~(INT_F_EN|INT_R_EN), key_base+S3C_KEYIFCON);
 
@@ -334,8 +267,7 @@ static irqreturn_t slide_int_handler(int irq, void *dev_id)
 	set_dvfs_perf_level();
 #endif
 	state = gpio_get_value(slide->gpio) ^ slide->state_upset;
-//	DPRINTK(": changed Slide state (%d)\n", state);
-	printk("[SLIDE] changed Slide state (%d)\n", state);
+	DPRINTK(": changed Slide state (%d)\n", state);
 
 	input_report_switch(s3c_keypad->dev, SW_LID, state);
 	input_sync(s3c_keypad->dev);
@@ -343,81 +275,19 @@ static irqreturn_t slide_int_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-#ifdef CONFIG_MACH_SPICA
 static irqreturn_t gpio_int_handler(int irq, void *dev_id)
 {
 	struct s3c_keypad          *s3c_keypad = (struct s3c_keypad *) dev_id;
-	int i;
-#else // #ifdef CONFIG_MACH_INSTINCTQ
-static void gpiokey_timer_handler(unsigned long data)
-{
-	struct s3c_keypad *s3c_keypad = (struct s3c_keypad *)data;
-#endif // #ifdef CONFIG_MACH_SPICA
 	struct input_dev           *dev = s3c_keypad->dev;
 	struct s3c_keypad_extra    *extra = s3c_keypad->extra;
 	struct s3c_keypad_gpio_key *gpio_key = extra->gpio_key;
-	static int state = 0;
+	int i,state;
 
-#ifdef CONFIG_MACH_INSTINCTQ
-	int state_check;
-
-	if(!gpiokey_cnt) {
-		state = gpio_get_value(gpio_key->gpio);
-		printk("[KPD_TEST] first gpio level: %d\n",  state);
-		gpiokey_cnt++;
-		mod_timer(&gpiokey_timer, jiffies + 2);
-		return;
-	}
-#else
        	DPRINTK(": gpio interrupt (IRQ: %d)\n", irq);
-#endif // #ifdef CONFIG_MACH_INSTINCTQ
-
-#ifdef CONFIG_MACH_INSTINCTQ
-	state_check = gpio_get_value(gpio_key->gpio);
-	printk("[KPD_TEST] gpio level: %d, cnt: %d\n",  state_check, gpiokey_cnt);
-	if(state != state_check) {
-		printk("[KPD_TEST] unstable gpio detected..\n");
-		return;
-	}
-	if(gpiokey_cnt < 5) {
-		gpiokey_cnt++;		
-		mod_timer(&gpiokey_timer, jiffies + 2);
-	}else {
-        if(!state) {
-   	        input_report_key(dev, gpio_key->keycode, 1);
-   	       	DPRINTK(": Pressed (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
-           	dprintk(KPD_PRS, ": Pressed (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
-//       	   	printk("[KPD_DBG] Pressed (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
-   	   	}
-   		else  {
-	    	input_report_key(dev, gpio_key->keycode, 0);
-  		    DPRINTK(": Released (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
-   	        dprintk(KPD_RLS, ": Released (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
-//   		    printk("[KPD_DBG] Released (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
-      	}
-	}
-	return;
-}
-
-static irqreturn_t gpio_int_handler(int irq, void *dev_id)
-{
-	struct s3c_keypad          *s3c_keypad = (struct s3c_keypad *) dev_id;
-
-	DPRINTK(": gpio interrupt (IRQ: %d)\n", irq);
-#endif // #ifdef CONFIG_MACH_INSTINCTQ
 
 #ifdef  CONFIG_CPU_FREQ
 	set_dvfs_perf_level();
 #endif
-
-#ifdef CONFIG_MACH_INSTINCTQ
-	if(timer_pending(&gpiokey_timer))
-		del_timer(&gpiokey_timer);
-
-	gpiokey_timer.expires = jiffies + 2;
-	gpiokey_cnt = 0;
-	add_timer(&gpiokey_timer);
-#else
 	for (i=0; i<extra->gpio_key_num; i++)
 	{
 		if (gpio_key[i].eint == irq)
@@ -426,7 +296,7 @@ static irqreturn_t gpio_int_handler(int irq, void *dev_id)
 			break;
 		}
 	}
- 
+
 	if (gpio_key != NULL)
 	{
 		state = gpio_get_value(gpio_key->gpio);
@@ -444,7 +314,7 @@ static irqreturn_t gpio_int_handler(int irq, void *dev_id)
 			dprintk(KPD_RLS, ": Released (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
 	        }
 	}
-#endif // #ifdef CONFIG_MACH_INSTINCTQ
+ 
         return IRQ_HANDLED;
 }
 
@@ -523,9 +393,6 @@ static int __init s3c_keypad_probe(struct platform_device *pdev)
 	DPRINTK(": input device name: %s.\n", input_dev_name);
 
 	s3c_keypad->dev = input_dev;
-#ifdef CONFIG_MACH_INSTINCTQ
-	fake_slide_dev = input_dev;
-#endif // #ifdef CONFIG_MACH_INSTINCTQ
 	s3c_keypad->extra = extra;
 	slide = extra->slide;
 	special_key = extra->special_key;
@@ -539,11 +406,7 @@ static int __init s3c_keypad_probe(struct platform_device *pdev)
 
 	writel(KEYIFCOL_CLEAR, key_base+S3C_KEYIFCOL);
 
-#ifdef CONFIG_MACH_INSTINCTQ
-	for(key = 0; key < 64; key++){
-#else
 	for(key = 200; key < 232; key++){
-#endif // #ifdef CONFIG_MACH_INSTINCTQ
         	input_set_capability(input_dev, EV_KEY, key+1);
 	}
 
@@ -570,12 +433,6 @@ static int __init s3c_keypad_probe(struct platform_device *pdev)
 	init_timer(&keypad_timer);
 	keypad_timer.function = keypad_timer_handler;
 	keypad_timer.data = (unsigned long)s3c_keypad;
-
-#ifdef CONFIG_MACH_INSTINCTQ
-	init_timer(&gpiokey_timer);
-	gpiokey_timer.function = gpiokey_timer_handler;
-	gpiokey_timer.data = (unsigned long)s3c_keypad;
-#endif // #ifdef CONFIG_MACH_INSTINCTQ
 
 	/* For IRQ_KEYPAD */
 	keypad_irq = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
@@ -728,24 +585,18 @@ static int s3c_keypad_suspend(struct platform_device *pdev, pm_message_t state)
 	struct s3c_keypad_slide *slide = extra->slide;
 	struct s3c_keypad_gpio_key *gpio_key = extra->gpio_key;
 
-#ifndef CONFIG_MACH_INSTINCTQ
 	keypad_sleep_flag = 1;
-#endif // #ifndef CONFIG_MACH_INSTINCT
 
 	writel(KEYIFCON_CLEAR, key_base+S3C_KEYIFCON);
 
 	s3c6410_pm_do_save(s3c_keypad_save, ARRAY_SIZE(s3c_keypad_save));
-
-#ifdef CONFIG_MACH_INSTINCTQ
-	if(!keypad_wakeup) 
-#else
+	
 	if (!extra->wakeup_by_keypad)
-#endif // #ifdef CONFIG_MACH_INSTINCTQ
 	{
 		writel(~(0x0fffffff), KEYPAD_ROW_GPIOCON);
 		writel(~(0xffffffff), KEYPAD_COL_GPIOCON);
 	}
-
+	
 	disable_irq(IRQ_KEYPAD);
 
 	if (slide)
@@ -769,9 +620,6 @@ static int s3c_keypad_resume(struct platform_device *pdev)
 	struct s3c_keypad_extra *extra = s3c_keypad->extra;
 	struct s3c_keypad_slide *slide = extra->slide;
 	struct s3c_keypad_gpio_key *gpio_key = extra->gpio_key;
-#ifdef CONFIG_MACH_INSTINCTQ
-	struct input_dev *dev = s3c_keypad->dev;
-#endif // #ifdef CONFIG_MACH_INSTINCTQ
 
 	clk_enable(keypad_clock);
 
@@ -790,42 +638,16 @@ static int s3c_keypad_resume(struct platform_device *pdev)
 		slide_int_handler (slide->eint, (void *) s3c_keypad);
 	}
 
-#ifdef CONFIG_MACH_INSTINCTQ
-	printk("%s, extra_eint0pend: 0x%08x\n", __func__, extra_eint0pend);
-
-	if(gpio_key) 
-	{
-		enable_irq(gpio_key->eint);
-
-		if(extra_eint0pend == 0x00000020) 
-		{
-			input_report_key(dev, gpio_key->keycode, 1);
-	   	 	DPRINTK(": Pressed (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
-        	dprintk(KPD_PRS, ": Pressed with Resume (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
-//        	printk("[KPD_DBG] Pressed with Resume (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
-	
-//			printk("%s, gpio_key->gpio level: %d\n", __func__, gpio_get_value(gpio_key->gpio));
- 			if(gpio_get_value(gpio_key->gpio)) 
-			{
-	   			input_report_key(dev, gpio_key->keycode, 0);
-   				DPRINTK(": Released (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
-   				dprintk(KPD_RLS, ": Released with Resume (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
-//				printk("[KPD_DBG] Released with Resume (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
-			}
-		}
-	}
-#else 
 	if (gpio_key)
 	{
 		int i;
 		for (i=0; i<extra->gpio_key_num; i++, gpio_key+=1)
 		{
-       		enable_irq(gpio_key->eint);
+        		enable_irq(gpio_key->eint);
 			gpio_int_handler (gpio_key->eint, (void *) s3c_keypad);
 		}
-
 	}
-#endif // #ifdef CONFIG_MACH_INSTINCTQ
+
 
 	writel(KEYIFCON_INIT, key_base+S3C_KEYIFCON);
 	writel(KEYIFFC_DIV, key_base+S3C_KEYIFFC);
@@ -856,15 +678,8 @@ static int __init s3c_keypad_init(void)
 {
 	int ret;
 
-#ifdef CONFIG_MACH_INSTINCTQ
-	kpd_dev = device_create_drvdata(sec_class, NULL, 0, NULL, "keypad");
-	if (IS_ERR(kpd_dev))
-		pr_err("Failed to create device(keypad)!\n");
-	if (device_create_file(kpd_dev, &dev_attr_talk) < 0)
-		pr_err("Failed to create device file(%s)!\n", dev_attr_talk.attr.name);
-	if (device_create_file(kpd_dev, &dev_attr_slide) < 0)
-		pr_err("Failed to create device file(%s)!\n", dev_attr_slide.attr.name);
-#endif // #ifdef CONFIG_MACH_INSTINCTQ
+	// <<yamaia><system><JKCha><jswoo> : wake lock Init for keypad scan operation complete
+	wake_lock_init(&s3c_key_wake_lock, WAKE_LOCK_SUSPEND,"s3c-keypad");
 
 	ret = platform_driver_register(&s3c_keypad_driver);
 	

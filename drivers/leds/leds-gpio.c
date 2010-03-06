@@ -14,11 +14,8 @@
 #include <linux/platform_device.h>
 #include <linux/leds.h>
 #include <linux/workqueue.h>
-#ifndef CONFIG_MACH_INSTINCTQ
-#ifdef CONFIG_HAS_EARLYSUSPEND
 #include <linux/earlysuspend.h>
-#endif // CONFIG_HAS_EARLYSUSPEND
-#endif // CONFIG_MACH_INSTINCTQ
+
 #include <asm/gpio.h>
 #include <plat/gpio-cfg.h>
 #include <mach/hardware.h>
@@ -30,17 +27,13 @@ struct gpio_led_data {
 	u8 new_level;
 	u8 can_sleep;
 	u8 active_low;
-#ifndef CONFIG_MACH_INSTINCTQ
-#ifdef CONFIG_HAS_EARLYSUSPEND
 	struct early_suspend early_suspend;
 };
 
+#ifdef CONFIG_HAS_EARLYSUSPEND
 static int gpio_led_early_suspend(struct early_suspend *handler);
 static int gpio_led_early_resume(struct early_suspend *handler);
-#endif // CONFIG_HAS_EARLYSUSPEND
-#else // CONFIG_MACH_INSTINCTQ
-};
-#endif // CONFIG_MACH_INSTINCTQ
+#endif	/* CONFIG_HAS_EARLYSUSPEND */
 
 static void gpio_led_work(struct work_struct *work)
 {
@@ -60,7 +53,7 @@ static void gpio_led_set(struct led_classdev *led_cdev, enum led_brightness valu
 	else
 		level = (value == LED_OFF)?0:1;	
 #else
-	level = 0;
+level = 0;
 #endif
 
 	/* Setting GPIOs with I2C/etc requires a task context, and we don't
@@ -78,16 +71,9 @@ static void gpio_led_set(struct led_classdev *led_cdev, enum led_brightness valu
 
 static void gpio_led_cfgpin(void)
 {
-#ifdef CONFIG_MACH_INSTINCTQ // CONFIG_MACH_INSTINCTQ
-	s3c_gpio_cfgpin(GPIO_MAIN_KEY_LED_EN, S3C_GPIO_SFN(GPIO_MAIN_KEY_LED_EN_AF));
-	s3c_gpio_setpull(GPIO_MAIN_KEY_LED_EN, S3C_GPIO_PULL_NONE); 
-
-	s3c_gpio_cfgpin(GPIO_SUB_KEY_LED_EN, S3C_GPIO_SFN(GPIO_SUB_KEY_LED_EN_AF));
-	s3c_gpio_setpull(GPIO_SUB_KEY_LED_EN, S3C_GPIO_PULL_NONE); 
-#else // CONFIG_MACH_SPICA
 	s3c_gpio_cfgpin(GPIO_SUBLED_EN, S3C_GPIO_SFN(GPIO_SUBLED_EN_AF));
 	s3c_gpio_setpull(GPIO_SUBLED_EN, S3C_GPIO_PULL_NONE); 
-#endif // CONFIG_MACH_INSTINCTQ
+
 }
 
 static int gpio_led_probe(struct platform_device *pdev)
@@ -137,14 +123,12 @@ static int gpio_led_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, leds_data);
 
-#ifndef CONFIG_MACH_INSTINCTQ
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	leds_data->early_suspend.suspend = gpio_led_early_suspend;
 	leds_data->early_suspend.resume = gpio_led_early_resume;
 
 	register_early_suspend(&leds_data->early_suspend);
 #endif	/* CONFIG_HAS_EARLYSUSPEND */
-#endif  // CONFIG_MACH_INSTINCTQ
 
 	return 0;
 
@@ -182,7 +166,7 @@ static int __devexit gpio_led_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#if defined(CONFIG_HAS_EARLYSUSPEND) && !defined(CONFIG_MACH_INSTINCTQ)
+#ifdef CONFIG_HAS_EARLYSUSPEND
 static int gpio_led_early_suspend(struct early_suspend *handler)
 {
 	struct gpio_led_data *leds_data = container_of(handler, struct gpio_led_data, early_suspend);
@@ -236,10 +220,7 @@ static struct platform_driver gpio_led_driver = {
 #ifndef CONFIG_HAS_EARLYSUSPEND
 	.suspend	= gpio_led_suspend,
 	.resume		= gpio_led_resume,
-#elif defined(CONFIG_MACH_INSTINCTQ)
-	.suspend	= gpio_led_suspend,
-	.resume		= gpio_led_resume,
-#endif // CONFIG_MACH_INSTINCTQ
+#endif
 	.driver		= {
 		.name	= "leds-gpio",
 		.owner	= THIS_MODULE,

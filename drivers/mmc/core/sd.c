@@ -770,7 +770,7 @@ err:
 	mmc_detach_bus(host);
 	mmc_release_host(host);
 
-	/* Changed from KERN_ERR to KERN_DEBUG to eliminate SD card notification sound crash. */
+	/* Change from KERN_ERR to KERN_DEBUG to eliminate SD card notification sound crach. */
 	printk(KERN_DEBUG "%s: error %d whilst initialising SD card\n",
 		mmc_hostname(host), err);
 

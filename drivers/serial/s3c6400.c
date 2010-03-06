@@ -118,7 +118,6 @@ static struct s3c24xx_uart_info s3c6400_uart_inf = {
 static int s3c6400_serial_probe(struct platform_device *dev)
 {
 	dbg("s3c6400_serial_probe: dev=%p\n", dev);
-
 	return s3c24xx_serial_probe(dev, &s3c6400_uart_inf);
 }
 

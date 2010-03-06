@@ -806,17 +806,6 @@ static int s3c6410_pm_enter(suspend_state_t state)
 		return -EINVAL;
 	}
 
-#ifdef CONFIG_CPU_FREQ
-	if(!is_userspace_gov()) {
-		tmp = s3c64xx_target_frq(0xFFFFFFFF, 1);
-		s3c6410_pm_target(tmp);
-	}
-	else {
-#ifdef USE_DVS
-		set_voltage(0);
-#endif	/* USE_DVS */
-	}
-#endif	/* CONFIG_CPU_FREQ */
 	/* prepare check area if configured */
 	s3c6410_pm_check_prepare();
 

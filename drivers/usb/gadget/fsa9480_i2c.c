@@ -6,7 +6,6 @@
 #include <linux/i2c/pmic.h>
   
 #include <mach/param.h>
-#include <linux/random.h>
 #include "fsa9480_i2c.h"
 
 #include <linux/wakelock.h>
@@ -23,7 +22,7 @@ extern ftm_sleep;
 #define FSA9480UCX		0x4A
 static unsigned short fsa9480_normal_i2c[] = {I2C_CLIENT_END };
 static unsigned short fsa9480_ignore[] = { I2C_CLIENT_END };
-static unsigned short fsa9480_i2c_probe[] = { 5, FSA9480UCX >> 1, I2C_CLIENT_END };
+static unsigned short fsa9480_i2c_probe[] = { 0, FSA9480UCX >> 1, I2C_CLIENT_END };
 
 static struct i2c_client fsa9480_i2c_client;
 static struct i2c_driver fsa9480_i2c_driver;
@@ -68,7 +67,7 @@ void get_usb_serial(char *usb_serial_number)
 	
 	serial_number = (system_serial_high << 16) + (system_serial_low >> 16);
 
-	sprintf(temp_serial_number,"M900%08x",serial_number);
+	sprintf(temp_serial_number,"5700%08x",serial_number);
 	strcpy(usb_serial_number,temp_serial_number);
 }
 
@@ -83,12 +82,10 @@ int available_PM_Set(void)
 
 int get_usb_power_state(void)
 {
-    DEBUG_FSA9480("[FSA9480]%s : usb_power = %d \n ", __func__,usb_power);
-	
+    DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
 
 	if(usb_power !=1 )
 	{
-		
 		wait_condition = 0;
 		wait_event_interruptible_timeout(usb_detect_waitq, wait_condition , 2 * HZ); 
 	}
@@ -103,7 +100,7 @@ int get_usb_power_state(void)
 }
 int get_usb_cable_state(void)
 {
-    DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
+    //DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
 	return usb_state;
 }
 
@@ -211,8 +208,7 @@ static int fsa9480_modify(struct i2c_client *client, u8 reg, u8 data, u8 mask)
 
    fsa9480_read(client, reg, &original_value);
    DEBUG_FSA9480("[FSA9480] %s Original value is 0x%02x\n ",__func__, original_value);
-   modified_value = ((original_value&~mask)
-| data);
+   modified_value = ((original_value&~mask)| data);
    DEBUG_FSA9480("[FSA9480] %s modified value is 0x%02x\n ",__func__, modified_value);
    fsa9480_write(client, reg, modified_value);
 
@@ -268,8 +264,6 @@ void fsa9480_check_usb_connection(void)
 		wait_condition = 1;
 		ta_connection = true;
 		wake_up_interruptible(&usb_detect_waitq);
-
-		printk("[FSA9480] TA is connected \n");
 	}
 
 	
@@ -377,6 +371,13 @@ void fsa9480_check_usb_connection(void)
 #define SWITCH_MODEM		2
 static void usb_sel(int sel)
 {
+    DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
+	if (sel == SWITCH_PDA) { // PDA
+		gpio_set_value(GPIO_USB_SEL, 0);
+	} else { // MODEM
+		gpio_set_value(GPIO_USB_SEL, 1);
+	}
+
 	usb_path = sel;
 }
 
@@ -440,7 +441,57 @@ static ssize_t usb_sel_store(
 
 	return size;
 }
+
 static DEVICE_ATTR(usb_sel, S_IRUGO |S_IWUGO | S_IRUSR | S_IWUSR, usb_sel_show, usb_sel_store);
+
+
+
+/**********************************************************************
+*    Name         : usb_state_show()
+*    Description : for sysfs control (/sys/class/sec/switch/usb_state)
+*                        return usb state using fsa9480's device1 and device2 register
+*                        this function is used only when NPS want to check the usb cable's state.
+*    Parameter   :
+*                       
+*                       
+*    Return        : USB cable state's string
+*                        USB_STATE_CONFIGURED is returned if usb cable is connected
+***********************************************************************/
+static ssize_t usb_state_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    int cable_state;
+
+	cable_state = get_usb_cable_state();
+
+	sprintf(buf, "%s\n", (cable_state & (CRB_JIG_USB<<8 | CRA_USB<<0 ))?"USB_STATE_CONFIGURED":"USB_STATE_NOTCONFIGURED");
+
+	return sprintf(buf, "%s\n", buf);
+} 
+
+
+/**********************************************************************
+*    Name         : usb_state_store()
+*    Description : for sysfs control (/sys/class/sec/switch/usb_state)
+*                        noting to do.
+*    Parameter   :
+*                       
+*                       
+*    Return        : None
+*
+***********************************************************************/
+static ssize_t usb_state_store(
+		struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t size)
+{
+    DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
+
+
+	return 0;
+}
+
+/*sysfs for usb cable's state.*/
+static DEVICE_ATTR(usb_state, S_IRUGO |S_IWUGO | S_IRUSR | S_IWUSR, usb_state_show, usb_state_store);
+
 
 /* UART <-> USB switch (for UART/USB JIG) */
 static void mode_switch(struct work_struct *ignored)
@@ -490,11 +541,22 @@ static int fsa9480_codec_probe(struct i2c_adapter *adap, int addr, int kind)
 
 	if (device_create_file(switch_dev, &dev_attr_usb_sel) < 0)
 		DEBUG_FSA9480("[FSA9480]Failed to create device file(%s)!\n", dev_attr_usb_sel.attr.name);
+
+	if (device_create_file(switch_dev, &dev_attr_usb_state) < 0)
+		DEBUG_FSA9480("[FSA9480]Failed to create device file(%s)!\n", dev_attr_usb_state.attr.name);
 	
 	/* FSA9480 Interrupt */
 	s3c_gpio_cfgpin(GPIO_JACK_INT_N, S3C_GPIO_SFN(GPIO_JACK_INT_N_AF));
 	s3c_gpio_setpull(GPIO_JACK_INT_N, S3C_GPIO_PULL_NONE);
 
+	/* USB_SEL */
+	if (gpio_is_valid(GPIO_USB_SEL)) {
+		if (gpio_request(GPIO_USB_SEL, S3C_GPIO_LAVEL(GPIO_USB_SEL))) 
+			DEBUG_FSA9480(KERN_ERR "[FSA9480]Failed to request GPIO_USB_SEL! \n");
+		gpio_direction_output(GPIO_USB_SEL, 0);
+	}
+	s3c_gpio_setpull(GPIO_USB_SEL, S3C_GPIO_PULL_NONE);
+	
 	fsa9480_i2c_client.adapter = adap;
 	fsa9480_i2c_client.addr = addr;
 

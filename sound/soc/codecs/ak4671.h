@@ -35,6 +35,7 @@
 #define MM_AUDIO_VOICECALL_SPK 		0x12
 #define MM_AUDIO_VOICECALL_HP 		0x13
 #define MM_AUDIO_VOICECALL_BT 		0x14
+#define MM_AUDIO_VOICECALL_SPK_LOOP 	0x15
 #define MM_AUDIO_VOICEMEMO	 		0x20
 #define MM_AUDIO_VOICEMEMO_MAIN		0x21
 #define MM_AUDIO_VOICEMEMO_SUB 		0x22
@@ -205,9 +206,8 @@ extern int path_disable(struct snd_soc_codec *, int);
 extern int set_sample_rate(struct snd_soc_codec *, int);
 extern int idle_mode_enable(struct snd_soc_codec *, int);
 extern int idle_mode_disable(struct snd_soc_codec *, int);
-extern int rec_enable(struct snd_soc_codec *, int);
-extern int rec_disable(struct snd_soc_codec *, int);
-extern int path_change(struct snd_soc_codec *, int, int);
+extern int voice_call_rec_enable(struct snd_soc_codec *, int);
+extern int voice_call_rec_disable(struct snd_soc_codec *, int);
 
 
 #endif

@@ -25,6 +25,8 @@
 
 #define MMC_QUEUE_SUSPENDED	(1 << 0)
 
+extern int card_detect;
+
 /*
  * Prepare a MMC request. This just filters out odd stuff.
  */
@@ -47,12 +49,14 @@ static int mmc_queue_thread(void *d)
 {
 	struct mmc_queue *mq = d;
 	struct request_queue *q = mq->queue;
+	unsigned int err_cnt;
 
 	current->flags |= PF_MEMALLOC;
 
 	down(&mq->thread_sem);
 	do {
 		struct request *req = NULL;
+		err_cnt = 10;
 
 		spin_lock_irq(q->queue_lock);
 		set_current_state(TASK_INTERRUPTIBLE);
@@ -78,6 +82,8 @@ static int mmc_queue_thread(void *d)
 
 			do {
 				int err;
+				if(!card_detect || err_cnt == 0)
+					break;
 
 				cmd.opcode = MMC_SEND_STATUS;
 				cmd.arg = mq->card->rca << 16;
@@ -91,6 +97,7 @@ static int mmc_queue_thread(void *d)
 					printk(KERN_ERR "%s: failed to get status (%d)\n",
 					       __func__, err);
 					msleep(5);
+					err_cnt --;
 					continue;
 				}
 				printk(KERN_DEBUG "%s: status 0x%.8x\n", __func__, cmd.resp[0]);

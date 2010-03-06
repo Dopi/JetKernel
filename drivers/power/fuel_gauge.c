@@ -13,6 +13,9 @@
 #define CMD0_REG			0xFE
 #define CMD1_REG			0xFF
 
+/* Definitions */
+#define VCELL_ARR_SIZE			6
+
 static struct i2c_driver fg_i2c_driver;
 static struct i2c_client *fg_i2c_client = NULL;
 
@@ -78,7 +81,7 @@ static int fg_i2c_write(struct i2c_client *client, u8 reg, u8 *data)
 	return 0;
 }
 
-unsigned int fg_read_vcell(void)
+static unsigned int fg_get_vcell_data(void)
 {
 	struct i2c_client *client = fg_i2c_client;
 	u8 data[2];
@@ -93,8 +96,36 @@ unsigned int fg_read_vcell(void)
 		return -1;
 	}
 	vcell = ((((data[0] << 4) & 0xFF0) | ((data[1] >> 4) & 0xF)) * 125)/100;
-	pr_info("%s: VCELL=%d\n", __func__, vcell);
+	pr_debug("%s: VCELL=%d\n", __func__, vcell);
 	return vcell;
+}
+
+unsigned int fg_read_vcell(void)
+{
+	u32 vcell_arr[VCELL_ARR_SIZE];
+	u32 vcell_max = 0;
+	u32 vcell_min = 0;
+	u32 vcell_total = 0;
+	int i;
+
+	for (i = 0; i < VCELL_ARR_SIZE; i++) {
+		vcell_arr[i] = fg_get_vcell_data();
+		pr_debug("%s: vcell_arr = %d\n", __func__, vcell_arr[i]);
+		if (i != 0) {
+			if (vcell_arr[i] > vcell_max) 
+				vcell_max = vcell_arr[i];
+			else if (vcell_arr[i] < vcell_min)
+				vcell_min = vcell_arr[i];
+		} else {
+			vcell_max = vcell_arr[0];
+			vcell_min = vcell_arr[0];
+		}
+		vcell_total += vcell_arr[i];
+	}
+
+	pr_debug("%s: vcell_max = %d, vcell_min = %d\n",
+			__func__, vcell_max, vcell_min);
+	return (vcell_total - vcell_max - vcell_min) / (VCELL_ARR_SIZE - 2);
 }
 
 unsigned int fg_read_soc(void)
@@ -110,11 +141,11 @@ unsigned int fg_read_soc(void)
 		pr_err("%s: Failed to read SOC1\n", __func__);
 		return -1;
 	}
-	pr_info("%s: SOC [0]=%d [1]=%d\n", __func__, data[0], data[1]);
+	pr_debug("%s: SOC [0]=%d [1]=%d\n", __func__, data[0], data[1]);
 
 	if (is_reset_soc) {
 		pr_info("%s: Reseting SOC\n", __func__);
-		return 50;
+		return -1;
 	} else {
 #ifndef SOC_LB_FOR_POWER_OFF
 		return data[0];
@@ -144,7 +175,7 @@ unsigned int fg_reset_soc(void)
 
 	ret = fg_i2c_write(client, MODE0_REG, rst_cmd);
 	if (ret)
-		pr_info("%s: failed reset SOC(%d)\n", __func__, ret);
+		pr_err("%s: failed reset SOC(%d)\n", __func__, ret);
 
 	msleep(500);
 	is_reset_soc = 0;

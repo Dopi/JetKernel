@@ -16,11 +16,7 @@
 
 static void __iomem *key_base;
 
-#ifdef CONFIG_MACH_INSTINCTQ
-#define GET_KEYCODE(x)                  (x+1)
-#else
 #define GET_KEYCODE(x)                  (x+201)
-#endif // #ifdef CONFIG_MACH_INSTINCTQ
 
 #define KEYCODE_DUMPKEY	247
 #define KEYCODE_SENDEND	248

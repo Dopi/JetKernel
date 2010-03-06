@@ -7,14 +7,15 @@
 *  Author		: Changoh.heo (changoh.heo@samsung.com)
 *
 *  Copyright (c) 2008 Samsung Electronics Co., Ltd.
-*  This material, including documentation and any related 
-*  computer programs, is protected by copyright controlled by 
-*  Samsung Electronics Co., Ltd. All rights are reserved. Copying, 
-*  including reproducing, storing, adapting or translating, any 
-*  or all of this material requires the prior written consent of 
-*  Samsung Electronics Co., Ltd. This material also contains confidential 
-*  information which may not be disclosed to others without the 
-*  prior written consent of Electronics Co., Ltd.
+
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, version 2 of the License.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
 * ==============================================================================
 */
 

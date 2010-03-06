@@ -471,6 +471,13 @@ static int s3c24xx_i2c_set_master(struct s3c24xx_i2c *i2c)
 		msleep(1);
 	}
 
+#if defined(CONFIG_MACH_SPICA)
+	iicstat = readl(i2c->regs + S3C2410_IICSTAT);
+    iicstat &= ~S3C2410_IICSTAT_BUSBUSY;
+    writel(iicstat, i2c->regs + S3C2410_IICSTAT);
+    printk("%s : stop condition \n", __func__);
+#endif
+
 	return -ETIMEDOUT;
 }
 
@@ -482,11 +489,15 @@ static int s3c24xx_i2c_set_master(struct s3c24xx_i2c *i2c)
 static int s3c24xx_i2c_doxfer(struct s3c24xx_i2c *i2c,
 			      struct i2c_msg *msgs, int num)
 {
-#ifdef CONFIG_MACH_SPICA
+#if !(defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN))
 	struct s3c2410_platform_i2c *pdata = i2c->dev->platform_data;
 #endif
 	unsigned long timeout;
 	int ret;
+
+#if defined(CONFIG_MACH_SPICA)
+	int iicstat;
+#endif
 
 	if (i2c->suspended) {
 		dev_err(i2c->dev, "i2c master is suspeded\n");
@@ -508,6 +519,15 @@ static int s3c24xx_i2c_doxfer(struct s3c24xx_i2c *i2c,
 		
 		/* force to write stop control bit */
 		s3c24xx_i2c_stop(i2c, -ENXIO);
+
+#if defined(CONFIG_MACH_SPICA)
+		iicstat = readl(i2c->regs + S3C2410_IICSTAT);
+        if ((iicstat & S3C2410_IICSTAT_BUSBUSY)) {
+            iicstat &= ~(S3C2410_IICSTAT_TXRXEN | S3C2410_IICSTAT_BUSBUSY);
+            writel(iicstat, i2c->regs + S3C2410_IICSTAT);
+            printk("IICSTAT reg : 0x%x\n", readl(i2c->regs + S3C2410_IICSTAT));
+        }
+#endif
 
 		ret = -EAGAIN;
 		goto out;
@@ -538,14 +558,10 @@ static int s3c24xx_i2c_doxfer(struct s3c24xx_i2c *i2c,
 		dev_dbg(i2c->dev, "incomplete xfer (%d)\n", ret);
 
 	/* ensure the stop has been through the bus */
-#ifdef CONFIG_MACH_SPICA
+#if !(defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN))
 	if (pdata->bus_num == 0)
 		msleep(1);
-#else
-#if 0
-	msleep(1);
-#endif // if 0
-#endif // #ifdef CONFIG_MACH_SPICA
+#endif
  out:
 	return ret;
 }
@@ -1064,3 +1080,4 @@ MODULE_AUTHOR("Ben Dooks, <ben@simtec.co.uk>");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:s3c2410-i2c");
 MODULE_ALIAS("platform:s3c2440-i2c");
+

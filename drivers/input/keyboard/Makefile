@@ -28,4 +28,4 @@ obj-$(CONFIG_KEYBOARD_MAPLE)		+= maple_keyb.o
 obj-$(CONFIG_KEYBOARD_BFIN)		+= bf54x-keys.o
 obj-$(CONFIG_KEYBOARD_SH_KEYSC)		+= sh_keysc.o
 obj-$(CONFIG_KEYPAD_S3C)                += s3c-keypad.o
-#obj-$(CONFIG_KEYPAD_SEC)                += sec-keypad/
+obj-$(CONFIG_KEYPAD_SEC)                += sec-keypad/

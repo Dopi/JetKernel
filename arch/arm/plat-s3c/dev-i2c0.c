@@ -50,11 +50,11 @@ static struct s3c2410_platform_i2c default_i2c_data0 __initdata = {
 	.flags		= 0,
 	.slave_addr	= 0x10,
 	.bus_freq	= 100*1000,
-#ifdef CONFIG_MACH_INSTINCTQ
+#if defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN) || defined(CONFIG_MACH_SPICA)
 	.max_freq	= 150*1000,
 #else
- 	.max_freq	= 400*1000,
-#endif
+	.max_freq	= 400*1000,
+#endif	
 	.sda_delay	= S3C2410_IICLC_SDA_DELAY5 | S3C2410_IICLC_FILTER_ON,
 };
 
@@ -73,3 +73,4 @@ void __init s3c_i2c0_set_platdata(struct s3c2410_platform_i2c *pd)
 
 	s3c_device_i2c0.dev.platform_data = npd;
 }
+
