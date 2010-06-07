@@ -39,9 +39,9 @@ void arch_reset(char mode)
 
 	/* nothing here yet */
 
-	writel(S3C2410_WTCNT_CNT, wdt_reg + S3C2410_WTCNT_OFFSET);	/* Watchdog Count Register*/
-	writel(S3C2410_WTCNT_CON, wdt_reg + S3C2410_WTCON_OFFSET);	/* Watchdog Controller Register*/
-	writel(S3C2410_WTCNT_DAT, wdt_reg + S3C2410_WTDAT_OFFSET);	/* Watchdog Data Register*/
+	writel(S3C_WTCNT_CNT, wdt_reg + S3C_WTCNT_OFFSET);	/* Watchdog Count Register*/
+	writel(S3C_WTCNT_CON, wdt_reg + S3C_WTCON_OFFSET);	/* Watchdog Controller Register*/
+	writel(S3C_WTCNT_DAT, wdt_reg + S3C_WTDAT_OFFSET);	/* Watchdog Data Register*/
 
 	/* wait for reset to assert... */
 	mdelay(500);

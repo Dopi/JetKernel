@@ -36,12 +36,8 @@
 #include <linux/poll.h>
 #include <linux/init.h>
 #include <linux/string.h>
-#include <linux/smp_lock.h>
 #include <linux/genhd.h>
 #include <linux/blkdev.h>
-
-#define MAJOR_NR	JSFD_MAJOR
-
 #include <asm/uaccess.h>
 #include <asm/pgtable.h>
 #include <asm/io.h>

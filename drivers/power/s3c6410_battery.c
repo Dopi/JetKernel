@@ -71,7 +71,7 @@ static ssize_t s3c_test_show_property(struct device *dev,
 static ssize_t s3c_test_store(struct device *dev, 
 			     struct device_attribute *attr,
 			     const char *buf, size_t count);
-static int bat_temper_state = 0;
+static int bat_temper_state = 0; // for test 1: overheat, 2: freeze
 #endif /* __TEST_DEVICE_DRIVER__ */
 
 #ifdef __TEST_MODE_INTERFACE__
@@ -108,8 +108,25 @@ static void s3c_bat_status_update(struct power_supply *bat_ps);
 #define INVALID_VOL_ADC		160
 #endif /* __9BITS_RESOLUTION__ */
 
+#define ENABLE		1
+#define DISABLE		0
+
+#ifndef convert_adc2voltage
+	#ifdef __9BITS_RESOLUTION__
+	#define convert_adc2voltage(x)		(x * 10000 / 848)
+	#else /* __9BITS_RESOLUTION__ */
+	#define convert_adc2voltage(x)		((x - 2170 ) * 10 / 7 + 3200)
+	#endif /* __9BITS_RESOLUTION__ */
+#endif /* convert_adc2voltage */
+
 static struct work_struct bat_work;
 static struct work_struct cable_work;
+
+#ifdef COMPENSATE_BOOTING
+static struct workqueue_struct *batt_drv_wqueue;
+static struct work_struct compensate_boot_work;
+#endif /* COMPENSATE_BOOTING */
+
 static struct device *dev;
 static struct timer_list polling_timer;
 static struct timer_list cable_timer;
@@ -219,7 +236,14 @@ static inline int s3c_adc_get_adc_data_ex(int channel) {
 #endif /* __9BITS_RESOLUTION__ */
 }
 
-#ifndef __FUEL_GAUGES_IC__
+#ifdef __CHECK_CHG_CURRENT__
+static inline void clear_adc_sample(adc_channel_type channel)
+{
+	adc_sample[channel].cnt = 0;
+	adc_sample[channel].total_adc = 0;
+}
+#endif /* __CHECK_CHG_CURRENT__ */
+
 static unsigned long calculate_average_adc(adc_channel_type channel, int adc)
 {
 	unsigned int cnt = 0;
@@ -231,7 +255,8 @@ static unsigned long calculate_average_adc(adc_channel_type channel, int adc)
 	total_adc = adc_sample[channel].total_adc;
 
 	if (adc < 0 || adc == 0) {
-		dev_err(dev, "%s: invalid adc : %d\n", __func__, adc);
+		dev_err(dev, "%s: invalid adc : %d(ch:%d)\n", __func__,
+				adc, channel);
 		adc = adc_sample[channel].average_adc;
 	}
 
@@ -269,7 +294,6 @@ static unsigned long calculate_average_adc(adc_channel_type channel, int adc)
 			__func__, channel, adc, average_adc);
 	return average_adc;
 }
-#endif /* __FUEL_GAUGES_IC__ */
 
 static int s3c_bat_get_adc_data(adc_channel_type adc_ch)
 {
@@ -282,7 +306,7 @@ static int s3c_bat_get_adc_data(adc_channel_type adc_ch)
 	for (i = 0; i < ADC_DATA_ARR_SIZE; i++) {
 		adc_arr[i] = s3c_adc_get_adc_data_ex(adc_ch);
 		dev_dbg(dev, "%s: adc_arr = %d\n", __func__, adc_arr[i]);
-		if ( i != 0) {
+		if (i != 0) {
 			if (adc_arr[i] > adc_max) 
 				adc_max = adc_arr[i];
 			else if (adc_arr[i] < adc_min)
@@ -315,7 +339,7 @@ static unsigned long s3c_read_bat(struct power_supply *bat_ps)
 #endif /* __BATTERY_COMPENSATION__ */
 	if (adc < s3c_bat_info.bat_info.batt_vol_adc_aver - INVALID_VOL_ADC
 			&& cnt < 10) {
-		dev_err(dev, "%s: invaild adc = %d\n", __func__, adc);
+		dev_err(dev, "%s: invalid adc = %d\n", __func__, adc);
 		adc = s3c_bat_info.bat_info.batt_vol_adc_aver;
 		cnt++;
 	} else {
@@ -353,11 +377,21 @@ static unsigned long s3c_read_temp(struct power_supply *bat_ps)
 
 	s3c_bat_info.bat_info.batt_temp_adc = adc;
 
-#if 0
+#ifdef __AVG_TEMP_ADC__
 	return calculate_average_adc(S3C_ADC_TEMPERATURE, adc);
-#else
+#else /* __AVG_TEMP_ADC__ */
 	return adc;
-#endif
+#endif /* __AVG_TEMP_ADC__ */
+}
+
+static u32 s3c_get_bat_health(void)
+{
+	return s3c_bat_info.bat_info.batt_health;
+}
+
+static void s3c_set_bat_health(u32 batt_health)
+{
+	s3c_bat_info.bat_info.batt_health = batt_health;
 }
 
 static int is_over_abs_time(void)
@@ -401,26 +435,38 @@ static void s3c_bat_set_compesation(int mode,
 #endif /* __BATTERY_COMPENSATION__ */
 
 #ifdef __CHECK_CHG_CURRENT__
+static int s3c_read_current(struct power_supply *bat_ps)
+{
+	int adc = 0;
+	adc = s3c_bat_get_adc_data(S3C_ADC_CHG_CURRENT);
+	dev_dbg(dev, "%s: adc = %d\n", __func__, adc);
+
+	return calculate_average_adc(S3C_ADC_CHG_CURRENT, adc);
+}
+
 static void check_chg_current(struct power_supply *bat_ps)
 {
 	static int cnt = 0;
-	unsigned long chg_current = 0; 
+	int chg_current = 0; 
 
-	chg_current = s3c_bat_get_adc_data(S3C_ADC_CHG_CURRENT);
+	chg_current = s3c_read_current(bat_ps);
 	s3c_bat_info.bat_info.batt_current = chg_current;
 	if (chg_current <= CURRENT_OF_FULL_CHG) {
 		cnt++;
 		if (cnt >= 10) {
-			dev_info(dev, "%s: battery full\n", __func__);
-			s3c_set_chg_en(0);
+			dev_info(dev, "%s: battery full(%d)\n",
+					__func__, chg_current);
+			s3c_set_chg_en(DISABLE);
 			s3c_bat_info.bat_info.batt_is_full = 1;
 			force_update = 1;
 			full_charge_flag = 1;
 			cnt = 0;
+			clear_adc_sample(S3C_ADC_CHG_CURRENT);
 		}
 	} else {
 		cnt = 0;
 	}
+	dev_dbg(dev, "%s: chg_current=%d\n", __func__, chg_current);
 }
 #endif /* __CHECK_CHG_CURRENT__ */
 
@@ -429,19 +475,92 @@ static void check_recharging_bat(int bat_vol)
 {
 	static int cnt = 0;
 
-	if (s3c_bat_info.bat_info.batt_is_full && 
-		!s3c_bat_info.bat_info.charging_enabled &&
-		batt_recharging != -1 && bat_vol < batt_recharging) {
-		if (++cnt >= 10) {
-			dev_info(dev, "%s: recharging\n", __func__);
+	if (s3c_get_bat_health() != POWER_SUPPLY_HEALTH_GOOD)
+		goto out;
+
+	if (!s3c_bat_info.bat_info.batt_is_full || 
+		s3c_bat_info.bat_info.charging_enabled) 
+		goto out;
+
+	if (batt_recharging != -1 && bat_vol <= batt_recharging) {
+		if (++cnt >= 3) {
+			dev_info(dev, "%s: recharging(adj):%d\n", __func__,
+					bat_vol);
 			s3c_bat_info.bat_info.batt_is_recharging = 1;
-			s3c_set_chg_en(1);
+			s3c_set_chg_en(ENABLE);
+			goto out;
+		}
+	} else {
+		cnt = 0;
+	}
+
+	if (bat_vol <= batt_safe_rech ) {
+		dev_info(dev, "%s: recharging(safe):%d\n", __func__, bat_vol);
+		s3c_bat_info.bat_info.batt_is_recharging = 1;
+		s3c_set_chg_en(ENABLE);
+		goto out;
+	}
+	
+	return;
+out:
+	cnt = 0;
+	return;
+}
+#else /* __ADJUST_RECHARGE_ADC__ */
+#ifdef __FUEL_GAUGES_IC__
+static void check_recharging_bat(int fg_vcell)
+{
+	static int cnt = 0;
+
+	if (s3c_get_bat_health() != POWER_SUPPLY_HEALTH_GOOD) {
+		cnt = 0;
+		return;
+	}
+
+	if (s3c_bat_info.bat_info.batt_is_full &&
+		!s3c_bat_info.bat_info.charging_enabled &&
+		(fg_vcell <= RECHARGE_COND_VOLTAGE || 
+			fg_vcell <= FULL_CHARGE_COND_VOLTAGE)) {
+		if (++cnt >= 10) {
+			dev_info(dev, "%s: recharging(vcell:%d)\n", __func__,
+					fg_vcell);
+			s3c_bat_info.bat_info.batt_is_recharging = 1;
+			s3c_set_chg_en(ENABLE);
 			cnt = 0;
 		}
 	} else {
 		cnt = 0;
 	}
 }
+#else /* __FUEL_GAUGES_IC__ */
+static void check_recharging_bat(int bat_vol)
+{
+	static int cnt = 0;
+
+	if (s3c_get_bat_health() != POWER_SUPPLY_HEALTH_GOOD) {
+		cnt = 0;
+		return;
+	}
+
+	if (bat_vol > batt_safe_rech ) {
+		cnt = 0;
+		return;
+	}
+
+	if (s3c_bat_info.bat_info.batt_is_full &&
+		!s3c_bat_info.bat_info.charging_enabled) {
+		if (++cnt >= 10) {
+			dev_info(dev, "%s: recharging(safe), (adc:%d)\n",
+					__func__, bat_vol);
+			s3c_bat_info.bat_info.batt_is_recharging = 1;
+			s3c_set_chg_en(ENABLE);
+			cnt = 0;
+		}
+	} else {
+		cnt = 0;
+	}
+}
+#endif /* __FUEL_GAUGES_IC__ */
 #endif /* __ADJUST_RECHARGE_ADC__ */
 
 #ifndef __FUEL_GAUGES_IC__
@@ -457,21 +576,23 @@ static int s3c_get_bat_level(struct power_supply *bat_ps)
 		bat_level = 100;
 		s3c_bat_info.bat_info.batt_is_full = 1;
 		dev_info(dev, "%s: charging time is over\n", __func__);
-		s3c_set_chg_en(0);
+		s3c_set_chg_en(DISABLE);
 		goto __end__;
 	}
 
 #ifdef __BATTERY_COMPENSATION__
 	if (s3c_bat_info.bat_info.charging_enabled) {
-		if (bat_vol > batt_almost - COMPENSATE_TA) {
+		if (bat_vol > batt_full - COMPENSATE_TA) {
 			s3c_bat_set_compesation(0, OFFSET_TA_ATTACHED,
 					COMPENSATE_TA);
 		}
 	}
 #endif /* __BATTERY_COMPENSATION__ */
 
+	check_recharging_bat(bat_vol);
+
 	if (bat_vol > batt_full) {
-		int temp = (batt_max - batt_full) / 5;
+		int temp = 5;	/* 100% : 4.03V ADC : 341  Offset : 45 */
 		if (bat_vol > (batt_full + temp) || 
 				s3c_bat_info.bat_info.batt_is_full)
 			bat_level = 100;
@@ -485,9 +606,6 @@ static int s3c_get_bat_level(struct power_supply *bat_ps)
 				bat_level = 90;
 		}
 #endif /* __CHECK_CHG_CURRENT__ */
-#ifdef __ADJUST_RECHARGE_ADC__
-		check_recharging_bat(bat_vol);
-#endif /* __ADJUST_RECHARGE_ADC__ */
 		dev_dbg(dev, "%s: (full)level = %d\n", __func__, bat_level );
 	} else if (batt_full >= bat_vol && bat_vol > batt_almost) {
 		int temp = (batt_full - batt_almost) / 2;
@@ -499,13 +617,6 @@ static int s3c_get_bat_level(struct power_supply *bat_ps)
 		if (s3c_bat_info.bat_info.batt_is_recharging)
 			bat_level = 100;
 
-		if (s3c_bat_info.bat_info.batt_is_full &&
-			!s3c_bat_info.bat_info.charging_enabled) {
-			dev_info(dev, "%s: recharging(under full)\n", __func__);
-			s3c_bat_info.bat_info.batt_is_recharging = 1;
-			s3c_set_chg_en(1);
-			bat_level = 100;
-		}
 		dev_dbg(dev, "%s: (almost)level = %d\n", __func__, bat_level);
 	} else if (batt_almost >= bat_vol && bat_vol > batt_high) {
 		int temp = (batt_almost - batt_high) / 2;
@@ -565,7 +676,7 @@ static int s3c_get_bat_level(struct power_supply *bat_ps)
 		bat_level = 100;
 		s3c_bat_info.bat_info.batt_is_full = 1;
 		dev_info(dev, "%s: charging time is over\n", __func__);
-		s3c_set_chg_en(0);
+		s3c_set_chg_en(DISABLE);
 		goto __end__;
 	}
 
@@ -607,7 +718,7 @@ static int s3c_get_bat_level(struct power_supply *bat_ps)
 			!s3c_bat_info.bat_info.charging_enabled) {
 			dev_info(dev, "%s: recharging(under full)\n", __func__);
 			s3c_bat_info.bat_info.batt_is_recharging = 1;
-			s3c_set_chg_en(1);
+			s3c_set_chg_en(ENABLE);
 			bat_level = 100;
 		}
 		dev_dbg(dev, "%s: (almost)level = %d\n", __func__, bat_level);
@@ -657,22 +768,11 @@ static int s3c_get_bat_vol(struct power_supply *bat_ps)
 	int adc = s3c_bat_info.bat_info.batt_vol_adc;
 #ifdef __TEST_MODE_INTERFACE__
 	int batt_vol_adc_aver = s3c_bat_info.bat_info.batt_vol_adc_aver;
-#ifndef __9BITS_RESOLUTION__
-	s3c_bat_info.bat_info.batt_vol_aver =
-		(batt_vol_adc_aver - 2170 ) * 10 / 7 + 3200;
-#else
-	s3c_bat_info.bat_info.batt_vol_aver = batt_vol_adc_aver * 10000 / 848;
-#endif /* __9BITS_RESOLUTION__ */
+	s3c_bat_info.bat_info.batt_vol_aver = 
+		convert_adc2voltage(batt_vol_adc_aver);
 #endif /* __TEST_MODE_INTERFACE__ */
 
-#ifndef __9BITS_RESOLUTION__
-	bat_vol = ((adc / 100) * 10 - 217) * 100 / 7 + 3200;
-#if defined(CONFIG_MACH_SPICA) 
-	bat_vol = (((adc - 2170) * 10 / 7)/100)*100 + 3200;
-#endif
-#else
-	bat_vol = adc * 100 / 848 * 100;
-#endif /* __9BITS_RESOLUTION__ */
+	bat_vol = convert_adc2voltage(adc);
 
 	dev_dbg(dev, "%s: adc = %d, bat_vol = %d\n",
 			__func__, adc, bat_vol);
@@ -700,12 +800,13 @@ static int s3c_get_bat_level(struct power_supply *bat_ps)
 		fg_soc = 100;
 		s3c_bat_info.bat_info.batt_is_full = 1;
 		dev_info(dev, "%s: charging time is over\n", __func__);
-		s3c_set_chg_en(0);
+		s3c_set_chg_en(DISABLE);
 		goto __end__;
 	}
 
 	if (fg_soc > 80) {
-		fg_soc += (fg_soc - 80) * 2;
+		fg_soc += fg_soc - 80;
+
 		if (fg_soc > 100)
 			fg_soc = 100;
 	}
@@ -718,17 +819,8 @@ static int s3c_get_bat_level(struct power_supply *bat_ps)
 		}
 	}
 #endif /* __CHECK_CHG_CURRENT__ */
-#ifdef __ADJUST_RECHARGE_ADC__
+
 	check_recharging_bat(fg_vcell);
-#endif /* __ADJUST_RECHARGE_ADC__ */
-	if (fg_vcell <= RECHARGE_COND_VOLTAGE ) {
-		if (s3c_bat_info.bat_info.batt_is_full &&
-			!s3c_bat_info.bat_info.charging_enabled) {
-			dev_info(dev, "%s: recharging(under full)\n", __func__);
-			s3c_bat_info.bat_info.batt_is_recharging = 1;
-			s3c_set_chg_en(1);
-		}
-	}
 
 __end__:
 	dev_dbg(dev, "%s: fg_vcell = %d, fg_soc = %d, is_full = %d\n",
@@ -767,16 +859,6 @@ static void s3c_get_v_f_adc(void)
 			s3c_bat_info.bat_info.batt_v_f_adc);
 }
 #endif /* __TEST_MODE_INTERFACE__ && __BATTERY_V_F__ */
-
-static u32 s3c_get_bat_health(void)
-{
-	return s3c_bat_info.bat_info.batt_health;
-}
-
-static void s3c_set_bat_health(u32 batt_health)
-{
-	s3c_bat_info.bat_info.batt_health = batt_health;
-}
 
 static inline int gpio_get_value_ex(unsigned int pin)
 {
@@ -817,6 +899,15 @@ static void s3c_set_chg_en(int enable)
 	if (enable) {
 		if (chg_en_val == GPIO_LEVEL_HIGH) {
 			gpio_set_value_ex(gpio_chg_en, GPIO_LEVEL_LOW);
+//.i [VinsQ] [Start] Charger IC Changed to MAX8922    Pineone hgwoo    2010.01.05
+#if defined(CONFIG_MACH_VINSQ)
+			udelay(2000);
+			gpio_set_value_ex(gpio_chg_en, GPIO_LEVEL_HIGH);
+			udelay(10);
+			gpio_set_value_ex(gpio_chg_en, GPIO_LEVEL_LOW);
+			udelay(2000);
+#endif
+//.i [VinsQ] [End] Charger IC Changed to MAX8922    Pineone hgwoo    2010.01.05
 			dev_info(dev, "%s: gpio_chg_en(0)\n", __func__);
 			s3c_set_time_for_charging(1);
 #ifdef __BATTERY_COMPENSATION__
@@ -827,6 +918,11 @@ static void s3c_set_chg_en(int enable)
 	} else {
 		if (chg_en_val == GPIO_LEVEL_LOW) {
 			gpio_set_value_ex(gpio_chg_en, GPIO_LEVEL_HIGH);
+//.i [VinsQ] [Start] Charger IC Changed to MAX8922    Pineone hgwoo    2010.01.05
+#if defined(CONFIG_MACH_VINSQ)
+			udelay(2000);
+#endif
+//.i [VinsQ] [End] Charger IC Changed to MAX8922    Pineone hgwoo    2010.01.05
 			dev_info(dev, "%s: gpio_chg_en(1)\n", __func__);
 			s3c_set_time_for_charging(0);
 			s3c_bat_info.bat_info.batt_is_recharging = 0;
@@ -840,6 +936,9 @@ static void s3c_set_chg_en(int enable)
 }
 
 static void s3c_temp_control(int mode) {
+	int adc = s3c_bat_info.bat_info.batt_temp_adc_aver;
+	dev_info(dev, "%s: temp_adc=%d\n", __func__, adc);
+
 	switch (mode) {
 	case POWER_SUPPLY_HEALTH_GOOD:
 		dev_info(dev, "%s: GOOD\n", __func__);
@@ -849,8 +948,8 @@ static void s3c_temp_control(int mode) {
 		dev_info(dev, "%s: OVERHEAT\n", __func__);
 		s3c_set_bat_health(mode);
 		break;
-	case POWER_SUPPLY_HEALTH_FREEZE:
-		dev_info(dev, "%s: FREEZE\n", __func__);
+	case POWER_SUPPLY_HEALTH_COLD:
+		dev_info(dev, "%s: COLD\n", __func__);
 		s3c_set_bat_health(mode);
 		break;
 	default:
@@ -876,14 +975,12 @@ static int s3c_get_bat_temp(struct power_supply *bat_ps)
 #ifdef __BATTERY_COMPENSATION__
 	ex_case = OFFSET_MP3_PLAY | OFFSET_VOICE_CALL_2G | OFFSET_VOICE_CALL_3G
 		| OFFSET_DATA_CALL | OFFSET_VIDEO_PLAY;
-	if (s3c_bat_info.device_state & ex_case) {
-		if (health == POWER_SUPPLY_HEALTH_OVERHEAT ||
-				health == POWER_SUPPLY_HEALTH_FREEZE)
-			s3c_temp_control(POWER_SUPPLY_HEALTH_GOOD);
-
+	if (s3c_bat_info.device_state & ex_case)
 		goto __map_temperature__;
-	}
 #endif /* __BATTERY_COMPENSATION__ */
+
+	if (s3c_bat_info.bat_info.charging_source == CHARGER_BATTERY) 
+		goto __map_temperature__;
 
 #ifndef __REVERSE_TEMPER_ADC__
 	if (temp_adc <= TEMP_HIGH_BLOCK) {
@@ -893,17 +990,15 @@ static int s3c_get_bat_temp(struct power_supply *bat_ps)
 	} else if (temp_adc >= TEMP_HIGH_RECOVER &&
 			temp_adc <= TEMP_LOW_RECOVER) {
 		if (health == POWER_SUPPLY_HEALTH_OVERHEAT ||
-				health == POWER_SUPPLY_HEALTH_FREEZE)
+				health == POWER_SUPPLY_HEALTH_COLD)
 			s3c_temp_control(POWER_SUPPLY_HEALTH_GOOD);
 	} else if (temp_adc >= TEMP_LOW_BLOCK) {
-		if (health != POWER_SUPPLY_HEALTH_FREEZE &&
+		if (health != POWER_SUPPLY_HEALTH_COLD &&
 				health != POWER_SUPPLY_HEALTH_UNSPEC_FAILURE)
-			s3c_temp_control(POWER_SUPPLY_HEALTH_FREEZE);
+			s3c_temp_control(POWER_SUPPLY_HEALTH_COLD);
 	}
 
-#ifdef __BATTERY_COMPENSATION__
 __map_temperature__:	
-#endif /* __BATTERY_COMPENSATION__ */
 	array_size = ARRAY_SIZE(temper_table);
 	for (i = 0; i < (array_size - 1); i++) {
 		if (i == 0) {
@@ -921,7 +1016,7 @@ __map_temperature__:
 			temp = temper_table[i+1][1];
 		}
 	}
-#else
+#else /* __REVERSE_TEMPER_ADC__ */
 	if (temp_adc >= TEMP_HIGH_BLOCK) {
 		if (health != POWER_SUPPLY_HEALTH_OVERHEAT &&
 				health != POWER_SUPPLY_HEALTH_UNSPEC_FAILURE)
@@ -929,17 +1024,15 @@ __map_temperature__:
 	} else if (temp_adc <= TEMP_HIGH_RECOVER &&
 			temp_adc >= TEMP_LOW_RECOVER) {
 		if (health == POWER_SUPPLY_HEALTH_OVERHEAT ||
-				health == POWER_SUPPLY_HEALTH_FREEZE)
+				health == POWER_SUPPLY_HEALTH_COLD)
 			s3c_temp_control(POWER_SUPPLY_HEALTH_GOOD);
 	} else if (temp_adc <= TEMP_LOW_BLOCK) {
-		if (health != POWER_SUPPLY_HEALTH_FREEZE &&
+		if (health != POWER_SUPPLY_HEALTH_COLD &&
 				health != POWER_SUPPLY_HEALTH_UNSPEC_FAILURE)
-			s3c_temp_control(POWER_SUPPLY_HEALTH_FREEZE);
+			s3c_temp_control(POWER_SUPPLY_HEALTH_COLD);
 	}
 
-#ifdef __BATTERY_COMPENSATION__
 __map_temperature__:	
-#endif /* __BATTERY_COMPENSATION__ */
 	array_size = ARRAY_SIZE(temper_table);
 	for (i = 0; i < (array_size - 1); i++) {
 		if (i == 0) {
@@ -957,7 +1050,7 @@ __map_temperature__:
 			temp = temper_table[i+1][1];
 		}
 	}
-#endif
+#endif /* __REVERSE_TEMPER_ADC__ */
 	dev_dbg(dev, "%s: temp = %d, adc = %d\n",
 			__func__, temp, temp_adc);
 
@@ -980,10 +1073,14 @@ static int s3c_bat_get_charging_status(void)
                 break;
         case CHARGER_USB:
         case CHARGER_AC:
-                if (s3c_bat_info.bat_info.batt_is_full)
-                        ret = POWER_SUPPLY_STATUS_FULL;
-		else
-                        ret = POWER_SUPPLY_STATUS_CHARGING;
+		if (s3c_get_bat_health() != POWER_SUPPLY_HEALTH_GOOD)
+			ret = POWER_SUPPLY_STATUS_DISCHARGING;
+		else {
+			if (s3c_bat_info.bat_info.batt_is_full)
+				ret = POWER_SUPPLY_STATUS_FULL;
+			else
+				ret = POWER_SUPPLY_STATUS_CHARGING;
+		}
                 break;
 	case CHARGER_DISCHARGE:
 		ret = POWER_SUPPLY_STATUS_DISCHARGING;
@@ -1086,6 +1183,7 @@ static struct device_attribute s3c_battery_attrs[] = {
 #endif /* __TEST_MODE_INTERFACE__ */
 #ifdef __CHECK_CHG_CURRENT__
 	SEC_BATTERY_ATTR(batt_chg_current),
+	SEC_BATTERY_ATTR(batt_chg_current_aver),
 #endif /* __CHECK_CHG_CURRENT__ */
 	SEC_BATTERY_ATTR(charging_source),
 #ifdef __BATTERY_COMPENSATION__
@@ -1126,6 +1224,7 @@ enum {
 #endif /* __TEST_MODE_INTERFACE__ */
 #ifdef __CHECK_CHG_CURRENT__
 	BATT_CHG_CURRENT,	
+	BATT_CHG_CURRENT_AVER,	
 #endif /* __CHECK_CHG_CURRENT__ */
 	BATT_CHARGING_SOURCE,
 #ifdef __BATTERY_COMPENSATION__
@@ -1244,6 +1343,11 @@ static ssize_t s3c_bat_show_property(struct device *dev,
 		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
 				s3c_bat_info.bat_info.batt_current);
 		break;
+	case BATT_CHG_CURRENT_AVER:
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+				adc_sample[S3C_ADC_CHG_CURRENT].average_adc);
+		break;
+
 #endif /* __CHECK_CHG_CURRENT__ */
 	case BATT_CHARGING_SOURCE:
 		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
@@ -1299,6 +1403,16 @@ static void s3c_bat_set_vol_cal(int batt_cal)
 	batt_off = batt_cal + BATT_OFF;
 }
 
+#ifdef COMPENSATE_BOOTING
+static void s3c_bat_compensate_booting(int mode)
+{
+	if (mode)
+		s3c_bat_set_compesation(1, OFFSET_BOOTING, COMPENSATE_BOOTING);
+	else
+		queue_work(batt_drv_wqueue, &compensate_boot_work);
+}
+#endif /* COMPENSATE_BOOTING */
+
 static ssize_t s3c_bat_store(struct device *dev, 
 			     struct device_attribute *attr,
 			     const char *buf, size_t count)
@@ -1333,18 +1447,18 @@ static ssize_t s3c_bat_store(struct device *dev,
 			s3c_bat_info.polling_interval = POLLING_INTERVAL_TEST;			
 			if (s3c_bat_info.polling) {
 				del_timer_sync(&polling_timer);
+				mod_timer(&polling_timer, jiffies + 
+					msecs_to_jiffies(s3c_bat_info.polling_interval));
 			}
-			mod_timer(&polling_timer, jiffies + 
-				msecs_to_jiffies(s3c_bat_info.polling_interval));
 			s3c_bat_status_update(
 				&s3c_power_supplies_test[CHARGER_BATTERY]);
 		} else {
 			s3c_bat_info.polling_interval = POLLING_INTERVAL;		
 			if (s3c_bat_info.polling) {
 				del_timer_sync(&polling_timer);
+				mod_timer(&polling_timer,jiffies + 
+					msecs_to_jiffies(s3c_bat_info.polling_interval));
 			}
-			mod_timer(&polling_timer,jiffies + 
-				msecs_to_jiffies(s3c_bat_info.polling_interval));
 			s3c_bat_status_update(
 				&s3c_power_supplies_test[CHARGER_BATTERY]);
 		}
@@ -1411,8 +1525,7 @@ static ssize_t s3c_bat_store(struct device *dev,
 #ifdef COMPENSATE_BOOTING
 	case BATT_BOOTING:
 		if (sscanf(buf, "%d\n", &x) == 1) {
-			s3c_bat_set_compesation(x, OFFSET_BOOTING,
-					COMPENSATE_BOOTING);
+			s3c_bat_compensate_booting(x);
 			ret = count;
 		}
 		dev_info(dev, "%s: boot complete = %d\n", __func__, x);
@@ -1716,12 +1829,14 @@ static int s3c_cable_status_update(int status)
 		dev_dbg(dev, "%s: cable AC\n", __func__);
 		s3c_bat_info.bat_info.charging_source = CHARGER_AC;
 		break;
+#if 0
 	case CHARGER_DISCHARGE:
 		dev_dbg(dev, "%s: Discharge\n", __func__);
 		s3c_bat_info.bat_info.charging_source = CHARGER_DISCHARGE;
 		break;
+#endif
 	default:
-		dev_err(dev, "%s: Nat supported status\n", __func__);
+		dev_err(dev, "%s: Nat supported status(%d)\n", __func__, status);
 		ret = -EINVAL;
 	}
 	source = s3c_bat_info.bat_info.charging_source;
@@ -1744,6 +1859,30 @@ static int s3c_cable_status_update(int status)
 	dev_dbg(dev, "%s: call power_supply_changed\n", __func__);
 	return ret;
 }
+
+#ifdef __CHECK_BATTERY_V_F__
+static unsigned int s3c_bat_check_v_f(void)
+{
+	unsigned int rc = 0;
+	int adc = 0;
+	
+	adc = s3c_bat_get_adc_data(S3C_ADC_V_F);
+
+	dev_dbg(dev, "%s: V_F ADC = %d\n", __func__, adc);
+
+	if (adc <= BATT_VF_MAX && adc >= BATT_VF_MIN) {
+		/* s3c_set_bat_health(POWER_SUPPLY_HEALTH_GOOD); */
+		rc = 1;
+	} else {
+		dev_info(dev, "%s: Unauthorized battery!(%d)\n", __func__, adc);
+		s3c_set_bat_health(POWER_SUPPLY_HEALTH_UNSPEC_FAILURE);
+		s3c_set_chg_en(DISABLE);
+		force_update = 1;
+		rc = 0;
+	}
+	return rc;
+}
+#endif /* __CHECK_BATTERY_V_F__ */
 
 static void s3c_bat_status_update(struct power_supply *bat_ps)
 {
@@ -1777,6 +1916,12 @@ static void s3c_bat_status_update(struct power_supply *bat_ps)
 		s3c_get_v_f_adc();
 #endif /* __TEST_MODE_INTERFACE__ && __BATTERY_V_F__ */
 
+#ifdef __CHECK_BATTERY_V_F__
+	if(s3c_bat_info.bat_info.charging_enabled &&
+		s3c_get_bat_health() != POWER_SUPPLY_HEALTH_UNSPEC_FAILURE)
+		s3c_bat_check_v_f();
+#endif /* __CHECK_BATTERY_V_F__ */
+
 	if (old_level != s3c_bat_info.bat_info.level 
 			|| old_temp != s3c_bat_info.bat_info.batt_temp
 			|| old_is_full != s3c_bat_info.bat_info.batt_is_full
@@ -1790,28 +1935,6 @@ static void s3c_bat_status_update(struct power_supply *bat_ps)
 	dev_dbg(dev, "%s --\n", __func__);
 }
 
-#ifdef __CHECK_BATTERY_V_F__
-static unsigned int s3c_bat_check_v_f(void)
-{
-	unsigned int rc = 0;
-	int adc = 0;
-	
-	adc = s3c_bat_get_adc_data(S3C_ADC_V_F);
-
-	dev_info(dev, "%s: V_F ADC = %d\n", __func__, adc);
-
-	if (adc <= BATT_VF_MAX && adc >= BATT_VF_MIN) {
-		/* s3c_set_bat_health(POWER_SUPPLY_HEALTH_GOOD); */
-		rc = 1;
-	} else {
-		dev_info(dev, "%s: Unauthorized battery!\n", __func__);
-		s3c_set_bat_health(POWER_SUPPLY_HEALTH_UNSPEC_FAILURE);
-		rc = 0;
-	}
-	return rc;
-}
-#endif /* __CHECK_BATTERY_V_F__ */
-
 static void s3c_cable_check_status(void)
 {
 	charger_type_t status = 0;
@@ -1819,26 +1942,30 @@ static void s3c_cable_check_status(void)
 	mutex_lock(&work_lock);
 
 	if (!gpio_get_value(gpio_ta_connected)) {
-		if (s3c_get_bat_health() != POWER_SUPPLY_HEALTH_GOOD) {
-			dev_info(dev, "%s: Unhealth battery state!\n", __func__);
-			status = CHARGER_DISCHARGE;
-			s3c_set_chg_en(0);
-			goto __end__;
-		}
-
 		if (get_usb_power_state())
 			status = CHARGER_USB;
 		else
 			status = CHARGER_AC;
 
-		s3c_set_chg_en(1);
+		if (s3c_get_bat_health() != POWER_SUPPLY_HEALTH_GOOD) {
+			dev_info(dev, "%s: Unhealth battery state!\n", __func__);
+			s3c_set_chg_en(DISABLE);
+		} else 
+			s3c_set_chg_en(ENABLE);
+
 		dev_dbg(dev, "%s: status : %s\n", __func__, 
 				(status == CHARGER_USB) ? "USB" : "AC");
 	} else {
+		u32 health = s3c_get_bat_health();
+
 		status = CHARGER_BATTERY;
-		s3c_set_chg_en(0);
+		s3c_set_chg_en(DISABLE);
+
+		if (health == POWER_SUPPLY_HEALTH_OVERHEAT ||
+				health == POWER_SUPPLY_HEALTH_COLD) {
+			s3c_set_bat_health(POWER_SUPPLY_HEALTH_GOOD);
+		}
 	}
-__end__:
 	dev_dbg(dev, "%s: gpio_chg_en %s\n", __func__, 
 			gpio_get_value_ex(gpio_chg_en)?"disabled":"enabled");
 
@@ -1852,20 +1979,15 @@ static void s3c_bat_work(struct work_struct *work)
 	static int pre_rechar = 0;
 	static int cnt = 0;
 	if (s3c_bat_info.bat_info.batt_is_full == 1 && full_charge_flag == 1) {
-			batt_recharging = -1;
-			pre_rechar = 1;
-			full_charge_flag = 0;
+		batt_recharging = -1;
+		pre_rechar = 1;
+		full_charge_flag = 0;
 	}
 
 	if (pre_rechar) {
 		if (++cnt > 10) {
-#ifndef __FUEL_GAUGES_IC__
 			int adc = s3c_bat_get_adc_data(S3C_ADC_VOLTAGE);
 			batt_recharging = adc - BATT_RECHARGE_CODE;
-#else /* __FUEL_GAUGES_IC__ */
-			int fg_vcell = fg_read_vcell();
-			batt_recharging = fg_vcell - BATT_RECHARGE_CODE;
-#endif /* __FUEL_GAUGES_IC__ */
 			dev_info(dev, "%s: batt_recharging=%d\n", __func__,
 					batt_recharging);
 			pre_rechar = 0;
@@ -1885,6 +2007,16 @@ static void s3c_cable_work(struct work_struct *work)
 	dev_dbg(dev, "%s\n", __func__);
 	s3c_cable_check_status();
 }
+
+#ifdef COMPENSATE_BOOTING
+static void s3c_compensate_boot_work(struct work_struct *work)
+{
+	dev_info(dev, "%s ++\n", __func__);
+	msleep(50000); /* 50sec */
+	s3c_bat_set_compesation(0, OFFSET_BOOTING, COMPENSATE_BOOTING);
+	dev_info(dev, "%s --\n", __func__);
+}
+#endif /* COMPENSATE_BOOTING */
 
 #ifdef CONFIG_PM
 static int s3c_bat_suspend(struct platform_device *pdev, 
@@ -1948,6 +2080,9 @@ static irqreturn_t s3c_cable_changed_isr(int irq, void *power_supply)
 #ifdef __ADJUST_RECHARGE_ADC__
 	batt_recharging = -1;
 #endif /* __ADJUST_RECHARGE_ADC__ */
+#ifdef __CHECK_CHG_CURRENT__
+	clear_adc_sample(S3C_ADC_CHG_CURRENT);
+#endif /* __CHECK_CHG_CURRENT__ */
 
 	cable_intr_cnt++;
 	if (timer_pending(&cable_timer))
@@ -1960,8 +2095,9 @@ static irqreturn_t s3c_cable_changed_isr(int irq, void *power_supply)
 	 * Wait a bit before reading ac/usb line status and setting charger,
 	 * because ac/usb status readings may lag from irq.
 	 */
-	mod_timer(&polling_timer,
-		  jiffies + msecs_to_jiffies(s3c_bat_info.polling_interval));
+	if (s3c_bat_info.polling)
+		mod_timer(&polling_timer,
+			  jiffies + msecs_to_jiffies(s3c_bat_info.polling_interval));
 
 	return IRQ_HANDLED;
 }
@@ -1977,7 +2113,7 @@ static irqreturn_t s3c_cable_charging_isr(int irq, void *power_supply)
 	if (chg_ing && !gpio_get_value(gpio_ta_connected) &&
 			s3c_bat_info.bat_info.charging_enabled &&
 			s3c_get_bat_health() == POWER_SUPPLY_HEALTH_GOOD) {
-		s3c_set_chg_en(0);
+		s3c_set_chg_en(DISABLE);
 		s3c_bat_info.bat_info.batt_is_full = 1;
 		force_update = 1;
 		full_charge_flag = 1;
@@ -1988,8 +2124,9 @@ static irqreturn_t s3c_cable_charging_isr(int irq, void *power_supply)
 	 * Wait a bit before reading ac/usb line status and setting charger,
 	 * because ac/usb status readings may lag from irq.
 	 */
-	mod_timer(&polling_timer,
-		  jiffies + msecs_to_jiffies(s3c_bat_info.polling_interval));
+	if (s3c_bat_info.polling)
+		mod_timer(&polling_timer,
+			  jiffies + msecs_to_jiffies(s3c_bat_info.polling_interval));
 #endif /* __DISABLE_CHG_ING_INTR__ */
 
 	return IRQ_HANDLED;
@@ -2057,6 +2194,11 @@ static int __devinit s3c_bat_probe(struct platform_device *pdev)
 
 	INIT_WORK(&bat_work, s3c_bat_work);
 	INIT_WORK(&cable_work, s3c_cable_work);
+
+#ifdef COMPENSATE_BOOTING
+	INIT_WORK(&compensate_boot_work, s3c_compensate_boot_work);
+	batt_drv_wqueue = create_singlethread_workqueue("batt_drv_workqueue");
+#endif /* COMPENSATE_BOOTING */
 
 #ifdef __ALWAYS_AWAKE_DEVICE__
 	dev_info(dev, "%s: always awake(wake_lock)\n", __func__);
@@ -2188,7 +2330,7 @@ static int __init s3c_bat_init(void)
 #endif /* __TEST_DEVICE_DRIVER__ || __ALWAYS_AWAKE_DEVICE__ */
 
 #ifdef __FUEL_GAUGES_IC__
-	if (!i2c_add_driver(&fg_i2c_driver))
+	if (i2c_add_driver(&fg_i2c_driver))
 		pr_err("%s: Can't add fg i2c drv\n", __func__);
 #endif /* __FUEL_GAUGES_IC__ */
 	return platform_driver_register(&s3c_bat_driver);

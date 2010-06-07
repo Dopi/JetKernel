@@ -86,6 +86,8 @@ static void putstr(const char *ptr)
 
 #define __ptr_t void *
 
+#define memzero(s,n) __memzero(s,n)
+
 /*
  * Optimised C version of memzero for the ARM.
  */
@@ -309,11 +311,6 @@ decompress_kernel(ulg output_start, ulg free_mem_ptr_p, ulg free_mem_ptr_end_p,
 	arch_decomp_setup();
 
 	makecrc();
-#if 1
-/* [LINUSYS] added by khoonk for calculating boot-time on 20080813 */
-    putstr("!@Decompress kernel\n");
-/* [LINUSYS] added by khoonk for calculating boot-time on 20080813 */
-#endif
 	putstr("Uncompressing Linux...");
 	gunzip();
 	putstr(" done, booting the kernel.\n");

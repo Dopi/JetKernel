@@ -15,13 +15,13 @@
  *
  */
 
-
 #include <linux/errno.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/input.h>
 #include <linux/init.h>
+#include <linux/kthread.h>
 #include <linux/serio.h>
 #include <linux/delay.h>
 #include <linux/platform_device.h>
@@ -41,48 +41,102 @@
 
 //#define S3C_ADCTS_DEBUG
 
-#define WAIT4INT(x)  (((x)<<8) | \
+#ifdef CONFIG_TOUCHSCREEN_S3C
+
+#define WAIT4INT_OFF(x)  (((x)<<8) | \
+                     S3C_ADCTSC_YM_SEN | S3C_ADCTSC_YP_SEN | S3C_ADCTSC_XP_SEN | \
+                     S3C_ADCTSC_XY_PST(0))
+
+#define WAIT4INT_ON(x)  (((x)<<8) | \
                      S3C_ADCTSC_YM_SEN | S3C_ADCTSC_YP_SEN | S3C_ADCTSC_XP_SEN | \
                      S3C_ADCTSC_XY_PST(3))
  
 #define AUTOPST      (S3C_ADCTSC_YM_SEN | S3C_ADCTSC_YP_SEN | S3C_ADCTSC_XP_SEN | \
                      S3C_ADCTSC_AUTO_PST | S3C_ADCTSC_XY_PST(0))
 
-#define ADC_START(r,p,x)   (r) | S3C_ADCCON_PRSCEN | S3C_ADCCON_PRSCVL(p) | \
-			S3C_ADCCON_SELMUX(x) | S3C_ADCCON_ENABLE_START
 #define TS_START(r,p)   (r) | S3C_ADCCON_PRSCEN | S3C_ADCCON_PRSCVL(p) | \
 			S3C_ADCCON_ENABLE_START
 
-#define INT_MODE_UP		1
-#define INT_MODE_DOWN		0
+#define INT_MODE_UP			1
+#define INT_MODE_DOWN			0
+#define CHANNEL_MASK	 (0x7FF)  	  	/* ADC0 ~ ADC7 and TS, TS_UP */
 
-#define ADC_RETRY_NUM           5
-#define WAIT_EVENT_TIMEOUT      (HZ/100) /* 10ms */
+#endif /* CONFIG_TOUCHSCREEN_S3C */
+
+#define ADC_START(r,p,x)   (r) | S3C_ADCCON_PRSCEN | S3C_ADCCON_PRSCVL(p) | \
+			S3C_ADCCON_SELMUX(x) | S3C_ADCCON_ENABLE_START
+#define ADC_STOP	S3C_ADCCON_RESSEL_12BIT | S3C_ADCCON_PRSCEN | S3C_ADCCON_PRSCVL(0xff)
+
+#define WAIT_EVENT_TIMEOUT		(HZ/20)					/* 50ms */
+#define ADC_RETRY_NUM			5					/* 5 times */
+#define SLEEP_TIMEOUT			(WAIT_EVENT_TIMEOUT*(ADC_RETRY_NUM-1))	/* 200ms */
+
+#define CHANNEL_ADC_MASK (0xFF)    		/* ADC0 ~ ADC7 */
+
+/*  global struct & variable definition */
+enum ADCTS_THREAD_STATE {
+	ADCTS_THREAD_NONE=0,
+	ADCTS_THREAD_RUN,
+	ADCTS_THREAD_WAIT,
+	ADCTS_THREAD_SLEEP,
+	ADCTS_THREAD_WAKEUP,
+	ADCTS_THEAD_TERMINATED
+};
+
+enum ADCTS_DRIVER_STATE {
+	ADCTS_DRIVER_PROBE = 0,
+	ADCTS_DRIVER_SUSPEND,
+	ADCTS_DRIVER_RESUME,
+	ADCTS_DRIVER_REMOVE
+};
+enum ADCTS_CHANNEL_STATE {
+	CHANNEL_NOT_SELECTED=-2,
+	CHANNEL_ADC_DONE=-1,
+	CHANNEL_ADC0=0,
+	CHANNEL_ADC1,
+	CHANNEL_ADC2,
+	CHANNEL_ADC3,
+	CHANNEL_ADC4,
+	CHANNEL_ADC5,
+	CHANNEL_ADC6,
+	CHANNEL_ADC7,
+#ifdef CONFIG_TOUCHSCREEN_S3C
+	CHANNEL_TS,
+	CHANNEL_TS_SCANNING,
+	CHANNEL_TS_UP
+#endif /* CONFIG_TOUCHSCREEN_S3C */
+};
 
 static struct clk			*adc_clock;
 static void __iomem 			*base_addr;
-static struct s3c_ts_mach_info 		*ts;
-static struct s3c_adcts_channel_info 	adc[MAX_ADC_CHANNEL];
-static int 				adc_value[MAX_ADC_CHANNEL];
-static struct 				s3c_adcts_value ts_value;
-
-static wait_queue_head_t adc_wait[MAX_ADC_CHANNEL];
-static int request_adc=0;
-static int request_adc_order=0;
-static int request_adc_count=0;
-static int current_channel=-1; 		/* -1: not working, 0~7: adc, 8:ts */
-static int ready_to_adc=1;
-static int ready_to_ts=1;
-static int ts_int_mode=INT_MODE_DOWN; 	/* 0: down 1:up */
-static int ts_status=TS_STATUS_UP;
-static int ts_sampling_count=0;
-static void (*ts_done_callbacks)(struct s3c_adcts_value *ts_values);
-static struct tasklet_struct ts_done_task;
-
-static unsigned int 			irq_updown;
 static unsigned int 			irq_adc;
 
-static void start_adcts (void);
+static struct s3c_adcts_channel_info 	adc[MAX_ADC_CHANNEL];
+
+static wait_queue_head_t 		adc_wait[MAX_ADC_CHANNEL];
+static wait_queue_head_t		adcts_thread_wait;
+static struct task_struct     		*adcts_thread_task; 
+static int 				adc_value[MAX_ADC_CHANNEL];
+
+static int				adcts_thread_state;
+static int				adc_thread_state[MAX_ADC_CHANNEL];
+static int				adcts_driver_state;
+static int				channel_state;
+static unsigned int 			adcts_request_flag =0;
+
+#ifdef CONFIG_TOUCHSCREEN_S3C
+static unsigned int 			irq_updown;
+static struct s3c_ts_mach_info 		*ts;
+static struct s3c_adcts_value 		ts_value;
+static int 				ts_int_mode;
+static int 				ts_sampling_count;
+
+static void ts_timer_fire(unsigned long data);
+static struct timer_list ts_timer =	TIMER_INITIALIZER(ts_timer_fire, 0, 0);
+static void (*ts_done_callbacks)(struct s3c_adcts_value *ts_values);
+#endif /* CONFIG_TOUCHSCREEN_S3C */
+
+//////////////////////////////////////////////////////////////////////////
 
 static inline void start_hw_adc (int channel)
 {
@@ -90,186 +144,135 @@ static inline void start_hw_adc (int channel)
 	writel (ADC_START(adc[channel].resol, adc[channel].presc, channel), base_addr+S3C_ADCCON);
 }
 
+#ifdef CONFIG_TOUCHSCREEN_S3C
 static inline void start_hw_ts (void)
 {
+//	writel (WAIT4INT_ON(ts_int_mode), base_addr+S3C_ADCTSC);
 	writel (ts->adcts.delay, base_addr + S3C_ADCDLY);
+//	writel ((ts_int_mode<<8) | S3C_ADCTSC_PULL_UP_DISABLE | AUTOPST, base_addr+S3C_ADCTSC);
 	writel (S3C_ADCTSC_PULL_UP_DISABLE | AUTOPST, base_addr+S3C_ADCTSC);
 	writel (TS_START(ts->adcts.resol, ts->adcts.presc), base_addr+S3C_ADCCON);
 }
 
-static inline void end_hw_ts(void)
+static inline void change_ts_int_mode(int int_mode)
 {
-	writel(WAIT4INT(ts_int_mode), base_addr+S3C_ADCTSC);
+	ts_int_mode = int_mode;
+	writel(WAIT4INT_ON(int_mode), base_addr+S3C_ADCTSC);
 }
+#endif /* CONFIG_TOUCHSCREEN_S3C */
 
 static inline void stop_hw (void)
 {
-	writel (0, base_addr+S3C_ADCCON);
+	writel (ADC_STOP, base_addr+S3C_ADCCON);
 }
 
-static inline void change_ts_int_mode (int mode)
+static void _request_adcts(int channel)
 {
-	ts_int_mode = mode;
-	writel(WAIT4INT(mode), base_addr+S3C_ADCTSC);
-}
+#ifdef CONFIG_TOUCHSCREEN_S3C
+	/* if TS flags exists, TS flag should be cleared */
+	if (channel == CHANNEL_TS_UP)
+		adcts_request_flag &= ~((1<<CHANNEL_TS)|(1<<CHANNEL_TS_SCANNING));
+#endif /* CONFIG_TOUCHSCREEN_S3C */
+		
+	adcts_request_flag |= (1<<channel);
 
-
-static void ts_timer_fire(unsigned long data)
-{
-	if (ts_status == TS_STATUS_UP && !request_adc_count)
-		ready_to_adc = 1;
-	else
+	if (adcts_thread_state == ADCTS_THREAD_SLEEP)
 	{
-		ready_to_ts = 1;
-		start_adcts();
+		adcts_thread_state = ADCTS_THREAD_WAKEUP;
+		wake_up_interruptible(&adcts_thread_wait);
 	}
 }
 
-static struct timer_list ts_timer =
-                TIMER_INITIALIZER(ts_timer_fire, 0, 0);
-
-static void adc_done(unsigned long data)
+#ifdef CONFIG_TOUCHSCREEN_S3C
+static void ts_timer_fire(unsigned long data)
 {
-	ts_done_callbacks(&ts_value);
+	_request_adcts(CHANNEL_TS);
 }
+#endif /* CONFIG_TOUCHSCREEN_S3C */
 
 static irqreturn_t irqhandler_adc_done(int irqno, void *param)
 {
 	unsigned long data0;
-        unsigned long data1;
+	unsigned long data1;
 
-        data0 = readl(base_addr+S3C_ADCDAT0);
-        data1 = readl(base_addr+S3C_ADCDAT1);
- 
-	if (current_channel == -1)
-		goto out;
+	stop_hw();
 
-	if (current_channel >= 0 && current_channel <= 7)
+	data0 = readl(base_addr+S3C_ADCDAT0);
+	data1 = readl(base_addr+S3C_ADCDAT1);
+				
+	if (channel_state>=CHANNEL_ADC0 && channel_state<=CHANNEL_ADC7)	// adc
 	{
-		adc_value[current_channel] = data0 & S3C_ADCDAT0_XPDATA_MASK_12BIT;
-		wake_up_interruptible(&adc_wait[current_channel]);
-	}
-	else
-	{
-		end_hw_ts();
-
-		if ((ts_done_callbacks == NULL) || (ts_status == TS_STATUS_UP))
-			goto out;
-
-		ts_value.xp[ts_sampling_count] = data0 & S3C_ADCDAT0_XPDATA_MASK_12BIT;	
-		ts_value.yp[ts_sampling_count] = data1 & S3C_ADCDAT1_YPDATA_MASK_12BIT;
-
-		if (ts_sampling_count++ < ts->sampling_time-1)
+		if (adc_thread_state[channel_state] == ADCTS_THREAD_WAIT)
 		{
-			start_hw_ts();
-			goto out;
+			adc_thread_state[channel_state] = ADCTS_THREAD_WAKEUP;
+			wake_up_interruptible(&adc_wait[channel_state]);
+
+			adc_value[channel_state] = data0 & S3C_ADCDAT0_XPDATA_MASK_12BIT;
+			channel_state = CHANNEL_ADC_DONE;
+		}
+	}
+#ifdef CONFIG_TOUCHSCREEN_S3C
+	else if (channel_state == CHANNEL_TS)				// ts
+	{
+		int ts_status = (!(data0 & S3C_ADCDAT0_UPDOWN)) && (!(data1 & S3C_ADCDAT1_UPDOWN));
+		if (ts_status)
+		{
+			change_ts_int_mode (INT_MODE_UP);
+
+			ts_value.xp[ts_sampling_count] = data0 & S3C_ADCDAT0_XPDATA_MASK_12BIT;	
+			ts_value.yp[ts_sampling_count] = data1 & S3C_ADCDAT1_YPDATA_MASK_12BIT;
+			ts_sampling_count++;
 		}
 		else
 		{
-			ts_value.status = ts_status;
-			ts_status = TS_STATUS_DOWN;
-			tasklet_schedule (&ts_done_task);
-			ready_to_ts = 0;
-			mod_timer (&ts_timer, jiffies + (ts->sampling_interval_ms/(1000/HZ)));
+			_request_adcts(CHANNEL_TS_UP);
+			change_ts_int_mode (INT_MODE_DOWN);
 		}
+		channel_state = CHANNEL_ADC_DONE;
+	}
+#endif /* CONFIG_TOUCHSCREEN_S3C */
+
+	if (channel_state==CHANNEL_ADC_DONE && adcts_thread_state==ADCTS_THREAD_WAIT)
+	{
+		adcts_thread_state = ADCTS_THREAD_WAKEUP;
+		wake_up_interruptible(&adcts_thread_wait);
 	}
 
-	if (ts_status == TS_STATUS_UP && !request_adc_count)
-		ready_to_adc = 1;
-	else
-		start_adcts();
-
-out:
 	writel(0x1, base_addr+S3C_ADCCLRINT);
-
 	return IRQ_HANDLED;
 }
 
+#ifdef CONFIG_TOUCHSCREEN_S3C
 static irqreturn_t irqhandler_updown(int irqno, void *param)
 {
+	unsigned long data0, data1;
+	int	ts_status;
 
-	unsigned long data0;
-        unsigned long data1;
-
-        data0 = readl(base_addr+S3C_ADCDAT0);
-        data1 = readl(base_addr+S3C_ADCDAT1);
+	data0 = readl(base_addr+S3C_ADCDAT0);
+	data1 = readl(base_addr+S3C_ADCDAT1);
  
 	ts_status = (!(data0 & S3C_ADCDAT0_UPDOWN)) && (!(data1 & S3C_ADCDAT1_UPDOWN));
 
-#ifdef S3C_ADCTS_DEBUG
+//#ifdef S3C_ADCTS_DEBUG
+#if 1
 	printk ("%s: %c\n", __func__, ts_status?'D':'U');
 #endif
-	if (ts_status)
+
+	if (ts_status) 		// down
 	{
+		_request_adcts(CHANNEL_TS);
 		change_ts_int_mode (INT_MODE_UP);
-		ready_to_ts = 1;
 	}
-	else
+	else 				// up
 	{
-		if (!ready_to_adc && current_channel == TS_CHANNEL)
-		{
-			writel(0x1, base_addr+S3C_ADCCLRINT);	/* clear IRQ_ADC */
-			stop_hw();
-		}
-
+		_request_adcts(CHANNEL_TS_UP);
 		change_ts_int_mode (INT_MODE_DOWN);
-		ts_value.status = TS_STATUS_UP;
-		tasklet_schedule (&ts_done_task);
-		ready_to_ts = 0;
 	}
 
-	if (ts_status == TS_STATUS_UP && !request_adc_count)
-		ready_to_adc = 1;
-	else
-		start_adcts();
-	
-out:
-	writel(0x1, base_addr+S3C_ADCCLRINTPNDNUP);
+	writel (0x0, base_addr+S3C_ADCUPDN);
+	writel (0x1, base_addr+S3C_ADCCLRINTPNDNUP);
 
 	return IRQ_HANDLED;
-}
-
-static int __start_adcts_ts (void)
-{
-	if (ts_status != TS_STATUS_UP && ready_to_ts)
-	{
-		current_channel = TS_CHANNEL;
-		request_adc &= ~(1<<TS_CHANNEL);
-		ts_sampling_count = 0;
-		start_hw_ts();
-		return true;
-	}
-	return false;
-}
-
-static int __start_adcts_adc (void)
-{
-	if (request_adc_count)
-	{
-		int channel = request_adc_order & 0xF;
-
-		current_channel = channel;
-		request_adc &= ~(1<<channel);
-		request_adc_order >>= 4;
-		request_adc_count --;
-		start_hw_adc(channel);
-		return true;
-	}
-	return false;
-}
-
-static void start_adcts (void)
-{
-	if (current_channel == TS_CHANNEL)	
-	{
-		if (!__start_adcts_adc ())
-			__start_adcts_ts();
-	}
-	else
-	{
-		if (!__start_adcts_ts ())
-			__start_adcts_adc();
-	}
 }
 
 int s3c_adcts_register_ts (struct s3c_ts_mach_info *ts_cfg,
@@ -295,52 +298,157 @@ int s3c_adcts_unregister_ts (void)
 }
 
 EXPORT_SYMBOL(s3c_adcts_unregister_ts);
+#endif /* CONFIG_TOUCHSCREEN_S3C */
 
 int s3c_adc_get_adc_data(int channel)
 {
 	int i;
 
-#ifdef S3C_ADCTS_DEBUG
-	printk ("%s: channel=%d",__func__, channel);
-#endif
+	if(channel >= MAX_ADC_CHANNEL || channel < 0) return -EINVAL;
 
-	if (request_adc & (1<<channel))
+	if (adcts_request_flag & (1<<channel))
 		return -EINVAL;
 
-	adc_value[channel] = -1;
+	for (i=0; i< ADC_RETRY_NUM ; i++)
+	{
+		_request_adcts (channel);
 
-        for (i=0; i< ADC_RETRY_NUM ; i++)
-        {
-		if (!(request_adc & (1 << channel)))
+		adc_thread_state[channel] = ADCTS_THREAD_WAIT;
+	        wait_event_interruptible_timeout (adc_wait[channel],
+			adc_thread_state[channel]!=ADCTS_THREAD_WAIT, WAIT_EVENT_TIMEOUT);
+                
+		if (adc_thread_state[channel] == ADCTS_THREAD_WAIT)
 		{
-			request_adc |= 1 << channel;
-
-			request_adc_order |= (channel << (request_adc_count * 4));
-			request_adc_count ++;
 		}
+	        else 
+			break;
+	}
 
-                if (ready_to_adc)
-                        start_adcts();
- 
-                wait_event_interruptible_timeout (adc_wait[channel],
-                                        adc_value[channel]!=-1, WAIT_EVENT_TIMEOUT);
-                if (adc_value[channel] == -1)
-                {
-			printk ("\n%s: wait_event timeout\n",__func__);
-                        stop_hw();
-                        ready_to_adc = 1;
-                }
-                else
-                        break;
-        }
+	if (i==ADC_RETRY_NUM)
+	{
+		printk ("%s: wait_event timeout\n",__func__);
+		return -EINVAL;
+	}
 
 #ifdef S3C_ADCTS_DEBUG
-	printk (" value= %d\n",  adc_value[channel]);
+	printk ("%s: value= %d\n", __func__, adc_value[channel]);
 #endif
 	return adc_value[channel];
 }
 
 EXPORT_SYMBOL(s3c_adc_get_adc_data);
+
+static void _adcts_main_thread_sleep (void)
+{
+	if (adcts_request_flag)
+		return;
+
+	adcts_thread_state = ADCTS_THREAD_SLEEP;
+       	wait_event_interruptible_timeout (adcts_thread_wait, adcts_thread_state!=ADCTS_THREAD_SLEEP, SLEEP_TIMEOUT);
+
+	adcts_thread_state = ADCTS_THREAD_RUN;
+}
+
+#ifdef CONFIG_TOUCHSCREEN_S3C
+static void _adcts_main_thread_ts (void)
+{
+	if (adcts_request_flag & (1<<CHANNEL_TS_UP)) 
+	{
+		stop_hw();
+
+		adcts_request_flag &= ~(1<<CHANNEL_TS_UP);
+		ts_value.status = TS_STATUS_UP;
+
+		ts_done_callbacks(&ts_value);
+		return;
+	}
+
+
+	if (adcts_request_flag & ((1<<CHANNEL_TS)|(1<<CHANNEL_TS_SCANNING)))
+	{
+		if ( ts_int_mode == INT_MODE_DOWN)
+		{
+			adcts_request_flag &= ~((1<<CHANNEL_TS)|(1<<CHANNEL_TS_SCANNING));
+			return;
+		}
+
+		if (adcts_request_flag & (1<<CHANNEL_TS))
+		{
+			ts_sampling_count = 0;
+			adcts_request_flag &= ~(1<<CHANNEL_TS);
+			adcts_request_flag |= (1<<CHANNEL_TS_SCANNING);
+		}
+
+
+		channel_state=CHANNEL_TS;
+		start_hw_ts();
+
+		adcts_thread_state = ADCTS_THREAD_WAIT;
+        	wait_event_interruptible_timeout (adcts_thread_wait,
+			adcts_thread_state!=ADCTS_THREAD_WAIT, WAIT_EVENT_TIMEOUT);
+	
+		if (ts_sampling_count >= ts->sampling_time) 
+		{
+			change_ts_int_mode(INT_MODE_UP);
+
+			adcts_request_flag &= ~(1<<CHANNEL_TS_SCANNING);
+			ts_value.status = TS_STATUS_DOWN;
+
+			ts_done_callbacks(&ts_value);
+			mod_timer (&ts_timer, jiffies + (ts->sampling_interval_ms/(1000/HZ)));
+		}
+	}
+}
+#endif /* CONFIG_TOUCHSCREEN_S3C */
+
+static void _adcts_main_thread_adc (void)
+{
+	int i;
+
+	for (i=CHANNEL_ADC0; (adcts_request_flag&CHANNEL_ADC_MASK) && (i<=CHANNEL_ADC7); i++)
+	{
+		if (adcts_request_flag & (1<<i))
+		{
+			channel_state=i;
+			adcts_request_flag &= ~(1<<i);
+			start_hw_adc(i);
+			adcts_thread_state = ADCTS_THREAD_WAIT;
+	        	wait_event_interruptible_timeout (adcts_thread_wait,
+				adcts_thread_state!=ADCTS_THREAD_WAIT, WAIT_EVENT_TIMEOUT);
+		}
+	}
+}
+
+static int adcts_main_thread(void *data)
+{
+	/* change priority to RT scduler and priority 99 */
+	struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
+	sched_setscheduler_nocheck(current, SCHED_FIFO, &param);
+
+	adcts_thread_state = ADCTS_THREAD_RUN;
+	channel_state = CHANNEL_NOT_SELECTED;
+
+	printk ("kadctsd is started\n");
+
+	while (adcts_driver_state!=ADCTS_DRIVER_REMOVE)
+	{
+#ifdef CONFIG_TOUCHSCREEN_S3C
+		/* make sure flag is available */
+		if (ts_done_callbacks != NULL)
+			adcts_request_flag &= CHANNEL_MASK;
+		else
+#endif /* CONFIG_TOUCHSCREEN_S3C */
+			adcts_request_flag &= CHANNEL_ADC_MASK;
+
+		_adcts_main_thread_sleep();
+#ifdef CONFIG_TOUCHSCREEN_S3C
+		_adcts_main_thread_ts();
+#endif /* CONFIG_TOUCHSCREEN_S3C */
+		_adcts_main_thread_adc();
+	}
+	return 0;
+}
+
 
 /*
  * The functions for inserting/removing us as a module.
@@ -352,8 +460,13 @@ static int __init s3c_adcts_probe(struct platform_device *pdev)
 	struct device *dev;
 	int ret, i;
 	int size;
-	struct resource     *adcts_irq;
 	struct s3c_adcts_plat_info *s3c_adc_cfg;
+
+	adcts_thread_state = ADCTS_THREAD_NONE;
+	adcts_driver_state = ADCTS_DRIVER_PROBE;
+
+	for (i=CHANNEL_ADC0 ; i<=CHANNEL_ADC7; i++)
+		adc_thread_state[i] = ADCTS_THREAD_RUN;
 
 	dev = &pdev->dev;
 
@@ -389,6 +502,12 @@ static int __init s3c_adcts_probe(struct platform_device *pdev)
 
 	clk_enable(adc_clock);
 
+	stop_hw();
+#ifdef CONFIG_TOUCHSCREEN_S3C
+	ts_done_callbacks = NULL;
+
+	change_ts_int_mode (INT_MODE_DOWN);
+
         /* For IRQ_PENDUP */
         res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
         if (res == NULL) {
@@ -407,7 +526,8 @@ static int __init s3c_adcts_probe(struct platform_device *pdev)
                 goto err_irq_updown;
         }
 	disable_irq (irq_updown);
- 
+ #endif /* CONFIG_TOUCHSCREEN_S3C */
+
         /* For IRQ_ADC */
         res = platform_get_resource(pdev, IORESOURCE_IRQ, 1);
         if (res == NULL) {
@@ -428,18 +548,20 @@ static int __init s3c_adcts_probe(struct platform_device *pdev)
 	{
 		init_waitqueue_head (&adc_wait[i]);
 	}
+	init_waitqueue_head (&adcts_thread_wait);
 
-	tasklet_init (&ts_done_task, adc_done, 0);
-
+	adcts_thread_task = kthread_run(adcts_main_thread, NULL, "kadctsd");
 
 	printk(KERN_INFO "S3C64XX ADCTS driver successfully probed !\n");
 
 	return 0;
 
 err_irq_adc:
+#ifdef CONFIG_TOUCHSCREEN_S3C
         free_irq(irq_updown, pdev);
 
 err_irq_updown:
+#endif /* CONFIG_TOUCHSCREEN_S3C */
 	clk_disable(adc_clock);
 	clk_put(adc_clock);
 
@@ -449,6 +571,7 @@ err_clk:
 
 err_map:
 get_resource_fail:
+	adcts_driver_state = ADCTS_DRIVER_REMOVE;
 
 	return ret;
 }
@@ -456,16 +579,16 @@ get_resource_fail:
 
 static int s3c_adcts_remove(struct platform_device *pdev)
 {
-	int i;
+	adcts_driver_state = ADCTS_DRIVER_REMOVE;	
 
-	tasklet_kill (&ts_done_task);
-
-        free_irq(irq_adc, pdev);
-        free_irq(irq_updown, pdev);
+	kthread_stop (adcts_thread_task);
+	free_irq(irq_adc, pdev);
+#ifdef CONFIG_TOUCHSCREEN_S3C
+	free_irq(irq_updown, pdev);
+#endif /* CONFIG_TOUCHSCREEN_S3C */
 	clk_disable(adc_clock);
 	clk_put(adc_clock);
 	iounmap(base_addr);
-
 	printk(KERN_INFO "s3c_adc_remove() of ADC called !\n");
 	return 0;
 }
@@ -473,6 +596,8 @@ static int s3c_adcts_remove(struct platform_device *pdev)
 #ifdef CONFIG_PM
 static int s3c_adcts_suspend(struct platform_device *dev, pm_message_t state)
 {
+	adcts_driver_state = ADCTS_DRIVER_SUSPEND;	
+	stop_hw();
 	clk_disable(adc_clock);
 
 	return 0;
@@ -480,19 +605,26 @@ static int s3c_adcts_suspend(struct platform_device *dev, pm_message_t state)
 
 static int s3c_adcts_resume(struct platform_device *pdev)
 {
+	int i;
+	adcts_driver_state = ADCTS_DRIVER_RESUME;
+
 	clk_enable(adc_clock);
 
-	if (ready_to_adc)
+	for (i=0; i<MAX_ADC_CHANNEL;i++)
 	{
-		if (current_channel >= 0 && current_channel < TS_CHANNEL)
-			wake_up_interruptible(&adc_wait[current_channel]);
-		stop_hw();
+		if (adcts_request_flag & (1<<i))
+		{
+			adc_value[i] = -1;
+			wake_up_interruptible(&adc_wait[i]);
+		}
 	}
-	
-	ready_to_ts =  1;
-	ready_to_adc = 1;
+			
+	adcts_request_flag = 0;
+	channel_state = CHANNEL_NOT_SELECTED;
+#ifdef CONFIG_TOUCHSCREEN_S3C
 	change_ts_int_mode (INT_MODE_DOWN);
-	start_adcts();
+#endif /* CONFIG_TOUCHSCREEN_S3C */
+
 	return 0;
 }
 #else

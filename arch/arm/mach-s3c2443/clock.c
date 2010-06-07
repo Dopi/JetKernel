@@ -29,7 +29,6 @@
 #include <linux/sysdev.h>
 #include <linux/clk.h>
 #include <linux/mutex.h>
-#include <linux/delay.h>
 #include <linux/serial_core.h>
 #include <linux/io.h>
 
@@ -1107,4 +1106,6 @@ void __init s3c2443_init_clocks(int xtal)
 
 		(clkp->enable)(clkp, 0);
 	}
+
+	s3c_pwmclk_init();
 }

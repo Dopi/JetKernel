@@ -220,9 +220,9 @@ static void smc911x_reset(struct net_device *dev)
 
 	/* make sure EEPROM has finished loading before setting GPIO_CFG */
 	timeout=1000;
-	while ( timeout-- && (SMC_GET_E2P_CMD(lp) & E2P_CMD_EPC_BUSY_)) {
+	while (--timeout && (SMC_GET_E2P_CMD(lp) & E2P_CMD_EPC_BUSY_))
 		udelay(10);
-	}
+
 	if (timeout == 0){
 		PRINTK("%s: smc911x_reset timeout waiting for EEPROM busy\n", dev->name);
 		return;
@@ -439,7 +439,6 @@ static inline void	 smc911x_rcv(struct net_device *dev)
 
 		DBG(SMC_DEBUG_PKTS, "%s: Received packet\n", dev->name);
 		PRINT_PKT(data, ((pkt_len - 4) <= 64) ? pkt_len - 4 : 64);
-		dev->last_rx = jiffies;
 		skb->protocol = eth_type_trans(skb, dev);
 		netif_rx(skb);
 		dev->stats.rx_packets++;
@@ -1231,7 +1230,6 @@ smc911x_rx_dma_irq(int dma, void *data)
 	BUG_ON(skb == NULL);
 	lp->current_rx_skb = NULL;
 	PRINT_PKT(skb->data, skb->len);
-	dev->last_rx = jiffies;
 	skb->protocol = eth_type_trans(skb, dev);
 	dev->stats.rx_packets++;
 	dev->stats.rx_bytes += skb->len;
@@ -1735,7 +1733,7 @@ static const struct ethtool_ops smc911x_ethtool_ops = {
  * This routine has a simple purpose -- make the SMC chip generate an
  * interrupt, so an auto-detect routine can detect it, and find the IRQ,
  */
-static int __init smc911x_findirq(struct net_device *dev)
+static int __devinit smc911x_findirq(struct net_device *dev)
 {
 	struct smc911x_local *lp = netdev_priv(dev);
 	int timeout = 20;
@@ -1799,7 +1797,7 @@ static int __init smc911x_findirq(struct net_device *dev)
  * o  actually GRAB the irq.
  * o  GRAB the region
  */
-static int __init smc911x_probe(struct net_device *dev)
+static int __devinit smc911x_probe(struct net_device *dev)
 {
 	struct smc911x_local *lp = netdev_priv(dev);
 	int i, retval;
@@ -1813,7 +1811,7 @@ static int __init smc911x_probe(struct net_device *dev)
 	val = SMC_GET_BYTE_TEST(lp);
 	DBG(SMC_DEBUG_MISC, "%s: endian probe returned 0x%04x\n", CARDNAME, val);
 	if (val != 0x87654321) {
-		printk(KERN_ERR "Invalid chip endian 0x08%x\n",val);
+		printk(KERN_ERR "Invalid chip endian 0x%08x\n",val);
 		retval = -ENODEV;
 		goto err_out;
 	}
@@ -2059,7 +2057,7 @@ err_out:
  *	 0 --> there is a device
  *	 anything else, error
  */
-static int smc911x_drv_probe(struct platform_device *pdev)
+static int __devinit smc911x_drv_probe(struct platform_device *pdev)
 {
 	struct smc911x_platdata *pd = pdev->dev.platform_data;
 	struct net_device *ndev;
@@ -2096,11 +2094,14 @@ static int smc911x_drv_probe(struct platform_device *pdev)
 	lp = netdev_priv(ndev);
 	lp->netdev = ndev;
 #ifdef SMC_DYNAMIC_BUS_CONFIG
-	if (!pd) {
-		ret = -EINVAL;
-		goto release_both;
+	{
+		struct smc911x_platdata *pd = pdev->dev.platform_data;
+		if (!pd) {
+			ret = -EINVAL;
+			goto release_both;
+		}
+		memcpy(&lp->cfg, pd, sizeof(lp->cfg));
 	}
-	memcpy(&lp->cfg, pd, sizeof(lp->cfg));
 #endif
 
 	addr = ioremap(res->start, SMC911X_IO_EXTENT);
@@ -2133,7 +2134,7 @@ out:
 	return ret;
 }
 
-static int smc911x_drv_remove(struct platform_device *pdev)
+static int __devexit smc911x_drv_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct smc911x_local *lp = netdev_priv(ndev);
@@ -2193,9 +2194,9 @@ static int smc911x_drv_resume(struct platform_device *dev)
 
 		if (netif_running(ndev)) {
 			smc911x_reset(ndev);
-			smc911x_enable(ndev);
 			if (lp->phy_type != 0)
 				smc911x_phy_configure(&lp->phy_configure);
+			smc911x_enable(ndev);
 			netif_device_attach(ndev);
 		}
 	}
@@ -2204,7 +2205,7 @@ static int smc911x_drv_resume(struct platform_device *dev)
 
 static struct platform_driver smc911x_driver = {
 	.probe		 = smc911x_drv_probe,
-	.remove	 = smc911x_drv_remove,
+	.remove	 = __devexit_p(smc911x_drv_remove),
 	.suspend	 = smc911x_drv_suspend,
 	.resume	 = smc911x_drv_resume,
 	.driver	 = {

@@ -160,9 +160,9 @@
  *         Work around byte swap bug in one of the Vaio's BIOS's
  *         (Marc Boucher <marc@mbsi.ca>).
  *         Exposed the disable flag to dmi so that we can handle known
- *         broken APM (Alan Cox <alan@redhat.com>).
+ *         broken APM (Alan Cox <alan@lxorguk.ukuu.org.uk>).
  *   1.14ac: If the BIOS says "I slowed the CPU down" then don't spin
- *         calling it - instead idle. (Alan Cox <alan@redhat.com>)
+ *         calling it - instead idle. (Alan Cox <alan@lxorguk.ukuu.org.uk>)
  *         If an APM idle fails log it and idle sensibly
  *   1.15: Don't queue events to clients who open the device O_WRONLY.
  *         Don't expect replies from clients who open the device O_RDONLY.
@@ -228,7 +228,6 @@
 #include <linux/suspend.h>
 #include <linux/kthread.h>
 #include <linux/jiffies.h>
-#include <linux/smp_lock.h>
 
 #include <asm/system.h>
 #include <asm/uaccess.h>
@@ -392,11 +391,7 @@ static int power_off;
 #else
 static int power_off = 1;
 #endif
-#ifdef CONFIG_APM_REAL_MODE_POWER_OFF
-static int realmode_power_off = 1;
-#else
 static int realmode_power_off;
-#endif
 #ifdef CONFIG_APM_ALLOW_INTS
 static int allow_ints = 1;
 #else
@@ -1197,6 +1192,7 @@ static int suspend(int vetoable)
 	device_suspend(PMSG_SUSPEND);
 	local_irq_disable();
 	device_power_down(PMSG_SUSPEND);
+	sysdev_suspend(PMSG_SUSPEND);
 
 	local_irq_enable();
 
@@ -1213,6 +1209,7 @@ static int suspend(int vetoable)
 	if (err != APM_SUCCESS)
 		apm_error("suspend", err);
 	err = (err == APM_SUCCESS) ? 0 : -EIO;
+	sysdev_resume();
 	device_power_up(PMSG_RESUME);
 	local_irq_enable();
 	device_resume(PMSG_RESUME);
@@ -1233,6 +1230,7 @@ static void standby(void)
 
 	local_irq_disable();
 	device_power_down(PMSG_SUSPEND);
+	sysdev_suspend(PMSG_SUSPEND);
 	local_irq_enable();
 
 	err = set_system_power_state(APM_STATE_STANDBY);
@@ -1240,6 +1238,7 @@ static void standby(void)
 		apm_error("standby", err);
 
 	local_irq_disable();
+	sysdev_resume();
 	device_power_up(PMSG_RESUME);
 	local_irq_enable();
 }

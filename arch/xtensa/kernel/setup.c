@@ -44,6 +44,8 @@
 #include <asm/setup.h>
 #include <asm/param.h>
 
+#include <platform/hardware.h>
+
 #if defined(CONFIG_VGA_CONSOLE) || defined(CONFIG_DUMMY_CONSOLE)
 struct screen_info screen_info = { 0, 24, 0, 0, 0, 80, 0, 0, 0, 24, 1, 16};
 #endif
@@ -51,11 +53,6 @@ struct screen_info screen_info = { 0, 24, 0, 0, 0, 80, 0, 0, 0, 24, 1, 16};
 #ifdef CONFIG_BLK_DEV_FD
 extern struct fd_ops no_fd_ops;
 struct fd_ops *fd_ops;
-#endif
-
-#if defined(CONFIG_BLK_DEV_IDE) || defined(CONFIG_BLK_DEV_IDE_MODULE)
-extern struct ide_ops no_ide_ops;
-struct ide_ops *ide_ops;
 #endif
 
 extern struct rtc_ops no_rtc_ops;

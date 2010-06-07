@@ -212,8 +212,8 @@ struct sdhci_host {
 /* Controller supports high speed but doesn't have the caps bit set */
 #define SDHCI_QUIRK_FORCE_HIGHSPEED			(1<<14)
 /* Controller does not provide transfer-complete interrupt when not busy */
+#define SDHCI_QUIRK_NO_BUSY_IRQ				(1<<14)
 #define SDHCI_QUIRK_NO_TCIRQ_ON_NOT_BUSY		(1<<15)
-
 	int			irq;		/* Device IRQ */
 	int			irq_cd;		/* SD Card Detection IRQ */
 
@@ -229,8 +229,9 @@ struct sdhci_host {
 	struct mmc_host		*mmc;		/* MMC structure */
 	u64			dma_mask;	/* custom DMA mask */
 
-#ifdef CONFIG_LEDS_CLASS
+#if defined(CONFIG_LEDS_CLASS) || defined(CONFIG_LEDS_CLASS_MODULE)
 	struct led_classdev	led;		/* LED control */
+	char   led_name[32];
 #endif
 
 	spinlock_t		lock;		/* Mutex */

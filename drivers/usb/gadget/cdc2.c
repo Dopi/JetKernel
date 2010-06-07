@@ -38,14 +38,27 @@
 /* Thanks to NetChip Technologies for donating this product ID.
  * It's for devices with only this composite CDC configuration.
  */
-#ifndef CONFIG_USB_MITs 
 #define CDC_VENDOR_NUM		0x0525	/* NetChip */
 #define CDC_PRODUCT_NUM		0xa4aa	/* CDC Composite: ECM + ACM */
-#else
-	#define CDC_VENDOR_NUM		0x04e8	/* Samsung */
-	#define CDC_PRODUCT_NUM		0x6743	/* Samsung MITs Composite (MCCI) : ECM + ACM */
-#endif
 
+/*-------------------------------------------------------------------------*/
+
+/*
+ * Kbuild is not very cooperative with respect to linking separately
+ * compiled library objects into one module.  So for now we won't use
+ * separate compilation ... ensuring init/exit sections work to shrink
+ * the runtime footprint, and giving us at least some parts of what
+ * a "gcc --combine ... part1.c part2.c part3.c ... " build would.
+ */
+
+#include "composite.c"
+#include "usbstring.c"
+#include "config.c"
+#include "epautoconf.c"
+#include "u_serial.c"
+#include "f_acm.c"
+#include "f_ecm.c"
+#include "u_ether.c"
 
 /*-------------------------------------------------------------------------*/
 
@@ -125,16 +138,6 @@ static int __init cdc_do_config(struct usb_configuration *c)
 		c->bmAttributes |= USB_CONFIG_ATT_WAKEUP;
 	}
 
-#ifdef CONFIG_USB_MITs 
-	status = acm_bind_config(c, 0);
-	if (status < 0)
-		return status;
-
-	status = ecm_bind_config(c, hostaddr);
-	if (status < 0)
-		return status;
-
-#else
 	status = ecm_bind_config(c, hostaddr);
 	if (status < 0)
 		return status;
@@ -142,7 +145,6 @@ static int __init cdc_do_config(struct usb_configuration *c)
 	status = acm_bind_config(c, 0);
 	if (status < 0)
 		return status;
-#endif
 
 	return 0;
 }
@@ -153,7 +155,6 @@ static struct usb_configuration cdc_config_driver = {
 	.bConfigurationValue	= 1,
 	/* .iConfiguration = DYNAMIC */
 	.bmAttributes		= USB_CONFIG_ATT_SELFPOWER,
-	.bMaxPower		= 1,	/* 2 mA, minimal */
 };
 
 /*-------------------------------------------------------------------------*/
@@ -165,7 +166,8 @@ static int __init cdc_bind(struct usb_composite_dev *cdev)
 	int			status;
 
 	if (!can_support_ecm(cdev->gadget)) {
-		ERROR(cdev, "controller '%s' not usable\n", gadget->name);
+		dev_err(&gadget->dev, "controller '%s' not usable\n",
+				gadget->name);
 		return -EINVAL;
 	}
 
@@ -220,7 +222,8 @@ static int __init cdc_bind(struct usb_composite_dev *cdev)
 	if (status < 0)
 		goto fail1;
 
-	INFO(cdev, "%s, version: " DRIVER_VERSION "\n", DRIVER_DESC);
+	dev_info(&gadget->dev, "%s, version: " DRIVER_VERSION "\n",
+			DRIVER_DESC);
 
 	return 0;
 

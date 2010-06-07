@@ -233,7 +233,7 @@ static void __init  sec_init_dynamic_tick_timer(unsigned long rate)
 	clockevent_tick_timer.min_delta_ns =
 		clockevent_delta2ns(1, &clockevent_tick_timer);
 
-	clockevent_tick_timer.cpumask = cpumask_of_cpu(0);
+	clockevent_tick_timer.cpumask = cpumask_of(0);
 	clockevents_register_device(&clockevent_tick_timer);
 }
 

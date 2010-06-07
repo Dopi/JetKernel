@@ -41,9 +41,9 @@ enum {
  * cleared upon setuid or setgid exec:
  */
 #define PER_CLEAR_ON_SETID (READ_IMPLIES_EXEC  | \
-                           ADDR_NO_RANDOMIZE  | \
-                           ADDR_COMPAT_LAYOUT | \
-                           MMAP_PAGE_ZERO)
+			    ADDR_NO_RANDOMIZE  | \
+			    ADDR_COMPAT_LAYOUT | \
+			    MMAP_PAGE_ZERO)
 
 /*
  * Personality types.

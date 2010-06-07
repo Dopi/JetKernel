@@ -2,8 +2,10 @@
  * drivers/usb/gadget/s3c-udc-otg-hs.c
  * Samsung S3C on-chip full/high speed USB OTG 2.0 device controllers
  *
- * Copyright (C) 2008 Samsung Electronics, Kyu-Hyeok Jang, Seung-Soo Yang
  * Copyright (C) 2009 Samsung Electronics, Seung-Soo Yang
+ * Copyright (C) 2008 Samsung Electronics, Kyu-Hyeok Jang, Seung-Soo Yang
+ * Copyright (C) 2004 Mikko Lahteenmaki, Nordic ID
+ * Copyright (C) 2004 Bo Henriksen, Nordic ID
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,22 +37,10 @@
  */ 
 
 #include "s3c-udc.h"
-#include <linux/platform_device.h>
-#include <linux/clk.h>
-
-#include <mach/map.h>
-#include <plat/regs-usb-otg-hs.h>
-#include <plat/regs-clock.h> 
-
-#include <plat/gpio-cfg.h>
-#include <plat/regs-gpio.h>
-//#include <plat/egpio.h>
-#include <mach/hardware.h>
-#include <linux/i2c.h>
 
 //---------------------------------------------------------------------------------------
 
-/* enalbing many debug message may makes the USB enumeration process failed */
+/* enalbing many debug message could make the USB enumeration process failed */
 #define OTG_DBG_ENABLE	0
 
 /*
@@ -97,7 +87,7 @@
 #define DEBUG_S3C_UDC_ERROR
 //#define DEBUG_S3C_UDC_SETUP
 //#define DEBUG_S3C_UDC_EP0
-//#define DEBUG_S3C_UDC_PM
+#define DEBUG_S3C_UDC_PM
 //#define DEBUG_S3C_UDC_SETUP_FEATURE
 	
 #if defined(DEBUG_S3C_UDC_ISR) || defined(DEBUG_S3C_UDC_EP0)
@@ -260,7 +250,7 @@ static int  s3c_ep0_write_fifo(struct s3c_ep *ep, struct s3c_request *req);
  * global usb_ctrlrequest struct to store 
  * Setup data of Control Request Host sent
  */
-struct usb_ctrlrequest g_ctrl;
+struct usb_ctrlrequest g_ctrl __attribute__((aligned(8)));
 //---------------------------------------------------------------------------------------
 
 /**
@@ -450,7 +440,7 @@ static int s3c_udc_enable(struct s3c_udc *dev)
  */
 static void s3c_udc_disable(struct s3c_udc *dev)
 {
-	DEBUG_SETUP("%s: %p\n", __func__, dev);
+	DEBUG_PM("%s: %p\n", __func__, dev);
 
 	s3c_udc_set_address(dev, 0);
 
@@ -514,7 +504,7 @@ int usb_gadget_register_driver(struct usb_gadget_driver *driver)
 		.unbind		= __exit_p(composite_unbind),
 */
 	if (!driver
-	    || (driver->speed != USB_SPEED_FULL && driver->speed != USB_SPEED_HIGH)
+	    || (driver->speed < USB_SPEED_FULL)
 	    || !driver->bind
 	    || !driver->disconnect || !driver->setup)
 		return -EINVAL;		
@@ -634,7 +624,7 @@ EXPORT_SYMBOL(usb_gadget_unregister_driver);
 	#include "s3c-udc-otg-hs_dma.c"
 #else 
 	/* Slave Mode */
-	#include "s3c-udc-otg-hs_slave.c"
+	#error Unsupporting slave mode
 #endif
 
 #include "fsa9480_i2c.c"
@@ -875,7 +865,7 @@ s3c_udc_wakeup_exit:
 static int s3c_udc_pullup(struct usb_gadget *gadget, int is_on)
 {
 #if 0
-	//soft
+	//logical 
 	if (is_on)
 	{
 		s3c_udc_soft_connect();
@@ -886,8 +876,9 @@ static int s3c_udc_pullup(struct usb_gadget *gadget, int is_on)
 	}
 #else
 	struct s3c_udc *dev = the_controller;
+	unsigned long flags;
 
-	//hard		
+	//UDC power on/off
 	if (is_on)
 	{
 	/*
@@ -900,8 +891,11 @@ static int s3c_udc_pullup(struct usb_gadget *gadget, int is_on)
 	}
 	else
 	{
+	
+		spin_lock_irqsave(&dev->lock, flags);
 		s3c_udc_stop_activity(dev, dev->driver);
 		s3c_udc_power_down();
+		spin_unlock_irqrestore(&dev->lock, flags);
 	}
 #endif
 	return 0;
@@ -956,7 +950,8 @@ static struct s3c_udc memory = {
 		   .ep0 = &memory.ep[0].ep,
 		   .name = driver_name,
 		   .dev = {
-			   .bus_id = "gadget",			   	
+			   //.bus_id = "gadget",	for 2.6.27
+		   	   .init_name = "gadget",
 	   /*
 		* release function releases the Gadget device.
 		* required by device_unregister().
@@ -1354,6 +1349,9 @@ static enum	OTG_PM pm_policy = ALL_POWER_DOWN;
 static int s3c_udc_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct s3c_udc *dev = platform_get_drvdata(pdev);
+	unsigned long flags;
+
+	spin_lock_irqsave(&dev->lock, flags);
 
 	DEBUG_PM("[%s]: System Suspend \n", __func__);
 
@@ -1371,6 +1369,7 @@ static int s3c_udc_suspend(struct platform_device *pdev, pm_message_t state)
 		DEBUG_PM("[%s] dev->powered [%d] at suspend\n", __func__, dev->powered);
 		if (dev->powered == 0) {
 			DEBUG_PM("[%s] skip~~ s3c_udc_power_down() at suspend\n", __func__);
+			spin_unlock_irqrestore(&dev->lock, flags);
 		return 0;
 	}
 	}
@@ -1391,6 +1390,7 @@ static int s3c_udc_suspend(struct platform_device *pdev, pm_message_t state)
 		default:
 			DEBUG_ERROR("[%s]: not proper pm_policy\n", __func__);
 	}
+	spin_unlock_irqrestore(&dev->lock, flags);
 	return 0;
 }
 //---------------------------------------------------------------------------------------

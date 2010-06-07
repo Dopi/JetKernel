@@ -716,9 +716,11 @@ acm_bind(struct usb_configuration *c, struct usb_function *f)
 	modem_register(acm);
 #endif
 
+#ifdef CONFIG_USB_ANDROID_ADB_UMS_ACM
 //added by ss1
 	f->descriptors = null_acm_descs;
 	f->hs_descriptors = null_acm_descs;
+#endif
 
 	return 0;
 
@@ -812,7 +814,6 @@ int __init acm_bind_config(struct usb_configuration *c, u8 port_num)
 		acm_string_defs[ACM_DATA_IDX].id = status;
 
 		acm_data_interface_desc.iInterface = status;
-
 	}
 
 	/* allocate and initialize one new instance */
@@ -850,26 +851,11 @@ int __init acm_bind_config(struct usb_configuration *c, u8 port_num)
 	return status;
 }
 
-int __init acm_function_add(struct usb_configuration *c)
+int __init acm_function_add(struct usb_composite_dev *cdev,
+	struct usb_configuration *c)
 {
-	int ret;
-	
-	printk(KERN_INFO "acm_function_add\n");
-
-	/* set up serial link layer */
-	ret = gserial_setup(c->cdev->gadget, 1);
-	if (ret) {
-		printk("[%s] Fail to gserial_setup()\n", __func__);
-		return ret;
-	}
-
-	ret = acm_bind_config(c, 0);
-	if (ret) {
-		printk("[%s] Fail to gserial_setup()\n", __func__);
-		gserial_cleanup();
-		return ret;
-	}
-
+	int ret = acm_bind_config(c, 0);
+	if (ret == 0)
+		gserial_setup(c->cdev->gadget, 1);
 	return ret;
 }
-

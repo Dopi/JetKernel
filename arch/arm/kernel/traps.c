@@ -18,29 +18,20 @@
 #include <linux/personality.h>
 #include <linux/kallsyms.h>
 #include <linux/delay.h>
+#include <linux/hardirq.h>
 #include <linux/init.h>
-#include <linux/kprobes.h>
+#include <linux/uaccess.h>
 
 #include <asm/atomic.h>
 #include <asm/cacheflush.h>
 #include <asm/system.h>
-#include <asm/uaccess.h>
 #include <asm/unistd.h>
 #include <asm/traps.h>
-#include <asm/io.h>
 
 #include "ptrace.h"
 #include "signal.h"
 
 static const char *handler[]= { "prefetch abort", "data abort", "address exception", "interrupt" };
-
-#ifdef CONFIG_KERNEL_PANIC_DUMP
-int kernel_panic_logging = 0;
-extern void *S3C64XX_KERNEL_PANIC_DUMP_ADDR;
-void *PANIC_Base;
-void *PANIC_Current;
-
-#endif
 
 #ifdef CONFIG_DEBUG_USER
 unsigned int user_debug;
@@ -57,27 +48,6 @@ static void dump_mem(const char *str, unsigned long bottom, unsigned long top);
 
 void dump_backtrace_entry(unsigned long where, unsigned long from, unsigned long frame)
 {
-#ifdef CONFIG_KERNEL_PANIC_DUMP
-#ifdef CONFIG_KALLSYMS
-	printk("[<%08lx>] ", where);
-	print_symbol("(%s) ", where);
-	printk("from [<%08lx>] ", from);
-	print_symbol("(%s)\n", from);
-	if(kernel_panic_logging) {
-		PANIC_Current += sprintf(PANIC_Current,"[<%08lx>] ",where);
-		PANIC_Current += sprintf(PANIC_Current,"[<%08lx>] ", from);
-	}
-
-#else
-	printk("Function entered at [<%08lx>] from [<%08lx>]\n", where, from);
-	if(kernel_panic_logging) {
-		PANIC_Current += sprintf(PANIC_Current,"Function entered at [<%08lx>] from [<%08lx>]\n",where, from);
-	}
-#endif
-
-	if (in_exception_text(where))
-		dump_mem("Exception stack", frame + 4, frame + 4 + sizeof(struct pt_regs));
-#else /* else CONFIG_KERNEL_PANIC_DUMP */
 #ifdef CONFIG_KALLSYMS
 	printk("[<%08lx>] ", where);
 	print_symbol("(%s) ", where);
@@ -89,9 +59,6 @@ void dump_backtrace_entry(unsigned long where, unsigned long from, unsigned long
 
 	if (in_exception_text(where))
 		dump_mem("Exception stack", frame + 4, frame + 4 + sizeof(struct pt_regs));
-
-#endif
-	printk("%s end\n",__FUNCTION__);
 }
 
 /*
@@ -101,7 +68,8 @@ void dump_backtrace_entry(unsigned long where, unsigned long from, unsigned long
  */
 static int verify_stack(unsigned long sp)
 {
-	if (sp < PAGE_OFFSET || (sp > (unsigned long)high_memory && high_memory != 0))
+	if (sp < PAGE_OFFSET ||
+	    (sp > (unsigned long)high_memory && high_memory != NULL))
 		return -EFAULT;
 
 	return 0;
@@ -124,43 +92,6 @@ static void dump_mem(const char *str, unsigned long bottom, unsigned long top)
 	fs = get_fs();
 	set_fs(KERNEL_DS);
 
-#ifdef CONFIG_KERNEL_PANIC_DUMP
-	printk("%s(0x%08lx to 0x%08lx)\n", str, bottom, top);
-	if(kernel_panic_logging) {
-		PANIC_Current += sprintf(PANIC_Current,"%s(0x%08lx to 0x%08lx)\n", str, bottom, top);
-	}
-
-	for (p = bottom & ~31; p < top;) 
-	{
-		printk("%04lx: ", p & 0xffff);
-		if(kernel_panic_logging)
-			PANIC_Current += sprintf(PANIC_Current,"%04lx: ", p & 0xffff);
-
-		for (i = 0; i < 8; i++, p += 4) 
-		{
-			unsigned int val;
-
-			if (p < bottom || p >= top) 
-			{
-				printk("         ");
-				if(kernel_panic_logging)
-					PANIC_Current += sprintf(PANIC_Current,"         ");
-			} 
-			else 
-			{
-				__get_user(val, (unsigned long *)p);
-				printk("%08x ", val);
-				if(kernel_panic_logging)
-					PANIC_Current += sprintf(PANIC_Current,"%08x ", val);
-			}
-		}
-		printk ("\n");
-		if(kernel_panic_logging)
-			PANIC_Current += sprintf(PANIC_Current,"\n");
-	}
-
-#else
-
 	printk("%s(0x%08lx to 0x%08lx)\n", str, bottom, top);
 
 	for (p = bottom & ~31; p < top;) {
@@ -179,7 +110,6 @@ static void dump_mem(const char *str, unsigned long bottom, unsigned long top)
 		printk ("\n");
 	}
 
-#endif
 	set_fs(fs);
 }
 
@@ -199,34 +129,6 @@ static void dump_instr(struct pt_regs *regs)
 	fs = get_fs();
 	set_fs(KERNEL_DS);
 
-#ifdef CONFIG_KERNEL_PANIC_DUMP
-	printk("Code: ");
-	if(kernel_panic_logging);
-		PANIC_Current += sprintf(PANIC_Current,"Code: ");
-	for (i = -4; i < 1; i++) {
-		unsigned int val, bad;
-
-		if (thumb)
-			bad = __get_user(val, &((u16 *)addr)[i]);
-		else
-			bad = __get_user(val, &((u32 *)addr)[i]);
-
-		if (!bad) {
-			printk(i == 0 ? "(%0*x) " : "%0*x ", width, val);
-			if(kernel_panic_logging)
-				PANIC_Current += sprintf(PANIC_Current,i == 0 ? "(%0*x) " : "%0*x ", width, val);
-		}
-		else {
-			printk("bad PC value.");
-			if(kernel_panic_logging)
-				PANIC_Current += sprintf(PANIC_Current,"bad PC value.");
-			break;
-		}
-	}
-	printk("\n");
-	if(kernel_panic_logging)
-		PANIC_Current += sprintf(PANIC_Current,"\n");
-#else
 	printk("Code: ");
 	for (i = -4; i < 1; i++) {
 		unsigned int val, bad;
@@ -245,9 +147,7 @@ static void dump_instr(struct pt_regs *regs)
 	}
 	printk("\n");
 
-#endif
 	set_fs(fs);
-	printk("%s end\n",__FUNCTION__);
 }
 
 static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
@@ -255,31 +155,6 @@ static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 	unsigned int fp;
 	int ok = 1;
 
-#ifdef CONFIG_KERNEL_PANIC_DUMP
-	printk("Backtrace: ");
-	if(kernel_panic_logging)
-		PANIC_Current += sprintf(PANIC_Current,"Backtrace: ");
-	fp = regs->ARM_fp;
-	if (!fp) {
-		printk("no frame pointer");
-		if(kernel_panic_logging)
-			PANIC_Current += sprintf(PANIC_Current,"no frame pointer");
-		ok = 0;
-	} else if (verify_stack(fp)) {
-		printk("invalid frame pointer 0x%08x", fp);
-		if(kernel_panic_logging)
-			PANIC_Current += sprintf(PANIC_Current,"invalid frame pointer 0x%08x", fp);
-		ok = 0;
-	} else if (fp < (unsigned long)end_of_stack(tsk)) {
-		printk("frame pointer underflow");
-		if(kernel_panic_logging)
-			PANIC_Current += sprintf(PANIC_Current,"frame pointer underflow");
-	}
-		
-	printk("\n");
-	if(kernel_panic_logging)
-		PANIC_Current += sprintf(PANIC_Current,"\n");
-#else
 	printk("Backtrace: ");
 	fp = regs->ARM_fp;
 	if (!fp) {
@@ -292,10 +167,8 @@ static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 		printk("frame pointer underflow");
 	printk("\n");
 
-#endif
 	if (ok)
 		c_backtrace(fp, processor_mode(regs));
-	printk("%s end\n",__FUNCTION__);
 }
 
 void dump_stack(void)
@@ -334,30 +207,6 @@ void show_stack(struct task_struct *tsk, unsigned long *sp)
 
 static void __die(const char *str, int err, struct thread_info *thread, struct pt_regs *regs)
 {
-#ifdef CONFIG_KERNEL_PANIC_DUMP
-	struct task_struct *tsk = thread->task;
-	static int die_counter;
-
-	printk("Internal error: %s: %x [#%d]" S_PREEMPT S_SMP "\n",
-	       str, err, ++die_counter);
-	if(kernel_panic_logging)
-		PANIC_Current += sprintf(PANIC_Current,"Internal error: %s: %x [#%d]" S_PREEMPT S_SMP "\n",
-			str, err, ++die_counter);
-	print_modules();
-	__show_regs(regs);
-	printk("Process %s (pid: %d, stack limit = 0x%p)\n",
-		tsk->comm, task_pid_nr(tsk), thread + 1);
-	if(kernel_panic_logging) 
-		PANIC_Current += sprintf(PANIC_Current,"Process %s (pid: %d, stack limit = 0x%p)\n",
-			tsk->comm, task_pid_nr(tsk), thread + 1);
-
-	if (!user_mode(regs) || in_interrupt()) {
-		dump_mem("Stack: ", regs->ARM_sp,
-			 THREAD_SIZE + (unsigned long)task_stack_page(tsk));
-		dump_backtrace(regs, tsk);
-		dump_instr(regs);
-	}
-#else
 	struct task_struct *tsk = thread->task;
 	static int die_counter;
 
@@ -374,7 +223,6 @@ static void __die(const char *str, int err, struct thread_info *thread, struct p
 		dump_backtrace(regs, tsk);
 		dump_instr(regs);
 	}
-#endif
 }
 
 DEFINE_SPINLOCK(die_lock);
@@ -386,25 +234,6 @@ NORET_TYPE void die(const char *str, struct pt_regs *regs, int err)
 {
 	struct thread_info *thread = current_thread_info();
 
-#ifdef CONFIG_KERNEL_PANIC_DUMP
-	kernel_panic_logging = 1;
-	PANIC_Base = (void *)S3C64XX_KERNEL_PANIC_DUMP_ADDR;
-	if (!PANIC_Base)
-    {
-        printk("panic memory alloc failed : PANIC_Base = 0x%x\n", PANIC_Base);
-    }
-	PANIC_Current = PANIC_Base;
-    printk("PANIC_Base = 0x%x\n", PANIC_Base);
-	PANIC_Current += sprintf(PANIC_Current,"=============================================\n");
-	PANIC_Current += sprintf(PANIC_Current," Kernel Panic & OOPS Dump\n\n");
-	PANIC_Current += sprintf(PANIC_Current,"                       Samsung Electronics\n");
-	PANIC_Current += sprintf(PANIC_Current,"         Google Android LAB. - Kernel team\n");
-	PANIC_Current += sprintf(PANIC_Current,"---------------------------------------------\n");
-	PANIC_Current += sprintf(PANIC_Current," panic or oops happend. Please check the panic dump message.\n",PANIC_Base);
-	PANIC_Current += sprintf(PANIC_Current," and if the kernel team problems, let me report.\n");
-	PANIC_Current += sprintf(PANIC_Current,"        GA's Kernel Manager : khoonk@samsung.com\n");
-	PANIC_Current += sprintf(PANIC_Current,"---------------------------------------------\n\n");
-#endif
 	oops_enter();
 
 	console_verbose();
@@ -423,9 +252,6 @@ NORET_TYPE void die(const char *str, struct pt_regs *regs, int err)
 
 	oops_exit();
 	do_exit(SIGSEGV);
-#ifdef CONFIG_KERNEL_PANIC_DUMP
-	kernel_panic_logging = 0;
-#endif
 }
 
 void arm_notify_die(const char *str, struct pt_regs *regs,
@@ -501,17 +327,6 @@ asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 	} else {
 		get_user(instr, (u32 __user *)pc);
 	}
-
-#ifdef CONFIG_KPROBES
-	/*
-	 * It is possible to have recursive kprobes, so we can't call
-	 * the kprobe trap handler with the undef_lock held.
-	 */
-	if (instr == KPROBE_BREAKPOINT_INSTRUCTION && !user_mode(regs)) {
-		kprobe_trap_handler(regs, instr);
-		return;
-	}
-#endif
 
 	if (call_undef_hook(regs, instr) == 0)
 		return;
@@ -843,7 +658,7 @@ void __attribute__((noreturn)) __bug(const char *file, int line)
 	*(int *)0 = 0;
 
 	/* Avoid "noreturn function does return" */
-	//for (;;);
+	for (;;);
 }
 EXPORT_SYMBOL(__bug);
 

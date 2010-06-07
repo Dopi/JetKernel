@@ -27,6 +27,8 @@
 /* PTRACE_SYSCALL is 24 */
 #define PTRACE_GETCRUNCHREGS	25
 #define PTRACE_SETCRUNCHREGS	26
+#define PTRACE_GETVFPREGS	27
+#define PTRACE_SETVFPREGS	28
 
 /*
  * PSR bits
@@ -54,7 +56,6 @@
 #define PSR_C_BIT	0x20000000
 #define PSR_Z_BIT	0x40000000
 #define PSR_N_BIT	0x80000000
-#define PCMASK		0
 
 /*
  * Groups of PSR bits
@@ -139,11 +140,7 @@ static inline int valid_user_regs(struct pt_regs *regs)
 	return 0;
 }
 
-#define pc_pointer(v) \
-	((v) & ~PCMASK)
-
-#define instruction_pointer(regs) \
-	(pc_pointer((regs)->ARM_pc))
+#define instruction_pointer(regs)	(regs)->ARM_pc
 
 #ifdef CONFIG_SMP
 extern unsigned long profile_pc(struct pt_regs *regs);

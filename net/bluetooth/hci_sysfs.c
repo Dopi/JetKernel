@@ -6,16 +6,10 @@
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
 
-#ifndef CONFIG_BT_HCI_CORE_DEBUG
-#undef  BT_DBG
-#define BT_DBG(D...)
-#endif
-
 struct class *bt_class = NULL;
 EXPORT_SYMBOL_GPL(bt_class);
 
-static struct workqueue_struct *btaddconn;
-static struct workqueue_struct *btdelconn;
+static struct workqueue_struct *bluetooth;
 
 static inline char *link_typetostr(int type)
 {
@@ -93,9 +87,10 @@ static struct device_type bt_link = {
 
 static void add_conn(struct work_struct *work)
 {
-	struct hci_conn *conn = container_of(work, struct hci_conn, work);
+	struct hci_conn *conn = container_of(work, struct hci_conn, work_add);
 
-	flush_workqueue(btdelconn);
+	/* ensure previous add/del is complete */
+	flush_workqueue(bluetooth);
 
 	if (device_add(&conn->dev) < 0) {
 		BT_ERR("Failed to register connection device");
@@ -113,16 +108,15 @@ void hci_conn_add_sysfs(struct hci_conn *conn)
 	conn->dev.class = bt_class;
 	conn->dev.parent = &hdev->dev;
 
-	snprintf(conn->dev.bus_id, BUS_ID_SIZE, "%s:%d",
-					hdev->name, conn->handle);
+	dev_set_name(&conn->dev, "%s:%d", hdev->name, conn->handle);
 
 	dev_set_drvdata(&conn->dev, conn);
 
 	device_initialize(&conn->dev);
 
-	INIT_WORK(&conn->work, add_conn);
+	INIT_WORK(&conn->work_add, add_conn);
 
-	queue_work(btaddconn, &conn->work);
+	queue_work(bluetooth, &conn->work_add);
 }
 
 /*
@@ -132,13 +126,16 @@ void hci_conn_add_sysfs(struct hci_conn *conn)
  */
 static int __match_tty(struct device *dev, void *data)
 {
-	return !strncmp(dev->bus_id, "rfcomm", 6);
+	return !strncmp(dev_name(dev), "rfcomm", 6);
 }
 
 static void del_conn(struct work_struct *work)
 {
-	struct hci_conn *conn = container_of(work, struct hci_conn, work);
+	struct hci_conn *conn = container_of(work, struct hci_conn, work_del);
 	struct hci_dev *hdev = conn->hdev;
+
+	/* ensure previous add/del is complete */
+	flush_workqueue(bluetooth);
 
 	while (1) {
 		struct device *dev;
@@ -162,9 +159,9 @@ void hci_conn_del_sysfs(struct hci_conn *conn)
 	if (!device_is_registered(&conn->dev))
 		return;
 
-	INIT_WORK(&conn->work, del_conn);
+	INIT_WORK(&conn->work_del, del_conn);
 
-	queue_work(btdelconn, &conn->work);
+	queue_work(bluetooth, &conn->work_del);
 }
 
 static inline char *host_typetostr(int type)
@@ -421,7 +418,7 @@ int hci_register_sysfs(struct hci_dev *hdev)
 	dev->class = bt_class;
 	dev->parent = hdev->parent;
 
-	strlcpy(dev->bus_id, hdev->name, BUS_ID_SIZE);
+	dev_set_name(dev, "%s", hdev->name);
 
 	dev_set_drvdata(dev, hdev);
 
@@ -441,20 +438,13 @@ void hci_unregister_sysfs(struct hci_dev *hdev)
 
 int __init bt_sysfs_init(void)
 {
-	btaddconn = create_singlethread_workqueue("btaddconn");
-	if (!btaddconn)
+	bluetooth = create_singlethread_workqueue("bluetooth");
+	if (!bluetooth)
 		return -ENOMEM;
-
-	btdelconn = create_singlethread_workqueue("btdelconn");
-	if (!btdelconn) {
-		destroy_workqueue(btaddconn);
-		return -ENOMEM;
-	}
 
 	bt_class = class_create(THIS_MODULE, "bluetooth");
 	if (IS_ERR(bt_class)) {
-		destroy_workqueue(btdelconn);
-		destroy_workqueue(btaddconn);
+		destroy_workqueue(bluetooth);
 		return PTR_ERR(bt_class);
 	}
 
@@ -463,8 +453,7 @@ int __init bt_sysfs_init(void)
 
 void bt_sysfs_cleanup(void)
 {
-	destroy_workqueue(btaddconn);
-	destroy_workqueue(btdelconn);
+	destroy_workqueue(bluetooth);
 
 	class_destroy(bt_class);
 }

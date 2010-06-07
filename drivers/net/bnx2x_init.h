@@ -150,7 +150,6 @@ static void bnx2x_init_ind_wr(struct bnx2x *bp, u32 addr, const u32 *data,
 
 static void bnx2x_write_big_buf(struct bnx2x *bp, u32 addr, u32 len)
 {
-#ifdef USE_DMAE
 	int offset = 0;
 
 	if (bp->dmae_ready) {
@@ -164,9 +163,6 @@ static void bnx2x_write_big_buf(struct bnx2x *bp, u32 addr, u32 len)
 				 addr + offset, len);
 	} else
 		bnx2x_init_str_wr(bp, addr, bp->gunzip_buf, len);
-#else
-	bnx2x_init_str_wr(bp, addr, bp->gunzip_buf, len);
-#endif
 }
 
 static void bnx2x_init_fill(struct bnx2x *bp, u32 addr, int fill, u32 len)
@@ -564,14 +560,15 @@ static const struct arb_line write_arb_addr[NUM_WR_Q-1] = {
 
 static void bnx2x_init_pxp(struct bnx2x *bp)
 {
+	u16 devctl;
 	int r_order, w_order;
 	u32 val, i;
 
 	pci_read_config_word(bp->pdev,
-			     bp->pcie_cap + PCI_EXP_DEVCTL, (u16 *)&val);
-	DP(NETIF_MSG_HW, "read 0x%x from devctl\n", (u16)val);
-	w_order = ((val & PCI_EXP_DEVCTL_PAYLOAD) >> 5);
-	r_order = ((val & PCI_EXP_DEVCTL_READRQ) >> 12);
+			     bp->pcie_cap + PCI_EXP_DEVCTL, &devctl);
+	DP(NETIF_MSG_HW, "read 0x%x from devctl\n", devctl);
+	w_order = ((devctl & PCI_EXP_DEVCTL_PAYLOAD) >> 5);
+	r_order = ((devctl & PCI_EXP_DEVCTL_READRQ) >> 12);
 
 	if (r_order > MAX_RD_ORD) {
 		DP(NETIF_MSG_HW, "read order of %d  order adjusted to %d\n",

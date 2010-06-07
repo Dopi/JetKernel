@@ -17,7 +17,8 @@
 #ifndef __F_ACM_H
 #define __F_ACM_H
 
-int acm_function_add(struct usb_configuration *c);
+int acm_function_add(struct usb_composite_dev *cdev,
+	struct usb_configuration *c);
 void acm_function_enable(int enable);
 
 #endif /* __F_ACM_H */

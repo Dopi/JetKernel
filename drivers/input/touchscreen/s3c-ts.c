@@ -40,15 +40,15 @@
 #include <plat/ts.h>
 #include <mach/irqs.h>
 
-#include <plat/regs-gpio.h>	//	
-#include <plat/gpio-cfg.h>	//
+#include <plat/regs-gpio.h>
+#include <plat/gpio-cfg.h>
 #ifdef CONFIG_CPU_FREQ
 #include <plat/s3c64xx-dvfs.h>
-#endif
+#endif /* CONFIG_CPU_FREQ */
 
 #ifdef CONFIG_SAMSUNG_CALIBRATION_MODE
 #include "samsung_cal.h" 
-#endif
+#endif /* CONFIG_SAMSUNG_CALIBRATION_MODE */
 #define CONFIG_TOUCHSCREEN_S3C_DEBUG
 #undef CONFIG_TOUCHSCREEN_S3C_DEBUG
 
@@ -75,6 +75,7 @@ static void s3c_ts_done_callback (struct s3c_adcts_value *ts_value)
 
 	if (ts_value->status == TS_STATUS_UP)
 	{
+//		printk(KERN_INFO "[s3c_ts_done_callback] Touch is released\n"); 
                 input_report_key(data->dev, BTN_TOUCH, 0);
                 input_sync(data->dev);
 		data->xp_old= data->yp_old = -1;				
@@ -100,11 +101,11 @@ static void s3c_ts_done_callback (struct s3c_adcts_value *ts_value)
 		if (yp_max<ts_value->yp[i]) yp_max = ts_value->yp[i];
 	}
 
-	#ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG
+#ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG
 	struct timeval tv;
 	do_gettimeofday(&tv);
 	printk(KERN_INFO "[RAW]T: %06d, X: %03ld, Y: %03ld\n", (int)tv.tv_usec, x_sum, y_sum);
-	#endif		
+#endif /* CONFIG_TOUCHSCREEN_S3C_DEBUG */
 	if (ts->remove_max_min_sampling)
 	{
 		x_sum -= (xp_min + xp_max);
@@ -117,23 +118,22 @@ static void s3c_ts_done_callback (struct s3c_adcts_value *ts_value)
 		x_mean = x_sum / (ts->sampling_time);
 		y_mean = y_sum / (ts->sampling_time);
 	}
-	
 
 #ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG
 	{
 		printk(KERN_INFO "[MEAN_RAW]X: %03ld, Y: %03ld\n", x_mean, y_mean);
 	}
-#endif			
+#endif /* CONFIG_TOUCHSCREEN_S3C_DEBUG */
 
 	if (ts->use_tscal)
 	{
 #ifdef CONFIG_SAMSUNG_CALIBRATION_MODE
 		xp=(long) ((current_cal_val[2]+(current_cal_val[0]*x_mean)+(current_cal_val[1]*y_mean))/current_cal_val[6]);
 	        yp=(long) ((current_cal_val[5]+(current_cal_val[3]*x_mean)+(current_cal_val[4]*y_mean))/current_cal_val[6]);		
-#else
+#else /* CONFIG_SAMSUNG_CALIBRATION_MODE */
 		xp=(long) ((ts->tscal[2]+(ts->tscal[0]*x_mean)+(ts->tscal[1]*y_mean))/ts->tscal[6]);
 	        yp=(long) ((ts->tscal[5]+(ts->tscal[3]*x_mean)+(ts->tscal[4]*y_mean))/ts->tscal[6]);	
-#endif
+#endif /* CONFIG_SAMSUNG_CALIBRATION_MODE */
 	}
 	else
 	{
@@ -145,25 +145,30 @@ static void s3c_ts_done_callback (struct s3c_adcts_value *ts_value)
 	{				
 		printk(KERN_INFO "[After Cal]X: %03ld, Y: %03ld\n", xp, yp);
 	}
-#endif
+#endif /* CONFIG_TOUCHSCREEN_S3C_DEBUG */
 
 	if((xp!=data->xp_old || yp!=data->yp_old) && (xp >= 0 && yp >= 0) )
-        {
-        	touch_count++;		
+	{
+		touch_count++;		
 			
-        	if(touch_count == 1)		// check first touch
-        	{
+		if(touch_count == 1)		// check first touch
+		{
+#ifdef CONFIG_CPU_FREQ
+			set_dvfs_perf_level();
+#endif /* CONFIG_CPU_FREQ */
+
 #ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG
 			printk(KERN_INFO "\nFirst BTN_TOUCH Event(%03ld, %03ld) is discard\n", xp, yp);						
 #endif
 			return;
-        	}
+		}
 		else if(touch_count == 2)
 		{
 			data->xp_old=xp;
 			data->yp_old=yp;
 			return;
 		}
+//		printk(KERN_INFO "[s3c_ts_done_callback] Touch is pressed. x = %d, y = %d\n", data->xp_old, data->yp_old); 
         
 		input_report_abs(data->dev, ABS_X, data->xp_old);
                 input_report_abs(data->dev, ABS_Y, data->yp_old);
@@ -202,7 +207,7 @@ static void s3c_ts_done_callback (struct s3c_adcts_value *ts_value)
 				}							
 			}
 		}						
-#endif
+#endif /* CONFIG_SAMSUNG_CALIBRATION_MODE */
 
 		data->xp_old=xp;
 		data->yp_old=yp;
@@ -254,8 +259,7 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 		dev_err(dev, "s3c_ts.c: Could not initialization(touchscreen)!\n");
 		goto s3c_adcts_register_fail;
 	}
-		
-#endif
+#endif /* CONFIG_SAMSUNG_CALIBRATION_MODE */
 	// ]
 
         set_bit(0,data->dev->evbit);
@@ -349,7 +353,7 @@ static void __exit s3c_ts_exit(void)
 {
 #ifdef CONFIG_SAMSUNG_CALIBRATION_MODE
 	exit_samsung_cal_mode();
-#endif
+#endif /* CONFIG_SAMSUNG_CALIBRATION_MODE */
 	platform_driver_unregister(&s3c_ts_driver);
 }
 

@@ -14,9 +14,7 @@
 #include <linux/freezer.h>
 #include <linux/kthread.h>
 #include <linux/scatterlist.h>
-#include <linux/delay.h>
 
-#include <linux/mmc/mmc.h>
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
 #include "queue.h"
@@ -24,8 +22,6 @@
 #define MMC_QUEUE_BOUNCESZ	65536
 
 #define MMC_QUEUE_SUSPENDED	(1 << 0)
-
-extern int card_detect;
 
 /*
  * Prepare a MMC request. This just filters out odd stuff.
@@ -35,7 +31,7 @@ static int mmc_prep_request(struct request_queue *q, struct request *req)
 	/*
 	 * We only like normal block requests.
 	 */
-	if (!blk_fs_request(req) && !blk_pc_request(req)) {
+	if (!blk_fs_request(req)) {
 		blk_dump_rq_flags(req, "MMC bad request");
 		return BLKPREP_KILL;
 	}
@@ -49,14 +45,12 @@ static int mmc_queue_thread(void *d)
 {
 	struct mmc_queue *mq = d;
 	struct request_queue *q = mq->queue;
-	unsigned int err_cnt;
 
 	current->flags |= PF_MEMALLOC;
 
 	down(&mq->thread_sem);
 	do {
 		struct request *req = NULL;
-		err_cnt = 10;
 
 		spin_lock_irq(q->queue_lock);
 		set_current_state(TASK_INTERRUPTIBLE);
@@ -76,36 +70,7 @@ static int mmc_queue_thread(void *d)
 			continue;
 		}
 		set_current_state(TASK_RUNNING);
-#ifdef CONFIG_MMC_BLOCK_PARANOID_RESUME
-		if (mq->check_status) {
-			struct mmc_command cmd;
 
-			do {
-				int err;
-				if(!card_detect || err_cnt == 0)
-					break;
-
-				cmd.opcode = MMC_SEND_STATUS;
-				cmd.arg = mq->card->rca << 16;
-				cmd.flags = MMC_RSP_R1 | MMC_CMD_AC;
-
-				mmc_claim_host(mq->card->host);
-				err = mmc_wait_for_cmd(mq->card->host, &cmd, 5);
-				mmc_release_host(mq->card->host);
-
-				if (err) {
-					printk(KERN_ERR "%s: failed to get status (%d)\n",
-					       __func__, err);
-					msleep(5);
-					err_cnt --;
-					continue;
-				}
-				printk(KERN_DEBUG "%s: status 0x%.8x\n", __func__, cmd.resp[0]);
-			} while (!(cmd.resp[0] & R1_READY_FOR_DATA) ||
-				(R1_CURRENT_STATE(cmd.resp[0]) == 7));
-			mq->check_status = 0;
-                }
-#endif
 		mq->issue_fn(mq, req);
 	} while (1);
 	up(&mq->thread_sem);
@@ -166,6 +131,8 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card, spinlock_t *lock
 	mq->req = NULL;
 
 	blk_queue_prep_rq(mq->queue, mmc_prep_request);
+	blk_queue_ordered(mq->queue, QUEUE_ORDERED_DRAIN, NULL);
+	queue_flag_set_unlocked(QUEUE_FLAG_NONROT, mq->queue);
 
 #ifdef CONFIG_MMC_BLOCK_BOUNCE
 	if (host->max_hw_segs == 1) {
@@ -177,12 +144,19 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card, spinlock_t *lock
 			bouncesz = host->max_req_size;
 		if (bouncesz > host->max_seg_size)
 			bouncesz = host->max_seg_size;
+		if (bouncesz > (host->max_blk_count * 512))
+			bouncesz = host->max_blk_count * 512;
 
-		mq->bounce_buf = kmalloc(bouncesz, GFP_KERNEL);
-		if (!mq->bounce_buf) {
-			printk(KERN_WARNING "%s: unable to allocate "
-				"bounce buffer\n", mmc_card_name(card));
-		} else {
+		if (bouncesz > 512) {
+			mq->bounce_buf = kmalloc(bouncesz, GFP_KERNEL);
+			if (!mq->bounce_buf) {
+				printk(KERN_WARNING "%s: unable to "
+					"allocate bounce buffer\n",
+					mmc_card_name(card));
+			}
+		}
+
+		if (mq->bounce_buf) {
 			blk_queue_bounce_limit(mq->queue, BLK_BOUNCE_ANY);
 			blk_queue_max_sectors(mq->queue, bouncesz / 512);
 			blk_queue_max_phys_segments(mq->queue, bouncesz / 512);
@@ -210,7 +184,8 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card, spinlock_t *lock
 
 	if (!mq->bounce_buf) {
 		blk_queue_bounce_limit(mq->queue, limit);
-		blk_queue_max_sectors(mq->queue, host->max_req_size / 512);
+		blk_queue_max_sectors(mq->queue,
+			min(host->max_blk_count, host->max_req_size / 512));
 		blk_queue_max_phys_segments(mq->queue, host->max_phys_segs);
 		blk_queue_max_hw_segments(mq->queue, host->max_hw_segs);
 		blk_queue_max_segment_size(mq->queue, host->max_seg_size);

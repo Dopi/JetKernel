@@ -23,6 +23,7 @@
 #include <linux/pm.h>
 #include <linux/resume-trace.h>
 #include <linux/rwsem.h>
+#include <linux/timer.h>
 
 #include "../base.h"
 #include "power.h"
@@ -40,6 +41,9 @@
 LIST_HEAD(dpm_list);
 
 static DEFINE_MUTEX(dpm_list_mtx);
+
+static void dpm_drv_timeout(unsigned long data);
+static DEFINE_TIMER(dpm_drv_wd, dpm_drv_timeout, 0, 0);
 
 /*
  * Set once the preparation of devices for a PM transition has started, reset
@@ -76,14 +80,14 @@ void device_pm_add(struct device *dev)
 	if (dev->parent) {
 		if (dev->parent->power.status >= DPM_SUSPENDING)
 			dev_warn(dev, "parent %s should not be sleeping\n",
-				dev->parent->bus_id);
+				 dev_name(dev->parent));
 	} else if (transition_started) {
 		/*
 		 * We refuse to register parentless devices while a PM
 		 * transition is in progress in order to avoid leaving them
 		 * unhandled down the road
 		 */
-		WARN_ON(true);
+		dev_WARN(dev, "Parentless device registered during a PM transaction\n");
 	}
 
 	list_add_tail(&dev->power.entry, &dpm_list);
@@ -112,7 +116,8 @@ void device_pm_remove(struct device *dev)
  *	@ops:	PM operations to choose from.
  *	@state:	PM transition of the system being carried out.
  */
-static int pm_op(struct device *dev, struct pm_ops *ops, pm_message_t state)
+static int pm_op(struct device *dev, struct dev_pm_ops *ops,
+			pm_message_t state)
 {
 	int error = 0;
 
@@ -174,7 +179,7 @@ static int pm_op(struct device *dev, struct pm_ops *ops, pm_message_t state)
  *	The operation is executed with interrupts disabled by the only remaining
  *	functional CPU in the system.
  */
-static int pm_noirq_op(struct device *dev, struct pm_ext_ops *ops,
+static int pm_noirq_op(struct device *dev, struct dev_pm_ops *ops,
 			pm_message_t state)
 {
 	int error = 0;
@@ -332,7 +337,6 @@ static void dpm_power_up(pm_message_t state)
  */
 void device_power_up(pm_message_t state)
 {
-	sysdev_resume();
 	dpm_power_up(state);
 }
 EXPORT_SYMBOL_GPL(device_power_up);
@@ -354,7 +358,7 @@ static int resume_device(struct device *dev, pm_message_t state)
 	if (dev->bus) {
 		if (dev->bus->pm) {
 			pm_dev_dbg(dev, state, "");
-			error = pm_op(dev, &dev->bus->pm->base, state);
+			error = pm_op(dev, dev->bus->pm, state);
 		} else if (dev->bus->resume) {
 			pm_dev_dbg(dev, state, "legacy ");
 			error = dev->bus->resume(dev);
@@ -389,6 +393,45 @@ static int resume_device(struct device *dev, pm_message_t state)
 
 	TRACE_RESUME(error);
 	return error;
+}
+
+/**
+ *	dpm_drv_timeout - Driver suspend / resume watchdog handler
+ *	@data: struct device which timed out
+ *
+ * 	Called when a driver has timed out suspending or resuming.
+ * 	There's not much we can do here to recover so
+ * 	BUG() out for a crash-dump
+ *
+ */
+static void dpm_drv_timeout(unsigned long data)
+{
+	struct device *dev = (struct device *) data;
+
+	printk(KERN_EMERG "**** DPM device timeout: %s (%s)\n", dev_name(dev),
+	       (dev->driver ? dev->driver->name : "no driver"));
+	BUG();
+}
+
+/**
+ *	dpm_drv_wdset - Sets up driver suspend/resume watchdog timer.
+ *	@dev: struct device which we're guarding.
+ *
+ */
+static void dpm_drv_wdset(struct device *dev)
+{
+	dpm_drv_wd.data = (unsigned long) dev;
+	mod_timer(&dpm_drv_wd, jiffies + (HZ * 3));
+}
+
+/**
+ *	dpm_drv_wdclr - clears driver suspend/resume watchdog timer.
+ *	@dev: struct device which we're no longer guarding.
+ *
+ */
+static void dpm_drv_wdclr(struct device *dev)
+{
+	del_timer_sync(&dpm_drv_wd);
 }
 
 /**
@@ -451,9 +494,9 @@ static void complete_device(struct device *dev, pm_message_t state)
 		dev->type->pm->complete(dev);
 	}
 
-	if (dev->bus && dev->bus->pm && dev->bus->pm->base.complete) {
+	if (dev->bus && dev->bus->pm && dev->bus->pm->complete) {
 		pm_dev_dbg(dev, state, "completing ");
-		dev->bus->pm->base.complete(dev);
+		dev->bus->pm->complete(dev);
 	}
 
 	up(&dev->sem);
@@ -576,8 +619,6 @@ int device_power_down(pm_message_t state)
 		}
 		dev->power.status = DPM_OFF_IRQ;
 	}
-	if (!error)
-		error = sysdev_suspend(state);
 	if (error)
 		dpm_power_up(resume_event(state));
 	return error;
@@ -624,7 +665,7 @@ static int suspend_device(struct device *dev, pm_message_t state)
 	if (dev->bus) {
 		if (dev->bus->pm) {
 			pm_dev_dbg(dev, state, "");
-			error = pm_op(dev, &dev->bus->pm->base, state);
+			error = pm_op(dev, dev->bus->pm, state);
 		} else if (dev->bus->suspend) {
 			pm_dev_dbg(dev, state, "legacy ");
 			error = dev->bus->suspend(dev, state);
@@ -657,7 +698,9 @@ static int dpm_suspend(pm_message_t state)
 		get_device(dev);
 		mutex_unlock(&dpm_list_mtx);
 
+		dpm_drv_wdset(dev);
 		error = suspend_device(dev, state);
+		dpm_drv_wdclr(dev);
 
 		mutex_lock(&dpm_list_mtx);
 		if (error) {
@@ -691,10 +734,10 @@ static int prepare_device(struct device *dev, pm_message_t state)
 
 	down(&dev->sem);
 
-	if (dev->bus && dev->bus->pm && dev->bus->pm->base.prepare) {
+	if (dev->bus && dev->bus->pm && dev->bus->pm->prepare) {
 		pm_dev_dbg(dev, state, "preparing ");
-		error = dev->bus->pm->base.prepare(dev);
-		suspend_report_result(dev->bus->pm->base.prepare, error);
+		error = dev->bus->pm->prepare(dev);
+		suspend_report_result(dev->bus->pm->prepare, error);
 		if (error)
 			goto End;
 	}
@@ -784,10 +827,7 @@ EXPORT_SYMBOL_GPL(device_suspend);
 
 void __suspend_report_result(const char *function, void *fn, int ret)
 {
-	if (ret) {
-		printk(KERN_ERR "%s(): ", function);
-		print_fn_descriptor_symbol("%s returns ", fn);
-		printk("%d\n", ret);
-	}
+	if (ret)
+		printk(KERN_ERR "%s(): %pF returns %d\n", function, fn, ret);
 }
 EXPORT_SYMBOL_GPL(__suspend_report_result);

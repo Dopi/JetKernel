@@ -35,6 +35,7 @@
 #include <linux/signal.h>
 #include <linux/elf.h>
 #include <linux/regset.h>
+#include <linux/tracehook.h>
 
 #include <asm/segment.h>
 #include <asm/page.h>
@@ -203,7 +204,6 @@ static unsigned long __peek_user(struct task_struct *child, addr_t addr)
 static int
 peek_user(struct task_struct *child, addr_t addr, addr_t data)
 {
-	struct user *dummy = NULL;
 	addr_t tmp, mask;
 
 	/*
@@ -212,8 +212,8 @@ peek_user(struct task_struct *child, addr_t addr, addr_t data)
 	 */
 	mask = __ADDR_MASK;
 #ifdef CONFIG_64BIT
-	if (addr >= (addr_t) &dummy->regs.acrs &&
-	    addr < (addr_t) &dummy->regs.orig_gpr2)
+	if (addr >= (addr_t) &((struct user *) NULL)->regs.acrs &&
+	    addr < (addr_t) &((struct user *) NULL)->regs.orig_gpr2)
 		mask = 3;
 #endif
 	if ((addr & mask) || addr > sizeof(struct user) - __ADDR_MASK)
@@ -311,7 +311,6 @@ static int __poke_user(struct task_struct *child, addr_t addr, addr_t data)
 static int
 poke_user(struct task_struct *child, addr_t addr, addr_t data)
 {
-	struct user *dummy = NULL;
 	addr_t mask;
 
 	/*
@@ -320,8 +319,8 @@ poke_user(struct task_struct *child, addr_t addr, addr_t data)
 	 */
 	mask = __ADDR_MASK;
 #ifdef CONFIG_64BIT
-	if (addr >= (addr_t) &dummy->regs.acrs &&
-	    addr < (addr_t) &dummy->regs.orig_gpr2)
+	if (addr >= (addr_t) &((struct user *) NULL)->regs.acrs &&
+	    addr < (addr_t) &((struct user *) NULL)->regs.orig_gpr2)
 		mask = 3;
 #endif
 	if ((addr & mask) || addr > sizeof(struct user) - __ADDR_MASK)
@@ -639,40 +638,44 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 }
 #endif
 
-asmlinkage void
-syscall_trace(struct pt_regs *regs, int entryexit)
+asmlinkage long do_syscall_trace_enter(struct pt_regs *regs)
 {
-	if (unlikely(current->audit_context) && entryexit)
-		audit_syscall_exit(AUDITSC_RESULT(regs->gprs[2]), regs->gprs[2]);
-
-	if (!test_thread_flag(TIF_SYSCALL_TRACE))
-		goto out;
-	if (!(current->ptrace & PT_PTRACED))
-		goto out;
-	ptrace_notify(SIGTRAP | ((current->ptrace & PT_TRACESYSGOOD)
-				 ? 0x80 : 0));
+	long ret;
 
 	/*
-	 * If the debuffer has set an invalid system call number,
-	 * we prepare to skip the system call restart handling.
+	 * The sysc_tracesys code in entry.S stored the system
+	 * call number to gprs[2].
 	 */
-	if (!entryexit && regs->gprs[2] >= NR_syscalls)
-		regs->trap = -1;
-
-	/*
-	 * this isn't the same as continuing with a signal, but it will do
-	 * for normal use.  strace only continues with a signal if the
-	 * stopping signal is not SIGTRAP.  -brl
-	 */
-	if (current->exit_code) {
-		send_sig(current->exit_code, current, 1);
-		current->exit_code = 0;
+	ret = regs->gprs[2];
+	if (test_thread_flag(TIF_SYSCALL_TRACE) &&
+	    (tracehook_report_syscall_entry(regs) ||
+	     regs->gprs[2] >= NR_syscalls)) {
+		/*
+		 * Tracing decided this syscall should not happen or the
+		 * debugger stored an invalid system call number. Skip
+		 * the system call and the system call restart handling.
+		 */
+		regs->svcnr = 0;
+		ret = -1;
 	}
- out:
-	if (unlikely(current->audit_context) && !entryexit)
-		audit_syscall_entry(test_thread_flag(TIF_31BIT)?AUDIT_ARCH_S390:AUDIT_ARCH_S390X,
-				    regs->gprs[2], regs->orig_gpr2, regs->gprs[3],
-				    regs->gprs[4], regs->gprs[5]);
+
+	if (unlikely(current->audit_context))
+		audit_syscall_entry(test_thread_flag(TIF_31BIT) ?
+					AUDIT_ARCH_S390 : AUDIT_ARCH_S390X,
+				    regs->gprs[2], regs->orig_gpr2,
+				    regs->gprs[3], regs->gprs[4],
+				    regs->gprs[5]);
+	return ret;
+}
+
+asmlinkage void do_syscall_trace_exit(struct pt_regs *regs)
+{
+	if (unlikely(current->audit_context))
+		audit_syscall_exit(AUDITSC_RESULT(regs->gprs[2]),
+				   regs->gprs[2]);
+
+	if (test_thread_flag(TIF_SYSCALL_TRACE))
+		tracehook_report_syscall_exit(regs, 0);
 }
 
 /*

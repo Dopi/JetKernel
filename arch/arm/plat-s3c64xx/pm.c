@@ -1,4 +1,4 @@
-/* linux/arch/arm/plat-s3c24xx/pm.c
+/* linux/arch/arm/plat-s3c64xx/pm.c
  *
  * Copyright (c) 2004,2006 Simtec Electronics
  *	Ben Dooks <ben@simtec.co.uk>
@@ -71,11 +71,10 @@ EXPORT_SYMBOL(bml_resume_fp);
 #ifdef CONFIG_S3C64XX_DOMAIN_GATING
 #include <plat/power-clock-domain.h>
 
-//#define DEBUG_POWER_DOMAIN
-#ifdef DEBUG_POWER_DOMAIN
+#ifdef CONFIG_S3C64XX_DOMAIN_GATING_DEBUG
 static int domain_hash_map[15]={0, 1, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 7};
 static char *domain_name[] = {"G","V", "I", "P", "F", "S", "ETM", "IROM"}; 
-#endif	/* DEBUG_POWER_DOMAIN */
+#endif /* CONFIG_S3C64XX_DOMAIN_GATING_DEBUG */
 
 static spinlock_t power_lock;
 
@@ -148,10 +147,10 @@ void s3c_set_normal_cfg(unsigned int config, unsigned int flag, unsigned int dev
 		if(!(normal_cfg & config)) {
 			normal_cfg |= (config);
 			__raw_writel(normal_cfg, S3C_NORMAL_CFG);
-#ifdef DEBUG_POWER_DOMAIN
+#ifdef CONFIG_S3C64XX_DOMAIN_GATING_DEBUG
 			printk("===== Domain-%s Power ON NORMAL_CFG : %x \n",
 					domain_name[domain_hash_map[deviceID]], normal_cfg);
-#endif	/* DEBUG_POWER_DOMAIN */
+#endif /* CONFIG_S3C64XX_DOMAIN_GATING_DEBUG */
 		}
 		
 	}
@@ -162,10 +161,10 @@ void s3c_set_normal_cfg(unsigned int config, unsigned int flag, unsigned int dev
 			if(normal_cfg & config) {
 				normal_cfg &= (~config);
 				__raw_writel(normal_cfg, S3C_NORMAL_CFG);
-#ifdef DEBUG_POWER_DOMAIN
+#ifdef CONFIG_S3C64XX_DOMAIN_GATING_DEBUG
 				printk("===== Domain-%s Power OFF NORMAL_CFG : %x \n",
 						domain_name[domain_hash_map[deviceID]], normal_cfg);
-#endif	/* DEBUG_POWER_DOMAIN */
+#endif /* CONFIG_S3C64XX_DOMAIN_GATING_DEBUG */
 			}
 		}
 	}	
@@ -404,14 +403,14 @@ static struct sleep_save onenand_save[] = {
 };
 
 
-#ifdef CONFIG_S3C2410_PM_DEBUG
+#ifdef CONFIG_S3C_PM_DEBUG
 
 #define SAVE_UART(va) \
-	SAVE_ITEM((va) + S3C2410_ULCON), \
-	SAVE_ITEM((va) + S3C2410_UCON), \
-	SAVE_ITEM((va) + S3C2410_UFCON), \
-	SAVE_ITEM((va) + S3C2410_UMCON), \
-	SAVE_ITEM((va) + S3C2410_UBRDIV)
+	SAVE_ITEM((va) + S3C_ULCON), \
+	SAVE_ITEM((va) + S3C_UCON), \
+	SAVE_ITEM((va) + S3C_UFCON), \
+	SAVE_ITEM((va) + S3C_UMCON), \
+	SAVE_ITEM((va) + S3C_UBRDIV)
 
 static struct sleep_save uart_save[] = {
 	SAVE_UART(S3C24XX_VA_UART0),
@@ -441,16 +440,16 @@ void pm_dbg(const char *fmt, ...)
 	printascii(buff);
 }
 
-static void s3c2410_pm_debug_init(void)
+static void s3c_pm_debug_init(void)
 {
-	unsigned long tmp = __raw_readl(S3C2410_CLKCON);
+	unsigned long tmp = __raw_readl(S3C_CLKCON);
 
 	/* re-start uart clocks */
-	tmp |= S3C2410_CLKCON_UART0;
-	tmp |= S3C2410_CLKCON_UART1;
-	tmp |= S3C2410_CLKCON_UART2;
+	tmp |= S3C_CLKCON_UART0;
+	tmp |= S3C_CLKCON_UART1;
+	tmp |= S3C_CLKCON_UART2;
 
-	__raw_writel(tmp, S3C2410_CLKCON);
+	__raw_writel(tmp, S3C_CLKCON);
 	udelay(10);
 }
 
@@ -459,9 +458,9 @@ static void s3c2410_pm_debug_init(void)
 #define DBG(fmt...)
 
 #define s3c6410_pm_debug_init() do { } while(0)
-#endif	/* CONFIG_S3C2410_PM_DEBUG */
+#endif	/* CONFIG_S3C_PM_DEBUG */
 
-#if defined(CONFIG_S3C2410_PM_CHECK) && CONFIG_S3C2410_PM_CHECK_CHUNKSIZE != 0
+#if defined(CONFIG_S3C_PM_CHECK) && CONFIG_S3C_PM_CHECK_CHUNKSIZE != 0
 
 /* suspend checking code...
  *
@@ -473,7 +472,7 @@ static void s3c2410_pm_debug_init(void)
  * and reducing the size will cause the CRC save area to grow
 */
 
-#define CHECK_CHUNKSIZE (CONFIG_S3C2410_PM_CHECK_CHUNKSIZE * 1024)
+#define CHECK_CHUNKSIZE (CONFIG_S3C_PM_CHECK_CHUNKSIZE * 1024)
 
 static u32 crc_size;	/* size needed for the crc block */
 static u32 *crcs;	/* allocated over suspend/resume */
@@ -653,7 +652,7 @@ static void s3c6410_pm_check_restore(void)
 #define s3c6410_pm_check_prepare() do { } while(0)
 #define s3c6410_pm_check_restore() do { } while(0)
 #define s3c6410_pm_check_store()   do { } while(0)
-#endif	/* defined(CONFIG_S3C2410_PM_CHECK) && CONFIG_S3C2410_PM_CHECK_CHUNKSIZE != 0 */
+#endif	/* defined(CONFIG_S3C_PM_CHECK) && CONFIG_S3C_PM_CHECK_CHUNKSIZE != 0 */
 
 /* helper functions to save and restore register state */
 
@@ -700,7 +699,7 @@ void s3c6410_pm_do_restore(struct sleep_save *ptr, int count)
  * struct sleep_save_phy type
 */
 
-int s3c2410_pm_do_save_phy(struct sleep_save_phy *ptr, struct platform_device *pdev, int count)
+int s3c_pm_do_save_phy(struct sleep_save_phy *ptr, struct platform_device *pdev, int count)
 {
 	void __iomem *target_reg;
 	struct resource *res;
@@ -730,7 +729,7 @@ int s3c2410_pm_do_save_phy(struct sleep_save_phy *ptr, struct platform_device *p
  * struct sleep_save_phy type
 */
 
-int s3c2410_pm_do_restore_phy(struct sleep_save_phy *ptr, struct platform_device *pdev, int count)
+int s3c_pm_do_restore_phy(struct sleep_save_phy *ptr, struct platform_device *pdev, int count)
 {
 	void __iomem *target_reg;
 	struct resource *res;
@@ -769,9 +768,9 @@ static void s3c6410_pm_configure_extint(void)
 	/* for each of the external interrupts (EINT0..EINT15) we
 	 * need to check wether it is an external interrupt source,
 	 * and then configure it as an input if it is not
-	 */
+	*/
 	s3c_eint_mask_val = __raw_readl(S3C_EINT_MASK);
-	
+
 	s3c_config_wakeup_source();
 }
 
@@ -812,7 +811,7 @@ static int s3c6410_pm_enter(suspend_state_t state)
 	/* store the physical address of the register recovery block */
 	s3c6410_sleep_save_phys = virt_to_phys(regs_save);
 
-	printk("s3c6410_sleep_save_phys=0x%08lx\n", s3c6410_sleep_save_phys);
+	DBG("s3c6410_sleep_save_phys=0x%08lx\n", s3c6410_sleep_save_phys);
 
 	/* save all necessary core registers not covered by the drivers */
 
@@ -897,7 +896,7 @@ static int s3c6410_pm_enter(suspend_state_t state)
 	s3c6410_pm_do_restore(gpio_save, ARRAY_SIZE(gpio_save));
 	s3c6410_pm_do_restore(irq_save, ARRAY_SIZE(irq_save));
 	s3c6410_pm_do_restore(onenand_save, ARRAY_SIZE(onenand_save));
-
+	
 	__raw_writel(0x0, S3C64XX_SLPEN);
 
 	wakeup_stat = __raw_readl(S3C_WAKEUP_STAT);

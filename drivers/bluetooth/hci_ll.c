@@ -51,11 +51,6 @@
 
 #include "hci_uart.h"
 
-#ifndef CONFIG_BT_HCIUART_DEBUG
-#undef  BT_DBG
-#define BT_DBG( A... )
-#endif
-
 /* HCILL commands */
 #define HCILL_GO_TO_SLEEP_IND	0x30
 #define HCILL_GO_TO_SLEEP_ACK	0x31
@@ -168,8 +163,7 @@ static int ll_close(struct hci_uart *hu)
 	skb_queue_purge(&ll->tx_wait_q);
 	skb_queue_purge(&ll->txq);
 
-	if (ll->rx_skb)
-		kfree_skb(ll->rx_skb);
+	kfree_skb(ll->rx_skb);
 
 	hu->priv = NULL;
 

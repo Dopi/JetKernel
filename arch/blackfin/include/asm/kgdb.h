@@ -1,32 +1,8 @@
-/*
- * File:         include/asm-blackfin/kgdb.h
- * Based on:
- * Author:       Sonic Zhang
+/* Blackfin KGDB header
  *
- * Created:
- * Description:
+ * Copyright 2005-2009 Analog Devices Inc.
  *
- * Rev:          $Id: kgdb_bfin_linux-2.6.x.patch 4934 2007-02-13 09:32:11Z sonicz $
- *
- * Modified:
- *               Copyright 2005-2006 Analog Devices Inc.
- *
- * Bugs:         Enter bugs at http://blackfin.uclinux.org/
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, see the file COPYING, or write
- * to the Free Software Foundation, Inc.,
- * 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * Licensed under the GPL-2 or later.
  */
 
 #ifndef __ASM_BLACKFIN_KGDB_H__
@@ -37,17 +13,18 @@
 /* gdb locks */
 #define KGDB_MAX_NO_CPUS 8
 
-/************************************************************************/
-/* BUFMAX defines the maximum number of characters in inbound/outbound buffers*/
-/* at least NUMREGBYTES*2 are needed for register packets */
-/* Longer buffer is needed to list all threads */
+/*
+ * BUFMAX defines the maximum number of characters in inbound/outbound buffers.
+ * At least NUMREGBYTES*2 are needed for register packets.
+ * Longer buffer is needed to list all threads.
+ */
 #define BUFMAX 2048
 
 /*
- *  Note that this register image is different from
- *  the register image that Linux produces at interrupt time.
- *  
- *  Linux's register image is defined by struct pt_regs in ptrace.h.
+ * Note that this register image is different from
+ * the register image that Linux produces at interrupt time.
+ *
+ * Linux's register image is defined by struct pt_regs in ptrace.h.
  */
 enum regnames {
   /* Core Registers */
@@ -104,14 +81,14 @@ enum regnames {
   BFIN_RETX,
   BFIN_RETN,
   BFIN_RETE,
-  
+
   /* Pseudo Registers */
   BFIN_PC,
   BFIN_CC,
   BFIN_EXTRA1,		/* Address of .text section.  */
   BFIN_EXTRA2,		/* Address of .data section.  */
   BFIN_EXTRA3,		/* Address of .bss section.  */
-  BFIN_FDPIC_EXEC, 
+  BFIN_FDPIC_EXEC,
   BFIN_FDPIC_INTERP,
 
   /* MMRs */
@@ -124,9 +101,16 @@ enum regnames {
 /* Number of bytes of registers.  */
 #define NUMREGBYTES BFIN_NUM_REGS*4
 
-#define BREAKPOINT() asm("   EXCPT 2;");
-#define BREAK_INSTR_SIZE       2
-#define HW_BREAKPOINT_NUM		6
+static inline void arch_kgdb_breakpoint(void)
+{
+	asm("EXCPT 2;");
+}
+#define BREAK_INSTR_SIZE	2
+#define CACHE_FLUSH_IS_SAFE	1
+#define HW_INST_WATCHPOINT_NUM	6
+#define HW_WATCHPOINT_NUM	8
+#define TYPE_INST_WATCHPOINT	0
+#define TYPE_DATA_WATCHPOINT	1
 
 /* Instruction watchpoint address control register bits mask */
 #define WPPWR		0x1
@@ -163,10 +147,11 @@ enum regnames {
 #define WPDAEN1		0x8
 #define WPDCNTEN0	0x10
 #define WPDCNTEN1	0x20
+
 #define WPDSRC0		0xc0
-#define WPDACC0		0x300
+#define WPDACC0_OFFSET	8
 #define WPDSRC1		0xc00
-#define WPDACC1		0x3000
+#define WPDACC1_OFFSET	12
 
 /* Watchpoint status register bits mask */
 #define STATIA0		0x1
@@ -177,8 +162,5 @@ enum regnames {
 #define STATIA5		0x20
 #define STATDA0		0x40
 #define STATDA1		0x80
-
-extern void kgdb_print(const char *fmt, ...);
-extern void init_kgdb_uart(void);
 
 #endif

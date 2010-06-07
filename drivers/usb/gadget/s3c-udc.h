@@ -25,31 +25,35 @@
 
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/ioport.h>
 #include <linux/types.h>
-#include <linux/version.h>
 #include <linux/errno.h>
 #include <linux/delay.h>
-#include <linux/sched.h>
-#include <linux/slab.h>
 #include <linux/init.h>
-#include <linux/timer.h>
 #include <linux/list.h>
 #include <linux/interrupt.h>
 #include <linux/proc_fs.h>
-#include <linux/mm.h>
-#include <linux/device.h>
 #include <linux/dma-mapping.h>
+#include <linux/i2c.h>
+#include <linux/platform_device.h>
+#include <linux/clk.h>
+
+#include <linux/usb/ch9.h>
+#include <linux/usb/gadget.h>
 
 #include <asm/byteorder.h>
 #include <asm/dma.h>
 #include <asm/io.h>
-#include <asm/irq.h>
 #include <asm/system.h>
 #include <asm/unaligned.h>
 
-#include <linux/usb/ch9.h>
-#include <linux/usb/gadget.h>
+#include <plat/regs-usb-otg-hs.h>
+#include <plat/regs-clock.h> 
+#include <plat/regs-gpio.h>
+#include <plat/gpio-cfg.h>
+
+#include <mach/map.h>
+#include <mach/hardware.h>
+
 
 //S3C UDC send ZLP if req.zero == 1
 #define S3C_UDC_ZLP		1

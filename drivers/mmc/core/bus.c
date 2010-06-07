@@ -84,6 +84,14 @@ mmc_bus_uevent(struct device *dev, struct kobj_uevent_env *env)
 	}
 
 	retval = add_uevent_var(env, "MMC_NAME=%s", mmc_card_name(card));
+	if (retval)
+		return retval;
+
+	/*
+	 * Request the mmc_block device.  Note: that this is a direct request
+	 * for the module it carries no information as to what is inserted.
+	 */
+	retval = add_uevent_var(env, "MODALIAS=mmc:block");
 
 	return retval;
 }
@@ -216,8 +224,7 @@ int mmc_add_card(struct mmc_card *card)
 	int ret;
 	const char *type;
 
-	snprintf(card->dev.bus_id, sizeof(card->dev.bus_id),
-		 "%s:%04x", mmc_hostname(card->host), card->rca);
+	dev_set_name(&card->dev, "%s:%04x", mmc_hostname(card->host), card->rca);
 
 	switch (card->type) {
 	case MMC_TYPE_MMC:

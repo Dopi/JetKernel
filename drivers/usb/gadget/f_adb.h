@@ -26,7 +26,8 @@
  */
 #define	USBCV_CH9_REMOTE_WAKE_UP_TEST 0
 
-int adb_function_add(struct usb_configuration *c);
+int adb_function_add(struct usb_composite_dev *cdev,
+	struct usb_configuration *c);
 void adb_function_enable(int enable);
 
 #endif /* __F_ADB_H */

@@ -46,6 +46,7 @@ static const char shortname[] = "android_adb";
 
 struct adb_dev {
 	struct usb_function function;
+	struct usb_composite_dev *cdev;
 	spinlock_t lock;
 
 	struct usb_ep *ep_in;
@@ -257,7 +258,7 @@ static int __init create_bulk_endpoints(struct adb_dev *dev,
 				struct usb_endpoint_descriptor *in_desc,
 				struct usb_endpoint_descriptor *out_desc)
 {
-	struct usb_composite_dev *cdev = dev->function.config->cdev;
+	struct usb_composite_dev *cdev = dev->cdev;
 	struct usb_request *req;
 	struct usb_ep *ep;
 	int i;
@@ -310,7 +311,7 @@ static ssize_t adb_read(struct file *fp, char __user *buf,
 				size_t count, loff_t *pos)
 {
 	struct adb_dev *dev = fp->private_data;
-	struct usb_composite_dev *cdev = dev->function.config->cdev;
+	struct usb_composite_dev *cdev = dev->cdev;
 	struct usb_request *req;
 	int r = count, xfer;
 	int ret;
@@ -412,7 +413,7 @@ static ssize_t adb_write(struct file *fp, const char __user *buf,
 				 size_t count, loff_t *pos)
 {
 	struct adb_dev *dev = fp->private_data;
-	struct usb_composite_dev *cdev = dev->function.config->cdev;
+	struct usb_composite_dev *cdev = dev->cdev;
 	struct usb_request *req = 0;
 	int r = count, xfer;
 	int ret;
@@ -527,6 +528,7 @@ adb_function_bind(struct usb_configuration *c, struct usb_function *f)
 	int			id;
 	int			ret;
 
+	dev->cdev = cdev;
 	DBG(cdev, "adb_function_bind dev: %p\n", dev);
 
 	/* allocate interface ID(s) */
@@ -589,8 +591,8 @@ static int adb_function_set_alt(struct usb_function *f,
 	if(dev->ep_in->driver_data)
 		usb_ep_disable(dev->ep_in);
 	ret = usb_ep_enable(dev->ep_in,
-			ep_choose(cdev->gadget,	
-				&adb_highspeed_in_desc,	
+			ep_choose(cdev->gadget,
+				&adb_highspeed_in_desc,
 				&adb_fullspeed_in_desc));
 	if (ret)
 		return ret;
@@ -599,8 +601,8 @@ static int adb_function_set_alt(struct usb_function *f,
 	if(dev->ep_out->driver_data)
 		usb_ep_disable(dev->ep_out);
 	ret = usb_ep_enable(dev->ep_out,
-			ep_choose(cdev->gadget,	
-				&adb_highspeed_out_desc, 
+			ep_choose(cdev->gadget,
+				&adb_highspeed_out_desc,
 				&adb_fullspeed_out_desc));
 	if (ret) {
 		usb_ep_disable(dev->ep_in);
@@ -619,7 +621,7 @@ static int adb_function_set_alt(struct usb_function *f,
 static void adb_function_disable(struct usb_function *f)
 {
 	struct adb_dev	*dev = func_to_dev(f);
-	struct usb_composite_dev	*cdev = dev->function.config->cdev;
+	struct usb_composite_dev	*cdev = dev->cdev;
 
 	DBG(cdev, "adb_function_disable\n");
 	dev->online = 0;
@@ -637,7 +639,8 @@ static void adb_function_disable(struct usb_function *f)
 	VDBG(cdev, "%s disabled\n", dev->function.name);
 }
 
-int __init adb_function_add(struct usb_configuration *c)
+int __init adb_function_add(struct usb_composite_dev *cdev,
+	struct usb_configuration *c)
 {
 	struct adb_dev *dev;
 	int ret, status;
@@ -671,6 +674,7 @@ int __init adb_function_add(struct usb_configuration *c)
 	INIT_LIST_HEAD(&dev->rx_done);
 	INIT_LIST_HEAD(&dev->tx_idle);
 
+	dev->cdev = cdev;
 	dev->function.name = "adb";
 	dev->function.strings = adb_strings;
 	dev->function.descriptors = null_adb_descs;

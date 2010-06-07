@@ -540,7 +540,6 @@ static int sh_eth_rx(struct net_device *ndev)
 			skb_put(skb, pkt_len);
 			skb->protocol = eth_type_trans(skb, ndev);
 			netif_rx(skb);
-			ndev->last_rx = jiffies;
 			mdp->stats.rx_packets++;
 			mdp->stats.rx_bytes += pkt_len;
 		}
@@ -688,6 +687,7 @@ static irqreturn_t sh_eth_interrupt(int irq, void *netdev)
 {
 	struct net_device *ndev = netdev;
 	struct sh_eth_private *mdp = netdev_priv(ndev);
+	irqreturn_t ret = IRQ_NONE;
 	u32 ioaddr, boguscnt = RX_RING_SIZE;
 	u32 intr_status = 0;
 
@@ -697,7 +697,13 @@ static irqreturn_t sh_eth_interrupt(int irq, void *netdev)
 	/* Get interrpt stat */
 	intr_status = ctrl_inl(ioaddr + EESR);
 	/* Clear interrupt */
-	ctrl_outl(intr_status, ioaddr + EESR);
+	if (intr_status & (EESR_FRC | EESR_RMAF | EESR_RRF |
+			EESR_RTLF | EESR_RTSF | EESR_PRE | EESR_CERF |
+			TX_CHECK | EESR_ERR_CHECK)) {
+		ctrl_outl(intr_status, ioaddr + EESR);
+		ret = IRQ_HANDLED;
+	} else
+		goto other_irq;
 
 	if (intr_status & (EESR_FRC | /* Frame recv*/
 			EESR_RMAF | /* Multi cast address recv*/
@@ -724,9 +730,10 @@ static irqreturn_t sh_eth_interrupt(int irq, void *netdev)
 		       ndev->name, intr_status);
 	}
 
+other_irq:
 	spin_unlock(&mdp->lock);
 
-	return IRQ_HANDLED;
+	return ret;
 }
 
 static void sh_eth_timer(unsigned long data)
@@ -800,7 +807,7 @@ static int sh_eth_phy_init(struct net_device *ndev)
 	char phy_id[BUS_ID_SIZE];
 	struct phy_device *phydev = NULL;
 
-	snprintf(phy_id, BUS_ID_SIZE, PHY_ID_FMT,
+	snprintf(phy_id, sizeof(phy_id), PHY_ID_FMT,
 		mdp->mii_bus->id , mdp->phy_id);
 
 	mdp->link = PHY_DOWN;
@@ -845,7 +852,13 @@ static int sh_eth_open(struct net_device *ndev)
 	int ret = 0;
 	struct sh_eth_private *mdp = netdev_priv(ndev);
 
-	ret = request_irq(ndev->irq, &sh_eth_interrupt, 0, ndev->name, ndev);
+	ret = request_irq(ndev->irq, &sh_eth_interrupt,
+#if defined(CONFIG_CPU_SUBTYPE_SH7763) || defined(CONFIG_CPU_SUBTYPE_SH7764)
+				IRQF_SHARED,
+#else
+				0,
+#endif
+				ndev->name, ndev);
 	if (ret) {
 		printk(KERN_ERR "Can not assign IRQ number to %s\n", CARDNAME);
 		return ret;
@@ -927,7 +940,7 @@ static int sh_eth_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	struct sh_eth_private *mdp = netdev_priv(ndev);
 	struct sh_eth_txdesc *txdesc;
 	u32 entry;
-	int flags;
+	unsigned long flags;
 
 	spin_lock_irqsave(&mdp->lock, flags);
 	if ((mdp->cur_tx - mdp->dirty_tx) >= (TX_RING_SIZE - 4)) {
@@ -1140,8 +1153,8 @@ static int sh_mdio_init(struct net_device *ndev, int id)
 
 	/* Hook up MII support for ethtool */
 	mdp->mii_bus->name = "sh_mii";
-	mdp->mii_bus->dev = &ndev->dev;
-	mdp->mii_bus->id[0] = id;
+	mdp->mii_bus->parent = &ndev->dev;
+	snprintf(mdp->mii_bus->id, MII_BUS_ID_SIZE, "%x", id);
 
 	/* PHY IRQ */
 	mdp->mii_bus->irq = kmalloc(sizeof(int)*PHY_MAX_ADDR, GFP_KERNEL);
@@ -1166,7 +1179,7 @@ out_free_irq:
 	kfree(mdp->mii_bus->irq);
 
 out_free_bus:
-	kfree(mdp->mii_bus);
+	free_mdio_bitbang(mdp->mii_bus);
 
 out_free_bitbang:
 	kfree(bitbang);
@@ -1205,11 +1218,12 @@ static int sh_eth_drv_probe(struct platform_device *pdev)
 		devno = 0;
 
 	ndev->dma = -1;
-	ndev->irq = platform_get_irq(pdev, 0);
-	if (ndev->irq < 0) {
+	ret = platform_get_irq(pdev, 0);
+	if (ret < 0) {
 		ret = -ENODEV;
 		goto out_release;
 	}
+	ndev->irq = ret;
 
 	SET_NETDEV_DEV(ndev, &pdev->dev);
 

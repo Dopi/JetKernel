@@ -26,7 +26,7 @@
 #include "yportenv.h"
 #include "yaffs_guts.h"
 #include "yaffs_packedtags1.h"
-#include "yaffs_tagscompat.h"	// for yaffs_CalcTagsECC
+#include "yaffs_tagscompat.h"	/* for yaffs_CalcTagsECC */
 
 #include "linux/kernel.h"
 #include "linux/version.h"
@@ -34,7 +34,7 @@
 #include "linux/mtd/mtd.h"
 
 /* Don't compile this module if we don't have MTD's mtd_oob_ops interface */
-#if (MTD_VERSION_CODE > MTD_VERSION(2,6,17))
+#if (MTD_VERSION_CODE > MTD_VERSION(2, 6, 17))
 
 const char *yaffs_mtdif1_c_version = "$Id$";
 
@@ -89,9 +89,9 @@ static struct nand_ecclayout nand_oob_16 = {
  * Returns YAFFS_OK or YAFFS_FAIL.
  */
 int nandmtd1_WriteChunkWithTagsToNAND(yaffs_Device *dev,
-	int chunkInNAND, const __u8 * data, const yaffs_ExtendedTags * etags)
+	int chunkInNAND, const __u8 *data, const yaffs_ExtendedTags *etags)
 {
-	struct mtd_info * mtd = dev->genericDevice;
+	struct mtd_info *mtd = dev->genericDevice;
 	int chunkBytes = dev->nDataBytesPerChunk;
 	loff_t addr = ((loff_t)chunkInNAND) * chunkBytes;
 	struct mtd_oob_ops ops;
@@ -101,8 +101,6 @@ int nandmtd1_WriteChunkWithTagsToNAND(yaffs_Device *dev,
 	/* we assume that PackedTags1 and yaffs_Tags are compatible */
 	compile_time_assertion(sizeof(yaffs_PackedTags1) == 12);
 	compile_time_assertion(sizeof(yaffs_Tags) == 8);
-
-	dev->nPageWrites++;
 
 	yaffs_PackTags1(&pt1, etags);
 	yaffs_CalcTagsECC((yaffs_Tags *)&pt1);
@@ -146,7 +144,7 @@ int nandmtd1_WriteChunkWithTagsToNAND(yaffs_Device *dev,
 
 /* Return with empty ExtendedTags but add eccResult.
  */
-static int rettags(yaffs_ExtendedTags * etags, int eccResult, int retval)
+static int rettags(yaffs_ExtendedTags *etags, int eccResult, int retval)
 {
 	if (etags) {
 		memset(etags, 0, sizeof(*etags));
@@ -169,9 +167,9 @@ static int rettags(yaffs_ExtendedTags * etags, int eccResult, int retval)
  * Returns YAFFS_OK or YAFFS_FAIL.
  */
 int nandmtd1_ReadChunkWithTagsFromNAND(yaffs_Device *dev,
-	int chunkInNAND, __u8 * data, yaffs_ExtendedTags * etags)
+	int chunkInNAND, __u8 *data, yaffs_ExtendedTags *etags)
 {
-	struct mtd_info * mtd = dev->genericDevice;
+	struct mtd_info *mtd = dev->genericDevice;
 	int chunkBytes = dev->nDataBytesPerChunk;
 	loff_t addr = ((loff_t)chunkInNAND) * chunkBytes;
 	int eccres = YAFFS_ECC_RESULT_NO_ERROR;
@@ -180,8 +178,6 @@ int nandmtd1_ReadChunkWithTagsFromNAND(yaffs_Device *dev,
 	int retval;
 	int deleted;
 
-	dev->nPageReads++;
-
 	memset(&ops, 0, sizeof(ops));
 	ops.mode = MTD_OOB_AUTO;
 	ops.len = (data) ? chunkBytes : 0;
@@ -189,7 +185,7 @@ int nandmtd1_ReadChunkWithTagsFromNAND(yaffs_Device *dev,
 	ops.datbuf = data;
 	ops.oobbuf = (__u8 *)&pt1;
 
-#if (MTD_VERSION_CODE < MTD_VERSION(2,6,20))
+#if (MTD_VERSION_CODE < MTD_VERSION(2, 6, 20))
 	/* In MTD 2.6.18 to 2.6.19 nand_base.c:nand_do_read_oob() has a bug;
 	 * help it out with ops.len = ops.ooblen when ops.datbuf == NULL.
 	 */
@@ -284,7 +280,7 @@ int nandmtd1_ReadChunkWithTagsFromNAND(yaffs_Device *dev,
  */
 int nandmtd1_MarkNANDBlockBad(struct yaffs_DeviceStruct *dev, int blockNo)
 {
-	struct mtd_info * mtd = dev->genericDevice;
+	struct mtd_info *mtd = dev->genericDevice;
 	int blocksize = dev->nChunksPerBlock * dev->nDataBytesPerChunk;
 	int retval;
 
@@ -298,7 +294,7 @@ int nandmtd1_MarkNANDBlockBad(struct yaffs_DeviceStruct *dev, int blockNo)
  *
  * Returns YAFFS_OK or YAFFS_FAIL.
  */
-static int nandmtd1_TestPrerequists(struct mtd_info * mtd)
+static int nandmtd1_TestPrerequists(struct mtd_info *mtd)
 {
 	/* 2.6.18 has mtd->ecclayout->oobavail */
 	/* 2.6.21 has mtd->ecclayout->oobavail and mtd->oobavail */
@@ -323,9 +319,9 @@ static int nandmtd1_TestPrerequists(struct mtd_info * mtd)
  * Always returns YAFFS_OK.
  */
 int nandmtd1_QueryNANDBlock(struct yaffs_DeviceStruct *dev, int blockNo,
-	yaffs_BlockState * pState, __u32 *pSequenceNumber)
+	yaffs_BlockState *pState, __u32 *pSequenceNumber)
 {
-	struct mtd_info * mtd = dev->genericDevice;
+	struct mtd_info *mtd = dev->genericDevice;
 	int chunkNo = blockNo * dev->nChunksPerBlock;
 	loff_t addr = (loff_t)chunkNo * dev->nDataBytesPerChunk;
 	yaffs_ExtendedTags etags;
@@ -336,9 +332,8 @@ int nandmtd1_QueryNANDBlock(struct yaffs_DeviceStruct *dev, int blockNo,
 	/* We don't yet have a good place to test for MTD config prerequists.
 	 * Do it here as we are called during the initial scan.
 	 */
-	if (nandmtd1_TestPrerequists(mtd) != YAFFS_OK) {
+	if (nandmtd1_TestPrerequists(mtd) != YAFFS_OK)
 		return YAFFS_FAIL;
-	}
 
 	retval = nandmtd1_ReadChunkWithTagsFromNAND(dev, chunkNo, NULL, &etags);
 	etags.blockBad = (mtd->block_isbad)(mtd, addr);
@@ -346,16 +341,13 @@ int nandmtd1_QueryNANDBlock(struct yaffs_DeviceStruct *dev, int blockNo,
 		yaffs_trace(YAFFS_TRACE_BAD_BLOCKS,
 			"block %d is marked bad\n", blockNo);
 		state = YAFFS_BLOCK_STATE_DEAD;
-	}
-	else if (etags.eccResult != YAFFS_ECC_RESULT_NO_ERROR) {
+	} else if (etags.eccResult != YAFFS_ECC_RESULT_NO_ERROR) {
 		/* bad tags, need to look more closely */
 		state = YAFFS_BLOCK_STATE_NEEDS_SCANNING;
-	}
-	else if (etags.chunkUsed) {
+	} else if (etags.chunkUsed) {
 		state = YAFFS_BLOCK_STATE_NEEDS_SCANNING;
 		seqnum = etags.sequenceNumber;
-	}
-	else {
+	} else {
 		state = YAFFS_BLOCK_STATE_EMPTY;
 	}
 

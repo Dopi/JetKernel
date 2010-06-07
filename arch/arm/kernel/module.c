@@ -21,17 +21,17 @@
 #include <linux/string.h>
 
 #include <asm/pgtable.h>
+#include <asm/sections.h>
 
 #ifdef CONFIG_XIP_KERNEL
 /*
  * The XIP kernel text is mapped in the module area for modules and
  * some other stuff to work without any indirect relocations.
- * MODULE_START is redefined here and not in asm/memory.h to avoid
+ * MODULES_VADDR is redefined here and not in asm/memory.h to avoid
  * recompiling the whole kernel when CONFIG_XIP_KERNEL is turned on/off.
  */
-extern void _etext;
-#undef MODULE_START
-#define MODULE_START	(((unsigned long)&_etext + ~PGDIR_MASK) & PGDIR_MASK)
+#undef MODULES_VADDR
+#define MODULES_VADDR	(((unsigned long)_etext + ~PGDIR_MASK) & PGDIR_MASK)
 #endif
 
 #ifdef CONFIG_MMU
@@ -43,11 +43,11 @@ void *module_alloc(unsigned long size)
 	if (!size)
 		return NULL;
 
-	area = __get_vm_area(size, VM_ALLOC, MODULE_START, MODULE_END);
+	area = __get_vm_area(size, VM_ALLOC, MODULES_VADDR, MODULES_END);
 	if (!area)
 		return NULL;
 
-	return __vmalloc_area(area, GFP_KERNEL, PAGE_KERNEL);
+	return __vmalloc_area(area, GFP_KERNEL, PAGE_KERNEL_EXEC);
 }
 #else /* CONFIG_MMU */
 void *module_alloc(unsigned long size)
@@ -130,6 +130,21 @@ apply_relocate(Elf32_Shdr *sechdrs, const char *strtab, unsigned int symindex,
 
 			*(u32 *)loc &= 0xff000000;
 			*(u32 *)loc |= offset & 0x00ffffff;
+			break;
+
+		case R_ARM_MOVW_ABS_NC:
+		case R_ARM_MOVT_ABS:
+			offset = *(u32 *)loc;
+			offset = ((offset & 0xf0000) >> 4) | (offset & 0xfff);
+			offset = (offset ^ 0x8000) - 0x8000;
+
+			offset += sym->st_value;
+			if (ELF32_R_TYPE(rel->r_info) == R_ARM_MOVT_ABS)
+				offset >>= 16;
+
+			*(u32 *)loc &= 0xfff0f000;
+			*(u32 *)loc |= ((offset & 0xf000) << 4) |
+					(offset & 0x0fff);
 			break;
 
 		default:

@@ -545,10 +545,8 @@ static void mmc_sd_remove(struct mmc_host *host)
 {
 	BUG_ON(!host);
 	BUG_ON(!host->card);
-	
-	mmc_remove_card(host->card);
 
-	
+	mmc_remove_card(host->card);
 	host->card = NULL;
 }
 
@@ -770,8 +768,7 @@ err:
 	mmc_detach_bus(host);
 	mmc_release_host(host);
 
-	/* Change from KERN_ERR to KERN_DEBUG to eliminate SD card notification sound crach. */
-	printk(KERN_DEBUG "%s: error %d whilst initialising SD card\n",
+	printk(KERN_ERR "%s: error %d whilst initialising SD card\n",
 		mmc_hostname(host), err);
 
 	return err;

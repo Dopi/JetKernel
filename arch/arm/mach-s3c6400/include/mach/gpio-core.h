@@ -1,4 +1,4 @@
-/* linux/arch/arm/mach-s3c6400/include/mach/gpio-core.h
+/* arch/arm/mach-s3c6400/include/mach/gpio-core.h
  *
  * Copyright 2008 Openmoko, Inc.
  * Copyright 2008 Simtec Electronics

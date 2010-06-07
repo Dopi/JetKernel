@@ -142,6 +142,7 @@ static inline int tuner_stereo(const int type, const int status)
 	case TUNER_PHILIPS_FM1236_MK3:
 	case TUNER_PHILIPS_FM1256_IH3:
 	case TUNER_LG_NTSC_TAPE:
+	case TUNER_TCL_MF02GIP_5N:
 		return ((status & TUNER_SIGNAL) == TUNER_STEREO_MK3);
 	default:
 		return status & TUNER_STEREO;
@@ -317,7 +318,6 @@ static int simple_std_setup(struct dvb_frontend *fe,
 			    u8 *config, u8 *cb)
 {
 	struct tuner_simple_priv *priv = fe->tuner_priv;
-	u8 tuneraddr;
 	int rc;
 
 	/* tv norm specific stuff for multi-norm tuners */
@@ -386,6 +386,7 @@ static int simple_std_setup(struct dvb_frontend *fe,
 
 	case TUNER_PHILIPS_TUV1236D:
 	{
+		struct tuner_i2c_props i2c = priv->i2c_props;
 		/* 0x40 -> ATSC antenna input 1 */
 		/* 0x48 -> ATSC antenna input 2 */
 		/* 0x00 -> NTSC antenna input 1 */
@@ -397,17 +398,15 @@ static int simple_std_setup(struct dvb_frontend *fe,
 			buffer[1] = 0x04;
 		}
 		/* set to the correct mode (analog or digital) */
-		tuneraddr = priv->i2c_props.addr;
-		priv->i2c_props.addr = 0x0a;
-		rc = tuner_i2c_xfer_send(&priv->i2c_props, &buffer[0], 2);
+		i2c.addr = 0x0a;
+		rc = tuner_i2c_xfer_send(&i2c, &buffer[0], 2);
 		if (2 != rc)
 			tuner_warn("i2c i/o error: rc == %d "
 				   "(should be 2)\n", rc);
-		rc = tuner_i2c_xfer_send(&priv->i2c_props, &buffer[2], 2);
+		rc = tuner_i2c_xfer_send(&i2c, &buffer[2], 2);
 		if (2 != rc)
 			tuner_warn("i2c i/o error: rc == %d "
 				   "(should be 2)\n", rc);
-		priv->i2c_props.addr = tuneraddr;
 		break;
 	}
 	}
@@ -492,8 +491,10 @@ static int simple_radio_bandswitch(struct dvb_frontend *fe, u8 *buffer)
 	case TUNER_PHILIPS_FM1216ME_MK3:
 	case TUNER_PHILIPS_FM1236_MK3:
 	case TUNER_PHILIPS_FMD1216ME_MK3:
+	case TUNER_PHILIPS_FMD1216MEX_MK3:
 	case TUNER_LG_NTSC_TAPE:
 	case TUNER_PHILIPS_FM1256_IH3:
+	case TUNER_TCL_MF02GIP_5N:
 		buffer[3] = 0x19;
 		break;
 	case TUNER_TNF_5335MF:
@@ -765,6 +766,7 @@ static void simple_set_dvb(struct dvb_frontend *fe, u8 *buf,
 
 	switch (priv->type) {
 	case TUNER_PHILIPS_FMD1216ME_MK3:
+	case TUNER_PHILIPS_FMD1216MEX_MK3:
 		if (params->u.ofdm.bandwidth == BANDWIDTH_8_MHZ &&
 		    params->frequency >= 158870000)
 			buf[3] |= 0x08;
@@ -815,6 +817,15 @@ static u32 simple_dvb_configure(struct dvb_frontend *fe, u8 *buf,
 	u32 div;
 	int ret;
 	unsigned frequency = params->frequency / 62500;
+
+	if (!tun->stepsize) {
+		/* tuner-core was loaded before the digital tuner was
+		 * configured and somehow picked the wrong tuner type */
+		tuner_err("attempt to treat tuner %d (%s) as digital tuner "
+			  "without stepsize defined.\n",
+			  priv->type, priv->tun->name);
+		return 0; /* failure */
+	}
 
 	t_params = simple_tuner_params(fe, TUNER_PARAM_TYPE_DIGITAL);
 	ret = simple_config_lookup(fe, t_params, &frequency, &config, &cb);
@@ -1038,7 +1049,6 @@ struct dvb_frontend *simple_tuner_attach(struct dvb_frontend *fe,
 	case 0:
 		mutex_unlock(&tuner_simple_list_mutex);
 		return NULL;
-		break;
 	case 1:
 		fe->tuner_priv = priv;
 
@@ -1056,7 +1066,12 @@ struct dvb_frontend *simple_tuner_attach(struct dvb_frontend *fe,
 	memcpy(&fe->ops.tuner_ops, &simple_tuner_ops,
 	       sizeof(struct dvb_tuner_ops));
 
-	tuner_info("type set to %d (%s)\n", type, priv->tun->name);
+	if (type != priv->type)
+		tuner_warn("couldn't set type to %d. Using %d (%s) instead\n",
+			    type, priv->type, priv->tun->name);
+	else
+		tuner_info("type set to %d (%s)\n",
+			   priv->type, priv->tun->name);
 
 	if ((debug) || ((atv_input[priv->nr] > 0) ||
 			(dtv_input[priv->nr] > 0))) {

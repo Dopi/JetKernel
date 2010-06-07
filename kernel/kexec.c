@@ -30,6 +30,7 @@
 #include <linux/pm.h>
 #include <linux/cpu.h>
 #include <linux/console.h>
+#include <linux/vmalloc.h>
 
 #include <asm/page.h>
 #include <asm/uaccess.h>
@@ -933,9 +934,8 @@ struct kimage *kexec_crash_image;
 
 static DEFINE_MUTEX(kexec_mutex);
 
-asmlinkage long sys_kexec_load(unsigned long entry, unsigned long nr_segments,
-				struct kexec_segment __user *segments,
-				unsigned long flags)
+SYSCALL_DEFINE4(kexec_load, unsigned long, entry, unsigned long, nr_segments,
+		struct kexec_segment __user *, segments, unsigned long, flags)
 {
 	struct kimage **dest_image, *image;
 	int result;
@@ -1115,7 +1115,7 @@ void crash_save_cpu(struct pt_regs *regs, int cpu)
 	struct elf_prstatus prstatus;
 	u32 *buf;
 
-	if ((cpu < 0) || (cpu >= NR_CPUS))
+	if ((cpu < 0) || (cpu >= nr_cpu_ids))
 		return;
 
 	/* Using ELF notes here is opportunistic.
@@ -1371,6 +1371,7 @@ static int __init crash_save_vmcoreinfo_init(void)
 	VMCOREINFO_SYMBOL(node_online_map);
 	VMCOREINFO_SYMBOL(swapper_pg_dir);
 	VMCOREINFO_SYMBOL(_stext);
+	VMCOREINFO_SYMBOL(vmlist);
 
 #ifndef CONFIG_NEED_MULTIPLE_NODES
 	VMCOREINFO_SYMBOL(mem_map);
@@ -1406,6 +1407,7 @@ static int __init crash_save_vmcoreinfo_init(void)
 	VMCOREINFO_OFFSET(free_area, free_list);
 	VMCOREINFO_OFFSET(list_head, next);
 	VMCOREINFO_OFFSET(list_head, prev);
+	VMCOREINFO_OFFSET(vm_struct, addr);
 	VMCOREINFO_LENGTH(zone.free_area, MAX_ORDER);
 	VMCOREINFO_LENGTH(free_area.free_list, MIGRATE_TYPES);
 	VMCOREINFO_NUMBER(NR_FREE_PAGES);
@@ -1463,6 +1465,11 @@ int kernel_kexec(void)
 		error = device_power_down(PMSG_FREEZE);
 		if (error)
 			goto Enable_irqs;
+
+		/* Suspend system devices */
+		error = sysdev_suspend(PMSG_FREEZE);
+		if (error)
+			goto Power_up_devices;
 	} else
 #endif
 	{
@@ -1475,6 +1482,8 @@ int kernel_kexec(void)
 
 #ifdef CONFIG_KEXEC_JUMP
 	if (kexec_image->preserve_context) {
+		sysdev_resume();
+ Power_up_devices:
 		device_power_up(PMSG_RESTORE);
  Enable_irqs:
 		local_irq_enable();

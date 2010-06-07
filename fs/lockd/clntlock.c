@@ -14,6 +14,7 @@
 #include <linux/sunrpc/svc.h>
 #include <linux/lockd/lockd.h>
 #include <linux/smp_lock.h>
+#include <linux/kthread.h>
 
 #define NLMDBG_FACILITY		NLMDBG_CLIENT
 
@@ -54,14 +55,13 @@ struct nlm_host *nlmclnt_init(const struct nlmclnt_initdata *nlm_init)
 	u32 nlm_version = (nlm_init->nfs_version == 2) ? 1 : 4;
 	int status;
 
-	status = lockd_up(nlm_init->protocol);
+	status = lockd_up();
 	if (status < 0)
 		return ERR_PTR(status);
 
-	host = nlmclnt_lookup_host((struct sockaddr_in *)nlm_init->address,
+	host = nlmclnt_lookup_host(nlm_init->address, nlm_init->addrlen,
 				   nlm_init->protocol, nlm_version,
-				   nlm_init->hostname,
-				   strlen(nlm_init->hostname));
+				   nlm_init->hostname, nlm_init->noresvport);
 	if (host == NULL) {
 		lockd_down();
 		return ERR_PTR(-ENOLCK);
@@ -139,10 +139,59 @@ int nlmclnt_block(struct nlm_wait *block, struct nlm_rqst *req, long timeout)
 	return 0;
 }
 
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+static const struct in6_addr *nlmclnt_map_v4addr(const struct sockaddr *sap,
+						 struct in6_addr *addr_mapped)
+{
+	const struct sockaddr_in *sin = (const struct sockaddr_in *)sap;
+
+	switch (sap->sa_family) {
+	case AF_INET6:
+		return &((const struct sockaddr_in6 *)sap)->sin6_addr;
+	case AF_INET:
+		ipv6_addr_set_v4mapped(sin->sin_addr.s_addr, addr_mapped);
+		return addr_mapped;
+	}
+
+	return NULL;
+}
+
+/*
+ * If lockd is using a PF_INET6 listener, all incoming requests appear
+ * to come from AF_INET6 remotes.  The address of AF_INET remotes are
+ * mapped to AF_INET6 automatically by the network layer.  In case the
+ * user passed an AF_INET server address at mount time, ensure both
+ * addresses are AF_INET6 before comparing them.
+ */
+static int nlmclnt_cmp_addr(const struct nlm_host *host,
+			    const struct sockaddr *sap)
+{
+	const struct in6_addr *addr1;
+	const struct in6_addr *addr2;
+	struct in6_addr addr1_mapped;
+	struct in6_addr addr2_mapped;
+
+	addr1 = nlmclnt_map_v4addr(nlm_addr(host), &addr1_mapped);
+	if (likely(addr1 != NULL)) {
+		addr2 = nlmclnt_map_v4addr(sap, &addr2_mapped);
+		if (likely(addr2 != NULL))
+			return ipv6_addr_equal(addr1, addr2);
+	}
+
+	return 0;
+}
+#else	/* !(CONFIG_IPV6 || CONFIG_IPV6_MODULE) */
+static int nlmclnt_cmp_addr(const struct nlm_host *host,
+			    const struct sockaddr *sap)
+{
+	return nlm_cmp_addr(nlm_addr(host), sap);
+}
+#endif	/* !(CONFIG_IPV6 || CONFIG_IPV6_MODULE) */
+
 /*
  * The server lockd has called us back to tell us the lock was granted
  */
-__be32 nlmclnt_grant(const struct sockaddr_in *addr, const struct nlm_lock *lock)
+__be32 nlmclnt_grant(const struct sockaddr *addr, const struct nlm_lock *lock)
 {
 	const struct file_lock *fl = &lock->fl;
 	const struct nfs_fh *fh = &lock->fh;
@@ -166,7 +215,7 @@ __be32 nlmclnt_grant(const struct sockaddr_in *addr, const struct nlm_lock *lock
 		 */
 		if (fl_blocked->fl_u.nfs_fl.owner->pid != lock->svid)
 			continue;
-		if (!nlm_cmp_addr(&block->b_host->h_addr, addr))
+		if (!nlmclnt_cmp_addr(block->b_host, addr))
 			continue;
 		if (nfs_compare_fh(NFS_FH(fl_blocked->fl_file->f_path.dentry->d_inode) ,fh) != 0)
 			continue;
@@ -192,11 +241,15 @@ __be32 nlmclnt_grant(const struct sockaddr_in *addr, const struct nlm_lock *lock
 void
 nlmclnt_recovery(struct nlm_host *host)
 {
+	struct task_struct *task;
+
 	if (!host->h_reclaiming++) {
 		nlm_get_host(host);
-		__module_get(THIS_MODULE);
-		if (kernel_thread(reclaimer, host, CLONE_FS | CLONE_FILES) < 0)
-			module_put(THIS_MODULE);
+		task = kthread_run(reclaimer, host, "%s-reclaim", host->h_name);
+		if (IS_ERR(task))
+			printk(KERN_ERR "lockd: unable to spawn reclaimer "
+				"thread. Locks for %s won't be reclaimed! "
+				"(%ld)\n", host->h_name, PTR_ERR(task));
 	}
 }
 
@@ -208,7 +261,6 @@ reclaimer(void *ptr)
 	struct file_lock *fl, *next;
 	u32 nsmstate;
 
-	daemonize("%s-reclaim", host->h_name);
 	allow_signal(SIGKILL);
 
 	down_write(&host->h_rwsem);
@@ -216,7 +268,7 @@ reclaimer(void *ptr)
 	/* This one ensures that our parent doesn't terminate while the
 	 * reclaim is in progress */
 	lock_kernel();
-	lockd_up(0); /* note: this cannot fail as lockd is already running */
+	lockd_up();	/* note: this cannot fail as lockd is already running */
 
 	dprintk("lockd: reclaiming locks for host %s\n", host->h_name);
 
@@ -234,7 +286,12 @@ restart:
 	list_for_each_entry_safe(fl, next, &host->h_reclaim, fl_u.nfs_fl.list) {
 		list_del_init(&fl->fl_u.nfs_fl.list);
 
-		/* Why are we leaking memory here? --okir */
+		/*
+		 * sending this thread a SIGKILL will result in any unreclaimed
+		 * locks being removed from the h_granted list. This means that
+		 * the kernel will not attempt to reclaim them again if a new
+		 * reclaimer thread is spawned for this host.
+		 */
 		if (signalled())
 			continue;
 		if (nlmclnt_reclaim(host, fl) != 0)
@@ -262,5 +319,5 @@ restart:
 	nlm_release_host(host);
 	lockd_down();
 	unlock_kernel();
-	module_put_and_exit(0);
+	return 0;
 }

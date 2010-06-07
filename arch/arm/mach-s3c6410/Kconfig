@@ -9,8 +9,8 @@
 
 config CPU_S3C6410
 	bool
-	select CPU_S3C6400_INIT
-	select CPU_S3C6400_CLOCK
+	select CPU_S3C64XX_INIT
+	select CPU_S3C64XX_CLOCK
 	help
 	  Enable S3C6410 CPU support
 
@@ -36,17 +36,17 @@ config MACH_SMDK6410
 	help
 	  Machine support for the Samsung SMDK6410
 
-config MACH_SPICA
-	bool "SPICA"
+config MACH_INSTINCTQ
+	bool "INSTINCTQ"
 	select CPU_S3C6410
 	select S3C_DEV_HSMMC
 	select S3C_DEV_HSMMC2
 	select S3C_DEV_I2C1
 	select S3C6410_SETUP_SDHCI
 	select S3C64XX_SETUP_I2C1
-	select S3C_DMA_PL080
+#	select S3C_DMA_PL080_NEW
 	help
-	  Machine support for the Samsung SPICA
+	  Machine support for the Samsung INSTINCTQ
 
 endchoice
 
@@ -91,7 +91,7 @@ endchoice
 
 config BOARD_REVISION
 	hex "Select H/W Revision"
-	depends on MACH_SPICA
+	depends on MACH_INSTINCTQ
 	default "0x00"
 
 config SEC_HEADSET

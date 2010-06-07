@@ -58,7 +58,7 @@ static const u32 s3c_cpu_clk_tab_533MHz[][6] = {
 	{133*MHZ, 266 *MHZ, 266, 3, 3, 1},
 #ifdef USE_DVFS_AL1_LEVEL
 	{133*MHZ, 133 *MHZ, 266, 1, 3, 3},
-#endif
+#endif /* USE_DVFS_AL1_LEVEL */
 	{ 66*MHZ, 133 *MHZ, 266, 1, 7, 3},
 };
 
@@ -70,7 +70,7 @@ static const u32 s3c_cpu_clk_tab_800MHz[][6] = {
 	{133*MHZ,  266 *MHZ, 400, 3, 5, 2},
 #ifdef USE_DVFS_AL1_LEVEL
 	{133*MHZ,  133 *MHZ, 400, 1, 5, 5},
-#endif
+#endif /* USE_DVFS_AL1_LEVEL */
 	{ 66*MHZ,  133 *MHZ, 400, 1, 11, 5},
 };
 
@@ -238,7 +238,6 @@ int s3c64xx_clk_set_rate(unsigned int target_freq,
 	s3c6410_changedivider(clk_div0, ARM_CLK_DIV);
 #endif	/* CONFIG_CPU_FREQ */
 
-//	printk(KERN_INFO "armclk = %d hclkx2 = %d \n", cpu_clk_tab[index][0], cpu_clk_tab[index][1]);
 	return 0;
 }
 

@@ -6,6 +6,10 @@
  *    Author(s): Arnd Bergmann (arndb@de.ibm.com)
  *		 Cornelia Huck (cornelia.huck@de.ibm.com)
  */
+
+#define KMSG_COMPONENT "cio"
+#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
+
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/device.h>
@@ -128,8 +132,8 @@ css_free_subchannel(struct subchannel *sch)
 {
 	if (sch) {
 		/* Reset intparm to zeroes. */
-		sch->schib.pmcw.intparm = 0;
-		cio_modify(sch);
+		sch->config.intparm = 0;
+		cio_commit_config(sch);
 		kfree(sch->lock);
 		kfree(sch);
 	}
@@ -698,7 +702,7 @@ static int __init setup_css(int nr)
 		return -ENOMEM;
 	css->pseudo_subchannel->dev.parent = &css->device;
 	css->pseudo_subchannel->dev.release = css_subchannel_release;
-	sprintf(css->pseudo_subchannel->dev.bus_id, "defunct");
+	dev_set_name(&css->pseudo_subchannel->dev, "defunct");
 	ret = cio_create_sch_lock(css->pseudo_subchannel);
 	if (ret) {
 		kfree(css->pseudo_subchannel);
@@ -707,7 +711,7 @@ static int __init setup_css(int nr)
 	mutex_init(&css->mutex);
 	css->valid = 1;
 	css->cssid = nr;
-	sprintf(css->device.bus_id, "css%x", nr);
+	dev_set_name(&css->device, "css%x", nr);
 	css->device.release = channel_subsystem_release;
 	tod_high = (u32) (get_clock() >> 32);
 	css_generate_pgid(css, tod_high);
@@ -844,8 +848,8 @@ out:
 	s390_unregister_crw_handler(CRW_RSC_CSS);
 	chsc_free_sei_area();
 	kfree(slow_subchannel_set);
-	printk(KERN_WARNING"cio: failed to initialize css driver (%d)!\n",
-	       ret);
+	pr_alert("The CSS device driver initialization failed with "
+		 "errno=%d\n", ret);
 	return ret;
 }
 

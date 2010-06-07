@@ -2,6 +2,9 @@
  * Gadget Driver for Android, with ADB and UMS and ACM support
  *
  * Copyright (C) 2009 Samsung Electronics, Seung-Soo Yang
+ * Author: SeungSoo Yang <ss1.yang@samsung.com>
+ * Copyright (C) 2008 Google, Inc.
+ * Author: Mike Lockwood <lockwood@android.com>
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -36,6 +39,18 @@
 
 #include "gadget_chips.h"
 
+/*
+ * Kbuild is not very cooperative with respect to linking separately
+ * compiled library objects into one module.  So for now we won't use
+ * separate compilation ... ensuring init/exit sections work to shrink
+ * the runtime footprint, and giving us at least some parts of what
+ * a "gcc --combine ... part1.c part2.c part3.c ... " build would.
+ */
+#include "usbstring.c"
+#include "config.c"
+#include "epautoconf.c"
+#include "composite.c"
+
 MODULE_AUTHOR("SeungSoo Yange");
 MODULE_DESCRIPTION("Android Composite USB Driver");
 MODULE_LICENSE("GPL");
@@ -48,9 +63,16 @@ static const char longname[] = "Gadget Android";
 
 /* Default vendor and product IDs, overridden by platform data */
 #define VENDOR_ID		0x04e8	/* Samsung */
-//#define ADB_PRODUCT_ID 	0x6601	/* Swallowtail*/
 #define ADB_PRODUCT_ID 	0x681C	/* S3C6410 Swallowtail*/
 #define PRODUCT_ID		0x681D
+
+/* 
+ * Originally, adbd will enable adb function at booting 
+ * if the value of persist.service.adb.enable is 1
+ * ADB_ENABLE_AT_BOOT intends to enable adb function 
+ * in case of no enabling by adbd or improper RFS
+ */
+#define ADB_ENABLE_AT_BOOT	0
 
 extern void get_usb_serial(char *usb_serial_number);
 
@@ -123,28 +145,47 @@ static const struct usb_descriptor_header *otg_desc[] = {
 	NULL,
 };
 
+void android_usb_set_connected(int connected)
+{
+	if (_android_dev && _android_dev->cdev && _android_dev->cdev->gadget) {
+		if (connected)
+			usb_gadget_connect(_android_dev->cdev->gadget);
+		else
+			usb_gadget_disconnect(_android_dev->cdev->gadget);
+	}
+}
+
+#if ADB_ENABLE_AT_BOOT
+static void enable_adb(struct android_dev *dev, int enable);
+#endif
+
 static int __init android_bind_config(struct usb_configuration *c)
 {
 	struct android_dev *dev = _android_dev;
 	int ret;
 
 	//ret = acm_bind_config(c, 0);
-	ret = acm_function_add(c);
+	ret = acm_function_add(dev->cdev, c);
 	if (ret) {
 		printk("[%s] Fail to acm_function_add()\n", __func__);
 		return ret;
 	}
-	ret = mass_storage_function_add(c, dev->nluns);
+	ret = mass_storage_function_add(dev->cdev, c, dev->nluns);
 	if (ret) {
 		printk("[%s] Fail to mass_storage_function_add()\n", __func__);
 		return ret;
 	}
-	ret = adb_function_add(c);
+	ret = adb_function_add(dev->cdev, c);
 	if (ret) {
 		printk("[%s] Fail to adb_function_add()\n", __func__);
 		return ret;
 	}
-	
+
+#if ADB_ENABLE_AT_BOOT
+	printk("[%s] Enabling adb function at booting\n", __func__);
+	enable_adb(dev, 1);
+#endif
+
 	return ret;
 }
 
@@ -159,10 +200,6 @@ static struct usb_configuration android_config  = {
 	.bMaxPower	= 0x30, /*  x2 = 160ma */
 };
 
-
-	
-
-
 static int __init android_bind(struct usb_composite_dev *cdev)
 {
 	struct android_dev *dev = _android_dev;
@@ -172,10 +209,7 @@ static int __init android_bind(struct usb_composite_dev *cdev)
 	int			ret;
 	char usb_serial_number[13] = {0,};
 
-	/* set up serial link layer */
-//	ret = gserial_setup(cdev->gadget, 1);
-//	if (ret < 0)
-//		goto acm_fail;
+//	printk(KERN_INFO "android_bind\n");
 
 	/* Allocate string descriptor numbers ... note that string
 	 * contents can be overridden by the composite_dev glue.
@@ -199,17 +233,17 @@ static int __init android_bind(struct usb_composite_dev *cdev)
 	get_usb_serial(usb_serial_number);
 	strings_dev[STRING_SERIAL_IDX].id = id;
 
-	strcpy(strings_dev[STRING_SERIAL_IDX].s,usb_serial_number);
+	if( (usb_serial_number[0] + 
+		 usb_serial_number[1] + 
+		 usb_serial_number[2]) != 0 )
+	strcpy((char *)(strings_dev[STRING_SERIAL_IDX].s), usb_serial_number);
 	printk("[ADB_UMS_ACM] string_dev = %s \n",strings_dev[STRING_SERIAL_IDX].s);
 
 	device_desc.iSerialNumber = id;
 
 	gcnum = usb_gadget_controller_number(gadget);
-	//qcnum is 0x22 in case of s3c
 	if (gcnum >= 0)
-	{
 		device_desc.bcdDevice = cpu_to_le16(0x0200 + gcnum);
-	}
 	else {
 		/* gadget zero is so simple (for now, no altsettings) that
 		 * it SHOULD NOT have problems with bulk-capable hardware.
@@ -235,7 +269,7 @@ static int __init android_bind(struct usb_composite_dev *cdev)
 	ret = usb_add_config(cdev, &android_config);
 	if (ret) {
 		printk(KERN_ERR "usb_add_config failed\n");
-		goto acm_fail;
+		return ret;
 	}
 
 	usb_gadget_set_selfpowered(gadget);
@@ -244,10 +278,6 @@ static int __init android_bind(struct usb_composite_dev *cdev)
 	INFO(cdev, "%s, version: " DRIVER_VERSION "\n", DRIVER_DESC);
 
 	return 0;
-	
-acm_fail:
-//	gserial_cleanup();
-	return ret;
 }
 
 /*
@@ -312,7 +342,7 @@ static void enable_adb(struct android_dev *dev, int enable)
 #else
 /*
 	for reenumeration in case of booting-up connected with host
-	if connected, host don't enumerate 
+	because if connected, host don't enumerate 
 */
 		if (dev->cdev && dev->cdev->gadget ) {
 #endif			
@@ -341,7 +371,7 @@ static int adb_enable_release(struct inode *ip, struct file *fp)
 	return 0;
 }
 
-static struct file_operations adb_enable_fops = {
+static const struct file_operations adb_enable_fops = {
 	.owner =   THIS_MODULE,
 	.open =    adb_enable_open,
 	.release = adb_enable_release,
@@ -428,6 +458,5 @@ static void __exit cleanup(void)
 	platform_driver_unregister(&android_platform_driver);
 	kfree(_android_dev);
 	_android_dev = NULL;
-	gserial_cleanup();
 }
 module_exit(cleanup);

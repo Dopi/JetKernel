@@ -48,6 +48,7 @@ static atomic_t m_flag;
 static atomic_t a_flag; 
 static atomic_t t_flag; 
 static atomic_t mv_flag;
+static atomic_t	p_flag;
 
 static short akmd_delay = 0;
 
@@ -94,7 +95,7 @@ static struct i2c_driver ak8973b_i2c_driver = {
 
 unsigned short ignore[] = { I2C_CLIENT_END };
 static unsigned short normal_addr[] = { I2C_CLIENT_END };
-static unsigned short probe_addr[] = { 0, E_COMPASS_ADDRESS, I2C_CLIENT_END };
+static unsigned short probe_addr[] = { 5, E_COMPASS_ADDRESS, I2C_CLIENT_END };
 
 
 static struct i2c_client_address_data addr_data = {
@@ -105,6 +106,17 @@ static struct i2c_client_address_data addr_data = {
 
 
 static char ak_e2prom_data[3];
+
+void report_value_for_prx(int value)
+{
+		
+	struct ak8973b_data *data = i2c_get_clientdata(this_client);
+	printk("[AK8973] Proximity = %d\n", value);
+	input_report_abs(data->input_dev, ABS_DISTANCE,value );
+	input_sync(data->input_dev);
+
+
+}
 
 static int AKI2C_RxData(char *rxData, int length)
 {
@@ -215,6 +227,12 @@ static void AKECS_Report_Value(short *rbuf)
 		input_report_abs(data->input_dev, ABS_HAT0Y, rbuf[10]);
 		input_report_abs(data->input_dev, ABS_BRAKE, rbuf[11]);
 	}
+	/* Report proximity information */
+	if (atomic_read(&p_flag)) {
+		rbuf[12]=gp2a_get_proximity_value();
+		gprintk("Proximity = %d\n", rbuf[12]);
+		input_report_abs(data->input_dev, ABS_DISTANCE, rbuf[12]);
+	}
 	
 	input_sync(data->input_dev);
 }
@@ -238,11 +256,13 @@ static void AKECS_CloseDone(void)
 	atomic_set(&a_flag, 1);
 	atomic_set(&t_flag, 1);
 	atomic_set(&mv_flag, 1);
+    atomic_set(&p_flag, 1);
 	#else
 	atomic_set(&m_flag, 0);
 	atomic_set(&a_flag, 0);
 	atomic_set(&t_flag, 0);
 	atomic_set(&mv_flag, 0);
+    atomic_set(&p_flag, 0);
 	#endif
 }
 
@@ -256,10 +276,10 @@ static void AKECS_CloseDone(void)
 static void AKECS_Reset (void)
 {
       
-	gpio_set_value(GPIO_MSENSE_RST, GPIO_LEVEL_LOW);
+	gpio_set_value(GPIO_MSENSE_RST_N, GPIO_LEVEL_LOW);
 	udelay(120);
-	gpio_set_value(GPIO_MSENSE_RST, GPIO_LEVEL_HIGH);
-	gprintk("AKECS RESET COMPLETE\n");
+	gpio_set_value(GPIO_MSENSE_RST_N, GPIO_LEVEL_HIGH);
+	gprintk("[ak8973b] RESET COMPLETE\n");
 }
 
 /*----------------------------------------------------------------------------*/
@@ -418,7 +438,7 @@ static int AKECS_GetData (short *rbuf)
 
 static void AKECS_DATA_Measure(void)
 {
-	short  value[12];
+	short  value[13];
 	short mag_sensor[4] ={0, 0, 0, 0};
 
 	AKECS_GetData(mag_sensor);
@@ -434,6 +454,7 @@ static void AKECS_DATA_Measure(void)
 	value[9]=mag_sensor[1];		/* mag_x */
 	value[10]=mag_sensor[2];	/* mag_y */
 	value[11]=mag_sensor[3];	/* mag_z */
+	//value[12]=gp2a_get_proximity_value();
 
 	AKECS_Report_Value(value);
 }
@@ -471,6 +492,7 @@ akm_aot_ioctl(struct inode *inode, struct file *file,
 		case ECS_IOCTL_APP_SET_AFLAG:
 		case ECS_IOCTL_APP_SET_TFLAG:
 		case ECS_IOCTL_APP_SET_MVFLAG:
+		case ECS_IOCTL_APP_SET_PFLAG:
 			if (copy_from_user(&flag, argp, sizeof(flag)))
 				return -EFAULT;
 			if (flag < 0 || flag > 1)
@@ -509,6 +531,12 @@ akm_aot_ioctl(struct inode *inode, struct file *file,
 		case ECS_IOCTL_APP_GET_MVFLAG:
 			flag = atomic_read(&mv_flag);
 			break;
+		case ECS_IOCTL_APP_SET_PFLAG:
+			atomic_set(&p_flag, flag);
+			break;
+		case ECS_IOCTL_APP_GET_PFLAG:
+			flag = atomic_read(&p_flag);
+			break;
 		case ECS_IOCTL_APP_SET_DELAY:
 			akmd_delay = flag;
 			break;
@@ -527,6 +555,7 @@ akm_aot_ioctl(struct inode *inode, struct file *file,
 		case ECS_IOCTL_APP_GET_AFLAG:
 		case ECS_IOCTL_APP_GET_TFLAG:
 		case ECS_IOCTL_APP_GET_MVFLAG:
+		case ECS_IOCTL_APP_GET_PFLAG:
 		case ECS_IOCTL_APP_GET_DELAY:
 			if (copy_to_user(argp, &flag, sizeof(flag)))
 				return -EFAULT;
@@ -699,6 +728,7 @@ akmd_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void ak8973b_early_suspend(struct early_suspend *handler)
 {
+	printk("[COMPASS] %s\n", __func__);
 	AKECS_SetMode(AKECS_MODE_POWERDOWN);
 	#if 0
 	atomic_set(&suspend_flag, 1);
@@ -711,8 +741,9 @@ static void ak8973b_early_suspend(struct early_suspend *handler)
 	#endif
 }
 
-static void ak8973b_early_resume(struct early_suspend *handler)
+static void ak8973b_late_resume(struct early_suspend *handler)
 {
+	printk("[COMPASS] %s\n", __func__);
 	atomic_set(&suspend_flag, 0);
 	atomic_set(&open_flag, atomic_read(&reserve_open_flag));
 	wake_up(&open_wq);
@@ -727,14 +758,14 @@ static void ak8973b_init_hw(void)
 	set_irq_type(IRQ_COMPASS_INT, IRQ_TYPE_EDGE_RISING);
 #endif
 
-	if(gpio_is_valid(GPIO_MSENSE_RST)){
-		if(gpio_request(GPIO_MSENSE_RST, S3C_GPIO_LAVEL(GPIO_MSENSE_RST)))
+	if(gpio_is_valid(GPIO_MSENSE_RST_N)){
+		if(gpio_request(GPIO_MSENSE_RST_N, S3C_GPIO_LAVEL(GPIO_MSENSE_RST_N)))
 		{
-			printk(KERN_ERR "Failed to request GPIO_MSENSE_RST!\n");
+			printk(KERN_ERR "Failed to request GPIO_MSENSE_RST_N!\n");
 		}
-		gpio_direction_output(GPIO_MSENSE_RST, GPIO_LEVEL_HIGH);
+		gpio_direction_output(GPIO_MSENSE_RST_N, GPIO_LEVEL_HIGH);
 	}
-	s3c_gpio_setpull(GPIO_MSENSE_RST, S3C_GPIO_PULL_NONE);
+	s3c_gpio_setpull(GPIO_MSENSE_RST_N, S3C_GPIO_PULL_NONE);
 
 	gprintk("gpio setting complete!\n");
 }
@@ -851,6 +882,8 @@ static int i2c_ak8973b_probe_client(struct i2c_adapter *adapter, int address, in
 	input_set_abs_params(akm->input_dev, ABS_HAT0Y, -2048, 2032, 0, 0);
 	/* z-axis of raw magnetic vector */
 	input_set_abs_params(akm->input_dev, ABS_BRAKE, -2048, 2032, 0, 0);
+	/* proximity sensor */	
+	input_set_abs_params(akm->input_dev, ABS_DISTANCE, -3, 3, 0, 0);
 	
 	akm->input_dev->name = "compass";
 
@@ -875,14 +908,14 @@ static int i2c_ak8973b_probe_client(struct i2c_adapter *adapter, int address, in
 	err = device_create_file(&new_client->dev, &dev_attr_ms1);
 
 	AKECS_GetEEPROMData();
-
+		
 	AKECS_SetMode(AKECS_MODE_POWERDOWN);
 	udelay(100);
-	
+
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	akm->early_suspend.suspend = ak8973b_early_suspend;
-	akm->early_suspend.resume = ak8973b_early_resume;
+	akm->early_suspend.resume = ak8973b_late_resume;
 	register_early_suspend(&akm->early_suspend);
 #endif /* CONFIG_HAS_EARLYSUSPEND */ 
 	
@@ -931,7 +964,7 @@ static int i2c_ak8973b_detach_client(struct i2c_client *client)
 	akm = NULL;	
 	this_client = NULL;
 	
-	gpio_free(GPIO_MSENSE_RST);
+	gpio_free(GPIO_MSENSE_RST_N);
 	
 	gprintk("end\n");
 	return 0;

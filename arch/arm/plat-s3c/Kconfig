@@ -57,18 +57,25 @@ config S3C_BOOT_ERROR_RESET
 	  Say y here to use the watchdog to reset the system if the
 	  kernel decompressor detects an error during decompression.
 
+config S3C_BOOT_UART_FORCE_FIFO
+       bool "Force UART FIFO on during boot process"
+       default y
+       help
+         Say Y here to force the UART FIFOs on during the kernel
+	 uncompressor
+
 comment "Power management"
 
-config S3C2410_PM_DEBUG
-	bool "S3C2410 PM Suspend debug"
+config S3C_PM_DEBUG
+	bool "S3C PM Suspend debug"
 	depends on PLAT_S3C && PM
 	help
 	  Say Y here if you want verbose debugging from the PM Suspend and
 	  Resume code. See <file:Documentation/arm/Samsung-S3C24XX/Suspend.txt>
 	  for more information.
 
-config S3C2410_PM_CHECK
-	bool "S3C2410 PM Suspend Memory CRC"
+config S3C_PM_CHECK
+	bool "S3C PM Suspend Memory CRC"
 	depends on PLAT_S3C && PM && CRC32
 	help
  	  Enable the PM code's memory area checksum over sleep. This option
@@ -81,9 +88,9 @@ config S3C2410_PM_CHECK
 
 	  See <file:Documentation/arm/Samsung-S3C24XX/Suspend.txt>
 
-config S3C2410_PM_CHECK_CHUNKSIZE
-	int "S3C2410 PM Suspend CRC Chunksize (KiB)"
-	depends on PLAT_S3C && PM && S3C2410_PM_CHECK
+config S3C_PM_CHECK_CHUNKSIZE
+	int "S3C PM Suspend CRC Chunksize (KiB)"
+	depends on PLAT_S3C && PM && S3C_PM_CHECK
 	default 64
 	help
 	  Set the chunksize in Kilobytes of the CRC for checking memory
@@ -185,17 +192,29 @@ config S3C_DEV_ADC
         help
           Compile in platform device definitions for ADC
 
-config S3C_DMA_PL080
-	bool
+comment "Select DMA Controller"
+choice 
+	prompt"Samsung S3C6410 DMA Controller"
+	default S3C_DMA_PL080_SOL
+
+	config S3C_DMA_PL080_SOL
+	bool "DMA PL080 Sol"
+	depends on PLAT_S3C
+	help
+	  PL080 DMA supported 
+
+	config S3C_DMA_PL080
+	bool "DMA PL080 AP"
 	depends on PLAT_S3C
 	help
 	  PL080 DMA supported
 
-config S3C_DMA_PL330
-	bool
+	config S3C_DMA_PL330
+	bool "DMA PL330"
 	depends on PLAT_S3C
 	help
 	  PL330 DMA supported
+endchoice
 
 #option for OS tick timer (fixed/dynamic)
 choice

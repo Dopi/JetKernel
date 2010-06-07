@@ -18,8 +18,8 @@
 #include <linux/security.h>
 #include <linux/init.h>
 #include <linux/signal.h>
+#include <linux/uaccess.h>
 
-#include <asm/uaccess.h>
 #include <asm/pgtable.h>
 #include <asm/system.h>
 #include <asm/traps.h>
@@ -126,7 +126,7 @@ ptrace_getrn(struct task_struct *child, unsigned long insn)
 
 	val = get_user_reg(child, reg);
 	if (reg == 15)
-		val = pc_pointer(val + 8);
+		val += 8;
 
 	return val;
 }
@@ -278,8 +278,7 @@ get_branch_address(struct task_struct *child, unsigned long pc, unsigned long in
 				else
 					base -= aluop2;
 			}
-			if (read_u32(child, base, &alt) == 0)
-				alt = pc_pointer(alt);
+			read_u32(child, base, &alt);
 		}
 		break;
 
@@ -305,8 +304,7 @@ get_branch_address(struct task_struct *child, unsigned long pc, unsigned long in
 
 			base = ptrace_getrn(child, insn);
 
-			if (read_u32(child, base + nr_regs, &alt) == 0)
-				alt = pc_pointer(alt);
+			read_u32(child, base + nr_regs, &alt);
 			break;
 		}
 		break;
@@ -655,6 +653,54 @@ static int ptrace_setcrunchregs(struct task_struct *tsk, void __user *ufp)
 }
 #endif
 
+#ifdef CONFIG_VFP
+/*
+ * Get the child VFP state.
+ */
+static int ptrace_getvfpregs(struct task_struct *tsk, void __user *data)
+{
+	struct thread_info *thread = task_thread_info(tsk);
+	union vfp_state *vfp = &thread->vfpstate;
+	struct user_vfp __user *ufp = data;
+
+	vfp_sync_state(thread);
+
+	/* copy the floating point registers */
+	if (copy_to_user(&ufp->fpregs, &vfp->hard.fpregs,
+			 sizeof(vfp->hard.fpregs)))
+		return -EFAULT;
+
+	/* copy the status and control register */
+	if (put_user(vfp->hard.fpscr, &ufp->fpscr))
+		return -EFAULT;
+
+	return 0;
+}
+
+/*
+ * Set the child VFP state.
+ */
+static int ptrace_setvfpregs(struct task_struct *tsk, void __user *data)
+{
+	struct thread_info *thread = task_thread_info(tsk);
+	union vfp_state *vfp = &thread->vfpstate;
+	struct user_vfp __user *ufp = data;
+
+	vfp_sync_state(thread);
+
+	/* copy the floating point registers */
+	if (copy_from_user(&vfp->hard.fpregs, &ufp->fpregs,
+			   sizeof(vfp->hard.fpregs)))
+		return -EFAULT;
+
+	/* copy the status and control register */
+	if (get_user(vfp->hard.fpscr, &ufp->fpscr))
+		return -EFAULT;
+
+	return 0;
+}
+#endif
+
 long arch_ptrace(struct task_struct *child, long request, long addr, long data)
 {
 	int ret;
@@ -774,6 +820,16 @@ long arch_ptrace(struct task_struct *child, long request, long addr, long data)
 
 		case PTRACE_SETCRUNCHREGS:
 			ret = ptrace_setcrunchregs(child, (void __user *)data);
+			break;
+#endif
+
+#ifdef CONFIG_VFP
+		case PTRACE_GETVFPREGS:
+			ret = ptrace_getvfpregs(child, (void __user *)data);
+			break;
+
+		case PTRACE_SETVFPREGS:
+			ret = ptrace_setvfpregs(child, (void __user *)data);
 			break;
 #endif
 

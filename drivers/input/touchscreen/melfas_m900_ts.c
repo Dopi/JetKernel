@@ -259,10 +259,18 @@ void melfas_ts_work_func(struct work_struct *work)
 			switch(button) {
 			case 0x01 : 
 			case 0x09 :
+#if defined(CONFIG_MACH_VINSQ)
+                                keycode = TOUCH_MENU; break;
+#else
 				keycode = TOUCH_HOME; break;
+#endif
 			case 0x02 : 
 			case 0x0A :
+#if defined(CONFIG_MACH_VINSQ)
+                                keycode = TOUCH_HOME; break;
+#else
 				keycode = TOUCH_MENU; break;
+#endif
 			case 0x03 : 
 			case 0x0B :
 //			case 0x04 : 
@@ -373,7 +381,10 @@ int melfas_ts_probe()
 	melfas_ts->input_dev->keycode = melfas_ts_tk_keycode;	
 	set_bit(BTN_TOUCH, melfas_ts->input_dev->keybit);
 	set_bit(EV_ABS, melfas_ts->input_dev->evbit);
-
+#if defined(CONFIG_MACH_VINSQ)
+        max_x = 240;
+        max_y = 400;
+#endif
 	input_set_abs_params(melfas_ts->input_dev, ABS_X, 0, max_x, 0, 0);
 	input_set_abs_params(melfas_ts->input_dev, ABS_Y, 0, max_y, 0, 0);
 	input_set_abs_params(melfas_ts->input_dev, ABS_PRESSURE, 0, 255, 0, 0);
@@ -537,7 +548,7 @@ int __init melfas_ts_init(void)
     gpio_set_value(GPIO_TOUCH_EN, 1);  // TOUCH EN
 	mdelay(300);
 
-	ts_dev = device_create_drvdata(sec_class, NULL, 0, NULL, "ts");
+	ts_dev = device_create(sec_class, NULL, 0, NULL, "ts");
 	if (IS_ERR(ts_dev))
 		pr_err("Failed to create device(ts)!\n");
 	if (device_create_file(ts_dev, &dev_attr_gpio) < 0)

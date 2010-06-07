@@ -18,12 +18,12 @@
 #include <linux/serial_8250.h>
 #include <linux/serial_reg.h>
 #include <linux/clk.h>
+#include <linux/io.h>
 
 #include <mach/hardware.h>
 #include <asm/system.h>
 #include <asm/pgtable.h>
 #include <asm/mach/map.h>
-#include <asm/io.h>
 #include <asm/setup.h>
 
 #include <mach/common.h>
@@ -200,20 +200,16 @@ static struct clocksource clocksource_32k = {
 };
 
 /*
- * Rounds down to nearest nsec.
- */
-unsigned long long omap_32k_ticks_to_nsecs(unsigned long ticks_32k)
-{
-	return cyc2ns(&clocksource_32k, ticks_32k);
-}
-
-/*
  * Returns current time from boot in nsecs. It's OK for this to wrap
  * around for now, as it's just a relative time stamp.
  */
 unsigned long long sched_clock(void)
 {
-	return omap_32k_ticks_to_nsecs(omap_32k_read());
+	unsigned long long ret;
+
+	ret = (unsigned long long)omap_32k_read();
+	ret = (ret * clocksource_32k.mult_orig) >> clocksource_32k.shift;
+	return ret;
 }
 
 static int __init omap_init_clocksource_32k(void)
@@ -248,6 +244,7 @@ static struct omap_globals *omap2_globals;
 
 static void __init __omap2_set_globals(void)
 {
+	omap2_set_globals_tap(omap2_globals);
 	omap2_set_globals_memory(omap2_globals);
 	omap2_set_globals_control(omap2_globals);
 	omap2_set_globals_prcm(omap2_globals);
@@ -258,12 +255,13 @@ static void __init __omap2_set_globals(void)
 #if defined(CONFIG_ARCH_OMAP2420)
 
 static struct omap_globals omap242x_globals = {
-	.tap	= (__force void __iomem *)OMAP2_IO_ADDRESS(0x48014000),
-	.sdrc	= (__force void __iomem *)OMAP2_IO_ADDRESS(OMAP2420_SDRC_BASE),
-	.sms	= (__force void __iomem *)OMAP2_IO_ADDRESS(OMAP2420_SMS_BASE),
-	.ctrl	= (__force void __iomem *)OMAP2_IO_ADDRESS(OMAP2420_CTRL_BASE),
-	.prm	= (__force void __iomem *)OMAP2_IO_ADDRESS(OMAP2420_PRM_BASE),
-	.cm	= (__force void __iomem *)OMAP2_IO_ADDRESS(OMAP2420_CM_BASE),
+	.class	= OMAP242X_CLASS,
+	.tap	= OMAP2_IO_ADDRESS(0x48014000),
+	.sdrc	= OMAP2_IO_ADDRESS(OMAP2420_SDRC_BASE),
+	.sms	= OMAP2_IO_ADDRESS(OMAP2420_SMS_BASE),
+	.ctrl	= OMAP2_IO_ADDRESS(OMAP2420_CTRL_BASE),
+	.prm	= OMAP2_IO_ADDRESS(OMAP2420_PRM_BASE),
+	.cm	= OMAP2_IO_ADDRESS(OMAP2420_CM_BASE),
 };
 
 void __init omap2_set_globals_242x(void)
@@ -276,12 +274,13 @@ void __init omap2_set_globals_242x(void)
 #if defined(CONFIG_ARCH_OMAP2430)
 
 static struct omap_globals omap243x_globals = {
-	.tap	= (__force void __iomem *)OMAP2_IO_ADDRESS(0x4900a000),
-	.sdrc	= (__force void __iomem *)OMAP2_IO_ADDRESS(OMAP243X_SDRC_BASE),
-	.sms	= (__force void __iomem *)OMAP2_IO_ADDRESS(OMAP243X_SMS_BASE),
-	.ctrl	= (__force void __iomem *)OMAP2_IO_ADDRESS(OMAP243X_CTRL_BASE),
-	.prm	= (__force void __iomem *)OMAP2_IO_ADDRESS(OMAP2430_PRM_BASE),
-	.cm	= (__force void __iomem *)OMAP2_IO_ADDRESS(OMAP2430_CM_BASE),
+	.class	= OMAP243X_CLASS,
+	.tap	= OMAP2_IO_ADDRESS(0x4900a000),
+	.sdrc	= OMAP2_IO_ADDRESS(OMAP243X_SDRC_BASE),
+	.sms	= OMAP2_IO_ADDRESS(OMAP243X_SMS_BASE),
+	.ctrl	= OMAP2_IO_ADDRESS(OMAP243X_CTRL_BASE),
+	.prm	= OMAP2_IO_ADDRESS(OMAP2430_PRM_BASE),
+	.cm	= OMAP2_IO_ADDRESS(OMAP2430_CM_BASE),
 };
 
 void __init omap2_set_globals_243x(void)
@@ -294,12 +293,13 @@ void __init omap2_set_globals_243x(void)
 #if defined(CONFIG_ARCH_OMAP3430)
 
 static struct omap_globals omap343x_globals = {
-	.tap	= (__force void __iomem *)OMAP2_IO_ADDRESS(0x4830A000),
-	.sdrc	= (__force void __iomem *)OMAP2_IO_ADDRESS(OMAP343X_SDRC_BASE),
-	.sms	= (__force void __iomem *)OMAP2_IO_ADDRESS(OMAP343X_SMS_BASE),
-	.ctrl	= (__force void __iomem *)OMAP2_IO_ADDRESS(OMAP343X_CTRL_BASE),
-	.prm	= (__force void __iomem *)OMAP2_IO_ADDRESS(OMAP3430_PRM_BASE),
-	.cm	= (__force void __iomem *)OMAP2_IO_ADDRESS(OMAP3430_CM_BASE),
+	.class	= OMAP343X_CLASS,
+	.tap	= OMAP2_IO_ADDRESS(0x4830A000),
+	.sdrc	= OMAP2_IO_ADDRESS(OMAP343X_SDRC_BASE),
+	.sms	= OMAP2_IO_ADDRESS(OMAP343X_SMS_BASE),
+	.ctrl	= OMAP2_IO_ADDRESS(OMAP343X_CTRL_BASE),
+	.prm	= OMAP2_IO_ADDRESS(OMAP3430_PRM_BASE),
+	.cm	= OMAP2_IO_ADDRESS(OMAP3430_CM_BASE),
 };
 
 void __init omap2_set_globals_343x(void)

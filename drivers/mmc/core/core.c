@@ -20,7 +20,7 @@
 #include <linux/err.h>
 #include <linux/leds.h>
 #include <linux/scatterlist.h>
-#include <linux/wakelock.h>
+#include <linux/log2.h>
 
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
@@ -40,7 +40,6 @@
 #include <plat/regs-gpio.h>
 
 static struct workqueue_struct *workqueue;
-static struct wake_lock mmc_delayed_work_wake_lock;
 
 /*
  * Enabling software CRCs on the data blocks can be a significant (30%)
@@ -56,7 +55,6 @@ module_param(use_spi_crc, bool, 0);
 static int mmc_schedule_delayed_work(struct delayed_work *work,
 				     unsigned long delay)
 {
-	wake_lock(&mmc_delayed_work_wake_lock);
 	return queue_delayed_work(workqueue, work, delay);
 }
 
@@ -286,7 +284,11 @@ void mmc_set_data_timeout(struct mmc_data *data, const struct mmc_card *card)
 			(card->host->ios.clock / 1000);
 
 		if (data->flags & MMC_DATA_WRITE)
-			limit_us = 250000;
+			/*
+			 * The limit is really 250 ms, but that is
+			 * insufficient for some crappy cards.
+			 */
+			limit_us = 300000;
 		else
 			limit_us = 100000;
 
@@ -450,6 +452,80 @@ void mmc_set_bus_width(struct mmc_host *host, unsigned int width)
 	mmc_set_ios(host);
 }
 
+/**
+ * mmc_vdd_to_ocrbitnum - Convert a voltage to the OCR bit number
+ * @vdd:	voltage (mV)
+ * @low_bits:	prefer low bits in boundary cases
+ *
+ * This function returns the OCR bit number according to the provided @vdd
+ * value. If conversion is not possible a negative errno value returned.
+ *
+ * Depending on the @low_bits flag the function prefers low or high OCR bits
+ * on boundary voltages. For example,
+ * with @low_bits = true, 3300 mV translates to ilog2(MMC_VDD_32_33);
+ * with @low_bits = false, 3300 mV translates to ilog2(MMC_VDD_33_34);
+ *
+ * Any value in the [1951:1999] range translates to the ilog2(MMC_VDD_20_21).
+ */
+static int mmc_vdd_to_ocrbitnum(int vdd, bool low_bits)
+{
+	const int max_bit = ilog2(MMC_VDD_35_36);
+	int bit;
+
+	if (vdd < 1650 || vdd > 3600)
+		return -EINVAL;
+
+	if (vdd >= 1650 && vdd <= 1950)
+		return ilog2(MMC_VDD_165_195);
+
+	if (low_bits)
+		vdd -= 1;
+
+	/* Base 2000 mV, step 100 mV, bit's base 8. */
+	bit = (vdd - 2000) / 100 + 8;
+	if (bit > max_bit)
+		return max_bit;
+	return bit;
+}
+
+/**
+ * mmc_vddrange_to_ocrmask - Convert a voltage range to the OCR mask
+ * @vdd_min:	minimum voltage value (mV)
+ * @vdd_max:	maximum voltage value (mV)
+ *
+ * This function returns the OCR mask bits according to the provided @vdd_min
+ * and @vdd_max values. If conversion is not possible the function returns 0.
+ *
+ * Notes wrt boundary cases:
+ * This function sets the OCR bits for all boundary voltages, for example
+ * [3300:3400] range is translated to MMC_VDD_32_33 | MMC_VDD_33_34 |
+ * MMC_VDD_34_35 mask.
+ */
+u32 mmc_vddrange_to_ocrmask(int vdd_min, int vdd_max)
+{
+	u32 mask = 0;
+
+	if (vdd_max < vdd_min)
+		return 0;
+
+	/* Prefer high bits for the boundary vdd_max values. */
+	vdd_max = mmc_vdd_to_ocrbitnum(vdd_max, false);
+	if (vdd_max < 0)
+		return 0;
+
+	/* Prefer low bits for the boundary vdd_min values. */
+	vdd_min = mmc_vdd_to_ocrbitnum(vdd_min, true);
+	if (vdd_min < 0)
+		return 0;
+
+	/* Fill the mask, from max bit to min bit. */
+	while (vdd_max >= vdd_min)
+		mask |= 1 << vdd_max--;
+
+	return mask;
+}
+EXPORT_SYMBOL(mmc_vddrange_to_ocrmask);
+
 /*
  * Mask off any voltages we don't support and select
  * the lowest voltage
@@ -469,6 +545,8 @@ u32 mmc_select_voltage(struct mmc_host *host, u32 ocr)
 		host->ios.vdd = bit;
 		mmc_set_ios(host);
 	} else {
+		pr_warning("%s: host doesn't support card's voltages\n",
+				mmc_hostname(host));
 		ocr = 0;
 	}
 
@@ -669,6 +747,8 @@ void mmc_rescan(struct work_struct *work)
 
 	ext_CD_int = readl(S3C64XX_GPNDAT);
 	ext_CD_int &= 0x40;	/* GPN6 */
+	if( system_rev >= 0x20 )
+		ext_CD_int = !ext_CD_int;
 
 	mmc_bus_get(host);
 
@@ -711,7 +791,7 @@ void mmc_rescan(struct work_struct *work)
 		/*
 		 * ...and finally MMC.
 		 */
-			err = mmc_send_op_cond(host, 0, &ocr);
+		err = mmc_send_op_cond(host, 0, &ocr);
 		if (!err) {
 			if (mmc_attach_mmc(host, ocr))
 				mmc_power_off(host);
@@ -732,9 +812,11 @@ void mmc_rescan(struct work_struct *work)
 		{
 			ext_CD_int = readl(S3C64XX_GPNDAT);
 			ext_CD_int &= 0x40;	/* GPN6 */
+			if( system_rev >= 0x20 )
+				ext_CD_int = !ext_CD_int;
 
-			if (!ext_CD_int)
-			{
+		if (!ext_CD_int)
+		{
 				mmc_detect_change(host, msecs_to_jiffies(200));
 				g_rescan_retry = 0;
 			}
@@ -749,7 +831,6 @@ void mmc_rescan(struct work_struct *work)
 	}
 		
 out:
-	wake_lock_timeout(&mmc_delayed_work_wake_lock, HZ / 2);
 	if (host->caps & MMC_CAP_NEEDS_POLL)
 		mmc_schedule_delayed_work(&host->detect, HZ);
 }
@@ -867,8 +948,6 @@ static int __init mmc_init(void)
 {
 	int ret;
 
-	wake_lock_init(&mmc_delayed_work_wake_lock, WAKE_LOCK_SUSPEND, "mmc_delayed_work");
-	
 	workqueue = create_singlethread_workqueue("kmmcd");
 	if (!workqueue)
 		return -ENOMEM;
@@ -903,7 +982,6 @@ static void __exit mmc_exit(void)
 	mmc_unregister_host_class();
 	mmc_unregister_bus();
 	destroy_workqueue(workqueue);
-	wake_lock_destroy(&mmc_delayed_work_wake_lock);
 }
 
 subsys_initcall(mmc_init);

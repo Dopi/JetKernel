@@ -24,6 +24,7 @@
 #include <linux/mtd/partitions.h>
 #include <linux/gpio_keys.h>
 #include <linux/input.h>
+#include <linux/serial_8250.h>
 
 #include <asm/bootinfo.h>
 
@@ -34,20 +35,33 @@
 #include <asm/mach-rc32434/rb.h>
 #include <asm/mach-rc32434/integ.h>
 #include <asm/mach-rc32434/gpio.h>
-
-#define ETH0_DMA_RX_IRQ   	(GROUP1_IRQ_BASE + 0)
-#define ETH0_DMA_TX_IRQ   	(GROUP1_IRQ_BASE + 1)
-#define ETH0_RX_OVR_IRQ   	(GROUP3_IRQ_BASE + 9)
-#define ETH0_TX_UND_IRQ   	(GROUP3_IRQ_BASE + 10)
+#include <asm/mach-rc32434/irq.h>
 
 #define ETH0_RX_DMA_ADDR  (DMA0_BASE_ADDR + 0 * DMA_CHAN_OFFSET)
 #define ETH0_TX_DMA_ADDR  (DMA0_BASE_ADDR + 1 * DMA_CHAN_OFFSET)
 
-/* NAND definitions */
-#define GPIO_RDY (1 << 0x08)
-#define GPIO_WPX (1 << 0x09)
-#define GPIO_ALE (1 << 0x0a)
-#define GPIO_CLE (1 << 0x0b)
+extern unsigned int idt_cpu_freq;
+
+static struct mpmc_device dev3;
+
+void set_latch_u5(unsigned char or_mask, unsigned char nand_mask)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&dev3.lock, flags);
+
+	dev3.state = (dev3.state | or_mask) & ~nand_mask;
+	writeb(dev3.state, dev3.base);
+
+	spin_unlock_irqrestore(&dev3.lock, flags);
+}
+EXPORT_SYMBOL(set_latch_u5);
+
+unsigned char get_latch_u5(void)
+{
+	return dev3.state;
+}
+EXPORT_SYMBOL(get_latch_u5);
 
 static struct resource korina_dev0_res[] = {
 	{
@@ -94,14 +108,12 @@ static struct korina_device korina_dev0_data = {
 };
 
 static struct platform_device korina_dev0 = {
-	.id = 0,
+	.id = -1,
 	.name = "korina",
-	.dev.platform_data = &korina_dev0_data,
+	.dev.driver_data = &korina_dev0_data,
 	.resource = korina_dev0_res,
 	.num_resources = ARRAY_SIZE(korina_dev0_res),
 };
-
-#define CF_GPIO_NUM 13
 
 static struct resource cf_slot0_res[] = {
 	{
@@ -116,11 +128,11 @@ static struct resource cf_slot0_res[] = {
 };
 
 static struct cf_device cf_slot0_data = {
-	.gpio_pin = 13
+	.gpio_pin = CF_GPIO_NUM
 };
 
 static struct platform_device cf_slot0 = {
-	.id = 0,
+	.id = -1,
 	.name = "pata-rb532-cf",
 	.dev.platform_data = &cf_slot0_data,
 	.resource = cf_slot0_res,
@@ -130,7 +142,7 @@ static struct platform_device cf_slot0 = {
 /* Resources and device for NAND */
 static int rb532_dev_ready(struct mtd_info *mtd)
 {
-	return readl(IDT434_REG_BASE + GPIOD) & GPIO_RDY;
+	return gpio_get_value(GPIO_RDY);
 }
 
 static void rb532_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
@@ -185,7 +197,7 @@ static struct mtd_partition rb532_partition_info[] = {
 
 static struct platform_device rb532_led = {
 	.name = "rb532-led",
-	.id = 0,
+	.id = -1,
 };
 
 static struct gpio_keys_button rb532_gpio_btn[] = {
@@ -226,12 +238,32 @@ static struct platform_device rb532_wdt = {
 	.num_resources	= ARRAY_SIZE(rb532_wdt_res),
 };
 
+static struct plat_serial8250_port rb532_uart_res[] = {
+	{
+		.membase	= (char *)KSEG1ADDR(REGBASE + UART0BASE),
+		.irq		= UART0_IRQ,
+		.regshift	= 2,
+		.iotype		= UPIO_MEM,
+		.flags		= UPF_BOOT_AUTOCONF,
+	},
+	{
+		.flags		= 0,
+	}
+};
+
+static struct platform_device rb532_uart = {
+	.name              = "serial8250",
+	.id                = PLAT8250_DEV_PLATFORM,
+	.dev.platform_data = &rb532_uart_res,
+};
+
 static struct platform_device *rb532_devs[] = {
 	&korina_dev0,
 	&nand_slot0,
 	&cf_slot0,
 	&rb532_led,
 	&rb532_button,
+	&rb532_uart,
 	&rb532_wdt
 };
 
@@ -292,7 +324,7 @@ static int __init plat_setup_devices(void)
 {
 	/* Look for the CF card reader */
 	if (!readl(IDT434_REG_BASE + DEV1MASK))
-		rb532_devs[1] = NULL;
+		rb532_devs[2] = NULL;	/* disable cf_slot0 at index 2 */
 	else {
 		cf_slot0_res[0].start =
 		    readl(IDT434_REG_BASE + DEV1BASE);
@@ -303,8 +335,19 @@ static int __init plat_setup_devices(void)
 	nand_slot0_res[0].start = readl(IDT434_REG_BASE + DEV2BASE);
 	nand_slot0_res[0].end = nand_slot0_res[0].start + 0x1000;
 
+	/* Read and map device controller 3 */
+	dev3.base = ioremap_nocache(readl(IDT434_REG_BASE + DEV3BASE), 1);
+
+	if (!dev3.base) {
+		printk(KERN_ERR "rb532: cannot remap device controller 3\n");
+		return -ENXIO;
+	}
+
 	/* Initialise the NAND device */
 	rb532_nand_setup();
+
+	/* set the uart clock to the current cpu frequency */
+	rb532_uart_res[0].uartclk = idt_cpu_freq;
 
 	return platform_add_devices(rb532_devs, ARRAY_SIZE(rb532_devs));
 }

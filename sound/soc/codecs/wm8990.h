@@ -1,5 +1,5 @@
 /*
- * wm8753.h  --  audio driver for WM8753
+ * wm8990.h  --  audio driver for WM8990
  *
  * Copyright 2007 Wolfson Microelectronics PLC.
  * Author: Graeme Gregory
@@ -79,8 +79,8 @@
 #define WM8990_PLL3                             0x3E
 #define WM8990_INTDRIVBITS			0x3F
 
-#define WM8990_REGISTER_COUNT                   60
-#define WM8990_MAX_REGISTER                     0x3F
+#define WM8990_EXT_ACCESS_ENA			0x75
+#define WM8990_EXT_CTL1				0x7a
 
 /*
  * Field Definitions.
@@ -228,25 +228,25 @@
 #define WM8990_SYSCLK_SRC                       0x4000  /* SYSCLK_SRC */
 #define WM8990_CLK_FORCE                        0x2000  /* CLK_FORCE */
 #define WM8990_MCLK_DIV_MASK                    0x1800  /* MCLK_DIV - [12:11] */
-#define WM8990_MCLK_DIV_1			( 0 << 11)
-#define WM8990_MCLK_DIV_2			( 2 << 11)
+#define WM8990_MCLK_DIV_1			(0 << 11)
+#define WM8990_MCLK_DIV_2			(2 << 11)
 #define WM8990_MCLK_INV                         0x0400  /* MCLK_INV */
 #define WM8990_ADC_CLKDIV_MASK                  0x00E0  /* ADC_CLKDIV - [7:5] */
-#define WM8990_ADC_CLKDIV_1			( 0 << 5)
-#define WM8990_ADC_CLKDIV_1_5			( 1 << 5)
-#define WM8990_ADC_CLKDIV_2			( 2 << 5)
-#define WM8990_ADC_CLKDIV_3			( 3 << 5)
-#define WM8990_ADC_CLKDIV_4			( 4 << 5)
-#define WM8990_ADC_CLKDIV_5_5			( 5 << 5)
-#define WM8990_ADC_CLKDIV_6			( 6 << 5)
+#define WM8990_ADC_CLKDIV_1			(0 << 5)
+#define WM8990_ADC_CLKDIV_1_5			(1 << 5)
+#define WM8990_ADC_CLKDIV_2			(2 << 5)
+#define WM8990_ADC_CLKDIV_3			(3 << 5)
+#define WM8990_ADC_CLKDIV_4			(4 << 5)
+#define WM8990_ADC_CLKDIV_5_5			(5 << 5)
+#define WM8990_ADC_CLKDIV_6			(6 << 5)
 #define WM8990_DAC_CLKDIV_MASK                  0x001C  /* DAC_CLKDIV - [4:2] */
-#define WM8990_DAC_CLKDIV_1			( 0 << 2)
-#define WM8990_DAC_CLKDIV_1_5			( 1 << 2)
-#define WM8990_DAC_CLKDIV_2			( 2 << 2)
-#define WM8990_DAC_CLKDIV_3			( 3 << 2)
-#define WM8990_DAC_CLKDIV_4			( 4 << 2)
-#define WM8990_DAC_CLKDIV_5_5			( 5 << 2)
-#define WM8990_DAC_CLKDIV_6			( 6 << 2)
+#define WM8990_DAC_CLKDIV_1			(0 << 2)
+#define WM8990_DAC_CLKDIV_1_5			(1 << 2)
+#define WM8990_DAC_CLKDIV_2			(2 << 2)
+#define WM8990_DAC_CLKDIV_3			(3 << 2)
+#define WM8990_DAC_CLKDIV_4			(4 << 2)
+#define WM8990_DAC_CLKDIV_5_5			(5 << 2)
+#define WM8990_DAC_CLKDIV_6			(6 << 2)
 
 /*
  * R8 (0x08) - Audio Interface (3)
@@ -810,7 +810,7 @@
 
 /*
  * R63 (0x3F) - Internal Driver Bits
-*/
+ */
 #define WM8990_INMIXL_PWR_BIT			0
 #define WM8990_AINLMUX_PWR_BIT			1
 #define WM8990_INMIXR_PWR_BIT			2
@@ -887,6 +887,7 @@
 }
 
 struct wm8990_setup_data {
+	unsigned i2c_bus;
 	unsigned short i2c_address;
 };
 

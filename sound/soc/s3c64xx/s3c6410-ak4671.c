@@ -25,7 +25,6 @@
 #include <linux/platform_device.h>
 #include <linux/i2c.h>
 #include <linux/delay.h>
-#include <sound/driver.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/soc.h>
@@ -82,8 +81,9 @@ static struct snd_soc_dai_link android_dai[] = {
 	},
 };
 
-static struct snd_soc_machine android = {
+static struct snd_soc_card android = {
 	.name = "android",
+	.platform = &s3c24xx_soc_platform,
 	.dai_link = android_dai,
 	.num_links = ARRAY_SIZE(android_dai),
 };
@@ -93,8 +93,7 @@ static struct ak4671_setup_data android_ak4671_setup = {
 };
 
 static struct snd_soc_device android_snd_devdata = {
-	.machine = &android,
-	.platform = &s3c24xx_soc_platform,
+	.card = &android,
 	.codec_dev = &soc_codec_dev_ak4671,
 	.codec_data = &android_ak4671_setup,
 };
@@ -255,21 +254,21 @@ static int android_hifi_hw_params(struct snd_pcm_substream *substream,
 	writel(iismod , (regs + S3C64XX_IIS0MOD));
 	
 	/* set codec DAI configuration */		//lm49350_mode1h_set_dai_fmt
-	ret = codec_dai->dai_ops.set_fmt(codec_dai,
+	ret = codec_dai->ops.set_fmt(codec_dai,
 		SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF |
 		SND_SOC_DAIFMT_CBM_CFM ); 
 	if (ret < 0)
 		return ret;
 
 	/* set cpu DAI configuration */		//s3c_i2s_set_fmt
-	ret = cpu_dai->dai_ops.set_fmt(cpu_dai,
+	ret = cpu_dai->ops.set_fmt(cpu_dai,
 		SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF |
 		SND_SOC_DAIFMT_CBM_CFM ); 
 	if (ret < 0)
 		return ret;
 
 	/* set the codec system clock for DAC and ADC */		// for codec sample rate
-	ret = codec_dai->dai_ops.set_sysclk(codec_dai, 0, params_rate(params), SND_SOC_CLOCK_IN);
+	ret = codec_dai->ops.set_sysclk(codec_dai, 0, params_rate(params), SND_SOC_CLOCK_IN);
 	if (ret < 0)
 		return ret;
 
@@ -290,7 +289,7 @@ static int android_hifi_hw_params(struct snd_pcm_substream *substream,
 		return ret;
 #endif
 	/* set prescaler division for sample rate */		// s3c_i2s_set_clkdiv
-	ret = cpu_dai->dai_ops.set_clkdiv(cpu_dai, S3C_DIV_PRESCALER,prescaler);
+	ret = cpu_dai->ops.set_clkdiv(cpu_dai, S3C_DIV_PRESCALER,prescaler);
 	if (ret < 0)
 		return ret;
 
@@ -352,6 +351,6 @@ module_init(android_init);
 module_exit(android_exit);
 
 /* Module information */
-MODULE_AUTHOR("Ryu Euiyoul");
-MODULE_DESCRIPTION("ALSA SoC WM8753 Neo1973");
+MODULE_AUTHOR("SB Kang");
+MODULE_DESCRIPTION("ALSA SoC AK4671");
 MODULE_LICENSE("GPL");

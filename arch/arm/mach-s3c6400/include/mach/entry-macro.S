@@ -1,4 +1,4 @@
-/* linux/arch/arm/mach-s3c6400/include/mach/entry-macro.S
+/* arch/arm/mach-s3c6400/include/mach/entry-macro.S
  *
  * Copyright 2008 Openmoko, Inc.
  * Copyright 2008 Simtec Electronics

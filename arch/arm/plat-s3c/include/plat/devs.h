@@ -11,21 +11,24 @@
 */
 #include <linux/platform_device.h>
 
-struct s3c24xx_uart_resources {
+struct s3c_uart_resources {
 	struct resource		*resources;
 	unsigned long		 nr_resources;
 };
 
-extern struct s3c24xx_uart_resources s3c2410_uart_resources[];
-extern struct s3c24xx_uart_resources s3c64xx_uart_resources[];
-extern struct s3c24xx_uart_resources s5p64xx_uart_resources[];
-extern struct s3c24xx_uart_resources s5pc1xx_uart_resources[];
+extern struct s3c_uart_resources s3c64xx_uart_resources[];
 
-extern struct platform_device *s3c24xx_uart_devs[];
-extern struct platform_device *s3c24xx_uart_src[];
+extern struct platform_device *s3c_uart_devs[];
+extern struct platform_device *s3c_uart_src[];
 
 extern struct platform_device s3c_device_timer[];
 
+#if defined(CONFIG_S3C_DMA_PL080_SOL)
+extern struct platform_device s3c_device_dma0;
+extern struct platform_device s3c_device_dma1;
+extern struct platform_device s3c_device_dma2;
+extern struct platform_device s3c_device_dma3;
+#endif
 extern struct platform_device s3c_device_usb;
 extern struct platform_device s3c_device_lcd;
 extern struct platform_device s3c_device_wdt;
@@ -58,3 +61,4 @@ extern struct platform_device s3c_device_vpp;
 extern struct platform_device s3c_device_tvenc;
 extern struct platform_device s3c_device_tvscaler;
 #endif
+

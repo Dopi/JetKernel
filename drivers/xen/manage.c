@@ -39,12 +39,17 @@ static int xen_suspend(void *data)
 
 	BUG_ON(!irqs_disabled());
 
-	load_cr3(swapper_pg_dir);
-
 	err = device_power_down(PMSG_SUSPEND);
 	if (err) {
 		printk(KERN_ERR "xen_suspend: device_power_down failed: %d\n",
 		       err);
+		return err;
+	}
+	err = sysdev_suspend(PMSG_SUSPEND);
+	if (err) {
+		printk(KERN_ERR "xen_suspend: sysdev_suspend failed: %d\n",
+			err);
+		device_power_up(PMSG_RESUME);
 		return err;
 	}
 
@@ -63,6 +68,7 @@ static int xen_suspend(void *data)
 	gnttab_resume();
 	xen_mm_unpin_all();
 
+	sysdev_resume();
 	device_power_up(PMSG_RESUME);
 
 	if (!*cancelled) {

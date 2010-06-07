@@ -37,6 +37,7 @@ struct sockaddr_l2 {
 	sa_family_t	l2_family;
 	__le16		l2_psm;
 	bdaddr_t	l2_bdaddr;
+	__le16		l2_cid;
 };
 
 /* L2CAP socket options */
@@ -185,6 +186,7 @@ struct l2cap_info_rsp {
 /* info type */
 #define L2CAP_IT_CL_MTU     0x0001
 #define L2CAP_IT_FEAT_MASK  0x0002
+#define L2CAP_IT_FIXED_CHAN 0x0003
 
 /* info result */
 #define L2CAP_IR_SUCCESS    0x0000
@@ -219,6 +221,8 @@ struct l2cap_conn {
 	__u8		rx_ident;
 	__u8		tx_ident;
 
+	__u8		disc_reason;
+
 	struct l2cap_chan_list chan_list;
 };
 
@@ -238,8 +242,9 @@ struct l2cap_pinfo {
 	__u16		imtu;
 	__u16		omtu;
 	__u16		flush_to;
-
-	__u32		link_mode;
+	__u8            sec_level;
+	__u8		role_switch;
+	__u8            force_reliable;
 
 	__u8		conf_req[64];
 	__u8		conf_len;

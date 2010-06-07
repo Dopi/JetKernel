@@ -80,8 +80,8 @@ struct cpufreq_real_policy {
 };
 
 struct cpufreq_policy {
-	cpumask_t		cpus;	/* CPUs requiring sw coordination */
-	cpumask_t		related_cpus; /* CPUs with any coordination */
+	cpumask_var_t		cpus;	/* CPUs requiring sw coordination */
+	cpumask_var_t		related_cpus; /* CPUs with any coordination */
 	unsigned int		shared_type; /* ANY or ALL affected CPUs
 						should set cpufreq */
 	unsigned int		cpu;    /* cpu nr of registered CPU */
@@ -126,7 +126,7 @@ struct cpufreq_freqs {
 	unsigned int new;
 #ifdef CONFIG_ARCH_S3C64XX
 	unsigned int new_hclk;
-#endif
+#endif /* CONFIG_ARCH_S3C64XX */
 	u8 flags;		/* flags of cpufreq_driver, see below. */
 };
 
@@ -190,7 +190,8 @@ extern int __cpufreq_driver_target(struct cpufreq_policy *policy,
 				   unsigned int relation);
 
 
-extern int __cpufreq_driver_getavg(struct cpufreq_policy *policy);
+extern int __cpufreq_driver_getavg(struct cpufreq_policy *policy,
+				   unsigned int cpu);
 
 int cpufreq_register_governor(struct cpufreq_governor *governor);
 void cpufreq_unregister_governor(struct cpufreq_governor *governor);
@@ -229,7 +230,9 @@ struct cpufreq_driver {
 	unsigned int	(*get)	(unsigned int cpu);
 
 	/* optional */
-	unsigned int (*getavg)	(unsigned int cpu);
+	unsigned int (*getavg)	(struct cpufreq_policy *policy,
+				 unsigned int cpu);
+
 	int	(*exit)		(struct cpufreq_policy *policy);
 	int	(*suspend)	(struct cpufreq_policy *policy, pm_message_t pmsg);
 	int	(*resume)	(struct cpufreq_policy *policy);
@@ -252,6 +255,11 @@ int cpufreq_unregister_driver(struct cpufreq_driver *driver_data);
 
 void cpufreq_notify_transition(struct cpufreq_freqs *freqs, unsigned int state);
 
+#ifdef CONFIG_CPU_FREQ_STAT
+extern void cpufreq_exit_idle(int cpu, unsigned long ticks);
+#else
+#define cpufreq_exit_idle(cpu,ticks) do {} while (0)
+#endif
 
 static inline void cpufreq_verify_within_limits(struct cpufreq_policy *policy, unsigned int min, unsigned int max) 
 {
@@ -279,7 +287,9 @@ struct freq_attr {
  *                        CPUFREQ 2.6. INTERFACE                     *
  *********************************************************************/
 int cpufreq_get_policy(struct cpufreq_policy *policy, unsigned int cpu);
-int cpufreq_set_policy(unsigned int cpu, const char *buf); // by Anubis
+int cpufreq_set_policy(unsigned int cpu, const char *buf); // by hskang
+extern char cpufreq_governor_name[CPUFREQ_NAME_LEN];
+void cpufreq_get_cpufreq_name(unsigned int cpu);
 int cpufreq_update_policy(unsigned int cpu);
 
 /* query the current CPU frequency (in kHz). If zero, cpufreq couldn't detect it */

@@ -45,11 +45,6 @@
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
 
-#ifndef CONFIG_BT_HCI_CORE_DEBUG
-#undef  BT_DBG
-#define BT_DBG(D...)
-#endif
-
 /* Handle HCI Event packets */
 
 static void hci_cc_inquiry_cancel(struct hci_dev *hdev, struct sk_buff *skb)
@@ -1024,9 +1019,7 @@ static inline void hci_disconn_complete_evt(struct hci_dev *hdev, struct sk_buff
 	if (conn) {
 		conn->state = BT_CLOSED;
 
-		hci_conn_del_sysfs(conn);
-
-		hci_proto_disconn_ind(conn, ev->reason);
+		hci_proto_disconn_cfm(conn, ev->reason);
 		hci_conn_del(conn);
 	}
 
@@ -1615,7 +1608,8 @@ static inline void hci_remote_ext_features_evt(struct hci_dev *hdev, struct sk_b
 
 		if (conn->state == BT_CONFIG) {
 			if (!ev->status && hdev->ssp_mode > 0 &&
-					conn->ssp_mode > 0 && conn->out) {
+					conn->ssp_mode > 0 && conn->out &&
+					conn->sec_level != BT_SECURITY_SDP) {
 				struct hci_cp_auth_requested cp;
 				cp.handle = ev->handle;
 				hci_send_cmd(hdev, HCI_OP_AUTH_REQUESTED,
@@ -1652,7 +1646,9 @@ static inline void hci_sync_conn_complete_evt(struct hci_dev *hdev, struct sk_bu
 		conn->type = SCO_LINK;
 	}
 
-	if (conn->out && ev->status == 0x1c && conn->attempt < 2) {
+	if (conn->out && (ev->status == 0x1a || ev->status == 0x1c ||
+			ev->status == 0x1f || ev->status == 0x10) &&
+			conn->attempt < 2) {
 		conn->pkt_type = (hdev->esco_type & SCO_ESCO_MASK) |
 					(hdev->esco_type & EDR_ESCO_MASK);
 		hci_setup_sync(conn, conn->link->handle);

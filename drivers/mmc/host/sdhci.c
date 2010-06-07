@@ -18,7 +18,9 @@
 #include <linux/io.h>
 #include <linux/dma-mapping.h>
 #include <linux/scatterlist.h>
+
 #include <linux/leds.h>
+
 #include <linux/mmc/host.h>
 #include <linux/mmc/card.h>
 #include <linux/clk.h>
@@ -38,8 +40,13 @@
 #define DBG(f, x...) \
 	pr_debug(DRIVER_NAME " [%s()]: " f, __func__,## x)
 
+#if defined(CONFIG_LEDS_CLASS) || (defined(CONFIG_LEDS_CLASS_MODULE) && \
+	defined(CONFIG_MMC_SDHCI_MODULE))
+#define SDHCI_USE_LEDS_CLASS
+#endif
+
 static unsigned int debug_quirks = 0;
-int card_detect = 0;
+static int card_detect = 0;
 
 static void sdhci_prepare_data(struct sdhci_host *, struct mmc_data *);
 static void sdhci_finish_data(struct sdhci_host *);
@@ -190,7 +197,7 @@ static void sdhci_deactivate_led(struct sdhci_host *host)
 	writeb(ctrl, host->ioaddr + SDHCI_HOST_CONTROL);
 }
 
-#ifdef CONFIG_LEDS_CLASS
+#ifdef SDHCI_USE_LEDS_CLASS
 static void sdhci_led_control(struct led_classdev *led,
 	enum led_brightness brightness)
 {
@@ -837,6 +844,7 @@ static void sdhci_finish_data(struct sdhci_host *host)
 			sdhci_reset(host, SDHCI_RESET_CMD);
 			sdhci_reset(host, SDHCI_RESET_DATA);
 		}
+
 		sdhci_send_command(host, data->stop);
 	} else
 #endif
@@ -862,7 +870,7 @@ static void sdhci_send_command(struct sdhci_host *host, struct mmc_command *cmd)
 	   though they might use busy signaling */
 	if (host->mrq->data && (cmd == host->mrq->data->stop))
 		mask &= ~SDHCI_DATA_INHIBIT;
-	
+
 	while (readl(host->ioaddr + SDHCI_PRESENT_STATE) & mask) {
 		if (timeout == 0) {
 			printk(KERN_ERR "%s: Controller never released "
@@ -1198,12 +1206,12 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	unsigned int sd_detect = 0;
 
 	host = mmc_priv(mmc);
-	
+
 	spin_lock_irqsave(&host->lock, flags);
 
 	WARN_ON(host->mrq != NULL);
 
-#ifndef CONFIG_LEDS_CLASS
+#ifndef SDHCI_USE_LEDS_CLASS
 	sdhci_activate_led(host);
 #endif
 
@@ -1215,9 +1223,20 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 			b_isWlan = 0;
 			sd_detect = readl(S3C64XX_GPNDAT);
 			sd_detect &= 0x40;
+			if( system_rev >= 0x20 )
+				sd_detect = !sd_detect;
 			
-			if(!card_detect && !sd_detect)
+			if( ( system_rev == 0x10 )||( system_rev == 0x1a ) )
+			{
 				card_detect = 1;
+			}
+			else
+			{
+			if(!card_detect && !sd_detect)
+				{
+				card_detect = 1;
+				}
+			}
 			break;
 		case 2:
 			b_isWlan = 1;
@@ -1384,10 +1403,18 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask)
 	}
 
 	if (intmask & SDHCI_INT_TIMEOUT)
+	{
 		host->cmd->error = -ETIMEDOUT;
+		printk("%s SDHCI_INT_TIMEOUT %08x\n", __func__, intmask);
+	}
 	else if (intmask & (SDHCI_INT_CRC | SDHCI_INT_END_BIT |
 			SDHCI_INT_INDEX))
 		host->cmd->error = -EILSEQ;
+
+	if (host->cmd->error) {
+		tasklet_schedule(&host->finish_tasklet);
+		return;
+	}
 
 	/*
 	 * The host can send and interrupt when the busy state has
@@ -1439,8 +1466,12 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
 		 * indicate that a busy state has ended. See comment
 		 * above in sdhci_cmd_irq().
 		 */
-		if (intmask & SDHCI_INT_DATA_END)
-			return;
+		if (host->cmd && (host->cmd->flags & MMC_RSP_BUSY)) {
+			if (intmask & SDHCI_INT_DATA_END) {
+				sdhci_finish_command(host);
+				return;
+			}
+		}
 
 		printk(KERN_ERR "%s: Got data interrupt 0x%08x even "
 			"though no data operation was in progress.\n",
@@ -1451,7 +1482,10 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
 	}
 
 	if (intmask & SDHCI_INT_DATA_TIMEOUT)
+	{
 		host->data->error = -ETIMEDOUT;
+		printk("%s SDHCI_INT_TIMEOUT %08x\n", __func__, intmask);
+	}
 	else if (intmask & (SDHCI_INT_DATA_CRC | SDHCI_INT_DATA_END_BIT))
 		host->data->error = -EILSEQ;
 	else if (intmask & SDHCI_INT_ADMA_ERROR)
@@ -1472,18 +1506,18 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
 			writel(readl(host->ioaddr + SDHCI_DMA_ADDRESS),
 				host->ioaddr + SDHCI_DMA_ADDRESS);
 
-	if (intmask & SDHCI_INT_DATA_END) {
-		if (host->cmd) {
-			/*
-			 * Data managed to finish before the
-			 * command completed. Make sure we do
-			 * things in the proper order.
-			 */
-			host->data_early = 1;
-		} else {
-			sdhci_finish_data(host);
+		if (intmask & SDHCI_INT_DATA_END) {
+			if (host->cmd) {
+				/*
+				 * Data managed to finish before the
+				 * command completed. Make sure we do
+				 * things in the proper order.
+				 */
+				host->data_early = 1;
+			} else {
+				sdhci_finish_data(host);
+			}
 		}
-	}
 	}
 }
 
@@ -1561,7 +1595,7 @@ out:
 	if (cardint && host->hwport == 2)
 	{
 		if(host->mmc->sdio_irq_thread)
-			mmc_signal_sdio_irq(host->mmc);
+		mmc_signal_sdio_irq(host->mmc);
 	}
 
 	return result;
@@ -1582,11 +1616,17 @@ static irqreturn_t sdhci_irq_cd(int irq, void *dev_id)
 
 	ext_CD_int = readl(S3C64XX_GPNDAT);
 	ext_CD_int &= 0x40;	/* GPN6 */
+	if( system_rev >= 0x20 )
+		ext_CD_int = !ext_CD_int;
 
 	if(ext_CD_int) 
 	{
 		card_detect = 0;
-
+		if( system_rev >= 0x40 )
+		{
+			gpio_set_value(GPIO_TFLASH_EN, 0);
+			printk(KERN_INFO DRIVER_NAME ": TFLASH_EN OFF\n");
+		}
 		eint0msk = __raw_readl(S3C64XX_EINT0MASK);
 		eint0msk |= (1 << eint_num);
 		__raw_writel(eint0msk, S3C64XX_EINT0MASK);
@@ -1595,6 +1635,11 @@ static irqreturn_t sdhci_irq_cd(int irq, void *dev_id)
 	{
 		card_detect = 1;
 		g_rescan_retry = 1;
+		if( system_rev >= 0x40 )
+		{
+			gpio_set_value(GPIO_TFLASH_EN, 1);
+			printk(KERN_INFO DRIVER_NAME ": TFLASH_EN ON\n");
+		}
 	}
 
 	tasklet_schedule(&host->card_tasklet);	
@@ -1621,9 +1666,9 @@ int sdhci_suspend_host(struct sdhci_host *host, pm_message_t state)
 	{
 		if(host->hwport != 2)
 		{
-			ret = mmc_suspend_host(host->mmc, state);
-			if(ret)
-				return ret;
+	ret = mmc_suspend_host(host->mmc, state);
+	if (ret)
+		return ret;
 		}
 		else
 		{
@@ -1646,7 +1691,7 @@ int sdhci_suspend_host(struct sdhci_host *host, pm_message_t state)
 		
 		if(host->irq)
 		{
-			free_irq(host->irq, host);
+	free_irq(host->irq, host);
 		}
 		if(host->irq_cd)
 		{
@@ -1667,18 +1712,18 @@ int sdhci_resume_host(struct sdhci_host *host)
 	{
 		if (host->flags & SDHCI_USE_DMA) 
 		{
-			if (host->ops->enable_dma)
-				host->ops->enable_dma(host);
-		}
-		
+		if (host->ops->enable_dma)
+			host->ops->enable_dma(host);
+	}
+
 		set_irq_type(host->irq_cd,IRQ_TYPE_EDGE_BOTH);	
 		ret = request_irq(host->irq_cd, sdhci_irq_cd, IRQF_DISABLED, mmc_hostname(host->mmc), host);
 		ret = request_irq(host->irq, sdhci_irq, IRQF_SHARED,mmc_hostname(host->mmc), host);
-		if (ret)
-			return ret;
+	if (ret)
+		return ret;
 
-		sdhci_init(host);
-		mmiowb();
+	sdhci_init(host);
+	mmiowb();
 
 		if (host->hwport !=2)
 		{
@@ -1697,7 +1742,7 @@ int sdhci_resume_host(struct sdhci_host *host)
 			writeb(0xe, host->ioaddr + SDHCI_POWER_CONTROL); 
 			
 			sdhci_enable_sdio_irq(host->mmc, 1);
-	
+
 			if(dhdpm.resume != NULL)
 			{
 				dhdpm.resume();
@@ -1848,8 +1893,8 @@ int sdhci_add_host(struct sdhci_host *host)
 	if (host->ops->get_timeout_clock)
 		host->timeout_clk = host->ops->get_timeout_clock(host);
 	else
-		host->timeout_clk =
-			(caps & SDHCI_TIMEOUT_CLK_MASK) >> SDHCI_TIMEOUT_CLK_SHIFT;
+	host->timeout_clk =
+		(caps & SDHCI_TIMEOUT_CLK_MASK) >> SDHCI_TIMEOUT_CLK_SHIFT;
 	if (host->timeout_clk == 0) {
 		printk(KERN_ERR "%s: Hardware doesn't specify timeout clock "
 			"frequency.\n", mmc_hostname(mmc));
@@ -1865,7 +1910,7 @@ int sdhci_add_host(struct sdhci_host *host)
 	mmc->f_min = host->max_clk / 256;
 	mmc->f_max = host->max_clk;
 	mmc->caps = MMC_CAP_4_BIT_DATA | MMC_CAP_SDIO_IRQ;
-	
+
 	if ((caps & SDHCI_CAN_DO_HISPD) ||
 		(host->quirks & SDHCI_QUIRK_FORCE_HIGHSPEED))
 	{
@@ -1957,8 +2002,10 @@ int sdhci_add_host(struct sdhci_host *host)
 	sdhci_dumpregs(host);
 #endif
 
-#ifdef CONFIG_LEDS_CLASS
-	host->led.name = mmc_hostname(mmc);
+#ifdef SDHCI_USE_LEDS_CLASS
+	snprintf(host->led_name, sizeof(host->led_name),
+		"%s::", mmc_hostname(mmc));
+	host->led.name = host->led_name;
 	host->led.brightness = LED_OFF;
 	host->led.default_trigger = mmc_hostname(mmc);
 	host->led.brightness_set = sdhci_led_control;
@@ -1979,7 +2026,7 @@ int sdhci_add_host(struct sdhci_host *host)
 
 	return 0;
 
-#ifdef CONFIG_LEDS_CLASS
+#ifdef SDHCI_USE_LEDS_CLASS
 reset:
 	sdhci_reset(host, SDHCI_RESET_ALL);
 	free_irq(host->irq, host);
@@ -2016,7 +2063,7 @@ void sdhci_remove_host(struct sdhci_host *host, int dead)
 
 	mmc_remove_host(host->mmc);
 
-#ifdef CONFIG_LEDS_CLASS
+#ifdef SDHCI_USE_LEDS_CLASS
 	led_classdev_unregister(&host->led);
 #endif
 
@@ -2055,8 +2102,22 @@ EXPORT_SYMBOL_GPL(sdhci_free_host);
 
 static int __init sdhci_drv_init(void)
 {
+	int ext_CD_int = 0;
 	printk(KERN_INFO DRIVER_NAME
 		": Samsung S3C6410 SD/MMC driver\n");
+	if ( system_rev >= 0x40 )
+	{
+		ext_CD_int = readl(S3C64XX_GPNDAT);
+		ext_CD_int &= 0x40;	/* GPN6 */
+		if( system_rev >= 0x20 )
+			ext_CD_int = !ext_CD_int;
+
+		if(gpio_get_value(GPIO_TFLASH_EN) && ext_CD_int)
+		{
+			gpio_set_value(GPIO_TFLASH_EN, 0);
+			printk(KERN_INFO DRIVER_NAME ": TFLASH_EN OFF\n");
+		}
+	}
 	return 0;
 }
 

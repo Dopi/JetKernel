@@ -21,24 +21,10 @@
 #include <linux/debug_locks.h>
 #include <linux/random.h>
 #include <linux/kallsyms.h>
-
-#ifdef CONFIG_KERNEL_PANIC_DUMP 
-#include <linux/kernel.h>
-#include <linux/file.h>
-#include <linux/fs.h>
-#include <linux/fcntl.h>
-#include <linux/uaccess.h>
-#include <linux/syscalls.h>
-#include <linux/time.h>
- 
-extern char *PANIC_Base;
-extern char *PANIC_Current;
-
-static int multiple_panic = 0;
-#endif
+#include <linux/dmi.h>
 
 int panic_on_oops;
-int tainted;
+static unsigned long tainted_mask;
 static int pause_on_oops;
 static int pause_on_oops_flag;
 static DEFINE_SPINLOCK(pause_on_oops_lock);
@@ -51,13 +37,6 @@ int panic_timeout = CONFIG_PANIC_TIMEOUT;
 ATOMIC_NOTIFIER_HEAD(panic_notifier_list);
 
 EXPORT_SYMBOL(panic_notifier_list);
-
-static int __init panic_setup(char *str)
-{
-	panic_timeout = simple_strtoul(str, NULL, 0);
-	return 1;
-}
-__setup("panic=", panic_setup);
 
 static long no_blink(long time)
 {
@@ -77,12 +56,6 @@ EXPORT_SYMBOL(panic_blink);
  *	This function never returns.
  */
 
-#define REBOOT_WHEN_PANIC_IN_START_KERNEL
-
-extern int start_kernel_ok;
-
-extern void arch_reset(char mode);
-
 NORET_TYPE void panic(const char * fmt, ...)
 {
 	long i;
@@ -91,7 +64,6 @@ NORET_TYPE void panic(const char * fmt, ...)
 #if defined(CONFIG_S390)
 	unsigned long caller = (unsigned long) __builtin_return_address(0);
 #endif
-    int count,chr_count;
 
 	/*
 	 * It's possible to come here directly from a panic-assertion and not
@@ -106,112 +78,6 @@ NORET_TYPE void panic(const char * fmt, ...)
 	va_end(args);
 	printk(KERN_EMERG "Kernel panic - not syncing: %s\n",buf);
 	bust_spinlocks(0);
-
-#ifdef CONFIG_KERNEL_PANIC_DUMP
-	PANIC_Current += sprintf(PANIC_Current,"Kernel panic - not syncing: %s\n",buf);
-#ifdef REBOOT_WHEN_PANIC_IN_START_KERNEL
-	if(start_kernel_ok < 11) {
-		printk("panic in statr_kernel() : %d\n", start_kernel_ok);
-		arch_reset('r');	
-	}
-#endif
-	if (!multiple_panic) {
-		multiple_panic++;	
-		printk(KERN_EMERG "PANIC_DUMP Test : \n");
-		count = PANIC_Current - PANIC_Base;
-		printk("count : %d\n",count);
-		chr_count = 0;
-		while(count) 
-		{
-			memset(buf,0x0,1024);
-			if(count > 1024) 
-			{
-				memcpy(buf,PANIC_Base+chr_count,1024);
-				printk("%s",buf);
-				chr_count += 1024;
-				count -= 1024;
-			} 
-			else 
-			{
-				memcpy(buf,PANIC_Base+chr_count,count);
-				printk("%s",buf);
-				chr_count += count;
-				count -= count;
-			}
-		}
-
-		{
-			mm_segment_t old_fs;
-			struct file *filp;
-			int writelen;
-			fl_owner_t id = current->files;
-			struct timeval val;
-			struct tm *ptm,ptmTemp;
-			char dt[35];
-
-			preempt_enable();
-
-			old_fs = get_fs();
-			set_fs(KERNEL_DS);
-
-			do_gettimeofday(&val);
-
-			ptm = localtime_r(&val.tv_sec,&ptmTemp);
-
-			memset(dt , 0x00 , sizeof(dt));
-
-			// format : YYMMDDhhmm
-			sprintf(dt, "/data/KERNEL_PANIC%04d%02d%02d%02d%02d.txt"
-					, ptm->tm_year+1900 , ptm->tm_mon+1 , ptm->tm_mday
-					, ptm->tm_hour, ptm->tm_min);
-
-			printk("Panic log file is %s \n",dt);
-
-			count = PANIC_Current - PANIC_Base;
-			chr_count = 0;
-			filp = filp_open(dt,O_CREAT|O_WRONLY,0666);
-			if(filp<0)
-				printk("Sorry. Can't creat panic file\n");
-			else {
-				//				vfs_write(filp, PANIC_Base, strlen(PANIC_Base),
-				while(count) {
-					memset(buf,0x0,1024);
-					if(count > 1024) {
-						memcpy(buf,PANIC_Base+chr_count,1024);
-						writelen = filp->f_op->write(filp,buf,1024,&filp->f_pos);
-						if(writelen == 0)
-							printk("Write Error!!\n");
-						else
-							filp->f_op->flush(filp,id);
-						chr_count += 1024;
-						count -= 1024;
-					} else {
-						memcpy(buf,PANIC_Base+chr_count,count);
-						writelen = filp->f_op->write(filp,buf,count,&filp->f_pos);
-						if(writelen == 0)
-							printk("Write Error\n");
-						else
-							filp->f_op->flush(filp,id);
-						chr_count += count;
-						count -= count;
-					}   
-				}
-			}
-			set_fs(old_fs);
-			preempt_disable();
-		}
-
-		count = PANIC_Current - PANIC_Base;
-		printk("\nPanic Dump END,  panic message size is : %d\n",count);
-	}
-	else {
-#if 0
-		/* Reset Target */
-#else		
-		while (1);
-#endif
-	}
-#endif
 
 	/*
 	 * If we have crashed and we have a crash kernel loaded let it handle
@@ -274,6 +140,27 @@ NORET_TYPE void panic(const char * fmt, ...)
 
 EXPORT_SYMBOL(panic);
 
+
+struct tnt {
+	u8 bit;
+	char true;
+	char false;
+};
+
+static const struct tnt tnts[] = {
+	{ TAINT_PROPRIETARY_MODULE, 'P', 'G' },
+	{ TAINT_FORCED_MODULE, 'F', ' ' },
+	{ TAINT_UNSAFE_SMP, 'S', ' ' },
+	{ TAINT_FORCED_RMMOD, 'R', ' ' },
+	{ TAINT_MACHINE_CHECK, 'M', ' ' },
+	{ TAINT_BAD_PAGE, 'B', ' ' },
+	{ TAINT_USER, 'U', ' ' },
+	{ TAINT_DIE, 'D', ' ' },
+	{ TAINT_OVERRIDDEN_ACPI_TABLE, 'A', ' ' },
+	{ TAINT_WARN, 'W', ' ' },
+	{ TAINT_CRAP, 'C', ' ' },
+};
+
 /**
  *	print_tainted - return a string to represent the kernel taint state.
  *
@@ -284,46 +171,50 @@ EXPORT_SYMBOL(panic);
  *  'M' - System experienced a machine check exception.
  *  'B' - System has hit bad_page.
  *  'U' - Userspace-defined naughtiness.
+ *  'D' - Kernel has oopsed before
  *  'A' - ACPI table overridden.
  *  'W' - Taint on warning.
+ *  'C' - modules from drivers/staging are loaded.
  *
  *	The string is overwritten by the next call to print_taint().
  */
-
 const char *print_tainted(void)
 {
-	static char buf[20];
-	if (tainted) {
-		snprintf(buf, sizeof(buf), "Tainted: %c%c%c%c%c%c%c%c%c%c",
-			tainted & TAINT_PROPRIETARY_MODULE ? 'P' : 'G',
-			tainted & TAINT_FORCED_MODULE ? 'F' : ' ',
-			tainted & TAINT_UNSAFE_SMP ? 'S' : ' ',
-			tainted & TAINT_FORCED_RMMOD ? 'R' : ' ',
-			tainted & TAINT_MACHINE_CHECK ? 'M' : ' ',
-			tainted & TAINT_BAD_PAGE ? 'B' : ' ',
-			tainted & TAINT_USER ? 'U' : ' ',
-			tainted & TAINT_DIE ? 'D' : ' ',
-			tainted & TAINT_OVERRIDDEN_ACPI_TABLE ? 'A' : ' ',
-			tainted & TAINT_WARN ? 'W' : ' ');
-	}
-	else
+	static char buf[ARRAY_SIZE(tnts) + sizeof("Tainted: ") + 1];
+
+	if (tainted_mask) {
+		char *s;
+		int i;
+
+		s = buf + sprintf(buf, "Tainted: ");
+		for (i = 0; i < ARRAY_SIZE(tnts); i++) {
+			const struct tnt *t = &tnts[i];
+			*s++ = test_bit(t->bit, &tainted_mask) ?
+					t->true : t->false;
+		}
+		*s = 0;
+	} else
 		snprintf(buf, sizeof(buf), "Not tainted");
 	return(buf);
+}
+
+int test_taint(unsigned flag)
+{
+	return test_bit(flag, &tainted_mask);
+}
+EXPORT_SYMBOL(test_taint);
+
+unsigned long get_taint(void)
+{
+	return tainted_mask;
 }
 
 void add_taint(unsigned flag)
 {
 	debug_locks = 0; /* can't trust the integrity of the kernel anymore */
-	tainted |= flag;
+	set_bit(flag, &tainted_mask);
 }
 EXPORT_SYMBOL(add_taint);
-
-static int __init pause_on_oops_setup(char *str)
-{
-	pause_on_oops = simple_strtoul(str, NULL, 0);
-	return 1;
-}
-__setup("pause_on_oops=", pause_on_oops_setup);
 
 static void spin_msec(int msecs)
 {
@@ -411,6 +302,8 @@ static int init_oops_id(void)
 {
 	if (!oops_id)
 		get_random_bytes(&oops_id, sizeof(oops_id));
+	else
+		oops_id++;
 
 	return 0;
 }
@@ -434,36 +327,27 @@ void oops_exit(void)
 }
 
 #ifdef WANT_WARN_ON_SLOWPATH
-void warn_on_slowpath(const char *file, int line)
-{
-	char function[KSYM_SYMBOL_LEN];
-	unsigned long caller = (unsigned long) __builtin_return_address(0);
-	sprint_symbol(function, caller);
-
-	printk(KERN_WARNING "------------[ cut here ]------------\n");
-	printk(KERN_WARNING "WARNING: at %s:%d %s()\n", file,
-		line, function);
-	print_modules();
-	dump_stack();
-	print_oops_end_marker();
-	add_taint(TAINT_WARN);
-}
-EXPORT_SYMBOL(warn_on_slowpath);
-
-
 void warn_slowpath(const char *file, int line, const char *fmt, ...)
 {
 	va_list args;
 	char function[KSYM_SYMBOL_LEN];
 	unsigned long caller = (unsigned long)__builtin_return_address(0);
+	const char *board;
+
 	sprint_symbol(function, caller);
 
 	printk(KERN_WARNING "------------[ cut here ]------------\n");
 	printk(KERN_WARNING "WARNING: at %s:%d %s()\n", file,
 		line, function);
-	va_start(args, fmt);
-	vprintk(fmt, args);
-	va_end(args);
+	board = dmi_get_system_info(DMI_PRODUCT_NAME);
+	if (board)
+		printk(KERN_WARNING "Hardware name: %s\n", board);
+
+	if (fmt) {
+		va_start(args, fmt);
+		vprintk(fmt, args);
+		va_end(args);
+	}
 
 	print_modules();
 	dump_stack();
@@ -484,3 +368,6 @@ void __stack_chk_fail(void)
 }
 EXPORT_SYMBOL(__stack_chk_fail);
 #endif
+
+core_param(panic, panic_timeout, int, 0644);
+core_param(pause_on_oops, pause_on_oops, int, 0644);

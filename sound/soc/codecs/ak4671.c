@@ -37,21 +37,12 @@
 #define AK4671_VERSION "0.2"
 
 #define SUBJECT "ak4671.c"
-
-#define P1(format,...)\
-	printk ("["SUBJECT "(%d)] " format "\n", __LINE__, ## __VA_ARGS__);
-#if AUDIO_SPECIFIC_DEBUG
 #define P(format,...)\
 	printk ("[ "SUBJECT " (%s,%d) ] " format "\n", __func__, __LINE__, ## __VA_ARGS__);
 #define FI \
 	printk ("[ "SUBJECT " (%s,%d) ] " "%s - IN" "\n", __func__, __LINE__, __func__);
 #define FO \
 	printk ("[ "SUBJECT " (%s,%d) ] " "%s - OUT" "\n", __func__, __LINE__, __func__);
-#else
-#define P(format,...)
-#define FI 
-#define FO 
-#endif
 
 #define DIGITAL_FILTER_CONTROL		0
 
@@ -196,11 +187,11 @@ static int ak4671_set_idle_mode(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 
-	P1(" idle_mode_value : %d", (int)ucontrol->value.integer.value[0]);
+	P(" idle_mode_value : %d", (int)ucontrol->value.integer.value[0]);
 
 	if(ak4671_power == 0 && ak4671_idle_mode == IDLE_POWER_DOWN_MODE_ON)
 	{
-		P1("audio power up");
+		P("audio power up");
 		set_registers(codec, ak4671_path);
 		return 1;
 	}
@@ -212,13 +203,13 @@ static int ak4671_set_idle_mode(struct snd_kcontrol *kcontrol,
 		} else if (ucontrol->value.integer.value[0] == 1 && ak4671_idle_mode == IDLE_POWER_DOWN_MODE_OFF) { // On
 			idle_mode_disable(codec, ak4671_path);
 		} else {
-			P1("invalid idle mode value");
+			P("invalid idle mode value");
 			return -1;
 		}
 
 		ak4671_idle_mode = ucontrol->value.integer.value[0];
 	} else 
-		P1("only Playback mode!");
+		P("only Playback mode!");
 
 	return 1;
 }
@@ -262,9 +253,9 @@ static int ak4671_set_voice_call_rec_mode(struct snd_kcontrol *kcontrol,
 	if ( (ak4671_path & 0xf0) == MM_AUDIO_VOICECALL ) 
 	{
 		if (ucontrol->value.integer.value[0] == 0 && ak4671_voice_call_rec_mode == 1) { // Off
-			voice_call_rec_disable(codec, ak4671_path);
+			rec_disable(codec, ak4671_path);
 		} else if (ucontrol->value.integer.value[0] == 1 && ak4671_voice_call_rec_mode == 0) { // On
-			voice_call_rec_enable(codec, ak4671_path);
+			rec_enable(codec, ak4671_path);
 		} else {
 			P("invalid recording mode value");
 			return -1;
@@ -319,24 +310,34 @@ static int ak4671_set_path(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 	int i = 0, new_path;
+	unsigned long flags;
 
-	P("path_state : 0x%02x, input path = 0x%02x", ak4671_path
-			, (unsigned int)((i << 4) | ucontrol->value.integer.value[0]) );
+	local_irq_save(flags);
+
 	while(audio_path[i] != NULL) {
 		new_path = (i << 4) | ucontrol->value.integer.value[0];
-		if(!strcmp(audio_path[i], kcontrol->id.name) && ak4671_path != new_path)  {
+		if(!strcmp(audio_path[i], kcontrol->id.name)) {
+			P("path_state : 0x%02x, input path = 0x%02x", ak4671_path
+					, (unsigned int)((i << 4) | ucontrol->value.integer.value[0]) );
 
+			if (ak4671_path != new_path) 
 			set_registers(codec, new_path);
+
+			if (ak4671_idle_mode == IDLE_POWER_DOWN_MODE_ON) // Idle mode disable
+				idle_mode_enable(codec, new_path);
 
 			break;
 		}
 		i++;
 	}
+
+	local_irq_restore(flags);
+
 	return 1;
 }
 
 static const char *playback_path[] = { "Off", "RCV", "SPK", "HP", "BT", "SPK_HP", "R_SPK_HP", };
-static const char *voicecall_path[] = { "Off", "RCV", "SPK", "HP", "BT", "SPK_LOOP"};
+static const char *voicecall_path[] = { "Off", "RCV", "SPK", "HP", "BT", };
 static const char *voicememo_path[] = { "Off", "MAIN", "SUB", "EAR", "BT", };
 static const char *fmradio_path[] = { "Off", "RCV", "SPK", "HP", "BT", };
 static const char *mic_path[] = { "Main Mic", "Sub Mic", };
@@ -501,7 +502,8 @@ static int ak4671_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 }
 
 static int ak4671_hw_params(struct snd_pcm_substream *substream,
-	struct snd_pcm_hw_params *params)
+			    struct snd_pcm_hw_params *params,
+			    struct snd_soc_dai *dai)
 {
 #if 0
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
@@ -555,19 +557,19 @@ static int ak4671_set_dai_fmt(struct snd_soc_dai *codec_dai,
 
 static int ak4671_mute(struct snd_soc_dai *dai, int mute)
 {
-
+#if 0
 	P("mute %d", mute);
 	struct snd_soc_codec *codec = dai->codec;
-
-	if(ak4671_path == MM_AUDIO_VOICECALL_BT)
-		return 0;
 
 	u16 mute_reg = ak4671_read_reg_cache(codec, AK4671_MODE_CONTROL2) & 0xfffb;
 	if (!mute)
 		ak4671_write(codec, AK4671_MODE_CONTROL2, mute_reg | 1);
 	else
 		ak4671_write(codec, AK4671_MODE_CONTROL2, mute_reg | 0x4 | 1);
-	
+#else
+	P("mute is not supported (%d)", mute);
+#endif
+
 	return 0;
 }
 
@@ -609,8 +611,6 @@ struct snd_soc_dai ak4671_dai = {
 		.formats = SNDRV_PCM_FMTBIT_S16_LE,},
 	.ops = {
 		.hw_params = ak4671_hw_params,
-	},
-	.dai_ops = {
 		.set_fmt = ak4671_set_dai_fmt,
 		.digital_mute = ak4671_mute,
 		.set_sysclk = ak4671_set_dai_sysclk,
@@ -633,7 +633,7 @@ static int ak4671_suspend(struct platform_device *pdev, pm_message_t state)
 		/* AUDIO_EN & MAX8906_AMP_EN Disable */
 		amp_enable(0); /* Board Specific function */
 		audio_power(0); /* Board Specific function */
-		//mic_enable(0); /* Board Specific function */
+		mic_enable(0); /* MICBIAS Disable (SPH-M900 Only) */
 		ak4671_power = 0;
 		ak4671_idle_mode = IDLE_POWER_DOWN_MODE_ON;
 	}
@@ -647,16 +647,14 @@ static int ak4671_resume(struct platform_device *pdev)
 	struct snd_soc_codec *codec = socdev->codec;
 	P("");
 
-	ak4671_sync(codec);
-	ak4671_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
-	ak4671_set_bias_level(codec, codec->suspend_bias_level);
-
-#if 0
-	if ( (ak4671_path & 0xf0) != MM_AUDIO_VOICECALL && (ak4671_path & 0xf0) != MM_AUDIO_VOICEMEMO )
+	if ( (ak4671_path & 0xf0) != MM_AUDIO_VOICECALL && (ak4671_path & 0xf0) != MM_AUDIO_VOICEMEMO ) 
 	{
-		set_registers(codec, ak4671_path);
+		ak4671_sync(codec);
+		ak4671_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
+		ak4671_set_bias_level(codec, codec->suspend_bias_level);
 	}
-#endif
+
+	mic_enable(1); /* MICBIAS Enable (SPH-M900 Only) */
 
 	return 0;
 }
@@ -672,6 +670,7 @@ static int ak4671_init(struct snd_soc_device *socdev)
 
 	memcpy(ak4671_reg_default, ak4671_reg, sizeof(ak4671_reg)); // copy ak4671 default register
 
+	codec->dev = socdev->dev;
 	codec->name = "AK4671";
 	codec->owner = THIS_MODULE;
 	codec->read = ak4671_read_reg_cache;
@@ -696,7 +695,7 @@ static int ak4671_init(struct snd_soc_device *socdev)
 	ak4671_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
 	ak4671_add_controls(codec);
-	ret = snd_soc_register_card(socdev);
+	ret = snd_soc_init_card(socdev);
 	if (ret < 0) {
 		printk(KERN_ERR "ak4671: failed to register card\n");
 		goto card_err;
@@ -775,7 +774,23 @@ static void amp_path_control(int mode)
 
 static int set_registers(struct snd_soc_codec *codec, int mode)
 {
-	P1("Set Audio PATH : 0x%02x\n", mode);
+	int ret = 0;
+	P("Set Audio PATH : 0x%02x\n", mode);
+
+	/* for Recording path change */
+	if ( (ak4671_idle_mode == IDLE_POWER_DOWN_MODE_OFF) && (ak4671_power == 1) ) {
+		ret = path_change(codec, mode, ak4671_path);
+
+		if (ret > 0) {
+			P("Path Changed (0x%02x->0x%02x)", ak4671_path, mode);
+
+			ak4671_idle_mode = IDLE_POWER_DOWN_MODE_OFF; // IDLE Mode reset (off)
+			ak4671_path = mode;
+
+			return 0;
+		}
+	}
+
 	path_disable(codec, ak4671_path);
 
 	/* voice call rec MODE off */
@@ -815,7 +830,7 @@ static ssize_t ak4671_control_show(struct device *dev, struct device_attribute *
 	struct snd_soc_device *socdev = dev_get_drvdata(dev);
 	struct snd_soc_codec *codec = socdev->codec;
 
-	sprintf(buf, "\nMODE:%d\r\n", ak4671_path);
+	sprintf(buf, "\nMODE : 0x%02x\r\n", ak4671_path);
 	for (i = 0; i < AK4671_CACHEREGNUM; i++) {
 		if( i < 0x1E || i > 0x4f )
 			sprintf(buf, "%s[0x%02x] = 0x%02x\r\n", buf, i, ak4671_read(codec, i));
@@ -991,7 +1006,7 @@ static int ak4671_probe(struct platform_device *pdev)
 	struct ak4671_priv *ak4671;
 	int ret = 0;
 
-	printk(KERN_INFO "AK4671 Audio Codec %s\n", AK4671_VERSION);
+	printk(KERN_INFO "AK4671 Audio Codec %s", AK4671_VERSION);
 
 	/* Board Specific function */
 	audio_init();
@@ -1007,14 +1022,10 @@ static int ak4671_probe(struct platform_device *pdev)
 	setup = socdev->codec_data;
 	codec = kzalloc(sizeof(struct snd_soc_codec), GFP_KERNEL);
 	if (codec == NULL)
-	{
-		printk("[sound]snd_soc_codec create fail\n");
 		return -ENOMEM;
-	}
 
 	ak4671 = kzalloc(sizeof(struct ak4671_priv), GFP_KERNEL);
 	if (ak4671 == NULL) {
-		printk("[sound]ak4671_priv create fail\n");
 		kfree(codec);
 		return -ENOMEM;
 	}
@@ -1041,7 +1052,6 @@ static int ak4671_probe(struct platform_device *pdev)
 #endif
 
 	if (ret != 0) {
-		printk("[sound] sound device create file fail\n");
 		kfree(codec->private_data);
 		kfree(codec);
 	}
@@ -1071,7 +1081,7 @@ static int ak4671_remove(struct platform_device *pdev)
 /* power down chip */
 static int ak4671_shutdown(struct platform_device *pdev)
 {
-	P1(" ");
+	P(" ");
 
 	amp_enable(0);
 	
@@ -1087,6 +1097,18 @@ struct snd_soc_codec_device soc_codec_dev_ak4671 = {
 	.shutdown =	ak4671_shutdown,
 };
 EXPORT_SYMBOL_GPL(soc_codec_dev_ak4671);
+
+static int __init ak4671_codec_init(void)
+{
+	return snd_soc_register_dai(&ak4671_dai);	
+}
+module_init(ak4671_codec_init);
+
+static void __exit ak4671_codec_exit(void)
+{
+	snd_soc_unregister_dai(&ak4671_dai);
+}
+module_exit(ak4671_codec_exit);
 
 MODULE_DESCRIPTION("Soc AK4671 driver");
 MODULE_AUTHOR("Richard Purdie");

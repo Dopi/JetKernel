@@ -28,12 +28,12 @@
 #include <linux/pm.h>
 #include <linux/tick.h>
 #include <linux/utsname.h>
+#include <linux/uaccess.h>
 
 #include <asm/leds.h>
 #include <asm/processor.h>
 #include <asm/system.h>
 #include <asm/thread_notify.h>
-#include <asm/uaccess.h>
 #include <asm/mach/time.h>
 
 static const char *processor_modes[] = {
@@ -50,11 +50,6 @@ static const char *isa_modes[] = {
 extern void setup_mm_for_reboot(char mode);
 
 static volatile int hlt_counter;
-
-#ifdef CONFIG_KERNEL_PANIC_DUMP
-extern char *PANIC_Current;
-extern int kernel_panic_logging;
-#endif
 
 #include <mach/system.h>
 
@@ -204,6 +199,77 @@ void machine_restart(char * __unused)
 	arm_pm_restart(reboot_mode);
 }
 
+/*
+ * dump a block of kernel memory from around the given address
+ */
+static void show_data(unsigned long addr, int nbytes, const char *name)
+{
+	int	i, j;
+	int	nlines;
+	u32	*p;
+
+	/*
+	 * don't attempt to dump non-kernel addresses or
+	 * values that are probably just small negative numbers
+	 */
+	if (addr < PAGE_OFFSET || addr > -256UL)
+		return;
+
+	printk("\n%s: %#lx:\n", name, addr);
+
+	/*
+	 * round address down to a 32 bit boundary
+	 * and always dump a multiple of 32 bytes
+	 */
+	p = (u32 *)(addr & ~(sizeof(u32) - 1));
+	nbytes += (addr & (sizeof(u32) - 1));
+	nlines = (nbytes + 31) / 32;
+
+
+	for (i = 0; i < nlines; i++) {
+		/*
+		 * just display low 16 bits of address to keep
+		 * each line of the dump < 80 characters
+		 */
+		printk("%04lx ", (unsigned long)p & 0xffff);
+		for (j = 0; j < 8; j++) {
+			u32	data;
+			if (probe_kernel_address(p, data)) {
+				printk(" ********");
+			} else {
+				printk(" %08x", data);
+			}
+			++p;
+		}
+		printk("\n");
+	}
+}
+
+static void show_extra_register_data(struct pt_regs *regs, int nbytes)
+{
+	mm_segment_t fs;
+
+	fs = get_fs();
+	set_fs(KERNEL_DS);
+	show_data(regs->ARM_pc - nbytes, nbytes * 2, "PC");
+	show_data(regs->ARM_lr - nbytes, nbytes * 2, "LR");
+	show_data(regs->ARM_sp - nbytes, nbytes * 2, "SP");
+	show_data(regs->ARM_ip - nbytes, nbytes * 2, "IP");
+	show_data(regs->ARM_fp - nbytes, nbytes * 2, "FP");
+	show_data(regs->ARM_r0 - nbytes, nbytes * 2, "R0");
+	show_data(regs->ARM_r1 - nbytes, nbytes * 2, "R1");
+	show_data(regs->ARM_r2 - nbytes, nbytes * 2, "R2");
+	show_data(regs->ARM_r3 - nbytes, nbytes * 2, "R3");
+	show_data(regs->ARM_r4 - nbytes, nbytes * 2, "R4");
+	show_data(regs->ARM_r5 - nbytes, nbytes * 2, "R5");
+	show_data(regs->ARM_r6 - nbytes, nbytes * 2, "R6");
+	show_data(regs->ARM_r7 - nbytes, nbytes * 2, "R7");
+	show_data(regs->ARM_r8 - nbytes, nbytes * 2, "R8");
+	show_data(regs->ARM_r9 - nbytes, nbytes * 2, "R9");
+	show_data(regs->ARM_r10 - nbytes, nbytes * 2, "R10");
+	set_fs(fs);
+}
+
 void __show_regs(struct pt_regs *regs)
 {
 	unsigned long flags;
@@ -213,14 +279,6 @@ void __show_regs(struct pt_regs *regs)
 		smp_processor_id(), print_tainted(), init_utsname()->release,
 		(int)strcspn(init_utsname()->version, " "),
 		init_utsname()->version);
-#ifdef CONFIG_KERNEL_PANIC_DUMP
-	if(kernel_panic_logging) {
-		PANIC_Current += sprintf(PANIC_Current,"CPU: %d    %s  (%s %.*s)\n",
-				smp_processor_id(), print_tainted(), init_utsname()->release,
-				(int)strcspn(init_utsname()->version, " "),
-				init_utsname()->version);
-	}
-#endif
 	print_symbol("PC is at %s\n", instruction_pointer(regs));
 	print_symbol("LR is at %s\n", regs->ARM_lr);
 	printk("pc : [<%08lx>]    lr : [<%08lx>]    psr: %08lx\n"
@@ -237,25 +295,6 @@ void __show_regs(struct pt_regs *regs)
 		regs->ARM_r3, regs->ARM_r2,
 		regs->ARM_r1, regs->ARM_r0);
 
-#ifdef CONFIG_KERNEL_PANIC_DUMP
-	if(kernel_panic_logging) {
-		PANIC_Current += sprintf(PANIC_Current,"pc : [<%08lx>]    lr : [<%08lx>]    psr: %08lx\n"
-				"sp : %08lx  ip : %08lx  fp : %08lx\n",
-				regs->ARM_pc, regs->ARM_lr, regs->ARM_cpsr,
-				regs->ARM_sp, regs->ARM_ip, regs->ARM_fp);
-		PANIC_Current += sprintf(PANIC_Current,"r10: %08lx  r9 : %08lx  r8 : %08lx\n",
-				regs->ARM_r10, regs->ARM_r9,
-				regs->ARM_r8);
-		PANIC_Current += sprintf(PANIC_Current,"r7 : %08lx  r6 : %08lx  r5 : %08lx  r4 : %08lx\n",
-				regs->ARM_r7, regs->ARM_r6,
-				regs->ARM_r5, regs->ARM_r4);
-		PANIC_Current += sprintf(PANIC_Current,"r3 : %08lx  r2 : %08lx  r1 : %08lx  r0 : %08lx\n",
-				regs->ARM_r3, regs->ARM_r2,
-				regs->ARM_r1, regs->ARM_r0);
-	}
-
-#endif
-
 	flags = regs->ARM_cpsr;
 	buf[0] = flags & PSR_N_BIT ? 'N' : 'n';
 	buf[1] = flags & PSR_Z_BIT ? 'Z' : 'z';
@@ -269,18 +308,6 @@ void __show_regs(struct pt_regs *regs)
 		processor_modes[processor_mode(regs)],
 		isa_modes[isa_mode(regs)],
 		get_fs() == get_ds() ? "kernel" : "user");
-#ifdef CONFIG_KERNEL_PANIC_DUMP
-	if(kernel_panic_logging) {
-		PANIC_Current += sprintf(PANIC_Current,"Flags: %s  IRQs o%s  FIQs o%s  Mode %s  ISA %s  Segment %s\n",
-				buf, interrupts_enabled(regs) ? "n" : "ff",
-				fast_interrupts_enabled(regs) ? "n" : "ff",
-				processor_modes[processor_mode(regs)],
-				isa_modes[isa_mode(regs)],
-				get_fs() == get_ds() ? "kernel" : "user");
-	}
-
-#endif
-
 #ifdef CONFIG_CPU_CP15
 	{
 		unsigned int ctrl;
@@ -299,50 +326,18 @@ void __show_regs(struct pt_regs *regs)
 		asm("mrc p15, 0, %0, c1, c0\n" : "=r" (ctrl));
 
 		printk("Control: %08x%s\n", ctrl, buf);
-#ifdef CONFIG_KERNEL_PANIC_DUMP
-		if(kernel_panic_logging)
-			PANIC_Current += sprintf(PANIC_Current,"Control: %08x%s\n", ctrl, buf);
-#endif
 	}
 #endif
+
+	show_extra_register_data(regs, 128);
 }
 
 void show_regs(struct pt_regs * regs)
 {
 	printk("\n");
 	printk("Pid: %d, comm: %20s\n", task_pid_nr(current), current->comm);
-
 	__show_regs(regs);
 	__backtrace();
-}
-
-void show_fpregs(struct user_fp *regs)
-{
-	int i;
-
-	for (i = 0; i < 8; i++) {
-		unsigned long *p;
-		char type;
-
-		p = (unsigned long *)(regs->fpregs + i);
-
-		switch (regs->ftype[i]) {
-			case 1: type = 'f'; break;
-			case 2: type = 'd'; break;
-			case 3: type = 'e'; break;
-			default: type = '?'; break;
-		}
-		if (regs->init_flag)
-			type = '?';
-
-		printk("  f%d(%c): %08lx %08lx %08lx%c",
-			i, type, p[0], p[1], p[2], i & 1 ? '\n' : ' ');
-	}
-			
-
-	printk("FPSR: %08lx FPCR: %08lx\n",
-		(unsigned long)regs->fpsr,
-		(unsigned long)regs->fpcr);
 }
 
 /*
@@ -473,7 +468,7 @@ unsigned long get_wchan(struct task_struct *p)
 	do {
 		if (fp < stack_start || fp > stack_end)
 			return 0;
-		lr = pc_pointer (((unsigned long *)fp)[-1]);
+		lr = ((unsigned long *)fp)[-1];
 		if (!in_sched_functions(lr))
 			return lr;
 		fp = *(unsigned long *) (fp - 12);

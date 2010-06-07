@@ -41,12 +41,6 @@
 #define LOG_FLAG_NOMEM		8
 
 #define ctcm_pr_debug(fmt, arg...) printk(KERN_DEBUG fmt, ##arg)
-#define ctcm_pr_info(fmt, arg...) printk(KERN_INFO fmt, ##arg)
-#define ctcm_pr_notice(fmt, arg...) printk(KERN_NOTICE fmt, ##arg)
-#define ctcm_pr_warn(fmt, arg...) printk(KERN_WARNING fmt, ##arg)
-#define ctcm_pr_emerg(fmt, arg...) printk(KERN_EMERG fmt, ##arg)
-#define ctcm_pr_err(fmt, arg...) printk(KERN_ERR fmt, ##arg)
-#define ctcm_pr_crit(fmt, arg...) printk(KERN_CRIT fmt, ##arg)
 
 #define CTCM_PR_DEBUG(fmt, arg...) \
 	do { \
@@ -104,7 +98,7 @@
 #define READ			0
 #define WRITE			1
 
-#define CTCM_ID_SIZE		BUS_ID_SIZE+3
+#define CTCM_ID_SIZE		20+3
 
 struct ctcm_profile {
 	unsigned long maxmulti;

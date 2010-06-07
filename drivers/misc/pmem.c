@@ -22,6 +22,7 @@
 #include <linux/debugfs.h>
 #include <linux/android_pmem.h>
 #include <linux/mempolicy.h>
+#include <linux/sched.h>
 #include <asm/io.h>
 #include <asm/uaccess.h>
 #include <asm/cacheflush.h>
@@ -185,7 +186,7 @@ static int get_id(struct file *file)
 	return MINOR(file->f_dentry->d_inode->i_rdev);
 }
 
-static int is_pmem_file(struct file *file)
+int is_pmem_file(struct file *file)
 {
 	int id;
 
@@ -794,7 +795,7 @@ void flush_pmem_file(struct file *file, unsigned long offset, unsigned long len)
 
 	id = get_id(file);
 	data = (struct pmem_data *)file->private_data;
-	if (!pmem[id].cached)
+	if (!pmem[id].cached || file->f_flags & O_SYNC)
 		return;
 
 	down_read(&data->sem);

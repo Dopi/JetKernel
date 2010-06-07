@@ -382,6 +382,7 @@ int mic_ear_enable(int en)
 
 	return 0;
 }
+EXPORT_SYMBOL(mic_ear_enable);
 
 int mic_set_path(int path)
 {
@@ -431,7 +432,7 @@ int set_sample_rate(struct snd_soc_codec *codec, int bitRate)
 			break;
 #endif // sangsu fix
 		case 16000: // Sampling 16kHz
-			reg_pll_mode = 0x30 | AK4671_PLL;
+			reg_pll_mode = 0x20 | AK4671_PLL;
 			break;
 		case 11025: // Sampling 11.025kHz
 			reg_pll_mode = 0x50 | AK4671_PLL;
@@ -987,6 +988,7 @@ int path_enable(struct snd_soc_codec *codec, int mode)
 
 		case MM_AUDIO_VOICECALL_BT :
 			P("set MM_AUDIO_VOICECALL_BT");
+			codec->write(codec, 0x59, 0x10); 		// => SDTO Lch=SRC-B
 			codec->write(codec, 0x01, 0xF8); 		// fs=44.1kHz, MCKI=19.2MHz input
 
 			codec->write(codec, 0x11, 0xA0); 		// LOP/LON, gain=0dB
@@ -1170,7 +1172,7 @@ int path_disable(struct snd_soc_codec *codec, int mode)
 
 		case MM_AUDIO_VOICECALL_BT :
 			P("set MM_AUDIO_VOICECALL_BT Off");
-
+			codec->write(codec, 0x59, 0x00); 
 			/* Mixing ADC Rch and A/P Rch Off */
 			codec->write(codec, 0x15, 0x14); 	// 5-band-EQ-Lch: from SRC-B;
 												// Rch: from SVOLA Rch
@@ -1215,6 +1217,7 @@ int path_disable(struct snd_soc_codec *codec, int mode)
 
 		case MM_AUDIO_VOICEMEMO_BT :
 			P("set MM_AUDIO_VOICEMEMO_BT Off");
+			codec->write(codec, 0x59, 0x00); 	// default
 			codec->write(codec, 0x00, 0x01);
 			codec->write(codec, 0x00, 0x00);
 			break;

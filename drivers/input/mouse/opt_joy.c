@@ -141,6 +141,9 @@ static uint8_t optjoy_spi_read_byte(uint8_t address)
 
 	 optjoy_spi_write_data(OJT_SPI_SET_ADDR_READ(address));
 
+#if defined(CONFIG_MACH_VINSQ)
+         udelay(200); //vinsq.boot temp.. needed for LJ
+#endif
 	 ret = optjoy_spi_read_data();
 
 	 udelay(10);	
@@ -168,18 +171,21 @@ static void optjoy_spi_work_func(struct work_struct *work)
 
 	/* reading motion */
    	mot_val = optjoy_spi_read_byte(OJT_MOT);
-	if(!(mot_val & 0x80) || lock_oj_event)
+	if(!(mot_val & 0x80) || lock_oj_event || mot_val==0xFF)
 		return;
 
 
+#ifndef CONFIG_MACH_VINSQ
    	sq = optjoy_spi_read_byte(OJT_SQ);
    	shu_up = optjoy_spi_read_byte(OJT_SHUTTER_UP);
    	shu_dn = optjoy_spi_read_byte(OJT_SHUTTER_DOWN);
 	shutter = (shu_up << 8) | shu_dn;
    	pxsum = optjoy_spi_read_byte(OJT_PIXEL_SUM);
+#endif
 	nx = optjoy_spi_read_byte(OJT_DELT_Y);
 	ny = optjoy_spi_read_byte(OJT_DELT_X);
 
+#ifndef CONFIG_MACH_VINSQ
 	for(i=1;i<12;i++)
 	{
 		if( ((oj_sht_tbl[i-1] <= shutter) && (shutter < oj_sht_tbl[i])) && 
@@ -198,7 +204,7 @@ static void optjoy_spi_work_func(struct work_struct *work)
 		gprintk("[OJ_KEY] invalid environment \n");
 		return;
 	}
-
+#endif
 
 
 	dx = (int8_t)nx;
@@ -208,13 +214,21 @@ static void optjoy_spi_work_func(struct work_struct *work)
 	sum_x = sum_x + dx;
 	sum_y = sum_y + dy;
 
-	gprintk("dx=%d, dy=%d , sum_x = %d , sum_y = %d \n",dx, dy,sum_x ,sum_y);		
+	gprintk("dx=%d, dy=%d , sum_x = %d , sum_y = %d mot_val=0x%2X \n",dx, dy,sum_x ,sum_y, mot_val);
+
+#if defined(CONFIG_MACH_VINSQ)
+	if(sum_x > SUM_X_THRESHOLD) keycode = SEC_KEY_LEFT;
+	else if(sum_x < -SUM_X_THRESHOLD) keycode = SEC_KEY_RIGHT;
+	else if(sum_y > SUM_Y_THRESHOLD) keycode = SEC_KEY_DOWN;
+	else if(sum_y < -SUM_Y_THRESHOLD) keycode = SEC_KEY_UP;
+	else keycode = 0;
+#else
 	if(sum_x > SUM_X_THRESHOLD) keycode = SEC_KEY_DOWN;
 	else if(sum_x < -SUM_X_THRESHOLD) keycode = SEC_KEY_UP;
 	else if(sum_y > SUM_Y_THRESHOLD) keycode = SEC_KEY_LEFT;
 	else if(sum_y < -SUM_Y_THRESHOLD) keycode = SEC_KEY_RIGHT;
 	else keycode = 0;
-
+#endif
 	if (keycode) {
 
 		input_report_key(optjoy_data->input_dev, keycode, 1);
@@ -223,7 +237,7 @@ static void optjoy_spi_work_func(struct work_struct *work)
 
 		hrtimer_cancel(&optjoy_data->timer_touchlock); 
 
-		printk("[opt_joy] key code: %d (sum_x: %d, sum_y: %d)\n",keycode,sum_x,sum_y);
+		gprintk("[opt_joy] key code: %d (sum_x: %d, sum_y: %d)\n",keycode,sum_x,sum_y);
 		sum_x = sum_y = 0;
 		
 		sending_oj_event = ACTIVE;
@@ -318,7 +332,7 @@ static void optjoy_spi_late_resume(struct early_suspend *h)
 
 	// initialize....
 	gpio_set_value(GPIO_OJ_SHUTDOWN, OJT_HI); 
-	mdelay(1);
+	msleep(1);
 	s3c_gpio_cfgpin(GPIO_OJ_SPI_MISO, S3C_GPIO_SFN(OJT_GPIO_IN));
 	s3c_gpio_setpull(GPIO_OJ_SPI_MISO, S3C_GPIO_PULL_NONE);
 	
@@ -332,13 +346,14 @@ static void optjoy_spi_late_resume(struct early_suspend *h)
 	s3c_gpio_setpull(GPIO_OJ_CS, S3C_GPIO_PULL_NONE);
 
 	
-	mdelay(10);
+	msleep(50);
 
 	gpio_set_value(GPIO_OJ_CS, OJT_HI); 
 	gpio_set_value(GPIO_OJ_SHUTDOWN, OJT_LO); 
+	msleep(200);
 	gpio_set_value(GPIO_OJ_CS, OJT_LO); 
 	optjoy_spi_write_byte(OJT_POWER_UP_RESET,0x5A);
-	mdelay(100);
+	msleep(20);
 
 	// OJ Register Clear
 	optjoy_spi_read_byte(OJT_MOT);
@@ -541,4 +556,3 @@ module_exit(optjoy_spi_exit);
 MODULE_AUTHOR("Hyung-Gyun Kim <hyunggyun.kim@samsung.com>");
 MODULE_DESCRIPTION("Crucialtec Otptical Joystick Driver");
 MODULE_LICENSE("GPL");
-

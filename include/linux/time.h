@@ -22,29 +22,14 @@ struct timeval {
 	suseconds_t	tv_usec;	/* microseconds */
 };
 
-/* ms17.kim start test */
-struct tm
-{
-
-	int tm_sec;                   // Seconds after the minute [0, 59]
-	int tm_min;                   // Minutes after the hour [0, 59]
-	int tm_hour;                  // Hours since midnight [0, 23]
-	int tm_mday;                  // Day of the month [1, 31]
-	int tm_mon;                   // Months since January [0, 11]
-	int tm_year;                  // Years since 1900
-	int tm_wday;                  // Days since Sunday [0, 6]
-	int tm_yday;                  // Days since January 1 [0, 365]
-	int tm_isdst;                 // Daylight Saving Time flag
-};
-
-/* ms17.kim end test*/
-
 struct timezone {
 	int	tz_minuteswest;	/* minutes west of Greenwich */
 	int	tz_dsttime;	/* type of dst correction */
 };
 
 #ifdef __KERNEL__
+
+extern struct timezone sys_tz;
 
 /* Parameters used to convert the timespec values: */
 #define MSEC_PER_SEC	1000L
@@ -54,6 +39,8 @@ struct timezone {
 #define USEC_PER_SEC	1000000L
 #define NSEC_PER_SEC	1000000000L
 #define FSEC_PER_SEC	1000000000000000L
+
+#define TIME_T_MAX	(time_t)((1UL << ((sizeof(time_t) << 3) - 1)) - 1)
 
 static inline int timespec_equal(const struct timespec *a,
                                  const struct timespec *b)
@@ -89,6 +76,8 @@ extern unsigned long mktime(const unsigned int year, const unsigned int mon,
 			    const unsigned int min, const unsigned int sec);
 
 extern void set_normalized_timespec(struct timespec *ts, time_t sec, long nsec);
+extern struct timespec timespec_add_safe(const struct timespec lhs,
+					 const struct timespec rhs);
 
 /*
  * sub = lhs - rhs, in normalized form
@@ -116,6 +105,7 @@ extern unsigned long read_persistent_clock(void);
 extern int update_persistent_clock(struct timespec now);
 extern int no_sync_cmos_clock __read_mostly;
 void timekeeping_init(void);
+extern int timekeeping_suspended;
 
 unsigned long get_seconds(void);
 struct timespec current_kernel_time(void);
@@ -125,9 +115,6 @@ struct timespec current_kernel_time(void);
 
 extern void do_gettimeofday(struct timeval *tv);
 extern int do_settimeofday(struct timespec *tv);
-/*ms17.kim start test */
-struct tm *localtime_r(const time_t *timer, struct tm *tmbuf);
-/*ms17.kim end test */
 extern int do_sys_settimeofday(struct timespec *tv, struct timezone *tz);
 #define do_posix_clock_monotonic_gettime(ts) ktime_get_ts(ts)
 extern long do_utimes(int dfd, char __user *filename, struct timespec *times, int flags);
@@ -137,6 +124,7 @@ extern int do_setitimer(int which, struct itimerval *value,
 extern unsigned int alarm_setitimer(unsigned int seconds);
 extern int do_getitimer(int which, struct itimerval *value);
 extern void getnstimeofday(struct timespec *tv);
+extern void getrawmonotonic(struct timespec *ts);
 extern void getboottime(struct timespec *ts);
 extern void monotonic_to_bootbased(struct timespec *ts);
 
@@ -144,6 +132,9 @@ extern struct timespec timespec_trunc(struct timespec t, unsigned gran);
 extern int timekeeping_valid_for_hres(void);
 extern void update_wall_time(void);
 extern void update_xtime_cache(u64 nsec);
+
+struct tms;
+extern void do_sys_times(struct tms *);
 
 /**
  * timespec_to_ns - Convert timespec to nanoseconds
@@ -234,6 +225,7 @@ struct itimerval {
 #define CLOCK_MONOTONIC			1
 #define CLOCK_PROCESS_CPUTIME_ID	2
 #define CLOCK_THREAD_CPUTIME_ID		3
+#define CLOCK_MONOTONIC_RAW		4
 
 /*
  * The IDs of various hardware clocks:

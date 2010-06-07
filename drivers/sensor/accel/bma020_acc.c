@@ -158,7 +158,6 @@ int bma020_ioctl(struct inode *inode, struct file *filp, unsigned int cmd,  unsi
 	{
 		case BMA150_READ_ACCEL_XYZ:
 			err = bma020_read_accel_xyz((bma020acc_t*)data);
-//			printk("#### %s (%d)(%d)(%d)\n", __func__, ((bma020acc_t*)data)->x, ((bma020acc_t*)data)->y, ((bma020acc_t*)data)->z);
 			if(copy_to_user((bma020acc_t*)arg,(bma020acc_t*)data,6)!=0)
 			{
 #if DEBUG
@@ -200,12 +199,7 @@ int bma020_ioctl(struct inode *inode, struct file *filp, unsigned int cmd,  unsi
 			}
 			err = bma020_set_bandwidth(*data);
 			return err;
-		case BMA150_CALIBRATE:
-			{
-			printk("#### BMA150_CALIBRATE\n");
-			bma020acc_t data = bma020_calibrate();
-			printk("## Calibration finished. (%d) (%d) (%d)\n", data.x, data.y, data.z);
-			}
+		
 		default:
 			return 0;
 	}
@@ -224,13 +218,13 @@ struct file_operations acc_fops =
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void bma020_early_suspend(struct early_suspend *handler)
 {
-	printk("#BMA020:SLEEP\n");
+	printk( "%s : Set MODE SLEEP\n", __func__ );
 	bma020_set_mode( BMA020_MODE_SLEEP );
 }
 
-static void bma020_early_resume(struct early_suspend *handler)
+static void bma020_late_resume(struct early_suspend *handler)
 {
-	printk("#BMA020:RESUME\n");
+	printk( "%s : Set MODE NORMAL\n", __func__ );
 	bma020_set_mode( BMA020_MODE_NORMAL );
 }
 #endif /* CONFIG_HAS_EARLYSUSPEND */ 
@@ -245,7 +239,7 @@ void bma020_chip_init(void)
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	bma020.early_suspend.suspend = bma020_early_suspend;
-	bma020.early_suspend.resume = bma020_early_resume;
+	bma020.early_suspend.resume = bma020_late_resume;
 	register_early_suspend(&bma020.early_suspend);
 #endif
 

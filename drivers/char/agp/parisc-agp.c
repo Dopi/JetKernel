@@ -20,8 +20,8 @@
 #include <linux/agp_backend.h>
 #include <linux/log2.h>
 
-#include <asm-parisc/parisc-device.h>
-#include <asm-parisc/ropes.h>
+#include <asm/parisc-device.h>
+#include <asm/ropes.h>
 
 #include "agp.h"
 
@@ -224,7 +224,9 @@ static const struct agp_bridge_driver parisc_agp_driver = {
 	.alloc_by_type		= agp_generic_alloc_by_type,
 	.free_by_type		= agp_generic_free_by_type,
 	.agp_alloc_page		= agp_generic_alloc_page,
+	.agp_alloc_pages	= agp_generic_alloc_pages,
 	.agp_destroy_page	= agp_generic_destroy_page,
+	.agp_destroy_pages	= agp_generic_destroy_pages,
 	.agp_type_to_mask_type  = agp_generic_type_to_mask_type,
 	.cant_use_aperture	= true,
 };
@@ -357,9 +359,16 @@ fail:
 	return error;
 }
 
-static struct device *next_device(struct klist_iter *i) {
-	struct klist_node * n = klist_next(i);
-	return n ? container_of(n, struct device, knode_parent) : NULL;
+static int
+find_quicksilver(struct device *dev, void *data)
+{
+	struct parisc_device **lba = data;
+	struct parisc_device *padev = to_parisc_device(dev);
+
+	if (IS_QUICKSILVER(padev))
+		*lba = padev;
+
+	return 0;
 }
 
 static int
@@ -370,8 +379,6 @@ parisc_agp_init(void)
 	int err = -1;
 	struct parisc_device *sba = NULL, *lba = NULL;
 	struct lba_device *lbadev = NULL;
-	struct device *dev = NULL;
-	struct klist_iter i;
 
 	if (!sba_list)
 		goto out;
@@ -384,13 +391,7 @@ parisc_agp_init(void)
 	}
 
 	/* Now search our Pluto for our precious AGP device... */
-	klist_iter_init(&sba->dev.klist_children, &i);
-	while ((dev = next_device(&i))) {
-		struct parisc_device *padev = to_parisc_device(dev);
-		if (IS_QUICKSILVER(padev))
-			lba = padev;
-	}
-	klist_iter_exit(&i);
+	device_for_each_child(&sba->dev, &lba, find_quicksilver);
 
 	if (!lba) {
 		printk(KERN_INFO DRVPFX "No AGP devices found.\n");

@@ -11,8 +11,8 @@
 #ifndef __ASM_ARCH_HARDWARE_H
 #define __ASM_ARCH_HARDWARE_H __FILE__
 
-#ifdef CONFIG_MACH_SPICA
-#include <mach/spica.h> 
+#ifdef CONFIG_MACH_INSTINCTQ
+#include <mach/instinctq.h> 
 #endif
 
-#endif /* __ASM_ARCH_IRQ_H */
+#endif /* __ASM_ARCH_HARDWARE_H */

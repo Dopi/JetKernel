@@ -14,8 +14,9 @@
 #include <linux/platform_device.h>
 #include <linux/leds.h>
 #include <linux/workqueue.h>
+#if 0
 #include <linux/earlysuspend.h>
-
+#endif
 #include <asm/gpio.h>
 #include <plat/gpio-cfg.h>
 #include <mach/hardware.h>
@@ -27,13 +28,16 @@ struct gpio_led_data {
 	u8 new_level;
 	u8 can_sleep;
 	u8 active_low;
+#if 0
 	struct early_suspend early_suspend;
+#endif
 };
-
-#ifdef CONFIG_HAS_EARLYSUSPEND
+#if 0
+//#ifdef CONFIG_HAS_EARLYSUSPEND
 static int gpio_led_early_suspend(struct early_suspend *handler);
 static int gpio_led_early_resume(struct early_suspend *handler);
-#endif	/* CONFIG_HAS_EARLYSUSPEND */
+//#endif	/* CONFIG_HAS_EARLYSUSPEND */
+#endif
 
 static void gpio_led_work(struct work_struct *work)
 {
@@ -71,9 +75,11 @@ level = 0;
 
 static void gpio_led_cfgpin(void)
 {
-	s3c_gpio_cfgpin(GPIO_SUBLED_EN, S3C_GPIO_SFN(GPIO_SUBLED_EN_AF));
-	s3c_gpio_setpull(GPIO_SUBLED_EN, S3C_GPIO_PULL_NONE); 
+	s3c_gpio_cfgpin(GPIO_MAIN_KEY_LED_EN, S3C_GPIO_SFN(GPIO_MAIN_KEY_LED_EN_AF));
+	s3c_gpio_setpull(GPIO_MAIN_KEY_LED_EN, S3C_GPIO_PULL_NONE); 
 
+	s3c_gpio_cfgpin(GPIO_SUB_KEY_LED_EN, S3C_GPIO_SFN(GPIO_SUB_KEY_LED_EN_AF));
+	s3c_gpio_setpull(GPIO_SUB_KEY_LED_EN, S3C_GPIO_PULL_NONE); 
 }
 
 static int gpio_led_probe(struct platform_device *pdev)
@@ -123,12 +129,14 @@ static int gpio_led_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, leds_data);
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
+#if 0
+//#ifdef CONFIG_HAS_EARLYSUSPEND
 	leds_data->early_suspend.suspend = gpio_led_early_suspend;
 	leds_data->early_suspend.resume = gpio_led_early_resume;
 
 	register_early_suspend(&leds_data->early_suspend);
-#endif	/* CONFIG_HAS_EARLYSUSPEND */
+//#endif	/* CONFIG_HAS_EARLYSUSPEND */
+#endif
 
 	return 0;
 
@@ -166,7 +174,8 @@ static int __devexit gpio_led_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
+#if 0
+//#ifdef CONFIG_HAS_EARLYSUSPEND
 static int gpio_led_early_suspend(struct early_suspend *handler)
 {
 	struct gpio_led_data *leds_data = container_of(handler, struct gpio_led_data, early_suspend);
@@ -212,12 +221,14 @@ static int gpio_led_resume(struct platform_device *pdev)
 
 	return 0;
 }
-#endif	/* CONFIG_HAS_EARLYSUSPEND */
+//#endif	/* CONFIG_HAS_EARLYSUSPEND */
+#endif
 
 static struct platform_driver gpio_led_driver = {
 	.probe		= gpio_led_probe,
 	.remove		= __devexit_p(gpio_led_remove),
-#ifndef CONFIG_HAS_EARLYSUSPEND
+#if 1
+//#ifndef CONFIG_HAS_EARLYSUSPEND
 	.suspend	= gpio_led_suspend,
 	.resume		= gpio_led_resume,
 #endif

@@ -2,8 +2,10 @@
  * drivers/usb/gadget/s3c-udc-otg-hs_dma.c
  * Samsung S3C on-chip full/high speed USB OTG 2.0 device controller dma mode
  *
- * Copyright (C) 2008 Samsung Electronics, Kyu-Hyeok Jang, Seung-Soo Yang
  * Copyright (C) 2009 Samsung Electronics, Seung-Soo Yang
+ * Copyright (C) 2008 Samsung Electronics, Kyu-Hyeok Jang, Seung-Soo Yang
+ * Copyright (C) 2004 Mikko Lahteenmaki, Nordic ID
+ * Copyright (C) 2004 Bo Henriksen, Nordic ID
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -140,10 +142,15 @@ static void s3c_ep0_add_next_ep(u8 ep_num)
 	{
 		DEBUG_ERROR("[%s] kmalloc failed \n", __func__);
 	}
-	tmp_next_ep->ep_num = ep_num;
-	
-	list_add_tail(&(tmp_next_ep->list), &(ep0_nextep_list.list));
-	DEBUG_IN_EP("[%s] : list_add_tail EP [%d]\n", __func__, ep_num);
+	else 
+	{
+		/* error check code added.
+		 * avoid Prevent bug check */
+		tmp_next_ep->ep_num = ep_num;
+		
+		list_add_tail(&(tmp_next_ep->list), &(ep0_nextep_list.list));
+		DEBUG_IN_EP("[%s] : list_add_tail EP [%d]\n", __func__, ep_num);
+	}
 }
 //---------------------------------------------------------------------------------------
 
@@ -572,6 +579,7 @@ void s3c_ep_nuke(struct s3c_ep *ep, int status)
  * s3c_udc_set_disconnect_state
  * make s3c-udc logically being disconnected
  * not physically disconnected
+ * if pullup() doesn't power off UDC
  */
 static void s3c_udc_set_disconnect_state(struct s3c_udc *dev)
 {
@@ -588,7 +596,7 @@ static void s3c_udc_set_disconnect_state(struct s3c_udc *dev)
 	}
 
 	/* report disconnect; the driver is already quiesced */
-	DEBUG_SETUP("disconnect, gadget %s\n", dev->driver->driver.name);
+	DEBUG_PM("disconnect, gadget %s\n", dev->driver->driver.name);
 	if (dev->driver && dev->driver->disconnect) {
 		spin_unlock(&dev->lock);
 		dev->driver->disconnect(&dev->gadget);
@@ -603,6 +611,7 @@ static void s3c_udc_set_disconnect_state(struct s3c_udc *dev)
 /**
  * s3c_udc_stop_activity
  * stop s3c-udc acting related with tx/rx and disconnect
+ * Caller must hold lock for s3c_udc_set_disconnect_state()
  */
 static void s3c_udc_stop_activity(struct s3c_udc *dev, struct usb_gadget_driver *driver)
 {
@@ -980,7 +989,6 @@ static void handle_suspend_intr(struct s3c_udc *dev)
 			spin_lock(&dev->lock);			
 		}
 
-
 #if USBCV_CH9_REMOTE_WAKE_UP_TEST
 		printk("[%s]: USBCV_CH9_REMOTE_WAKE_UP_TEST just return\n", __func__);
 		return;
@@ -1048,7 +1056,7 @@ static int handle_ep_in_intr(struct s3c_udc *dev)
 		The below delaying is dedicated to g_serial for handling 'ls' command in 
 		directory which has many files
 	*/
-	if(dev->config_gadget_driver == SERIAL || dev->config_gadget_driver == CDC2 )
+	if(ep_num != EP0_CON && (dev->config_gadget_driver == SERIAL || dev->config_gadget_driver == CDC2) )
 	{			
 	#if SERIAL_TRANSFER_DELAY 
 	#if OTG_DBG_ENABLE

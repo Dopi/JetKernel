@@ -26,8 +26,6 @@
 
 unsigned int S3C64XX_MAXFREQLEVEL = 3;
 static unsigned int s3c64xx_cpufreq_level = 3;
-static char cpufreq_governor_name[CPUFREQ_NAME_LEN] = "userspace";
-static char userspace_governor[CPUFREQ_NAME_LEN] = "userspace";
 unsigned int s3c64xx_cpufreq_index = 0;
 static spinlock_t dvfs_lock;
 
@@ -104,15 +102,15 @@ static const unsigned int frequency_match_532MHz[][4] = {
 /* frequency voltage matching table */
 static const unsigned int frequency_match_800MHz[][4] = {
 /* frequency, Mathced VDD ARM voltage , Matched VDD INT*/
-	{800000, 1350, 1250, 0},	// 1300, 1200
-	{400000, 1150, 1250, 1},	// 1100, 1200
-	{266000, 1100, 1250, 2},	// 1050, 1200
-	{133000, 1050, 1250, 3},	// 1000, 1200
+	{800000, 1350, 1250, 0},
+	{400000, 1150, 1250, 1},
+	{266000, 1100, 1250, 2},
+	{133000, 1050, 1250, 3},
 #ifdef USE_DVFS_AL1_LEVEL
-	{133000, 1050, 1050, 4},	// 1000, 1000
-	{66000, 1050, 1050, 5},		// 1000, 1000
+	{133000, 1050, 1050, 4},
+	{66000, 1050, 1050, 5},
 #else
-	{66000, 1050, 1050, 4},		// 1000, 1000
+	{66000, 1050, 1050, 4},
 #endif /* USE_DVFS_AL1_LEVEL */
 };
 
@@ -302,17 +300,6 @@ s3c64xx_target_freq_index_end:
 	return index; 
 } 
 
-int is_userspace_gov(void)
-{
-	int ret = 0;
-
-	if(!strnicmp(cpufreq_governor_name, userspace_governor, CPUFREQ_NAME_LEN)) {
-		ret = 1;
-	}
-
-	return ret;
-}
-
 int s3c6410_verify_speed(struct cpufreq_policy *policy)
 {
 	if(policy->cpu)
@@ -357,14 +344,6 @@ static int s3c6410_target(struct cpufreq_policy *policy,
 	mpu_clk = clk_get(NULL, MPU_CLK);
 	if(IS_ERR(mpu_clk))
 		return PTR_ERR(mpu_clk);
-
-	if(policy != NULL) {
-		if(policy -> governor) {
-			if (strnicmp(cpufreq_governor_name, policy->governor->name, CPUFREQ_NAME_LEN)) {
-				strcpy(cpufreq_governor_name, policy->governor->name);
-			}
-		}
-	}
 
 	freqs.old = s3c6410_getspeed(0);
 
@@ -429,43 +408,6 @@ static int s3c6410_target(struct cpufreq_policy *policy,
 	prevIndex = index;
 	clk_put(mpu_clk);
 s3c6410_target_end:
-	return ret;
-}
-
-int s3c6410_pm_target(unsigned int target_freq)
-{
-	struct clk * mpu_clk;
-	int ret = 0;
-	unsigned long arm_clk;
-	unsigned int index;
-
-	if(!is_pmic_initialized())
-		return ret;
-
-	mpu_clk = clk_get(NULL, MPU_CLK);
-	if(IS_ERR(mpu_clk))
-		return PTR_ERR(mpu_clk);
-
-	index = s3c64xx_target_freq_index(target_freq);
-	if(index == INDX_ERROR) {
-	   printk(KERN_ERR "s3c6410_target: INDX_ERROR \n");
-	   return -EINVAL;
-	}
-	
-	arm_clk = s3c6410_freq_table[S3C64XX_FREQ_TAB][index].frequency;
-	target_freq = arm_clk;
-
-#ifdef USE_DVS
-	set_voltage(index);
-#endif	/* USE_DVS */
-	/* frequency scaling */
-	ret = clk_set_rate(mpu_clk, target_freq * KHZ_T);
-	if(ret != 0) {
-		printk(KERN_ERR "frequency scaling error\n");
-		return -EINVAL;
-	}
-	
-	clk_put(mpu_clk);
 	return ret;
 }
 

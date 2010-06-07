@@ -12,9 +12,10 @@ snd-soc-smdkc100-wm9713-objs  := smdkc100_wm9713.o
 
 snd-soc-s3c6410-i2s-objs := s3c6410-i2s.o
 
-obj-$(CONFIG_SND_S3C64XX_SOC) += s3c-pcm.o
-obj-$(CONFIG_SND_S5P64XX_SOC) += s3c-pcm.o
-obj-$(CONFIG_SND_S5PC1XX_SOC) += s3c-pcm.o
+obj-$(CONFIG_SND_S3C64XX_SOC)	 	+= s3c-pcm.o
+obj-$(CONFIG_SND_S3C64XX_SOC_SOL)	+= s3c-pcm-sol.o
+obj-$(CONFIG_SND_S5P64XX_SOC) 		+= s3c-pcm.o
+obj-$(CONFIG_SND_S5PC1XX_SOC) 		+= s3c-pcm.o
 
 obj-$(CONFIG_SND_S3C_I2S_V32)  += s3c6410-i2s.o
 #obj-$(CONFIG_SND_S3C_I2S_V32)  += s3c-i2s.o

@@ -25,13 +25,13 @@ if PLAT_S3C64XX
 
 # Configuration options shared by all S3C64XX implementations
 
-config CPU_S3C6400_INIT
+config CPU_S3C64XX_INIT
 	bool
 	help
 	  Common initialisation code for the S3C6400 that is shared
 	  by other CPUs in the series, such as the S3C6410.
 
-config CPU_S3C6400_CLOCK
+config CPU_S3C64XX_CLOCK
 	bool
 	help
 	  Common clock support code for the S3C6400 that is shared
@@ -60,6 +60,15 @@ config S3C64XX_ADCTS
 	  Common setup code for adc and touchscreen
 
 
+config PWM
+	tristate "Pulse Width Modulation (PWM) Timer support"
+
+config S3C6410_PWM
+         bool "S3C6410 PWM support"
+         depends on CPU_S3C6410 && PWM
+         help
+           S3C6410 PWM support.
+
 config S3C64XX_DOMAIN_GATING
 	bool "Support S3C64XX Domain Gating"
 	depends on PM
@@ -67,5 +76,11 @@ config S3C64XX_DOMAIN_GATING
 	help
 	  domain power enable / disble when each domain is not active / idle
 
-endif
+config S3C64XX_DOMAIN_GATING_DEBUG
+	bool "Support S3C64XX Domain Gating Debug"
+	depends on S3C64XX_DOMAIN_GATING
+	default n
+	help
+	  s3c64xx domain gating debug message enable / disable
 
+endif

@@ -41,6 +41,27 @@ config S3C24XX_PWM
 	  Support for exporting the PWM timer blocks via the pwm device
 	  system.
 
+
+# gpio configurations
+
+config S3C24XX_GPIO_EXTRA
+	int
+	default 128 if S3C24XX_GPIO_EXTRA128
+	default 64 if S3C24XX_GPIO_EXTRA64
+	default 0
+
+config S3C24XX_GPIO_EXTRA64
+	bool
+	help
+	  Add an extra 64 gpio numbers to the available GPIO pool. This is
+	  available for boards that need extra gpios for external devices.
+
+config S3C24XX_GPIO_EXTRA128
+	bool
+	help
+	  Add an extra 128 gpio numbers to the available GPIO pool. This is
+	  available for boards that need extra gpios for external devices.
+
 config PM_SIMTEC
 	bool
 	help
@@ -61,6 +82,13 @@ config S3C2410_DMA_DEBUG
 	help
 	  Enable debugging output for the DMA code. This option sends info
 	  to the kernel log, at priority KERN_DEBUG.
+
+config S3C24XX_ADC
+	bool "ADC common driver support"
+	help
+	  Core support for the ADC block found in the S3C24XX SoC systems
+	  for drivers such as the touchscreen and hwmon to use to share
+	  this resource.
 
 # SPI default pin configuration code
 

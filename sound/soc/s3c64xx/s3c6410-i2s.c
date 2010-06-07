@@ -24,7 +24,9 @@
 
 #include <mach/hardware.h>
 #include <plat/gpio-cfg.h>
-
+#ifdef CONFIG_S3C_DMA_PL080_SOL
+#include <plat/s3c6410-dma.h>
+#endif
 #include "s3c-pcm.h"
 #include "s3c6410-i2s.h"
 
@@ -35,6 +37,7 @@
 #define debug_msg(x...)
 #endif
 
+#ifdef CONFIG_S3C_DMA_PL080	
 static struct s3c2410_dma_client s3c_dma_client_out = {
 	.name = "I2S PCM Stereo out"
 };
@@ -56,6 +59,7 @@ static struct s3c24xx_pcm_dma_params s3c_i2s_pcm_stereo_in = {
 	.dma_addr	= S3C_IIS_PABASE + S3C_IISRXD,
 	.dma_size	= 4,
 };
+#endif
 
 struct s3c_i2s_info {
 	void __iomem	*regs;
@@ -224,22 +228,29 @@ static int s3c_i2s_set_fmt(struct snd_soc_dai *cpu_dai,
 }
 
 static int s3c_i2s_hw_params(struct snd_pcm_substream *substream,
-				struct snd_pcm_hw_params *params)
+				struct snd_pcm_hw_params *params,
+				struct snd_soc_dai *dai)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	u32 iismod;
 	
 	debug_msg("%s\n", __FUNCTION__);
 
+#ifdef CONFIG_S3C_DMA_PL080_SOL
+	rtd->dai->cpu_dai->dma_data = s3c_i2s_dai.dma_data;
+#endif
+
+#ifdef CONFIG_S3C_DMA_PL080	
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		rtd->dai->cpu_dai->dma_data = &s3c_i2s_pcm_stereo_out;
 	else
 		rtd->dai->cpu_dai->dma_data = &s3c_i2s_pcm_stereo_in;
-	
+#endif
 	/* Working copies of register */
 	iismod = readl(s3c_i2s.regs + S3C_IISMOD);
 	iismod &= ~S3C_IISMOD_BLCMASK;
 
+#ifdef CONFIG_S3C_DMA_PL080	
 	/* TODO */
 	switch(params_channels(params)) {
 	case 1:
@@ -255,6 +266,7 @@ static int s3c_i2s_hw_params(struct snd_pcm_substream *substream,
 	default:
 		break;
 	}
+#endif
 
 	/* RFS & BFS are set by dai_link(machine specific) code via set_clkdiv */
 	switch (params_format(params)) {
@@ -289,7 +301,8 @@ static int s3c_i2s_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-static int s3c_i2s_startup(struct snd_pcm_substream *substream)
+static int s3c_i2s_startup(struct snd_pcm_substream *substream,
+				struct snd_soc_dai *dai)
 {
 	u32 iiscon, iisfic;
 	int timeout;
@@ -338,7 +351,8 @@ static int s3c_i2s_startup(struct snd_pcm_substream *substream)
 	return 0;
 }
 
-static int s3c_i2s_prepare(struct snd_pcm_substream *substream)
+static int s3c_i2s_prepare(struct snd_pcm_substream *substream,
+				struct snd_soc_dai *dai)
 {
 	u32 iismod;
 	
@@ -365,7 +379,8 @@ static int s3c_i2s_prepare(struct snd_pcm_substream *substream)
 }
 
 
-static int s3c_i2s_trigger(struct snd_pcm_substream *substream, int cmd)
+static int s3c_i2s_trigger(struct snd_pcm_substream *substream, int cmd,
+				struct snd_soc_dai *dai)
 {
 	int ret = 0;
 
@@ -413,7 +428,9 @@ exit_err:
 static int s3c_i2s_set_sysclk(struct snd_soc_dai *cpu_dai,
 	int clk_id, unsigned int freq, int dir)
 {
+#if USE_CLKAUDIO
 	struct clk *clk;
+#endif
 	u32 iismod = readl(s3c_i2s.regs + S3C_IISMOD);
 
 	debug_msg("%s\n", __FUNCTION__);
@@ -626,7 +643,9 @@ static int s3c_i2s_probe(struct platform_device *pdev,
 	struct snd_soc_dai *dai)
 {
 	int ret = 0;
+#if USE_CLKAUDIO
 	struct clk *cm, *cf;
+#endif
 
 	debug_msg("%s\n", __FUNCTION__);
 
@@ -726,8 +745,7 @@ lb5:
 }
 
 #ifdef CONFIG_PM
-static int s3c_i2s_suspend(struct platform_device *pdev,
-		struct snd_soc_dai *cpu_dai)
+static int s3c_i2s_suspend(struct snd_soc_dai *cpu_dai)
 {
 	debug_msg("%s\n", __FUNCTION__);
 
@@ -742,8 +760,7 @@ static int s3c_i2s_suspend(struct platform_device *pdev,
 	return 0;
 }
 
-static int s3c_i2s_resume(struct platform_device *pdev,
-		struct snd_soc_dai *cpu_dai)
+static int s3c_i2s_resume(struct snd_soc_dai *cpu_dai)
 {
 	debug_msg("%s\n", __FUNCTION__);
 
@@ -763,10 +780,33 @@ static int s3c_i2s_resume(struct platform_device *pdev,
 #define s3c_i2s_resume NULL
 #endif
 
+#if defined(CONFIG_S3C_DMA_PL080_SOL)
+/* Platform data structure for using DMAC - by jung */
+static struct dmac_info i2s0_info[] = {
+	{
+		.modalias	= "i2s0_tx",
+		.dma_port	= 0,
+		.conn_num	= I2S0_TX,
+		.hw_fifo	= S3C_IIS_PABASE + S3C_IISTXD,
+	},
+
+	{
+		.modalias	= "i2s0_rx",
+		.dma_port	= 0,
+		.conn_num	= I2S0_RX,
+		.hw_fifo	= S3C_IIS_PABASE + S3C_IISRXD,		
+	}
+};
+
+struct dmac_conn_info dmac_i2s0_info = {
+	.connection_num  = i2s0_info,
+	.array_size = ARRAY_SIZE(i2s0_info),
+};
+#endif
+
 struct snd_soc_dai s3c_i2s_dai = {
 	.name = "s3c-i2s",
 	.id = 0,
-	.type = SND_SOC_DAI_I2S,
 	.probe = s3c_i2s_probe,
 	.suspend = s3c_i2s_suspend,
 	.resume = s3c_i2s_resume,
@@ -787,14 +827,28 @@ struct snd_soc_dai s3c_i2s_dai = {
 		.prepare   = s3c_i2s_prepare,
 		.startup   = s3c_i2s_startup,
 		.trigger   = s3c_i2s_trigger,
-	},
-	.dai_ops = {
 		.set_fmt = s3c_i2s_set_fmt,
 		.set_clkdiv = s3c_i2s_set_clkdiv,
 		.set_sysclk = s3c_i2s_set_sysclk,
 	},
+
+#ifdef CONFIG_S3C_DMA_PL080_SOL
+	.dma_data = &dmac_i2s0_info,
+#endif
 };
 EXPORT_SYMBOL_GPL(s3c_i2s_dai);
+
+static int __init s3c_i2s_init(void)
+{
+	return snd_soc_register_dai(&s3c_i2s_dai);
+}
+module_init(s3c_i2s_init);
+
+static void __exit s3c_i2s_exit(void)
+{
+	snd_soc_unregister_dai(&s3c_i2s_dai);
+}
+module_exit(s3c_i2s_exit);
 
 /* Module information */
 MODULE_AUTHOR("Jaswinder Singh <jassi.brar@samsung.com>");

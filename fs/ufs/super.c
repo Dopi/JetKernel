@@ -41,7 +41,7 @@
  * Stefan Reinauer <stepan@home.culture.mipt.ru>
  *
  * Module usage counts added on 96/04/29 by
- * Gertjan van Wingerde <gertjan@cs.vu.nl>
+ * Gertjan van Wingerde <gwingerde@gmail.com>
  *
  * Clean swab support on 19970406 by
  * Francois-Rene Rideau <fare@tunes.org>
@@ -309,7 +309,7 @@ enum {
        Opt_err
 };
 
-static match_table_t tokens = {
+static const match_table_t tokens = {
 	{Opt_type_old, "ufstype=old"},
 	{Opt_type_sunx86, "ufstype=sunx86"},
 	{Opt_type_sun, "ufstype=sun"},
@@ -1233,7 +1233,7 @@ static int ufs_show_options(struct seq_file *seq, struct vfsmount *vfs)
 {
 	struct ufs_sb_info *sbi = UFS_SB(vfs->mnt_sb);
 	unsigned mval = sbi->s_mount_opt & UFS_MOUNT_UFSTYPE;
-	struct match_token *tp = tokens;
+	const struct match_token *tp = tokens;
 
 	while (tp->token != Opt_onerror_panic && tp->token != mval)
 		++tp;

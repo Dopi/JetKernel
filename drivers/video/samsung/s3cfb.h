@@ -520,6 +520,10 @@ extern void s3cfb_set_lcd_power(int to);
 extern void s3cfb_set_backlight_power(int to);
 extern void s3cfb_set_backlight_level(int to);
 
+extern struct early_suspend *get_earlysuspend_ptr(void);
+extern void s3cfb_enable_clock_power(void);
+extern int s3cfb_is_clock_on(void);
+
 #ifdef CONFIG_HAS_EARLYSUSPEND
 extern void s3cfb_early_suspend(struct early_suspend *h);
 extern void s3cfb_late_resume(struct early_suspend *h);

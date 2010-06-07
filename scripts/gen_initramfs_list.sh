@@ -292,7 +292,7 @@ if [ ! -z ${output_file} ]; then
 		cat ${cpio_tfile} > ${output_file}
 	else
 		if [ ${compress} -eq 1 ]; then
-		    cat ${cpio_tfile} | gzip -f -9 - > ${output_file}
+		cat ${cpio_tfile} | gzip -f -9 - > ${output_file}
 		else
 		    cat ${cpio_tfile} > ${output_file}
 		fi

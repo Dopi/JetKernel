@@ -318,51 +318,6 @@ struct clk s3c24xx_uclk = {
 	.id		= -1,
 };
 
-#if defined(CONFIG_CPU_S5P6440)
-struct clk clk_h_low = {
-	.name		= "hclk_low",
-	.id		= -1,
-	.rate		= 0,
-	.parent		= NULL,
-	.ctrlbit	= 0,
-	.set_rate	= clk_default_setrate,
-};
-
-struct clk clk_p_low = {
-	.name		= "pclk_low",
-	.id		= -1,
-	.rate		= 0,
-	.parent		= NULL,
-	.ctrlbit	= 0,
-	.set_rate	= clk_default_setrate,
-};
-
-#elif defined(CONFIG_CPU_S5PC100)
-struct clk clk_hpll = {
-	.name		= "hpll",
-	.id		= -1,
-};
-
-struct clk clk_hd0 = {
-	.name		= "hclkd0",
-	.id		= -1,
-	.rate		= 0,
-	.parent		= NULL,
-	.ctrlbit	= 0,
-	.set_rate	= clk_default_setrate,
-};
-
-struct clk clk_pd0 = {
-	.name		= "pclkd0",
-	.id		= -1,
-	.rate		= 0,
-	.parent		= NULL,
-	.ctrlbit	= 0,
-	.set_rate	= clk_default_setrate,
-};
-#endif
-
-
 /* initialise the clock system */
 
 int s3c_register_clock(struct clk *clk)
@@ -417,20 +372,6 @@ int __init s3c_register_baseclocks(unsigned long xtal)
 
 	if (s3c_register_clock(&clk_f) < 0)
 		printk(KERN_ERR "failed to register cpu fclk\n");
-
-#if defined(CONFIG_CPU_S5P6440)
-	if (s3c_register_clock(&clk_h_low) < 0)
-		printk(KERN_ERR "failed to register cpu hclk_low\n");
-
-	if (s3c_register_clock(&clk_p_low) < 0)
-		printk(KERN_ERR "failed to register cpu pclk_low\n");
-#elif defined(CONFIG_CPU_S5PC100)
-	if (s3c_register_clock(&clk_hd0) < 0)
-		printk(KERN_ERR "failed to register cpu hclkd0\n");
-
-	if (s3c_register_clock(&clk_pd0) < 0)
-		printk(KERN_ERR "failed to register cpu pclkd0\n");
-#endif	/* defined(CONFIG_CPU_S5P6440) */
 
 	if (s3c_register_clock(&clk_h) < 0)
 		printk(KERN_ERR "failed to register cpu hclk\n");

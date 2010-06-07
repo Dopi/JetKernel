@@ -1,6 +1,8 @@
 /*
- * Gadget Driver for Android
+ * Gadget Driver for Android, with ADB and UMS support
  *
+ * Copyright (C) 2009 Samsung Electronics
+ * Author: Seung-Soo Yang <ss1.yang@samsung.com>
  * Copyright (C) 2008 Google, Inc.
  * Author: Mike Lockwood <lockwood@android.com>
  *
@@ -14,9 +16,6 @@
  * GNU General Public License for more details.
  *
  */
-
-/* #define DEBUG */
-/* #define VERBOSE_DEBUG */
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -38,17 +37,43 @@
 
 #include "gadget_chips.h"
 
-MODULE_AUTHOR("Mike Lockwood");
+/*
+ * Kbuild is not very cooperative with respect to linking separately
+ * compiled library objects into one module.  So for now we won't use
+ * separate compilation ... ensuring init/exit sections work to shrink
+ * the runtime footprint, and giving us at least some parts of what
+ * a "gcc --combine ... part1.c part2.c part3.c ... " build would.
+ */
+#include "usbstring.c"
+#include "config.c"
+#include "epautoconf.c"
+#include "composite.c"
+
+MODULE_AUTHOR("SeungSoo Yange");
 MODULE_DESCRIPTION("Android Composite USB Driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("1.0");
 
 static const char longname[] = "Gadget Android";
 
+#define DRIVER_DESC		"Android Composite USB"
+#define DRIVER_VERSION	__DATE__
+
 /* Default vendor and product IDs, overridden by platform data */
 #define VENDOR_ID		0x18D1
 #define PRODUCT_ID		0x0001
-#define ADB_PRODUCT_ID	0x0005
+#define ADB_PRODUCT_ID	0x0002
+
+/* 
+ * Originally, adbd will enable adb function at booting 
+ * if the value of persist.service.adb.enable is 1
+ * ADB_ENABLE_AT_BOOT intends to enable adb function 
+ * in case of no enabling by adbd or improper RFS
+ */
+#define ADB_ENABLE_AT_BOOT	0
+
+extern void get_usb_serial(char *usb_serial_number);
+
 
 struct android_dev {
 	struct usb_gadget *gadget;
@@ -74,9 +99,9 @@ static struct android_dev *_android_dev;
 /* String Table */
 static struct usb_string strings_dev[] = {
 	/* These dummy values should be overridden by platform data */
-	[STRING_MANUFACTURER_IDX].s = "Android",
-	[STRING_PRODUCT_IDX].s = "Android",
-	[STRING_SERIAL_IDX].s = "0123456789ABCDEF",
+	[STRING_MANUFACTURER_IDX].s = "SAMSUNG",
+	[STRING_PRODUCT_IDX].s = "SAMSUNG_Android",
+	[STRING_SERIAL_IDX].s = "S3C6410_Android",
 	{  }			/* end of list */
 };
 
@@ -94,31 +119,77 @@ static struct usb_device_descriptor device_desc = {
 	.bLength              = sizeof(device_desc),
 	.bDescriptorType      = USB_DT_DEVICE,
 	.bcdUSB               = __constant_cpu_to_le16(0x0200),
-	.bDeviceClass         = USB_CLASS_PER_INTERFACE,
+	.bDeviceClass		  = USB_CLASS_MASS_STORAGE,
+	.bDeviceSubClass	  = 0x06,//US_SC_SCSI,
+	.bDeviceProtocol	  = 0x50,//US_PR_BULK,
 	.idVendor             = __constant_cpu_to_le16(VENDOR_ID),
 	.idProduct            = __constant_cpu_to_le16(PRODUCT_ID),
 	.bcdDevice            = __constant_cpu_to_le16(0xffff),
 	.bNumConfigurations   = 1,
 };
 
+static struct usb_otg_descriptor otg_descriptor = {
+	.bLength =		sizeof otg_descriptor,
+	.bDescriptorType =	USB_DT_OTG,
+
+	/* REVISIT SRP-only hardware is possible, although
+	 * it would not be called "OTG" ...
+	 */
+	.bmAttributes =		USB_OTG_SRP | USB_OTG_HNP,
+};
+
+static const struct usb_descriptor_header *otg_desc[] = {
+	(struct usb_descriptor_header *) &otg_descriptor,
+	NULL,
+};
+
+void android_usb_set_connected(int connected)
+{
+	if (_android_dev && _android_dev->cdev && _android_dev->cdev->gadget) {
+		if (connected)
+			usb_gadget_connect(_android_dev->cdev->gadget);
+		else
+			usb_gadget_disconnect(_android_dev->cdev->gadget);
+	}
+}
+
+#if ADB_ENABLE_AT_BOOT
+static void enable_adb(struct android_dev *dev, int enable);
+#endif
+
 static int __init android_bind_config(struct usb_configuration *c)
 {
 	struct android_dev *dev = _android_dev;
 	int ret;
-	printk(KERN_DEBUG "android_bind_config\n");
 
-	ret = mass_storage_function_add(c, dev->nluns);
-	if (ret)
+	ret = mass_storage_function_add(dev->cdev, c, dev->nluns);
+	if (ret) {
+		printk("[%s] Fail to mass_storage_function_add()\n", __func__);
 		return ret;
-	return adb_function_add(c);
+	}
+	ret = adb_function_add(dev->cdev, c);
+	if (ret) {
+		printk("[%s] Fail to adb_function_add()\n", __func__);
+		return ret;
+	}
+
+#if ADB_ENABLE_AT_BOOT
+	printk("[%s] Enabling adb function at booting\n", __func__);
+	enable_adb(dev, 1);
+#endif
+
+		return ret;
 }
 
-static struct usb_configuration android_config __initdata = {
-	.label		= "android",
+#define	ANDROID_DEBUG_CONFIG_STRING "UMS + ADB (Debugging mode)"
+#define	ANDROID_NO_DEBUG_CONFIG_STRING "UMS Only (Not debugging mode)"
+
+static struct usb_configuration android_config  = {
+	.label		= ANDROID_NO_DEBUG_CONFIG_STRING,
 	.bind		= android_bind_config,
 	.bConfigurationValue = 1,
 	.bmAttributes	= USB_CONFIG_ATT_ONE | USB_CONFIG_ATT_SELFPOWER,
-	.bMaxPower	= 0x80, /* 250ma */
+	.bMaxPower	= 0x30, /*  x2 = 160ma */
 };
 
 static int __init android_bind(struct usb_composite_dev *cdev)
@@ -128,8 +199,9 @@ static int __init android_bind(struct usb_composite_dev *cdev)
 	int			gcnum;
 	int			id;
 	int			ret;
+	char usb_serial_number[13] = {0,};
 
-	printk("android_bind\n");
+//	printk(KERN_INFO "android_bind\n");
 
 	/* Allocate string descriptor numbers ... note that string
 	 * contents can be overridden by the composite_dev glue.
@@ -149,18 +221,17 @@ static int __init android_bind(struct usb_composite_dev *cdev)
 	id = usb_string_id(cdev);
 	if (id < 0)
 		return id;
+
+	get_usb_serial(usb_serial_number);
 	strings_dev[STRING_SERIAL_IDX].id = id;
+
+	if( (usb_serial_number[0] + 
+		 usb_serial_number[1] + 
+		 usb_serial_number[2]) != 0 )
+	strcpy((char *)(strings_dev[STRING_SERIAL_IDX].s), usb_serial_number);
+	printk("[ADB_UMS] string_dev = %s \n",strings_dev[STRING_SERIAL_IDX].s);
+
 	device_desc.iSerialNumber = id;
-
-	if (gadget->ops->wakeup)
-		android_config.bmAttributes |= USB_CONFIG_ATT_WAKEUP;
-
-	/* register our configuration */
-	ret = usb_add_config(cdev, &android_config);
-	if (ret) {
-		printk(KERN_ERR "usb_add_config failed\n");
-		return ret;
-	}
 
 	gcnum = usb_gadget_controller_number(gadget);
 	if (gcnum >= 0)
@@ -178,17 +249,44 @@ static int __init android_bind(struct usb_composite_dev *cdev)
 		device_desc.bcdDevice = __constant_cpu_to_le16(0x9999);
 	}
 
+	if (gadget_is_otg(cdev->gadget)) 
+		android_config.descriptors = otg_desc;
+	
+#if USBCV_CH9_REMOTE_WAKE_UP_TEST 
+	if (gadget->ops->wakeup)
+		android_config.bmAttributes |= USB_CONFIG_ATT_WAKEUP;
+#endif
+
+	/* register our configuration */
+	ret = usb_add_config(cdev, &android_config);
+	if (ret) {
+		printk(KERN_ERR "usb_add_config failed\n");
+	        return ret;
+	}
+
 	usb_gadget_set_selfpowered(gadget);
 	dev->cdev = cdev;
 
+	INFO(cdev, "%s, version: " DRIVER_VERSION "\n", DRIVER_DESC);
+
 	return 0;
 }
+
+/*
+	Google gadget doesn't support module type building
+static int __exit android_unbind(struct usb_composite_dev *cdev)
+{
+	gserial_cleanup();
+	return 0;
+}
+*/
 
 static struct usb_composite_driver android_usb_driver = {
 	.name		= "android_usb",
 	.dev		= &device_desc,
 	.strings	= dev_strings,
 	.bind		= android_bind,
+//	.unbind 	= __exit_p(android_unbind),
 };
 
 static void enable_adb(struct android_dev *dev, int enable)
@@ -199,19 +297,47 @@ static void enable_adb(struct android_dev *dev, int enable)
 
 		/* set product ID to the appropriate value */
 		if (enable)
+		{
 			device_desc.idProduct =
 				__constant_cpu_to_le16(dev->adb_product_id);
+			device_desc.bDeviceClass	  = USB_CLASS_PER_INTERFACE;
+			device_desc.bDeviceSubClass	  = 0x00;
+			device_desc.bDeviceProtocol	  = 0x00;
+			android_config.label = ANDROID_DEBUG_CONFIG_STRING;
+		}
 		else
+		{
 			device_desc.idProduct =
 				__constant_cpu_to_le16(dev->product_id);
-		if (dev->cdev)
-			dev->cdev->desc.idProduct = device_desc.idProduct;
+			device_desc.bDeviceClass	  = USB_CLASS_MASS_STORAGE;
+			device_desc.bDeviceSubClass	  = 0x06;//US_SC_SCSI;
+			device_desc.bDeviceProtocol	  = 0x50;//US_PR_BULK;
+			android_config.label = ANDROID_NO_DEBUG_CONFIG_STRING;
+		}
 
+		/* Host get the following dev->cdev->desc as Device Description */
+		if (dev->cdev)
+		{
+			dev->cdev->desc.idProduct = device_desc.idProduct;
+			dev->cdev->desc.bDeviceClass = device_desc.bDeviceClass;
+			dev->cdev->desc.bDeviceSubClass = device_desc.bDeviceSubClass;
+			dev->cdev->desc.bDeviceProtocol = device_desc.bDeviceProtocol;
+		}
+
+#if 0
 		/* force reenumeration */
 		if (dev->cdev && dev->cdev->gadget &&
+				//the following means that usb device already enumerated by host
 				dev->cdev->gadget->speed != USB_SPEED_UNKNOWN) {
+#else
+/*
+	for reenumeration in case of booting-up connected with host
+	because if connected, host don't enumerate 
+*/
+		if (dev->cdev && dev->cdev->gadget ) {
+#endif			
 			usb_gadget_disconnect(dev->cdev->gadget);
-			msleep(10);
+			msleep(5);
 			usb_gadget_connect(dev->cdev->gadget);
 		}
 	}
@@ -223,8 +349,6 @@ static int adb_enable_open(struct inode *ip, struct file *fp)
 		atomic_dec(&adb_enable_excl);
 		return -EBUSY;
 	}
-
-	printk(KERN_INFO "enabling adb\n");
 	enable_adb(_android_dev, 1);
 
 	return 0;
@@ -232,13 +356,12 @@ static int adb_enable_open(struct inode *ip, struct file *fp)
 
 static int adb_enable_release(struct inode *ip, struct file *fp)
 {
-	printk(KERN_INFO "disabling adb\n");
 	enable_adb(_android_dev, 0);
 	atomic_dec(&adb_enable_excl);
 	return 0;
 }
 
-static struct file_operations adb_enable_fops = {
+static const struct file_operations adb_enable_fops = {
 	.owner =   THIS_MODULE,
 	.open =    adb_enable_open,
 	.release = adb_enable_release,
@@ -254,8 +377,6 @@ static int __init android_probe(struct platform_device *pdev)
 {
 	struct android_usb_platform_data *pdata = pdev->dev.platform_data;
 	struct android_dev *dev = _android_dev;
-
-	printk(KERN_INFO "android_probe pdata: %p\n", pdata);
 
 	if (pdata) {
 		if (pdata->vendor_id)
@@ -285,7 +406,7 @@ static int __init android_probe(struct platform_device *pdev)
 }
 
 static struct platform_driver android_platform_driver = {
-	.driver = { .name = "android_usb", },
+	.driver = { .name = "S3C6410 Android USB", },
 	.probe = android_probe,
 };
 
@@ -293,8 +414,6 @@ static int __init init(void)
 {
 	struct android_dev *dev;
 	int ret;
-
-	printk(KERN_INFO "android init\n");
 
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (!dev)

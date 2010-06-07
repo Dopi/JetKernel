@@ -84,13 +84,17 @@ void __init s3c6410_map_io(void)
 
 	s3c6410_default_sdhci0();
 
-#if defined(CONFIG_MACH_SPICA)
+#ifdef CONFIG_MACH_CAPELA
+	s3c6410_default_sdhci1(); // yoohyuk 2009-03-10 Enable SDHC1
+#endif
+
+#if defined(CONFIG_MACH_INSTINCTQ)
 	s3c6410_default_sdhci2();
 #endif
 
 	/* the i2c devices are directly compatible with s3c2440 */
-	s3c_i2c0_setname("s3c2440-i2c");
-	s3c_i2c1_setname("s3c2440-i2c");
+	s3c_i2c0_setname("s3c-i2c");
+	s3c_i2c1_setname("s3c-i2c");
 
 	/* set our idle function */
 	s3c64xx_idle = s3c6410_idle;
@@ -101,8 +105,8 @@ void __init s3c6410_init_clocks(int xtal)
 	printk(KERN_DEBUG "%s: initialising clocks\n", __func__);
 	s3c_register_baseclocks(xtal);
 	s3c64xx_register_clocks();
-	s3c6400_register_clocks();
-	s3c6400_setup_clocks();
+	s3c6410_register_clocks();
+	s3c64xx_setup_clocks();
 }
 
 void __init s3c6410_init_irq(void)

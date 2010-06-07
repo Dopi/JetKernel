@@ -32,26 +32,120 @@
 #include <linux/android_pmem.h>
 #include <plat/reserved_mem.h>
 
-/* SMC9115 LAN via ROM interface */
-
-static struct resource s3c_smc911x_resources[] = {
+#if defined(CONFIG_S3C_DMA_PL080_SOL)
+/* DMA-PL080 DMA Controller */
+/* DMAC0 */
+static struct resource s3c_dma0_resources[] = {
       [0] = {
-              .start  = S3C64XX_PA_SMC9115,
-              .end    = S3C64XX_PA_SMC9115 + S3C64XX_SZ_SMC9115 - 1,
+              .start  = S3C64XX_PA_DMA0,
+              .end    = S3C64XX_PA_DMA0 + S3C64XX_SZ_DMA - 1,
               .flags  = IORESOURCE_MEM,
       },
       [1] = {
-              .start = IRQ_EINT(10),
-              .end   = IRQ_EINT(10),
+              .start = IRQ_DMA0,
+              .end   = IRQ_DMA0,
               .flags = IORESOURCE_IRQ,
         },
 };
 
+struct platform_device s3c_device_dma0 = {
+      .name           = "s3c-dmac",
+      .id             =  0,
+      .num_resources  = ARRAY_SIZE(s3c_dma0_resources),
+      .resource       = s3c_dma0_resources,
+	  .dev			  = {
+	  		.coherent_dma_mask = ~0,
+	  },
+};
+EXPORT_SYMBOL(s3c_device_dma0);
+
+/* DMAC1 */
+static struct resource s3c_dma1_resources[] = {
+      [0] = {
+              .start  = S3C64XX_PA_DMA1,
+              .end    = S3C64XX_PA_DMA1 + S3C64XX_SZ_DMA - 1,
+              .flags  = IORESOURCE_MEM,
+      },
+      [1] = {
+              .start = IRQ_DMA1,
+              .end   = IRQ_DMA1,
+              .flags = IORESOURCE_IRQ,
+        },
+};
+
+struct platform_device s3c_device_dma1 = {
+      .name           = "s3c-dmac",
+      .id             =  1,
+      .num_resources  = ARRAY_SIZE(s3c_dma1_resources),
+      .resource       = s3c_dma1_resources,
+};
+EXPORT_SYMBOL(s3c_device_dma1);
+
+/* DMAC2 */
+static struct resource s3c_dma2_resources[] = {
+      [0] = {
+              .start  = S3C64XX_PA_DMA2,
+              .end    = S3C64XX_PA_DMA2 + S3C64XX_SZ_DMA - 1,
+              .flags  = IORESOURCE_MEM,
+      },
+      [1] = {
+              .start = IRQ_SDMA0,
+              .end   = IRQ_SDMA0,
+              .flags = IORESOURCE_IRQ,
+        },
+};
+
+struct platform_device s3c_device_dma2 = {
+      .name           = "s3c-dmac",
+      .id             =  2,
+      .num_resources  = ARRAY_SIZE(s3c_dma2_resources),
+      .resource       = s3c_dma2_resources,
+};
+EXPORT_SYMBOL(s3c_device_dma2);
+
+/* DMAC3 */
+static struct resource s3c_dma3_resources[] = {
+      [0] = {
+              .start  = S3C64XX_PA_DMA3,
+              .end    = S3C64XX_PA_DMA3 + S3C64XX_SZ_DMA - 1,
+              .flags  = IORESOURCE_MEM,
+      },
+      [1] = {
+              .start = IRQ_SDMA1,
+              .end   = IRQ_SDMA1,
+              .flags = IORESOURCE_IRQ,
+        },
+};
+
+struct platform_device s3c_device_dma3 = {
+      .name           = "s3c-dmac",
+      .id             =  3,
+      .num_resources  = ARRAY_SIZE(s3c_dma3_resources),
+      .resource       = s3c_dma3_resources,
+};
+EXPORT_SYMBOL(s3c_device_dma3);
+#endif
+
+/* SMC9115 LAN via ROM interface */
+
+static struct resource s3c_smc911x_resources[] = {
+	[0] = {
+		.start  = S3C64XX_PA_SMC9115,
+		.end    = S3C64XX_PA_SMC9115 + S3C64XX_SZ_SMC9115 - 1,
+		.flags  = IORESOURCE_MEM,
+	},
+	[1] = {
+		.start = IRQ_EINT(10),
+		.end   = IRQ_EINT(10),
+		.flags = IORESOURCE_IRQ,
+	},
+};
+
 struct platform_device s3c_device_smc911x = {
-      .name           = "smc911x",
-      .id             =  -1,
-      .num_resources  = ARRAY_SIZE(s3c_smc911x_resources),
-      .resource       = s3c_smc911x_resources,
+	.name           = "smc911x",
+	.id             =  -1,
+	.num_resources  = ARRAY_SIZE(s3c_smc911x_resources),
+	.resource       = s3c_smc911x_resources,
 };
 
 /* NAND Controller */
@@ -65,10 +159,10 @@ static struct resource s3c_nand_resource[] = {
 };
 
 struct platform_device s3c_device_nand = {
-	.name		  = "s3c-nand",
-	.id		  = -1,
-	.num_resources	  = ARRAY_SIZE(s3c_nand_resource),
-	.resource	  = s3c_nand_resource,
+	.name		= "s3c-nand",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(s3c_nand_resource),
+	.resource	= s3c_nand_resource,
 };
 
 EXPORT_SYMBOL(s3c_device_nand);
@@ -116,7 +210,7 @@ static struct resource s3c_rtc_resource[] = {
 };
 
 struct platform_device s3c_device_rtc = {
-	.name		  = "s3c2410-rtc",
+	.name		  = "s3c-rtc",
 	.id		  = -1,
 	.num_resources	  = ARRAY_SIZE(s3c_rtc_resource),
 	.resource	  = s3c_rtc_resource,
@@ -253,10 +347,10 @@ static struct resource s3c_keypad_resource[] = {
 };
 
 struct platform_device s3c_device_keypad = {
-	.name         = "s3c-keypad",
-	.id       = -1,
-	.num_resources    = ARRAY_SIZE(s3c_keypad_resource),
-	.resource     = s3c_keypad_resource,
+	.name		= "s3c-keypad",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(s3c_keypad_resource),
+	.resource	= s3c_keypad_resource,
 };
 EXPORT_SYMBOL(s3c_device_keypad);
 
@@ -266,12 +360,12 @@ static struct resource s3c_2d_resource[] = {
 		.start = S3C64XX_PA_G2D,
 		.end   = S3C64XX_PA_G2D + S3C64XX_SZ_G2D - 1,
 		.flags = IORESOURCE_MEM,
-		},
+	},
 	[1] = {
-                .start = IRQ_2D,
-                .end   = IRQ_2D,
-                .flags = IORESOURCE_IRQ,
-        }
+		.start = IRQ_2D,
+		.end   = IRQ_2D,
+		.flags = IORESOURCE_IRQ,
+	}
 };
 
 struct platform_device s3c_device_2d = {
@@ -289,19 +383,19 @@ static struct resource s3c_rotator_resource[] = {
 		.start = S3C64XX_PA_ROTATOR,
 		.end   = S3C64XX_PA_ROTATOR + S3C_SZ_ROTATOR - 1,
 		.flags = IORESOURCE_MEM,
-		},
+	},
 	[1] = {
-                .start = IRQ_ROTATOR,
-                .end   = IRQ_ROTATOR,
-                .flags = IORESOURCE_IRQ,
-        }
+		.start = IRQ_ROTATOR,
+		.end   = IRQ_ROTATOR,
+		.flags = IORESOURCE_IRQ,
+	}
 };
 
 struct platform_device s3c_device_rotator = {
-        .name             = "s3c-rotator",
-        .id               = -1,
-        .num_resources    = ARRAY_SIZE(s3c_rotator_resource),
-        .resource         = s3c_rotator_resource
+	.name             = "s3c-rotator",
+	.id               = -1,
+	.num_resources    = ARRAY_SIZE(s3c_rotator_resource),
+	.resource         = s3c_rotator_resource
 };
 
 EXPORT_SYMBOL(s3c_device_rotator);
@@ -318,14 +412,13 @@ static struct resource s3c_tvenc_resource[] = {
 		.end   = IRQ_TVENC,
 		.flags = IORESOURCE_IRQ,
 	}
-
 };
 
 struct platform_device s3c_device_tvenc = {
-	.name		  = "s3c-tvenc",
-	.id		  = -1,
-	.num_resources	  = ARRAY_SIZE(s3c_tvenc_resource),
-	.resource	  = s3c_tvenc_resource,
+	.name		= "s3c-tvenc",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(s3c_tvenc_resource),
+	.resource	= s3c_tvenc_resource,
 };
 
 EXPORT_SYMBOL(s3c_device_tvenc);
@@ -347,7 +440,6 @@ struct s3c6410_spi_info spi_plat_data = {
 	.board_size = ARRAY_SIZE(s3c6410_spi_board_info),
 };
 
-
 /* SPI (0) */
 static struct resource s3c_spi0_resource[] = {
 	[0] = {
@@ -360,21 +452,20 @@ static struct resource s3c_spi0_resource[] = {
 		.end   = IRQ_SPI0,
 		.flags = IORESOURCE_IRQ,
 	}
-
 };
 
 static u64 s3c_device_spi0_dmamask = 0xffffffffUL;
 
 struct platform_device s3c_device_spi0 = {
-	.name		  = "s3c-spi",
-	.id		  = 0,
-	.num_resources	  = ARRAY_SIZE(s3c_spi0_resource),
-	.resource	  = s3c_spi0_resource,
-        .dev              = {
-                .dma_mask = &s3c_device_spi0_dmamask,
-                .coherent_dma_mask = 0xffffffffUL,
-				.platform_data     = &spi_plat_data,
-        }
+	.name		= "s3c-spi",
+	.id		= 0,
+	.num_resources	= ARRAY_SIZE(s3c_spi0_resource),
+	.resource	= s3c_spi0_resource,
+	.dev = {
+		.dma_mask = &s3c_device_spi0_dmamask,
+		.coherent_dma_mask = 0xffffffffUL,
+		.platform_data     = &spi_plat_data,
+	}
 };
 EXPORT_SYMBOL(s3c_device_spi0);
 
@@ -393,10 +484,10 @@ static struct resource s3c_tvscaler_resource[] = {
 };
 
 struct platform_device s3c_device_tvscaler = {
-	.name		  = "s3c-tvscaler",
-	.id		  = -1,
-	.num_resources	  = ARRAY_SIZE(s3c_tvscaler_resource),
-	.resource	  = s3c_tvscaler_resource,
+	.name		= "s3c-tvscaler",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(s3c_tvscaler_resource),
+	.resource	= s3c_tvscaler_resource,
 };
 EXPORT_SYMBOL(s3c_device_tvscaler);
 
@@ -412,14 +503,13 @@ static struct resource s3c_jpeg_resource[] = {
 		.end   = IRQ_JPEG,
 		.flags = IORESOURCE_IRQ,
 	}
-
 };
 
 struct platform_device s3c_device_jpeg = {
-	.name		  = "s3c-jpeg",
-	.id		  = -1,
-	.num_resources	  = ARRAY_SIZE(s3c_jpeg_resource),
-	.resource	  = s3c_jpeg_resource,
+	.name		= "s3c-jpeg",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(s3c_jpeg_resource),
+	.resource	= s3c_jpeg_resource,
 };
 
 EXPORT_SYMBOL(s3c_device_jpeg);
@@ -430,19 +520,19 @@ static struct resource s3c_mfc_resource[] = {
 		.start = S3C64XX_PA_MFC,
 		.end   = S3C64XX_PA_MFC + SZ_4K - 1,
 		.flags = IORESOURCE_MEM,
-		},
+	},
 	[1] = {
-                .start = IRQ_MFC,
-                .end   = IRQ_MFC,
-                .flags = IORESOURCE_IRQ,
-        }
+		.start = IRQ_MFC,
+		.end   = IRQ_MFC,
+		.flags = IORESOURCE_IRQ,
+	}
 };
 
 struct platform_device s3c_device_mfc = {
-        .name             = "s3c-mfc",
-        .id               = -1,
-        .num_resources    = ARRAY_SIZE(s3c_mfc_resource),
-        .resource         = s3c_mfc_resource
+	.name             = "s3c-mfc",
+	.id               = -1,
+	.num_resources    = ARRAY_SIZE(s3c_mfc_resource),
+	.resource         = s3c_mfc_resource
 };
 
 EXPORT_SYMBOL(s3c_device_mfc);
@@ -459,14 +549,13 @@ static struct resource s3c_vpp_resource[] = {
 		.end   = IRQ_POST0,
 		.flags = IORESOURCE_IRQ,
 	}
-
 };
 
 struct platform_device s3c_device_vpp = {
-	.name		  = "s3c-vpp",
-	.id		  = -1,
-	.num_resources	  = ARRAY_SIZE(s3c_vpp_resource),
-	.resource	  = s3c_vpp_resource,
+	.name		= "s3c-vpp",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(s3c_vpp_resource),
+	.resource	= s3c_vpp_resource,
 };
 
 EXPORT_SYMBOL(s3c_device_vpp);
@@ -516,179 +605,177 @@ static struct resource s3c_camif_resource[] = {
 };
 
 struct platform_device s3c_device_camif = {
-	.name		  = "s3c-camif",
-	.id		  = -1,
-	.num_resources	  = ARRAY_SIZE(s3c_camif_resource),
-	.resource	  = s3c_camif_resource,
+	.name		= "s3c-camif",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(s3c_camif_resource),
+	.resource	= s3c_camif_resource,
 };
 
 EXPORT_SYMBOL(s3c_device_camif);
 
 static struct android_pmem_platform_data pmem_pdata = {
-        .name = "pmem",
-        .no_allocator = 1,
-        .cached = 1,
+	.name		= "pmem",
+	.no_allocator	= 1,
+	.cached		= 1,
+	.buffered	= 1,	//09.12.01 hoony: surfaceflinger optimize
 };
  
 static struct android_pmem_platform_data pmem_gpu1_pdata = {
-        .name = "pmem_gpu1",
-        .no_allocator = 1,
-        .cached = 1,
-        .buffered = 1,
+	.name		= "pmem_gpu1",
+	.no_allocator	= 1,
+	.cached		= 1,
+	.buffered	= 1,
 };
 
 static struct android_pmem_platform_data pmem_render_pdata = {
-        .name = "pmem_render",
-        .no_allocator = 1,
-        .cached = 0,
+	.name		= "pmem_render",
+	.no_allocator	= 1,
+	.cached		= 0,
 };
 
 static struct android_pmem_platform_data pmem_stream_pdata = {
-        .name = "pmem_stream",
-        .no_allocator = 1,
-        .cached = 0,
+	.name		= "pmem_stream",
+	.no_allocator	= 1,
+	.cached		= 0,
 };
 
 static struct android_pmem_platform_data pmem_stream2_pdata = {
-        .name = "pmem_stream2",
-        .no_allocator = 1,
-        .cached = 0,
+	.name		= "pmem_stream2",
+	.no_allocator	= 1,
+	.cached		= 0,
 };
 
 static struct android_pmem_platform_data pmem_preview_pdata = {
-        .name = "pmem_preview",
-        .no_allocator = 1,
-        .cached = 0,
+	.name		= "pmem_preview",
+	.no_allocator	= 1,
+	.cached		= 0,
 };
 
 static struct android_pmem_platform_data pmem_picture_pdata = {
-        .name = "pmem_picture",
-        .no_allocator = 1,
-        .cached = 0,
+	.name		= "pmem_picture",
+	.no_allocator	= 1,
+	.cached		= 0,
 };
 
 static struct android_pmem_platform_data pmem_jpeg_pdata = {
-        .name = "pmem_jpeg",
-        .no_allocator = 1,
-        .cached = 0,
+	.name		= "pmem_jpeg",
+	.no_allocator	= 1,
+	.cached		= 0,
 };
 
 static struct android_pmem_platform_data pmem_skia_pdata = {
-        .name = "pmem_skia",
-        .no_allocator = 1,
-        .cached = 0,
+	.name		= "pmem_skia",
+	.no_allocator	= 1,
+	.cached		= 0,
 };
  
 static struct platform_device pmem_device = {
-        .name = "android_pmem",
-        .id = 0,
-        .dev = { .platform_data = &pmem_pdata },
+	.name		= "android_pmem",
+	.id		= 0,
+	.dev		= { .platform_data = &pmem_pdata },
 };
  
 static struct platform_device pmem_gpu1_device = {
-        .name = "android_pmem",
-        .id = 1,
-        .dev = { .platform_data = &pmem_gpu1_pdata },
+	.name		= "android_pmem",
+	.id		= 1,
+	.dev		= { .platform_data = &pmem_gpu1_pdata },
 };
 
 static struct platform_device pmem_render_device = {
-        .name = "android_pmem",
-        .id = 2,
-        .dev = { .platform_data = &pmem_render_pdata },
+	.name		= "android_pmem",
+	.id		= 2,
+	.dev		= { .platform_data = &pmem_render_pdata },
 };
 
 static struct platform_device pmem_stream_device = {
-        .name = "android_pmem",
-        .id = 3,
-        .dev = { .platform_data = &pmem_stream_pdata },
+	.name		= "android_pmem",
+	.id		= 3,
+	.dev		= { .platform_data = &pmem_stream_pdata },
 };
 
 static struct platform_device pmem_stream2_device = {
-        .name = "android_pmem",
-        .id = 4,
-        .dev = { .platform_data = &pmem_stream2_pdata },
+	.name		= "android_pmem",
+	.id		= 4,
+	.dev		= { .platform_data = &pmem_stream2_pdata },
 };
 
 static struct platform_device pmem_preview_device = {
-        .name = "android_pmem",
-        .id = 5,
-        .dev = { .platform_data = &pmem_preview_pdata },
+	.name		= "android_pmem",
+	.id		= 5,
+	.dev		= { .platform_data = &pmem_preview_pdata },
 };
 
 static struct platform_device pmem_picture_device = {
-        .name = "android_pmem",
-        .id = 6,
-        .dev = { .platform_data = &pmem_picture_pdata },
+	.name		= "android_pmem",
+	.id		= 6,
+	.dev		= { .platform_data = &pmem_picture_pdata },
 };
 
 static struct platform_device pmem_jpeg_device = {
-        .name = "android_pmem",
-        .id = 7,
-        .dev = { .platform_data = &pmem_jpeg_pdata },
+	.name		= "android_pmem",
+	.id		= 7,
+	.dev		= { .platform_data = &pmem_jpeg_pdata },
 };
 
 static struct platform_device pmem_skia_device = {
-        .name = "android_pmem",
-        .id = 8,
-        .dev = { .platform_data = &pmem_skia_pdata },
+	.name		= "android_pmem",
+	.id		= 8,
+	.dev		= { .platform_data = &pmem_skia_pdata },
 };
-
 
 void __init s3c6410_add_mem_devices(struct s3c6410_pmem_setting *setting)
 {
-        if (setting->pmem_size) {
-                pmem_pdata.start = setting->pmem_start;
-                pmem_pdata.size = setting->pmem_size;
-                platform_device_register(&pmem_device);
-        }
+	if (setting->pmem_size) {
+		pmem_pdata.start = setting->pmem_start;
+		pmem_pdata.size = setting->pmem_size;
+		platform_device_register(&pmem_device);
+	}
 
-        if (setting->pmem_gpu1_size) {
-                pmem_gpu1_pdata.start = setting->pmem_gpu1_start;
-                pmem_gpu1_pdata.size = setting->pmem_gpu1_size;
-                platform_device_register(&pmem_gpu1_device);
-        }
+	if (setting->pmem_gpu1_size) {
+		pmem_gpu1_pdata.start = setting->pmem_gpu1_start;
+		pmem_gpu1_pdata.size = setting->pmem_gpu1_size;
+		platform_device_register(&pmem_gpu1_device);
+	}
  
-        if (setting->pmem_render_size) {
-                pmem_render_pdata.start = setting->pmem_render_start;
-                pmem_render_pdata.size = setting->pmem_render_size;
-                platform_device_register(&pmem_render_device);
-        }
+	if (setting->pmem_render_size) {
+		pmem_render_pdata.start = setting->pmem_render_start;
+		pmem_render_pdata.size = setting->pmem_render_size;
+		platform_device_register(&pmem_render_device);
+	}
 
-        if (setting->pmem_stream_size) {
-                pmem_stream_pdata.start = setting->pmem_stream_start;
-                pmem_stream_pdata.size = setting->pmem_stream_size;
-                platform_device_register(&pmem_stream_device);
-        }
+	if (setting->pmem_stream_size) {
+		pmem_stream_pdata.start = setting->pmem_stream_start;
+	        pmem_stream_pdata.size = setting->pmem_stream_size;
+	        platform_device_register(&pmem_stream_device);
+	}
 
-        if (setting->pmem_stream_size) {
-                pmem_stream2_pdata.start = setting->pmem_stream_start;
-                pmem_stream2_pdata.size = setting->pmem_stream_size;
-                platform_device_register(&pmem_stream2_device);
-        }
+	if (setting->pmem_stream_size) {
+		pmem_stream2_pdata.start = setting->pmem_stream_start;
+		pmem_stream2_pdata.size = setting->pmem_stream_size;
+		platform_device_register(&pmem_stream2_device);
+	}
 
+	if (setting->pmem_preview_size) {
+		pmem_preview_pdata.start = setting->pmem_preview_start;
+		pmem_preview_pdata.size = setting->pmem_preview_size;
+		platform_device_register(&pmem_preview_device);
+	}
 
-        if (setting->pmem_preview_size) {
-                pmem_preview_pdata.start = setting->pmem_preview_start;
-                pmem_preview_pdata.size = setting->pmem_preview_size;
-                platform_device_register(&pmem_preview_device);
-        }
+	if (setting->pmem_picture_size) {
+		pmem_picture_pdata.start = setting->pmem_picture_start;
+		pmem_picture_pdata.size = setting->pmem_picture_size;
+		platform_device_register(&pmem_picture_device);
+	}
 
-        if (setting->pmem_picture_size) {
-                pmem_picture_pdata.start = setting->pmem_picture_start;
-                pmem_picture_pdata.size = setting->pmem_picture_size;
-                platform_device_register(&pmem_picture_device);
-        }
+	if (setting->pmem_jpeg_size) {
+		pmem_jpeg_pdata.start = setting->pmem_jpeg_start;
+		pmem_jpeg_pdata.size = setting->pmem_jpeg_size;
+		platform_device_register(&pmem_jpeg_device);
+	}
 
-        if (setting->pmem_jpeg_size) {
-                pmem_jpeg_pdata.start = setting->pmem_jpeg_start;
-                pmem_jpeg_pdata.size = setting->pmem_jpeg_size;
-                platform_device_register(&pmem_jpeg_device);
-        }
-        if (setting->pmem_skia_size) {
-                pmem_skia_pdata.start = setting->pmem_skia_start;
-                pmem_skia_pdata.size = setting->pmem_skia_size;
-                platform_device_register(&pmem_skia_device);
-        }
-
-
+	if (setting->pmem_skia_size) {
+		pmem_skia_pdata.start = setting->pmem_skia_start;
+		pmem_skia_pdata.size = setting->pmem_skia_size;
+		platform_device_register(&pmem_skia_device);
+	}
 }

@@ -82,6 +82,14 @@
 /* DMA controller */
 #define S3C64XX_PA_DMA		(0x75000000)
 
+#if defined(CONFIG_S3C_DMA_PL080_SOL)
+#define S3C64XX_PA_DMA0     (0x75000000)
+#define S3C64XX_PA_DMA1     (0x75100000)
+#define S3C64XX_PA_DMA2     (0x7DB00000)
+#define S3C64XX_PA_DMA3     (0x7DC00000)
+#define S3C64XX_SZ_DMA      0x200
+#endif
+
 /* place VICs close together */
 #define S3C_VA_VIC0		(S3C_VA_IRQ + 0x00)
 #define S3C_VA_VIC1		(S3C_VA_IRQ + 0x10000)

@@ -2,7 +2,7 @@
 #include <linux/pci.h>
 #include <linux/topology.h>
 #include <linux/cpu.h>
-#include "pci.h"
+#include <asm/pci_x86.h>
 
 #ifdef CONFIG_X86_64
 #include <asm/pci-direct.h>
@@ -580,7 +580,7 @@ static int __cpuinit amd_cpu_notify(struct notifier_block *self,
 				    unsigned long action, void *hcpu)
 {
 	int cpu = (long)hcpu;
-	switch(action) {
+	switch (action) {
 	case CPU_ONLINE:
 	case CPU_ONLINE_FROZEN:
 		smp_call_function_single(cpu, enable_pci_io_ecs, NULL, 0);

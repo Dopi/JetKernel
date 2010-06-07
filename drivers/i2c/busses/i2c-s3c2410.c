@@ -34,9 +34,9 @@
 #include <linux/platform_device.h>
 #include <linux/clk.h>
 #include <linux/cpufreq.h>
-#include <linux/io.h>
 
 #include <asm/irq.h>
+#include <asm/io.h>
 
 #include <plat/regs-iic.h>
 #include <plat/iic.h>
@@ -135,14 +135,6 @@ static inline void s3c24xx_i2c_disable_irq(struct s3c24xx_i2c *i2c)
 	unsigned long tmp;
 
 	tmp = readl(i2c->regs + S3C2410_IICCON);
-
-/* S3c2442 datasheet
- *
- * If the IICCON[5]=0, IICCON[4] does not operate correctly.
- * So, It is recommended that you should set IICCON[5]=1,
- * although you does not use the IIC interrupt.
- */
-
 	writel(tmp & ~S3C2410_IICCON_IRQEN, i2c->regs + S3C2410_IICCON);
 }
 
@@ -471,13 +463,6 @@ static int s3c24xx_i2c_set_master(struct s3c24xx_i2c *i2c)
 		msleep(1);
 	}
 
-#if defined(CONFIG_MACH_SPICA)
-	iicstat = readl(i2c->regs + S3C2410_IICSTAT);
-    iicstat &= ~S3C2410_IICSTAT_BUSBUSY;
-    writel(iicstat, i2c->regs + S3C2410_IICSTAT);
-    printk("%s : stop condition \n", __func__);
-#endif
-
 	return -ETIMEDOUT;
 }
 
@@ -489,46 +474,15 @@ static int s3c24xx_i2c_set_master(struct s3c24xx_i2c *i2c)
 static int s3c24xx_i2c_doxfer(struct s3c24xx_i2c *i2c,
 			      struct i2c_msg *msgs, int num)
 {
-#if !(defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN))
-	struct s3c2410_platform_i2c *pdata = i2c->dev->platform_data;
-#endif
 	unsigned long timeout;
 	int ret;
 
-#if defined(CONFIG_MACH_SPICA)
-	int iicstat;
-#endif
-
-	if (i2c->suspended) {
-		dev_err(i2c->dev, "i2c master is suspeded\n");
+	if (i2c->suspended)
 		return -EIO;
-	}
-
-	if (i2c->suspended) {
-		dev_err(i2c->dev,
-		    "Hey I am still asleep (suspended: %d), retry later\n",
-		    i2c->suspended);
-		dump_stack();
-		ret = -EAGAIN;
-		goto out;
-	}
 
 	ret = s3c24xx_i2c_set_master(i2c);
 	if (ret != 0) {
 		dev_err(i2c->dev, "cannot get bus (error %d)\n", ret);
-		
-		/* force to write stop control bit */
-		s3c24xx_i2c_stop(i2c, -ENXIO);
-
-#if defined(CONFIG_MACH_SPICA)
-		iicstat = readl(i2c->regs + S3C2410_IICSTAT);
-        if ((iicstat & S3C2410_IICSTAT_BUSBUSY)) {
-            iicstat &= ~(S3C2410_IICSTAT_TXRXEN | S3C2410_IICSTAT_BUSBUSY);
-            writel(iicstat, i2c->regs + S3C2410_IICSTAT);
-            printk("IICSTAT reg : 0x%x\n", readl(i2c->regs + S3C2410_IICSTAT));
-        }
-#endif
-
 		ret = -EAGAIN;
 		goto out;
 	}
@@ -558,10 +512,9 @@ static int s3c24xx_i2c_doxfer(struct s3c24xx_i2c *i2c,
 		dev_dbg(i2c->dev, "incomplete xfer (%d)\n", ret);
 
 	/* ensure the stop has been through the bus */
-#if !(defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN))
-	if (pdata->bus_num == 0)
-		msleep(1);
-#endif
+
+	msleep(1);
+
  out:
 	return ret;
 }
@@ -953,7 +906,7 @@ static int s3c24xx_i2c_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, i2c);
 
-	dev_info(&pdev->dev, "%s: S3C I2C adapter\n", i2c->adap.dev.bus_id);
+	dev_info(&pdev->dev, "%s: S3C I2C adapter\n", dev_name(&i2c->adap.dev));
 	return 0;
 
  err_cpufreq:
@@ -1080,4 +1033,3 @@ MODULE_AUTHOR("Ben Dooks, <ben@simtec.co.uk>");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:s3c2410-i2c");
 MODULE_ALIAS("platform:s3c2440-i2c");
-
