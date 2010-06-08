@@ -38,6 +38,8 @@ Module.symvers
 !.gitignore
 !.mailmap
 
+usr/initramfs_data.img
+
 #
 # Generated include files
 #
