@@ -1,3 +1,0 @@
-
-obj-y	+= dprintk.o
-
