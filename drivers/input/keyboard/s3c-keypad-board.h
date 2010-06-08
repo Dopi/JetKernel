@@ -23,7 +23,8 @@
 #define KEYCODE_MENU	252
 #define KEYCODE_TAB	253
 
-u32 g_board_num = CONFIG_INSTINCTQ_REV;
+//u32 g_board_num = CONFIG_INSTINCTQ_REV;
+u32 g_board_num = CONFIG_JET_REV;
 
 struct s3c_keypad_slide slide_instinctq = {IRQ_EINT(4), GPIO_HALL_SW, GPIO_HALL_SW_AF, 1};
 

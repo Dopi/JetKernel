@@ -1,5 +1,6 @@
 # arch/arm/mach-s3c6410/Kconfig
 #
+# Copyright 2010 JetDroid project
 # Copyright 2008 Openmoko, Inc.
 # Copyright 2008 Simtec Electronics
 #
@@ -48,6 +49,18 @@ config MACH_INSTINCTQ
 	help
 	  Machine support for the Samsung INSTINCTQ
 
+config MACH_JET
+	bool "JET"
+	select CPU_S3C6410
+	select S3C_DEV_HSMMC
+	select S3C_DEV_HSMMC2
+	select S3C_DEV_I2C1
+	select S3C6410_SETUP_SDHCI
+	select S3C64XX_SETUP_I2C1
+#	select S3C_DMA_PL080_NEW
+	help
+	  Machine support for the Samsung JET (GT-S8000)
+
 endchoice
 
 # At least some of the SMDK6410s were shipped with the card detect
@@ -92,6 +105,11 @@ endchoice
 config BOARD_REVISION
 	hex "Select H/W Revision"
 	depends on MACH_INSTINCTQ
+	default "0x00"
+
+config JET_REVISION
+	hex "Select Jet H/W Revision"
+	depends on MACH_JET
 	default "0x00"
 
 config SEC_HEADSET
