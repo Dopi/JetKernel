@@ -203,8 +203,8 @@
 #define GPIO_TF_D_3				S3C64XX_GPG(5)
 #define GPIO_TF_D_3_AF				2
 
-#define GPIO_SUB_KEY_LED_EN			S3C64XX_GPG(6)
-#define GPIO_SUB_KEY_LED_EN_AF			1
+//#define GPIO_SUB_KEY_LED_EN			S3C64XX_GPG(6)
+//#define GPIO_SUB_KEY_LED_EN_AF			1
 
 /* S3C64XX_GPH(1) ~ S3C64XX_GPH(9) */
 
@@ -227,9 +227,11 @@
 #define GPIO_MIC_SEL_EN				S3C64XX_GPH(5)
 #define GPIO_MIC_SEL_EN_AF			1
 
-/* this macro is for rev04 */
-#define GPIO_TFLASH_EN				S3C64XX_GPH(5)
+#define GPIO_TFLASH_EN				S3C64XX_GPG(6)
 #define GPIO_TFLASH_EN_AF			1
+
+#define GPIO_T_FLASH_DETECT			S3C64XX_GPL(8)
+#define GPIO_T_FLASH_EN_AF			1
 
 #define GPIO_WLAN_D_0				S3C64XX_GPH(6)  // SDIO_DATA(0)
 #define GPIO_WLAN_D_0_AF			3
@@ -406,8 +408,8 @@
 #define GPIO_KEYSCAN_7				S3C64XX_GPL(7)
 #define GPIO_KEYSCAN_7_AF			3
 
-#define GPIO_TOUCH_EN				S3C64XX_GPL(8)
-#define GPIO_TOUCH_EN_AF			1
+//#define GPIO_TOUCH_EN				S3C64XX_GPL(8)
+//#define GPIO_TOUCH_EN_AF			1
 
 #define GPIO_PHONE_ON				S3C64XX_GPL(9)
 #define GPIO_PHONE_ON_AF			1

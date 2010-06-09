@@ -29,7 +29,11 @@
 #error	"Board revision is not defined!"
 #endif
 
+#ifdef CONFIG_JET_OPTION
+#include "jet_gpio.h"
+#else
 #include "instinctq_gpio.h"
+#endif
 
 #define I2C_CAM_DIS do {	\
 	s3c_gpio_cfgpin(GPIO_I2C1_SCL, S3C_GPIO_INPUT);			\

@@ -120,4 +120,9 @@ config SEC_LOG_BUF
 	help
 	  Provides support for SEC log buffer shared with Loke bootloader.
 
+config JET_OPTION
+	bool "Adjustments for S8000 Jet"
+	default n
+	help
+	  Provides support for S8000 Jet.
 endmenu
