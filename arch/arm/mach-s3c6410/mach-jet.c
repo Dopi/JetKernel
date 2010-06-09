@@ -643,12 +643,8 @@ static void __init jet_machine_init(void)
 #endif
 }
 
-#if defined(CONFIG_MACH_VINSQ)
-MACHINE_START(INSTINCTQ, "SPH-M910")
-#else
-MACHINE_START(JET, "GT-S8000")
-#endif
 
+MACHINE_START(JET, "GT-S8000")
 	/* Maintainer: Ben Dooks <ben@fluff.org> */
 	.phys_io		= S3C_PA_UART & 0xfff00000,
 	.io_pg_offst	= (((u32)S3C_VA_UART) >> 18) & 0xfffc,

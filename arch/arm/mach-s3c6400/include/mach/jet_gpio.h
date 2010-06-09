@@ -66,19 +66,11 @@
 
 // S3C64XX_GPB(4)
 
-#if defined(CONFIG_MACH_QUATTRO) //quattro.tsp
-#define GPIO_TOUCH_I2C_SCL				S3C64XX_GPB(5)
-#define GPIO_TOUCH_I2C_SCL_AF			1
-
-#define GPIO_TOUCH_I2C_SDA				S3C64XX_GPB(6)
-#define GPIO_TOUCH_I2C_SDA_AF			1
-#else
 #define GPIO_I2C0_SCL				S3C64XX_GPB(5)  // TOUCH_I2C_SCL_F
 #define GPIO_I2C0_SCL_AF			2
 
 #define GPIO_I2C0_SDA				S3C64XX_GPB(6)  // TOUCH_I2C_SDA_F
 #define GPIO_I2C0_SDA_AF			2
-#endif
 
 /* S3C64XX_GPC(0) ~ S3C64XX_GPC(7) */
 
@@ -91,16 +83,8 @@
 #define GPIO_OJ_SPI_MOSI			S3C64XX_GPC(2)
 #define GPIO_OJ_SPI_MOSI_AF			1
 
-#if defined(CONFIG_MACH_QUATTRO)
-#define GPIO_LCD_BL_EN        S3C64XX_GPC(3)
-#define GPIO_LCD_BL_EN_AF       1
-
-#define GPIO_OJ_CS				    S3C64XX_GPC(0) //NC
-#define GPIO_OJ_CS_AF				    1
-#else
 #define GPIO_OJ_CS				S3C64XX_GPC(3)
 #define GPIO_OJ_CS_AF				1
-#endif
 
 #define GPIO_SDIO_CMD				S3C64XX_GPC(4)
 #define GPIO_SDIO_CMD_AF			3
@@ -261,62 +245,6 @@
 
 /* S3C64XX_GPI(0) ~ S3C64XX_GPI(15) */
 /* S3C64XX_GPJ(0) ~ S3C64XX_GPJ(11) */
-#if defined(CONFIG_MACH_VINSQ) || defined(CONFIG_MACH_QUATTRO)
-#define GPIO_LCD_B_0				S3C64XX_GPI(2)
-#define GPIO_LCD_B_0_AF				2
-
-#define GPIO_LCD_B_1				S3C64XX_GPI(3)
-#define GPIO_LCD_B_1_AF				2
-
-#define GPIO_LCD_B_2				S3C64XX_GPI(4)
-#define GPIO_LCD_B_2_AF				2
-
-#define GPIO_LCD_B_3				S3C64XX_GPI(5)
-#define GPIO_LCD_B_3_AF				2
-
-#define GPIO_LCD_B_4				S3C64XX_GPI(6)
-#define GPIO_LCD_B_4_AF				2
-
-#define GPIO_LCD_B_5				S3C64XX_GPI(7)
-#define GPIO_LCD_B_5_AF				2
-
-#define GPIO_LCD_G_0				S3C64XX_GPI(10)
-#define GPIO_LCD_G_0_AF				2
-
-#define GPIO_LCD_G_1				S3C64XX_GPI(11)
-#define GPIO_LCD_G_1_AF				2
-
-#define GPIO_LCD_G_2				S3C64XX_GPI(12)
-#define GPIO_LCD_G_2_AF				2
-
-#define GPIO_LCD_G_3				S3C64XX_GPI(13)
-#define GPIO_LCD_G_3_AF				2
-
-#define GPIO_LCD_G_4				S3C64XX_GPI(14)
-#define GPIO_LCD_G_4_AF				2
-
-#define GPIO_LCD_G_5				S3C64XX_GPI(15)
-#define GPIO_LCD_G_5_AF				2
-
-#define GPIO_LCD_R_0				S3C64XX_GPJ(2)
-#define GPIO_LCD_R_0_AF				2
-
-#define GPIO_LCD_R_1				S3C64XX_GPJ(3)
-#define GPIO_LCD_R_1_AF				2
-
-#define GPIO_LCD_R_2				S3C64XX_GPJ(4)
-#define GPIO_LCD_R_2_AF				2
-
-#define GPIO_LCD_R_3				S3C64XX_GPJ(5)
-#define GPIO_LCD_R_3_AF				2
-
-#define GPIO_LCD_R_4				S3C64XX_GPJ(6)
-#define GPIO_LCD_R_4_AF				2
-
-#define GPIO_LCD_R_5				S3C64XX_GPJ(7)
-#define GPIO_LCD_R_5_AF				2
-
-#else //CONFIG_MACH_JET
 
 #define GPIO_LCD_B_0				S3C64XX_GPI(0)
 #define GPIO_LCD_B_0_AF				2
@@ -389,7 +317,6 @@
 
 #define GPIO_LCD_R_7				S3C64XX_GPJ(7)
 #define GPIO_LCD_R_7_AF				2
-#endif
 
 #define GPIO_LCD_HSYNC				S3C64XX_GPJ(8)
 #define GPIO_LCD_HSYNC_AF			2
@@ -420,13 +347,8 @@
 #define GPIO_UART_SEL				S3C64XX_GPK(4)
 #define GPIO_UART_SEL_AF			1
 
-#if defined(CONFIG_MACH_QUATTRO) //quattro.tsp
-#define GPIO_TOUCH_RST				S3C64XX_GPK(5) //NC
-#define GPIO_TOUCH_RST_AF 		    1
-#else
 #define GPIO_MONOHEAD_DET			S3C64XX_GPK(5)
 #define GPIO_MONOHEAD_DET_AF			0
-#endif
 
 #define GPIO_CAM_EN				S3C64XX_GPK(6)
 #define GPIO_CAM_EN_AF				1
@@ -455,13 +377,8 @@
 #define GPIO_KEYSENSE_6				S3C64XX_GPK(14)
 #define GPIO_KEYSENSE_6_AF			3
 
-#if defined(CONFIG_MACH_VINSQ)
-#define GPIO_KEYSENSE_7				S3C64XX_GPK(15)
-#define GPIO_KEYSENSE_7_AF			3
-#else
 #define GPIO_VMSMP_26V				S3C64XX_GPK(15)
 #define GPIO_VMSMP_26V_AF			0
-#endif
 
 /* S3C64XX_GPL(0) ~ S3C64XX_GPL(14) */
 
@@ -495,7 +412,7 @@
 #define GPIO_PHONE_ON				S3C64XX_GPL(9)
 #define GPIO_PHONE_ON_AF			1
 
-#define GPIO_VIB_EN					S3C64XX_GPL(10)
+#define GPIO_VIB_EN				S3C64XX_GPL(10)
 #define GPIO_VIB_EN_AF				1
 
 #define GPIO_TA_CONNECTED_N			S3C64XX_GPL(11)
@@ -556,13 +473,8 @@
 #define GPIO_PHONE_ACTIVE			S3C64XX_GPN(7)
 #define GPIO_PHONE_ACTIVE_AF			2
 
-#if defined(CONFIG_MACH_QUATTRO) //quattro.tsp
-#define GPIO_TOUCH_INT_N			S3C64XX_GPN(8)
-#define GPIO_TOUCH_INT_N_AF		3
-#else
 #define GPIO_TOUCH_INT				S3C64XX_GPN(8)
 #define GPIO_TOUCH_INT_AF			2
-#endif
 
 #define GPIO_JACK_INT_N				S3C64XX_GPN(9)
 #define GPIO_JACK_INT_N_AF			2

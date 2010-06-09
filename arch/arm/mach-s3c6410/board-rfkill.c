@@ -13,7 +13,7 @@
  *
  */
 
-/* Control bluetooth power for instinctq platform */
+/* Control bluetooth power for instinctq/jet platform */
 
 #include <linux/platform_device.h>
 #include <linux/module.h>
@@ -184,7 +184,7 @@ irqreturn_t bt_host_wake_irq_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-
+#if defined(CONFIG_MACH_INSTINCTQ)
 static int __init instinctq_rfkill_probe(struct platform_device *pdev)
 {
 	int rc = 0;
@@ -236,6 +236,60 @@ static struct platform_driver instinctq_device_rfkill = {
 		.owner = THIS_MODULE,
 	},
 };
+
+#else //if defined(CONFIG_MACH_JET)
+static int __init jet_rfkill_probe(struct platform_device *pdev)
+{
+	int rc = 0;
+	int irq,ret;
+
+	//Initialize wake lockes
+	wake_lock_init(&rfkill_wake_lock, WAKE_LOCK_SUSPEND, "board-rfkill");
+	wake_lock_init(&bt_wake_lock, WAKE_LOCK_SUSPEND, "bt-rfkill");
+
+	//BT Host Wake IRQ
+	irq = IRQ_BT_HOST_WAKE;
+
+	ret = request_irq(irq, bt_host_wake_irq_handler, 0, "bt_host_wake_irq_handler", NULL);
+	if(ret < 0)
+		printk("[BT] Request_irq failed \n");
+
+	set_irq_type(irq, IRQ_TYPE_EDGE_BOTH);
+	enable_irq(IRQ_EINT(22));
+
+	//RFKILL init - default to bluetooth off */
+	rfkill_switch_all(RFKILL_TYPE_BLUETOOTH, RFKILL_STATE_SOFT_BLOCKED);
+
+	bt_rfk = rfkill_allocate(&pdev->dev, RFKILL_TYPE_BLUETOOTH);
+	if (!bt_rfk)
+		return -ENOMEM;
+
+	bt_rfk->name = bt_name;
+	bt_rfk->state = RFKILL_STATE_SOFT_BLOCKED;
+	/* userspace cannot take exclusive control */
+	bt_rfk->user_claim_unsupported = 1;
+	bt_rfk->user_claim = 0;
+	bt_rfk->data = NULL;  // user data
+	bt_rfk->toggle_radio = bluetooth_set_power;
+
+	printk("[BT] rfkill_register(bt_rfk) \n");
+	rc = rfkill_register(bt_rfk);
+	if (rc)
+		rfkill_free(bt_rfk);
+
+	bluetooth_set_power(NULL, RFKILL_STATE_SOFT_BLOCKED);
+
+	return rc;
+}
+
+static struct platform_driver jet_device_rfkill = {
+	.probe = jet_rfkill_probe,
+	.driver = {
+		.name = "bt_rfkill",
+		.owner = THIS_MODULE,
+	},
+};
+#endif
 
 #ifdef BT_SLEEP_ENABLER
 static struct rfkill *bt_sleep;
@@ -294,6 +348,7 @@ static int bluetooth_set_sleep(void *data, enum rfkill_state state)
 	return 0;
 }
 
+#if defined(CONFIG_MACH_INSTINCTQ)
 static int __init instinctq_btsleep_probe(struct platform_device *pdev)
 {
 	int rc = 0;
@@ -329,8 +384,49 @@ static struct platform_driver instinctq_device_btsleep = {
 		.owner = THIS_MODULE,
 	},
 };
-#endif
 
+#else // if defined(CONFIG_MACH_JET)
+
+static int __init jet_btsleep_probe(struct platform_device *pdev)
+{
+	int rc = 0;
+
+	bt_sleep = rfkill_allocate(&pdev->dev, RFKILL_TYPE_BLUETOOTH);
+	if (!bt_sleep)
+		return -ENOMEM;
+
+	bt_sleep->name = bt_name;
+	bt_sleep->state = RFKILL_STATE_UNBLOCKED;
+	/* userspace cannot take exclusive control */
+	bt_sleep->user_claim_unsupported = 1;
+	bt_sleep->user_claim = 0;
+	bt_sleep->data = NULL;  // user data
+	bt_sleep->toggle_radio = bluetooth_set_sleep;
+
+	rc = rfkill_register(bt_sleep);
+	if (rc)
+		rfkill_free(bt_sleep);
+	
+	printk("[BT] rfkill_force_state(bt_sleep, RFKILL_STATE_UNBLOCKED) \n");
+	rfkill_force_state(bt_sleep, RFKILL_STATE_UNBLOCKED);
+	
+	bluetooth_set_sleep(NULL, RFKILL_STATE_UNBLOCKED);
+
+	return rc;
+}
+
+static struct platform_driver jet_device_btsleep = {
+	.probe = jet_btsleep_probe,
+	.driver = {
+		.name = "bt_sleep",
+		.owner = THIS_MODULE,
+	},
+};
+#endif // if defined(CONFIG_MACH_JET)
+
+#endif // #ifdef BT_SLEEP_ENABLER
+
+#if defined(CONFIG_MACH_INSTINCTQ)
 static int __init instinctq_rfkill_init(void)
 {
 	int rc = 0;
@@ -342,8 +438,29 @@ static int __init instinctq_rfkill_init(void)
 
 	return rc;
 }
+#else // if defined(CONFIG_MACH_JET)
+static int __init jet_rfkill_init(void)
+{
+	int rc = 0;
+	rc = platform_driver_register(&jet_device_rfkill);
 
+#ifdef BT_SLEEP_ENABLER
+	platform_driver_register(&jet_device_btsleep);
+#endif
+
+	return rc;
+}
+#endif // if defined(CONFIG_MACH_JET)
+
+#if defined(CONFIG_MACH_INSTINCTQ)
 module_init(instinctq_rfkill_init);
 MODULE_DESCRIPTION("instinctq rfkill");
 MODULE_AUTHOR("Nick Pelly <npelly@google.com>");
 MODULE_LICENSE("GPL");
+#else // if defined(CONFIG_MACH_JET)
+module_init(jet_rfkill_init);
+MODULE_DESCRIPTION("jet rfkill");
+MODULE_AUTHOR("Nick Pelly <npelly@google.com>");
+MODULE_LICENSE("GPL");
+#endif // if defined(CONFIG_MACH_JET)
+

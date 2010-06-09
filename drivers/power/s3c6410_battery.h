@@ -11,7 +11,13 @@
  *
  */
 
+#ifdef CONFIG_MACH_INSTINCTQ
 #define DRIVER_NAME	"instinctq-battery"
+#elif defined(CONFIG_MACH_JET)
+#define DRIVER_NAME	"jet-battery"
+#else
+#define DRIVER_NAME	"s3c6410-battery"
+#endif 
 
 /*
  * InstinctQ Rev01 board Battery Table

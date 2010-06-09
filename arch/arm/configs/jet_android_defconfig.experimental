@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
 # Linux kernel version: 2.6.29
-# Wed Jun  9 16:03:12 2010
+# Wed Jun  9 17:33:09 2010
 #
 CONFIG_ARM=y
 CONFIG_SYS_SUPPORTS_APM_EMULATION=y
@@ -219,7 +219,7 @@ CONFIG_S3C6410_SETUP_SDHCI=y
 # CONFIG_MACH_SMDK6410 is not set
 # CONFIG_MACH_INSTINCTQ is not set
 CONFIG_MACH_JET=y
-CONFIG_JET_REVISION=0x02
+CONFIG_BOARD_REVISION=0x02
 # CONFIG_SEC_HEADSET is not set
 # CONFIG_SEC_LOG_BUF is not set
 

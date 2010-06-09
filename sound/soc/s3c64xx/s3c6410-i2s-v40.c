@@ -268,6 +268,8 @@ static int s3c_i2s_v40_hw_params(struct snd_pcm_substream *substream,
 
 #ifdef CONFIG_MACH_INSTINCTQ
 	s3c64xx_i2s.master = 1;
+#elif defined(CONFIG_MACH_JET)
+	s3c64xx_i2s.master = 1;
 #else
 	s3c64xx_i2s.master = 0;
 #endif
