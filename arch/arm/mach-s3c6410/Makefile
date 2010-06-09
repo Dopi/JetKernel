@@ -1,5 +1,6 @@
 # arch/arm/plat-s3c6410/Makefile
 #
+# Copyright 2010 JetDroid Project
 # Copyright 2008 Openmoko, Inc.
 # Copyright 2008 Simtec Electronics
 #
@@ -25,4 +26,5 @@ obj-$(CONFIG_PM)    += pm.o
 
 obj-$(CONFIG_MACH_SMDK6410)	+= mach-smdk6410.o
 obj-$(CONFIG_MACH_INSTINCTQ)	+= mach-instinctq.o board-rfkill.o
+obj-$(CONFIG_MACH_JET)		+= mach-jet.o board-rfkill.o
 obj-$(CONFIG_SEC_HEADSET)	+= sec_headset.o

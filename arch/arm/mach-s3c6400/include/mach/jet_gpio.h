@@ -1,10 +1,9 @@
 /*
  *  linux/include/asm-arm/arch-s3c2410/jet.h
  *
- *  Author:		Samsung Electronics
- *  Created:	05, Jul, 2007
- *  Copyright:	Samsung Electronics Co.Ltd.
- *  Copyright:  2010 JetDroid project
+ *  Author:	dopi711@googlemail.com
+ *  Created:	07, Jun, 2010
+ *  Copyright:  JetDroid project
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as

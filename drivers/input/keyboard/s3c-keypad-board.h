@@ -2,6 +2,9 @@
  *
  * Driver header for Samsung SoC keypad.
  *
+ * dopi711@googlemail.com, Copyright (c) 2010 JetDroid project
+ *      http://code.google.com/p/jetdroid
+ *
  * Kim Kyoungil, Copyright (c) 2006-2009 Samsung Electronics
  *      http://www.samsungsemi.com/
  *
@@ -23,8 +26,13 @@
 #define KEYCODE_MENU	252
 #define KEYCODE_TAB	253
 
-//u32 g_board_num = CONFIG_INSTINCTQ_REV;
+#ifdef CONFIG_MACH_JET
 u32 g_board_num = CONFIG_JET_REV;
+#endif
+
+#ifdef CONFIG_MACH_INSTINCTQ
+u32 g_board_num = CONFIG_INSTINCTQ_REV;
+#endif
 
 struct s3c_keypad_slide slide_instinctq = {IRQ_EINT(4), GPIO_HALL_SW, GPIO_HALL_SW_AF, 1};
 

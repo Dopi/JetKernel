@@ -104,12 +104,7 @@ endchoice
 
 config BOARD_REVISION
 	hex "Select H/W Revision"
-	depends on MACH_INSTINCTQ
-	default "0x00"
-
-config JET_REVISION
-	hex "Select Jet H/W Revision"
-	depends on MACH_JET
+	depends on MACH_INSTINCTQ || MACH_JET
 	default "0x00"
 
 config SEC_HEADSET

@@ -1,10 +1,10 @@
 /*
  *  linux/include/asm-arm/arch-s3c2410/jet.h
  *
- *  Author:		Samsung Electronics
+ *  Author:	Samsung Electronics
  *  Created:	05, Jul, 2007
  *  Copyright:	Samsung Electronics Co.Ltd.
- *  Copyright: 2010 JetDroid project
+ *  Copyright: 	2010 JetDroid project
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -24,8 +24,8 @@
 #define CONFIG_JET_REV00			0x00	/* REV00 */
 #define CONFIG_JET_REV01			0x01	/* REV01 */
 
-#ifdef CONFIG_JET_REVISION
-#define CONFIG_JET_REV			CONFIG_JET_REVISION
+#ifdef CONFIG_BOARD_REVISION
+#define CONFIG_JET_REV			CONFIG_BOARD_REVISION
 #else
 #error	"Board revision is not defined!"
 #endif

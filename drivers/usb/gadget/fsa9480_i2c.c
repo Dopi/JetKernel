@@ -1,3 +1,15 @@
+/* linux/drivers/usb/gadget/fsa9480_i2c.c 
+ *
+ * Driver for FSA9480 USB switching IC
+ *
+ * dopi711@googlemail.com, Copyright (c) 2010 JetDroid project
+ *      http://code.google.com/p/jetdroid
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 
@@ -74,8 +86,10 @@ void get_usb_serial(char *usb_serial_number)
         sprintf(temp_serial_number,"M910%08x",serial_number);
 #elif defined(CONFIG_MACH_QUATTRO)
   sprintf(temp_serial_number,"M9X0%08x",serial_number); //not defined
-#else //CONFIG_MACH_INSTINCTQ
+#elif defined(CONFIG_MACH_INSTINCTQ)
 	sprintf(temp_serial_number,"M900%08x",serial_number);
+#else // CONFIG_MACH_JET
+	sprintf(temp_serial_number,"Jet%08x",serial_number);
 #endif
 	strcpy(usb_serial_number,temp_serial_number);
 }

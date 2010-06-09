@@ -22,7 +22,6 @@
 #include <linux/delay.h>
 #include <asm/gpio.h>
 #include <mach/gpio.h>
-#include <mach/instinctq.h>	/*Updated by kumar.gvs 22 Apr 2009*/
 #include <plat/gpio-cfg.h>
 #include <plat/egpio.h>
 #include <linux/wakelock.h>
@@ -32,6 +31,12 @@
 
 #include <mach/hardware.h>
 #include <linux/i2c/pmic.h>
+
+//#ifdef CONFIG_MACH_INSTINCTQ
+//#include <mach/instinctq.h>	/*Updated by kumar.gvs 22 Apr 2009*/
+//#elif CONFIG_MACH_JET
+//#include <mach/jet.h>
+//#endif
 
 #define BT_SLEEP_ENABLER
 
