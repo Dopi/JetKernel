@@ -1,4 +1,4 @@
-/* linux/arch/arm/mach-s3c6410/mach-instinctq.c
+/* linux/arch/arm/mach-s3c6410/mach-jet.c
  *
  * Copyrigth 2010 JetDroid project
  *	dopi711@googlemail.com
@@ -161,23 +161,6 @@ static struct platform_device s3c_device_i2c3 = {
 	.dev.platform_data	= &i2c3_platdata,
 };
 
-#if 0  // dgahn.temp
-static struct i2c_gpio_platform_data i2c4_platdata = {
-	.sda_pin		= GPIO_EMUL_I2C_SDA,
-	.scl_pin		= GPIO_EMUL_I2C_SCL,
-	.udelay			= 2,	/* 250KHz */		
-	.sda_is_open_drain	= 0,
-	.scl_is_open_drain	= 0,
-	.scl_is_output_only	= 1,
-};
-
-static struct platform_device s3c_device_i2c4 = {
-	.name				= "i2c-gpio",
-	.id					= 4,
-	.dev.platform_data	= &i2c4_platdata,
-};
-#endif
-
 // dgahn.smd: move to rev01
 static struct i2c_gpio_platform_data i2c5_platdata = {
 	.sda_pin		= GPIO_AP_SDA/*GPIO_TOUCH_I2C_SDA*/,
@@ -250,38 +233,6 @@ struct platform_device sec_device_btsleep = {
 	.name = "bt_sleep",
 	.id = -1,
 };
-
-#if !defined(CONFIG_JET_OPTION)
-//(CONFIG_INSTINCTQ_REV >= CONFIG_INSTINCTQ_REV00)
-static struct gpio_led sec_keyled_list[] = {
-	{ 
-		.name = "keyboard-backlight",
-		.gpio = GPIO_MAIN_KEY_LED_EN,
-	},
-	{ 
-		.name = "button-backlight",
-		.gpio = GPIO_SUB_KEY_LED_EN,
-	},
-};
-
-static struct gpio_led_platform_data sec_keyled_data = {
-	.num_leds	= ARRAY_SIZE(sec_keyled_list),
-	.leds		= sec_keyled_list,
-};
-
-static struct platform_device sec_device_keyled = {
-	.name		= "leds-gpio",
-	.id		= -1,
-	.dev		= {
-		.platform_data	= &sec_keyled_data,
-	},
-};
-
-struct platform_device sec_device_optjoy = {
-	.name   = "optjoy_device",
-	.id		= -1,
-};
-#endif
 
 struct platform_device sec_device_opt = {
 	.name   = "gp2a-opt",
@@ -377,11 +328,6 @@ static struct platform_device *instinctq_devices[] __initdata = {
 	&sec_device_rfkill,
 	&sec_device_btsleep,  // BT_SLEEP_ENABLER
 	&s3c_device_rtc, // by Anubis
-#if !defined(CONFIG_JET_OPTION)
-//#if (CONFIG_INSTINCTQ_REV >= CONFIG_INSTINCTQ_REV00)
-	&sec_device_keyled,
-	&sec_device_optjoy,
-#endif
 	&sec_device_headset,
 	&sec_device_opt,
 };
@@ -881,16 +827,13 @@ static int instinctq_gpio_table[][6] = {
 	{ GPIO_TF_D_1, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE },
 	{ GPIO_TF_D_2, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE },
 	{ GPIO_TF_D_3, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE },
-#if !defined(CONFIG_JET_OPTION)
-	{ GPIO_SUB_KEY_LED_EN, 1, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },	
+	{ GPIO_TFLASH_EN, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE },
 	/* GPH */
-	{ GPIO_MAIN_KEY_LED_EN, 1, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },	
-#endif
 	{ GPIO_CAM_FLASH_SET, 1, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },
 	{ GPIO_CAM_FLASH_EN, 1, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },
 	{ GPIO_CAM_STANDBY, 1, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },
 	{ GPIO_OJ_SHUTDOWN, 1, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },
-	{ GPIO_TFLASH_EN, 1, GPIO_LEVEL_HIGH, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },
+	{ GPIO_MIC_SEL_EN, 1, GPIO_LEVEL_HIGH, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },
 	{ GPIO_WLAN_D_0, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE },
 	{ GPIO_WLAN_D_1, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE },
 	{ GPIO_WLAN_D_2, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE },
@@ -925,6 +868,7 @@ static int instinctq_gpio_table[][6] = {
 	{ GPIO_LCD_VSYNC, GPIO_LCD_VSYNC_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN },
 	{ GPIO_LCD_DE, GPIO_LCD_DE_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN },
 	{ GPIO_LCD_CLK, GPIO_LCD_CLK_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN },
+
 	/** ALIVE PART **/
 	/* GPK */
 	{ GPIO_CHG_EN, GPIO_CHG_EN_AF, GPIO_LEVEL_HIGH, S3C_GPIO_PULL_NONE, 0, 0 }, 
@@ -952,9 +896,7 @@ static int instinctq_gpio_table[][6] = {
 	{ GPIO_KEYSCAN_5, GPIO_KEYSCAN_5_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_KEYSCAN_6, GPIO_KEYSCAN_6_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_KEYSCAN_7, GPIO_KEYSCAN_7_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
-#if !defined(CONFIG_JET_OPTION)
-	{ GPIO_TOUCH_EN, GPIO_TOUCH_EN_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
-#endif
+	{ GPIO_T_FLASH_DETECT, GPIO_T_FLASH_DETECT_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_PHONE_ON, GPIO_PHONE_ON_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_VIB_EN, GPIO_VIB_EN_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_TA_CONNECTED_N, GPIO_TA_CONNECTED_N_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_UP, 0, 0 },
