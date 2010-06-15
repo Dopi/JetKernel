@@ -155,8 +155,10 @@ static void process_input_report (struct s3c_keypad *s3c_keypad, u32 prevmask, u
 			input_report_key(dev, GET_KEYCODE(i+index),1);
 			DPRINTK(": Pressed (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
 			dprintk(KPD_PRS, ": Pressed (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
+#if !defined(CONFIG_JET_OPTION)
 			if(i+index==40)
 				set_lock_oj_event(1);
+#endif
 		}
 		press_mask >>= 1;
 		i++;
@@ -168,9 +170,10 @@ static void process_input_report (struct s3c_keypad *s3c_keypad, u32 prevmask, u
 			input_report_key(dev,GET_KEYCODE(i+index),0);
 			DPRINTK(": Released (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
 			dprintk(KPD_RLS, ": Released (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
-
+#if !defined(CONFIG_JET_OPTION)
 			if(i+index==40)
 				set_lock_oj_event(0);
+#endif
 		}
 		release_mask >>= 1;
 		i++;

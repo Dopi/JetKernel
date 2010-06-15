@@ -55,9 +55,15 @@ void s3c6410_setup_sdhci0_cfg_gpio(struct platform_device *dev, int width)
 		s3c_gpio_setpull(gpio, S3C_GPIO_PULL_NONE);
 	}
 
+#ifdef CONFIG_JET_OPTION
+	s3c_gpio_cfgpin(GPIO_T_FLASH_DETECT, S3C_GPIO_SFN(GPIO_T_FLASH_DETECT_AF));
+	gpio_set_value(GPIO_T_FLASH_DETECT, GPIO_LEVEL_HIGH);
+	s3c_gpio_setpull(GPIO_T_FLASH_DETECT, S3C_GPIO_PULL_NONE);
+#else
 	s3c_gpio_cfgpin(GPIO_TF_DETECT, S3C_GPIO_SFN(GPIO_TF_DETECT_AF));
 	gpio_set_value(GPIO_TF_DETECT, GPIO_LEVEL_HIGH);
 	s3c_gpio_setpull(GPIO_TF_DETECT, S3C_GPIO_PULL_NONE);
+#endif
 }
 
 void s3c6410_setup_sdhci1_cfg_gpio(struct platform_device *dev, int width)
