@@ -1,6 +1,0 @@
-Current development branch is testing.
-
-TODO:
--change config to support all available S8000 components
--backport tl2796 driver from samsung 2.6.31 kernel repository
-
