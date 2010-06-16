@@ -1391,9 +1391,6 @@ __releases(&info->lock)
 	if (info->fbdefio)
 		fb_deferred_io_open(info, inode, file);
 #endif
-#ifdef CONFIG_FB_S3C
-	s3cfb_stop_progress();
-#endif
 out:
 	mutex_unlock(&info->lock);
 	return res;

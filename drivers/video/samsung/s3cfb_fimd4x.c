@@ -1165,9 +1165,6 @@ int s3cfb_init_registers(s3c_fb_info_t *fbi)
 			writel(s3c_fimd.wpalcon,  S3C_WPALCON);
 
 			s3cfb_onoff_win(fbi, OFF);
-#if defined(S3C_FB_DISPLAY_LOGO)
-			s3cfb_start_progress();
-#endif
 			break;
 
 		case 3:
