@@ -188,6 +188,7 @@ max8906_register_type  max8906reg[ENDOFREG] =
     {  0xD0,        0x15 }, // REG_ALARM1_MONTH,
     {  0xD0,        0x16 }, // REG_ALARM1_YEAR1,
     {  0xD0,        0x17 }, // REG_ALARM1_YEAR2,
+
     {  0xD0,        0x18 }, // REG_ALARM0_CNTL,
     {  0xD0,        0x19 }, // REG_ALARM1_CNTL,
     {  0xD0,        0x1A }, // REG_RTC_STATUS,
@@ -2027,6 +2028,7 @@ boolean Get_MAX8906_PM_PWR_SEQ_SW_Enable(max8906_pm_function_type cntl_item, byt
     case SEQ3EN:    case SEQ4EN:
     case SEQ5EN:    case SEQ6EN:
     case SEQ7EN:
+
         if(Get_MAX8906_PM_REG(cntl_item, value) != TRUE)
         {
             status =FALSE;
@@ -2294,6 +2296,40 @@ boolean set_pmic(pmic_pm_type pm_type, int value)
 		break;
 	}
 	return rc;
+}
+
+boolean get_pmic(pmic_pm_type pm_type, int *value)
+{
+	boolean rc = FALSE;
+	byte reg_buff;
+	*value = 0;
+
+	switch (pm_type) {
+	case VCC_ARM:
+		if(! Get_MAX8906_PM_REG(T1APPS, &reg_buff)) {
+			pr_err(PREFIX "%s:VCC_ARM: get pmic reg fail\n",
+					__func__);
+			return FALSE;
+		}
+		if((reg_buff) < 61)
+			*value = arm_voltage_table[reg_buff];
+		break;
+	case VCC_INT:
+		if(!Get_MAX8906_PM_REG(MEMDVM, &reg_buff))
+		{
+			pr_err(PREFIX "%s:VCC_INT: get pmic reg fail\n",
+					__func__);
+			return FALSE;
+		}
+		if((reg_buff) < 3)
+			*value = int_voltage_table[reg_buff];
+		break;
+	default:
+		pr_err(PREFIX "%s:E: invalid pm_type: %d\n", __func__, pm_type);
+		rc = FALSE;
+		break;
+	}
+        return rc;
 }
 
 /*===========================================================================
@@ -2824,14 +2860,24 @@ static struct i2c_driver max8906_driver = {
 	.command = max8906_command
 };
 
+static int pmic_init_status = 0;
+int is_pmic_initialized(void)
+{
+	return pmic_init_status;
+}
+
 static int __init max8906_init(void)
 {
-	return i2c_add_driver(&max8906_driver);
+	int ret;
+	ret = i2c_add_driver(&max8906_driver);
+	pmic_init_status = 1;
+	return ret;
 }
 
 static void __exit max8906_exit(void)
 {
 	i2c_del_driver(&max8906_driver);
+	pmic_init_status = 0;
 }
 
 MODULE_AUTHOR("Jeonghwan Min <jh78.min@samsung.com>");

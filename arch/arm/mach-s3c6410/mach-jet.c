@@ -1017,6 +1017,7 @@ static int instinctq_sleep_gpio_table[][6] = {
 
 static void check_pmic(void)
 {
+#if !defined(CONFIG_JET_OPTION)
 	unsigned char reg_buff = 0;
 	if (Get_MAX8698_PM_REG(ELDO3, &reg_buff)) {
 		pr_info("%s: OTGI 1.2V (%d)\n", __func__, reg_buff);
@@ -1036,6 +1037,7 @@ static void check_pmic(void)
 	if (Get_MAX8698_PM_REG(ELDO8, &reg_buff)) {
 		pr_info("%s: OTG 3.3V (%d)\n", __func__, reg_buff);
 	}
+#endif
 }
 
 void s3c_config_sleep_gpio(void)

@@ -101,7 +101,11 @@ int available_PM_Set(void)
 
 	if(is_pmic_initialized())
 	{
-		printk("[FSA9480] find max8698 \n");
+#ifdef CONFIG_PMIC_MAX8698
+		printk("[FSA9480] found max8698 \n");
+#else ifdef CONFIG_PMIC_MAX8906
+		printk("[FSA9480] found max8906 \n");
+#endif
 		return 1;
 	}
 	return 0;
@@ -151,8 +155,15 @@ void fsa9480_s3c_udc_on(void)
 	}
 
     /*LDO control*/
+#ifdef CONFIG_PMIC_MAX8698
 	if(!Set_MAX8698_PM_REG(ELDO3, 1) || !Set_MAX8698_PM_REG(ELDO8, 1))
 		printk("[FSA9480]%s : Fail to LDO ON\n ", __func__);
+#elif defined(CONFIG_PMIC_MAX8906)
+//	if(!Set_MAX8906_PM_REG(ELDO3, 1) || !Set_MAX8906_PM_REG(ELDO8, 1))
+		printk("[FSA9480]%s : Fail to LDO ON\n ", __func__);
+#else
+		printk("[FSA9480]%s : Fail to LDO ON\n ", __func__);
+#endif
 
 }
 
@@ -163,8 +174,15 @@ void fsa9480_s3c_udc_off(void)
 	usb_power = 0;
 
     /*LDO control*/
+#ifdef CONFIG_PMIC_MAX8698
 	if(!Set_MAX8698_PM_REG(ELDO3, 0) || !Set_MAX8698_PM_REG(ELDO8, 0))
 		printk("[FSA9480]%s : Fail to LDO OFF\n ", __func__);
+#elif defined(CONFIG_PMIC_MAX8906)
+//	if(!Set_MAX8906_PM_REG(ELDO3, 0) || !Set_MAX8906_PM_REG(ELDO8, 0))
+		printk("[FSA9480]%s : Fail to LDO OFF\n ", __func__);
+#else
+		printk("[FSA9480]%s : Fail to LDO OFF\n ", __func__);
+#endif
 
 }
 
