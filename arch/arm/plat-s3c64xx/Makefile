@@ -31,8 +31,6 @@ obj-$(CONFIG_PM)                += sleep.o
 
 obj-$(CONFIG_S3C64XX_SETUP_I2C0) += setup-i2c0.o
 obj-$(CONFIG_S3C64XX_SETUP_I2C1) += setup-i2c1.o
-obj-$(CONFIG_S3C64XX_ADCTS) 	+= s3c64xx-adcts.o
-obj-$(CONFIG_JET_OPTION) 	+= s3c64xx-adcts.o
 
 #
 # Makefile for PWM drivers.

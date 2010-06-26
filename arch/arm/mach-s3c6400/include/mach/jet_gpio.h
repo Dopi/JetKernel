@@ -208,34 +208,21 @@
 
 /* S3C64XX_GPH(1) ~ S3C64XX_GPH(9) */
 
-//#define GPIO_MAIN_KEY_LED_EN			S3C64XX_GPH(0)
-//#define GPIO_MAIN_KEY_LED_EN_AF			1
 #define GPIO_NAND_CLK				S3C64XX_GPH(0)
 #define GPIO_NAND_CLK_AF			2
 
-//#define GPIO_CAM_FLASH_SET			S3C64XX_GPH(1)
-//#define GPIO_CAM_FLASH_SET_AF			1
 #define GPIO_NAND_CMD				S3C64XX_GPH(1)
 #define GPIO_NAND_CMD_AF			2
 
-//#define GPIO_CAM_FLASH_EN			S3C64XX_GPH(2)
-//#define GPIO_CAM_FLASH_EN_AF			1
 #define GPIO_NAND_D_0				S3C64XX_GPH(2)
 #define GPIO_NAND_D_0_AF			2
 
-//#define GPIO_CAM_STANDBY			S3C64XX_GPH(3)
-//#define GPIO_CAM_STANDBY_AF			1
 #define GPIO_NAND_D_1				S3C64XX_GPH(3)
 #define GPIO_NAND_D_1_AF			2
 
-//#define GPIO_OJ_SHUTDOWN			S3C64XX_GPH(4)
-//#define GPIO_OJ_SHUTDOWN_AF			1
 #define GPIO_NAND_D_2				S3C64XX_GPH(4)
 #define GPIO_NAND_D_2_AF			2
 
-/* this macro is for rev00 ~ rev03 */
-//#define GPIO_MIC_SEL_EN				S3C64XX_GPH(5)
-//#define GPIO_MIC_SEL_EN_AF			1
 #define GPIO_NAND_D_3				S3C64XX_GPH(5)
 #define GPIO_NAND_D_3_AF			2
 

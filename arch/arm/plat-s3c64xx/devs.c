@@ -28,7 +28,6 @@
 #include <plat/regs-spi.h>
 #include <plat/devs.h>
 #include <plat/adc.h>
-#include <plat/adcts.h>
 #include <linux/android_pmem.h>
 #include <plat/reserved_mem.h>
 
@@ -286,9 +285,9 @@ void __init s3c_adcts_set_platdata(struct s3c_adcts_plat_info *pd)
 	}
 }
 EXPORT_SYMBOL(s3c_device_adcts);
+#endif
 
-#else
-
+#if defined(CONFIG_S3C_ADC)
 /* ADC : Old ADC driver */
 static struct resource s3c_adc_resource[] = {
 	[0] = {
@@ -329,7 +328,6 @@ void __init s3c_adc_set_platdata(struct s3c_adc_mach_info *pd)
 	}
 }
 EXPORT_SYMBOL(s3c_device_adc);
-
 #endif
 
 /* Keypad interface */

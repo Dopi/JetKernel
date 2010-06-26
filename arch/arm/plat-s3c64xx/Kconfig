@@ -9,9 +9,9 @@
 config PLAT_S3C64XX
 	bool
 	depends on ARCH_S3C64XX
+	default y
 	select PLAT_S3C
 	select ARM_VIC
-	default y
 	select NO_IOPORT
 	select ARCH_REQUIRE_GPIOLIB
 	select S3C_GPIO_TRACK
@@ -52,13 +52,6 @@ config S3C64XX_SETUP_I2C1
 	bool
 	help
 	  Common setup code for i2c bus 1.
-
-config S3C64XX_ADCTS
-	bool
-	default n
-	help
-	  Common setup code for adc and touchscreen
-
 
 config PWM
 	tristate "Pulse Width Modulation (PWM) Timer support"

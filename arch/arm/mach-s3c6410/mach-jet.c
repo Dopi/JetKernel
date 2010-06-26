@@ -59,7 +59,6 @@
 #include <plat/clock.h>
 #include <plat/devs.h>
 #include <plat/cpu.h>
-#include <plat/adcts.h>
 #include <plat/ts.h>
 #include <plat/adc.h>
 #include <plat/reserved_mem.h>
@@ -160,23 +159,6 @@ static struct platform_device s3c_device_i2c3 = {
 	.id					= 3,
 	.dev.platform_data	= &i2c3_platdata,
 };
-
-// dgahn.smd: move to rev01
-static struct i2c_gpio_platform_data i2c5_platdata = {
-	.sda_pin		= GPIO_AP_SDA/*GPIO_TOUCH_I2C_SDA*/,
-	.scl_pin		= GPIO_AP_SCL/*GPIO_TOUCH_I2C_SCL*/,
-	.udelay			= 3,	/* 166KHz */		
-	.sda_is_open_drain	= 0,
-	.scl_is_open_drain	= 0,
-	.scl_is_output_only	= 1,
-};
-
-static struct platform_device s3c_device_i2c5 = {
-	.name				= "i2c-gpio",
-	.id					= 5,
-	.dev.platform_data	= &i2c5_platdata,
-};
-
 #endif
 
 #ifdef CONFIG_FB_S3C_TL2796
@@ -201,17 +183,10 @@ struct platform_device sec_device_dpram = {
 	.id		= -1,
 };
 
-#if defined(CONFIG_MACH_QUATTRO) //quattro.tsp
 struct platform_device sec_device_ts = {
-	.name	= "qt602240-ts",
+	.name	= "s3c-ts",
 	.id		= -1,
 };
-#else
-struct platform_device sec_device_ts = {
-	.name	= "melfas-ts",
-	.id		= -1,
-};
-#endif
 
 struct platform_device sec_device_max9877 = {
     .name   = "max9877",
@@ -298,6 +273,7 @@ static struct platform_device *instinctq_devices[] __initdata = {
 	&s3c_device_dma3,
 #endif
 	&s3c_device_hsmmc0,
+//	&s3c_device_hsmmc1,
 	&s3c_device_hsmmc2,
 
 	&s3c_device_i2c0,
@@ -305,11 +281,16 @@ static struct platform_device *instinctq_devices[] __initdata = {
 #if defined(CONFIG_I2C_GPIO)
 	&s3c_device_i2c2,
 	&s3c_device_i2c3,
-	//&s3c_device_i2c4,
-       &s3c_device_i2c5,
 #endif
-	&sec_device_ts,
+#if defined(CONFIG_S3C64XX_ADCTS)
+	&s3c_device_adcts,
+#endif
+#if defined(CONFIG_S3C_ADC)
 	&s3c_device_adc,
+#endif
+#if defined(CONFIG_S3C_TOUCHSCREEN)
+	&sec_device_ts,
+#endif
 	&s3c_device_lcd,
 	&s3c_device_keypad,
 	&s3c_device_usbgadget,
@@ -332,17 +313,70 @@ static struct platform_device *instinctq_devices[] __initdata = {
 };
 
 static struct i2c_board_info i2c_devs0[] __initdata = {
+//	{ I2C_BOARD_INFO("USBIC", 0x25), },		/* uUSB ic */
 };
 
 static struct i2c_board_info i2c_devs1[] __initdata = {
+//	{ I2C_BOARD_INFO("???", 0x00), },	/* Camera */
 };
 
+static struct i2c_board_info i2c_devs2[] __initdata = {
+//	{ I2C_BOARD_INFO("KXSD9", 0x18), },		/* accelerator */
+//	{ I2C_BOARD_INFO("Si4709", 0x10), },  	/* FM radio*/
+};
+
+static struct i2c_board_info i2c_devs3[] __initdata = {
+//	{ I2C_BOARD_INFO("max8906", 0x), },  	/* Max8698 PMIC */
+};
+
+
+#if defined(CONFIG_S3C64XX_ADCTS)
+static struct s3c_adcts_plat_info s3c_adcts_cfgs __initdata = {
+	.channel = {
+		{ /* 0 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},{ /* 1 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},{ /* 2 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},{ /* 3 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},{ /* 4 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},{ /* 5 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},{ /* 6 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},{ /* 7 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},
+	},
+};
+#endif
+#if defined(CONFIG_S3C_ADC)
 static struct s3c_adc_mach_info s3c_adc_platform __initdata = {
 	/* Support 12-bit resolution */
 	.delay		= 0xff,
 	.presc 		= 49,
 	.resolution	= 12,
 };
+#endif
 
 static void __init instinctq_fixup(struct machine_desc *desc,
 		struct tag *tags, char **cmdline, struct meminfo *mi)
@@ -555,6 +589,8 @@ static void instinctq_switch_init(void)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_uart_sel.attr.name);
 };
 
+extern int s3c_ts_init(void);
+
 static void __init instinctq_machine_init(void)
 {
 	printk("INSTINCTQ Machine INIT : Board REV 0x%x\n", CONFIG_INSTINCTQ_REV);
@@ -569,13 +605,18 @@ static void __init instinctq_machine_init(void)
 	s3c_i2c0_set_platdata(NULL);
 	s3c_i2c1_set_platdata(NULL);
 
+#ifdef CONFIG_S3C64XX_ADCTS
+	s3c_adcts_set_platdata (&s3c_adcts_cfgs);
+#endif
+#ifdef CONFIG_S3C_ADC
 	s3c_adc_set_platdata(&s3c_adc_platform);
+#endif
 
 	i2c_register_board_info(0, i2c_devs0, ARRAY_SIZE(i2c_devs0));
 	i2c_register_board_info(1, i2c_devs1, ARRAY_SIZE(i2c_devs1));
 
 	platform_add_devices(instinctq_devices, ARRAY_SIZE(instinctq_devices));
-    s3c6410_add_mem_devices (&pmem_setting);
+	s3c6410_add_mem_devices (&pmem_setting);
 
 	s3c6410_pm_init();
 
@@ -590,6 +631,7 @@ static void __init instinctq_machine_init(void)
 #ifdef CONFIG_SEC_LOG_BUF
 	sec_log_buf_init();
 #endif
+
 }
 
 MACHINE_START(INSTINCTQ, "SPH-M900")
