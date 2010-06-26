@@ -15,10 +15,10 @@
 #include <linux/platform_device.h>
 
 #include <mach/map.h>
-#include <asm/irq.h>
 #include <plat/devs.h>
 #include <plat/cpu.h>
 #include <plat/ts.h>
+#include <plat/irqs.h>
 
 /* Touch srcreen */
 static struct resource s3c_ts_resource[] = {

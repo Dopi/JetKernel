@@ -53,6 +53,11 @@ config S3C64XX_SETUP_I2C1
 	help
 	  Common setup code for i2c bus 1.
 
+config S3C64XX_ADC
+	bool "S3C64XX ADC D/D support"
+	help
+	 Analog to Digital conversion(ADC) D/D for S3C64XX support   
+
 config PWM
 	tristate "Pulse Width Modulation (PWM) Timer support"
 

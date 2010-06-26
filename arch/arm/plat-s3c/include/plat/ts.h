@@ -24,8 +24,6 @@ struct s3c_ts_mach_info {
 	int             	oversampling_shift;
 	int			resol_bit;
 	enum s3c_adc_type	s3c_adc_con;
-	int			panel_resistance;
-	int			threshold;
 };
 
 struct s3c_ts_info {
@@ -36,9 +34,6 @@ struct s3c_ts_info {
 	int 			shift;
 	char 			phys[32];
 	int			resol_bit;
-	int			resistance;
-	int			pressure;
-	int			threshold_pressure;
 	enum s3c_adc_type	s3c_adc_con;
 };
 

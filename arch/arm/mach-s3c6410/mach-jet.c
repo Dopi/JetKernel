@@ -266,11 +266,11 @@ struct map_desc instinctq_iodesc[] __initdata = {
 };
 
 static struct platform_device *instinctq_devices[] __initdata = {
-#if defined(CONFIG_S3C_DMA_PL080_SOL)
-	&s3c_device_dma0,
-	&s3c_device_dma1,
-	&s3c_device_dma2,
-	&s3c_device_dma3,
+#ifdef CONFIG_S3C_DMA_PL080_SOL
+//	&s3c_device_dma0,
+//	&s3c_device_dma1,
+//	&s3c_device_dma2,
+//	&s3c_device_dma3,
 #endif
 	&s3c_device_hsmmc0,
 //	&s3c_device_hsmmc1,
@@ -278,26 +278,26 @@ static struct platform_device *instinctq_devices[] __initdata = {
 
 	&s3c_device_i2c0,
 	&s3c_device_i2c1,
-#if defined(CONFIG_I2C_GPIO)
+#ifdef CONFIG_I2C_GPIO
 	&s3c_device_i2c2,
 	&s3c_device_i2c3,
 #endif
-#if defined(CONFIG_S3C64XX_ADCTS)
+#ifdef CONFIG_S3C64XX_ADCTS
 	&s3c_device_adcts,
 #endif
-#if defined(CONFIG_S3C_ADC)
+#ifdef CONFIG_S3C64XX_ADC
 	&s3c_device_adc,
-#endif
-#if defined(CONFIG_S3C_TOUCHSCREEN)
-	&sec_device_ts,
 #endif
 	&s3c_device_lcd,
 	&s3c_device_keypad,
+#ifdef CONFIG_TOUCHSCREEN_S3C
+	&s3c_device_ts,
+#endif
 	&s3c_device_usbgadget,
-	&s3c_device_camif,
+//	&s3c_device_camif,
 	&s3c_device_mfc,
 	&s3c_device_g3d,
-	&s3c_device_2d,
+//	&s3c_device_2d,
 	&s3c_device_rotator,
 	&s3c_device_jpeg,
 	&s3c_device_vpp,
@@ -369,7 +369,18 @@ static struct s3c_adcts_plat_info s3c_adcts_cfgs __initdata = {
 	},
 };
 #endif
-#if defined(CONFIG_S3C_ADC)
+
+#if defined(CONFIG_TOUCHSCREEN_S3C)
+static struct s3c_ts_mach_info s3c_ts_platform __initdata = {
+	.delay 			= 10000, //41237
+	.presc 			= 49,
+	.oversampling_shift	= 2,//4
+	.resol_bit 			= 12,
+	.s3c_adc_con		= ADC_TYPE_2,
+};
+#endif
+
+#if defined(CONFIG_S3C64XX_ADC)
 static struct s3c_adc_mach_info s3c_adc_platform __initdata = {
 	/* Support 12-bit resolution */
 	.delay		= 0xff,
@@ -608,7 +619,10 @@ static void __init instinctq_machine_init(void)
 #ifdef CONFIG_S3C64XX_ADCTS
 	s3c_adcts_set_platdata (&s3c_adcts_cfgs);
 #endif
-#ifdef CONFIG_S3C_ADC
+#ifdef CONFIG_TOUCHSCREEN_S3C
+	s3c_ts_set_platdata(&s3c_ts_platform);
+#endif
+#ifdef CONFIG_S3C64XX_ADC
 	s3c_adc_set_platdata(&s3c_adc_platform);
 #endif
 

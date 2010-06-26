@@ -288,7 +288,6 @@ EXPORT_SYMBOL(s3c_device_adcts);
 #endif
 
 #if defined(CONFIG_S3C_ADC)
-/* ADC : Old ADC driver */
 static struct resource s3c_adc_resource[] = {
 	[0] = {
 		.start = S3C_PA_ADC,
@@ -315,6 +314,7 @@ struct platform_device s3c_device_adc = {
 	.resource	  = s3c_adc_resource,
 };
 
+
 void __init s3c_adc_set_platdata(struct s3c_adc_mach_info *pd)
 {
 	struct s3c_adc_mach_info *npd;
@@ -327,6 +327,7 @@ void __init s3c_adc_set_platdata(struct s3c_adc_mach_info *pd)
 		printk(KERN_ERR "no memory for ADC platform data\n");
 	}
 }
+
 EXPORT_SYMBOL(s3c_device_adc);
 #endif
 
