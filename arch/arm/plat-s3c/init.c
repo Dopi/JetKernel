@@ -73,7 +73,22 @@ void __init s3c_init_cpu(unsigned long idcode,
  *      != 0 -> PLL crystal value in Hz
 */
 
-void __init s3c_init_clocks(int xtal)
+#ifdef CONFIG_ARCH_S3C2410
+void __init s3c24xx_init_clocks(int xtal)
+{
+	if (xtal == 0)
+		xtal = 12*1000*1000;
+
+	if (cpu == NULL)
+		panic("s3c24xx_init_clocks: no cpu setup?\n");
+
+	if (cpu->init_clocks == NULL)
+		panic("s3c24xx_init_clocks: cpu has no clock init\n");
+	else
+		(cpu->init_clocks)(xtal);
+}
+#else
+void __init s3c_init_clocks(int xtal) //ALMAR OK
 {
 	if (xtal == 0)
 		xtal = 12*1000*1000;
@@ -86,12 +101,82 @@ void __init s3c_init_clocks(int xtal)
 	else
 		(cpu->init_clocks)(xtal);
 }
+#endif
 
 /* uart management */
 
 static int nr_uarts __initdata = 0;
 
-static struct s3c_uartcfg uart_cfgs[CONFIG_SERIAL_SAMSUNG_UARTS];
+#ifdef CONFIG_ARCH_S3C2410
+static struct s3c2410_uartcfg uart_cfgs[CONFIG_SERIAL_SAMSUNG_UARTS];
+
+/* s3c24xx_init_uartdevs
+ *
+ * copy the specified platform data and configuration into our central
+ * set of devices, before the data is thrown away after the init process.
+ *
+ * This also fills in the array passed to the serial driver for the
+ * early initialisation of the console.
+*/
+
+void __init s3c24xx_init_uartdevs(char *name,
+				  struct s3c24xx_uart_resources *res,
+				  struct s3c2410_uartcfg *cfg, int no)
+{
+	struct platform_device *platdev;
+	struct s3c2410_uartcfg *cfgptr = uart_cfgs;
+	struct s3c24xx_uart_resources *resp;
+	int uart;
+
+	memcpy(cfgptr, cfg, sizeof(struct s3c2410_uartcfg) * no);
+
+	for (uart = 0; uart < no; uart++, cfg++, cfgptr++) {
+		platdev = s3c24xx_uart_src[cfgptr->hwport];
+
+		resp = res + cfgptr->hwport;
+
+		s3c24xx_uart_devs[uart] = platdev;
+
+		platdev->name = name;
+		platdev->resource = resp->resources;
+		platdev->num_resources = resp->nr_resources;
+
+		platdev->dev.platform_data = cfgptr;
+	}
+
+	nr_uarts = no;
+}
+
+void __init s3c24xx_init_uarts(struct s3c2410_uartcfg *cfg, int no)
+{
+	if (cpu == NULL)
+		return;
+
+	if (cpu->init_uarts == NULL) {
+		printk(KERN_ERR "s3c24xx_init_uarts: cpu has no uart init\n");
+	} else
+		(cpu->init_uarts)(cfg, no);
+}
+
+static int __init s3c_arch_init(void)
+{
+	int ret;
+
+	// do the correct init for cpu
+
+	if (cpu == NULL)
+		panic("s3c_arch_init: NULL cpu\n");
+
+	ret = (cpu->init)();
+	if (ret != 0)
+		return ret;
+
+	ret = platform_add_devices(s3c24xx_uart_devs, nr_uarts);
+	return ret;
+}
+
+arch_initcall(s3c_arch_init);
+#else 
 
 /* s3c_init_uartdevs
  *
@@ -101,6 +186,8 @@ static struct s3c_uartcfg uart_cfgs[CONFIG_SERIAL_SAMSUNG_UARTS];
  * This also fills in the array passed to the serial driver for the
  * early initialisation of the console.
 */
+
+static struct s3c_uartcfg uart_cfgs[CONFIG_SERIAL_SAMSUNG_UARTS];
 
 void __init s3c_init_uartdevs(char *name,
 				  struct s3c_uart_resources *res,
@@ -114,7 +201,7 @@ void __init s3c_init_uartdevs(char *name,
 	memcpy(cfgptr, cfg, sizeof(struct s3c_uartcfg) * no);
 
 	for (uart = 0; uart < no; uart++, cfg++, cfgptr++) {
-		platdev = s3c_uart_src[cfgptr->hwport];
+		platdev = s3c24xx_uart_src[cfgptr->hwport];
 
 		resp = res + cfgptr->hwport;
 
@@ -159,3 +246,4 @@ static int __init s3c_arch_init(void)
 }
 
 arch_initcall(s3c_arch_init);
+#endif

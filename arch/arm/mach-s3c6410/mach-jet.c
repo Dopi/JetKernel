@@ -320,6 +320,7 @@ static struct i2c_board_info i2c_devs1[] __initdata = {
 //	{ I2C_BOARD_INFO("???", 0x00), },	/* Camera */
 };
 
+#ifdef CONFIG_I2C_GPIO
 static struct i2c_board_info i2c_devs2[] __initdata = {
 //	{ I2C_BOARD_INFO("KXSD9", 0x18), },		/* accelerator */
 //	{ I2C_BOARD_INFO("Si4709", 0x10), },  	/* FM radio*/
@@ -328,7 +329,7 @@ static struct i2c_board_info i2c_devs2[] __initdata = {
 static struct i2c_board_info i2c_devs3[] __initdata = {
 //	{ I2C_BOARD_INFO("max8906", 0x), },  	/* Max8698 PMIC */
 };
-
+#endif
 
 #if defined(CONFIG_S3C64XX_ADCTS)
 static struct s3c_adcts_plat_info s3c_adcts_cfgs __initdata = {
@@ -628,6 +629,10 @@ static void __init instinctq_machine_init(void)
 
 	i2c_register_board_info(0, i2c_devs0, ARRAY_SIZE(i2c_devs0));
 	i2c_register_board_info(1, i2c_devs1, ARRAY_SIZE(i2c_devs1));
+#ifdef CONFIG_I2C_GPIO
+	i2c_register_board_info(0, i2c_devs2, ARRAY_SIZE(i2c_devs2));
+	i2c_register_board_info(1, i2c_devs3, ARRAY_SIZE(i2c_devs3));
+#endif
 
 	platform_add_devices(instinctq_devices, ARRAY_SIZE(instinctq_devices));
 	s3c6410_add_mem_devices (&pmem_setting);

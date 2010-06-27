@@ -12,7 +12,8 @@ obj-				:=
 
 # Core files
 
-obj-y				+= dev-uart.o devs.o
+obj-y				+= dev-uart.o 
+obj-y				+= devs.o
 obj-y				+= cpu.o
 obj-y				+= irq.o
 obj-y				+= irq-eint.o
@@ -23,7 +24,8 @@ obj-y				+= gpiolib.o
 
 obj-$(CONFIG_CPU_S3C64XX_INIT)	+= s3c64xx-init.o
 obj-$(CONFIG_CPU_S3C64XX_CLOCK)	+= s3c64xx-clock.o
-obj-$(CONFIG_CPU_FREQ)		+= s3c64xx-dvfs.o changefreq.o
+obj-$(CONFIG_CPU_FREQ)		+= s3c64xx-dvfs.o 
+obj-$(CONFIG_CPU_FREQ)		+= changefreq.o
 obj-$(CONFIG_PM)                += pm.o
 obj-$(CONFIG_PM)                += sleep.o
 

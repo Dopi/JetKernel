@@ -287,7 +287,7 @@ void __init s3c_adcts_set_platdata(struct s3c_adcts_plat_info *pd)
 EXPORT_SYMBOL(s3c_device_adcts);
 #endif
 
-#if defined(CONFIG_S3C_ADC)
+#ifdef CONFIG_S3C64XX_ADC
 static struct resource s3c_adc_resource[] = {
 	[0] = {
 		.start = S3C_PA_ADC,

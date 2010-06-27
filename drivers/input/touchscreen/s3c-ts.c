@@ -60,7 +60,7 @@
 #include <mach/irqs.h>
 
 #define CONFIG_TOUCHSCREEN_S3C_DEBUG
-#undef CONFIG_TOUCHSCREEN_S3C_DEBUG
+//#undef CONFIG_TOUCHSCREEN_S3C_DEBUG
 
 #define ANDROID_TS_NEW 1
 
