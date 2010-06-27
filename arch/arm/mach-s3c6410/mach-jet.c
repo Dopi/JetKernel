@@ -278,17 +278,17 @@ static struct platform_device *instinctq_devices[] __initdata = {
 
 	&s3c_device_i2c0,
 	&s3c_device_i2c1,
-#if defined(CONFIG_I2C_GPIO)
+#ifdef CONFIG_I2C_GPIO
 	&s3c_device_i2c2,
 	&s3c_device_i2c3,
 #endif
-#if defined(CONFIG_S3C64XX_ADCTS)
+#ifdef CONFIG_S3C64XX_ADCTS
 	&s3c_device_adcts,
 #endif
-#if defined(CONFIG_S3C_ADC)
+#ifdef CONFIG_S3C_ADC
 	&s3c_device_adc,
 #endif
-#if defined(CONFIG_S3C_TOUCHSCREEN)
+#ifdef CONFIG_TOUCHSCREEN_S3C
 	&sec_device_ts,
 #endif
 	&s3c_device_lcd,
@@ -614,6 +614,11 @@ static void __init instinctq_machine_init(void)
 
 	i2c_register_board_info(0, i2c_devs0, ARRAY_SIZE(i2c_devs0));
 	i2c_register_board_info(1, i2c_devs1, ARRAY_SIZE(i2c_devs1));
+
+#ifdef CONFIG_I2C_GPIO
+	i2c_register_board_info(2, i2c_devs2, ARRAY_SIZE(i2c_devs2));
+	i2c_register_board_info(3, i2c_devs3, ARRAY_SIZE(i2c_devs3));
+#endif
 
 	platform_add_devices(instinctq_devices, ARRAY_SIZE(instinctq_devices));
 	s3c6410_add_mem_devices (&pmem_setting);
