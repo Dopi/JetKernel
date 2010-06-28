@@ -619,7 +619,7 @@ static int __init s3c_ts_init(void)
 
 	printk(banner);
 	res = platform_driver_register(&s3c_ts_driver);
-//	while (1==1) res = res;
+	while (1==1) res = res;
 	return res;
 }
 

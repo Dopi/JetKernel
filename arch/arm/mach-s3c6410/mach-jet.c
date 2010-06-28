@@ -282,9 +282,6 @@ static struct platform_device *instinctq_devices[] __initdata = {
 	&s3c_device_i2c2,
 	&s3c_device_i2c3,
 #endif
-#ifdef CONFIG_S3C64XX_ADCTS
-	&s3c_device_adcts,
-#endif
 #ifdef CONFIG_S3C_ADC
 	&s3c_device_adc,
 #endif
@@ -329,50 +326,22 @@ static struct i2c_board_info i2c_devs3[] __initdata = {
 //	{ I2C_BOARD_INFO("max8906", 0x), },  	/* Max8698 PMIC */
 };
 
-
-#if defined(CONFIG_S3C64XX_ADCTS)
-static struct s3c_adcts_plat_info s3c_adcts_cfgs __initdata = {
-	.channel = {
-		{ /* 0 */
-			.delay = 0xFF,
-			.presc = 49,
-			.resol = S3C_ADCCON_RESSEL_12BIT,
-		},{ /* 1 */
-			.delay = 0xFF,
-			.presc = 49,
-			.resol = S3C_ADCCON_RESSEL_12BIT,
-		},{ /* 2 */
-			.delay = 0xFF,
-			.presc = 49,
-			.resol = S3C_ADCCON_RESSEL_12BIT,
-		},{ /* 3 */
-			.delay = 0xFF,
-			.presc = 49,
-			.resol = S3C_ADCCON_RESSEL_12BIT,
-		},{ /* 4 */
-			.delay = 0xFF,
-			.presc = 49,
-			.resol = S3C_ADCCON_RESSEL_12BIT,
-		},{ /* 5 */
-			.delay = 0xFF,
-			.presc = 49,
-			.resol = S3C_ADCCON_RESSEL_12BIT,
-		},{ /* 6 */
-			.delay = 0xFF,
-			.presc = 49,
-			.resol = S3C_ADCCON_RESSEL_12BIT,
-		},{ /* 7 */
-			.delay = 0xFF,
-			.presc = 49,
-			.resol = S3C_ADCCON_RESSEL_12BIT,
-		},
-	},
+#ifdef CONFIG_TOUCHSCREEN_S3C
+static struct s3c_ts_mach_info s3c_ts_platform __initdata = {
+	.delay 			= 10000, //41237
+	.presc 			= 49,
+	.oversampling_shift	= 2,//4
+	.resol_bit 			= 12,
+	.s3c_adc_con		= ADC_TYPE_2,	
+	.panel_resistance	= 1,	// For measuring pressure
+	.threshold		= 300,
 };
 #endif
+
 #if defined(CONFIG_S3C_ADC)
 static struct s3c_adc_mach_info s3c_adc_platform __initdata = {
 	/* Support 12-bit resolution */
-	.delay		= 0xff,
+	.delay		= 10000,	// was 0xff
 	.presc 		= 49,
 	.resolution	= 12,
 };
@@ -605,11 +574,11 @@ static void __init instinctq_machine_init(void)
 	s3c_i2c0_set_platdata(NULL);
 	s3c_i2c1_set_platdata(NULL);
 
-#ifdef CONFIG_S3C64XX_ADCTS
-	s3c_adcts_set_platdata (&s3c_adcts_cfgs);
-#endif
 #ifdef CONFIG_S3C_ADC
 	s3c_adc_set_platdata(&s3c_adc_platform);
+#endif
+#if defined(CONFIG_TOUCHSCREEN_S3C)
+        s3c_ts_set_platdata(&s3c_ts_platform);
 #endif
 
 	i2c_register_board_info(0, i2c_devs0, ARRAY_SIZE(i2c_devs0));
