@@ -21,6 +21,7 @@
 #include <plat/ts.h>
 
 /* Touch srcreen */
+#if 0
 static struct resource s3c_ts_resource[] = {
 	[0] = {
 		.start = S3C_PA_ADC,
@@ -46,6 +47,7 @@ struct platform_device s3c_device_ts = {
 	.num_resources	  = ARRAY_SIZE(s3c_ts_resource),
 	.resource	  = s3c_ts_resource,
 };
+#endif
 
 void __init s3c_ts_set_platdata(struct s3c_ts_mach_info *pd)
 {

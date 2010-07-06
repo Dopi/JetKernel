@@ -166,11 +166,6 @@ struct platform_device sec_device_backlight = {
 	.name   = "tl2796-backlight",
 	.id     = -1,
 };
-#elif defined(CONFIG_FB_S3C_S6D05A0)
-struct platform_device sec_device_backlight = {
-	.name   = "bd6091gu-backlight",
-	.id     = -1,
-};
 #else
 struct platform_device sec_device_backlight = {
 	.name   = "ams320fs01-backlight",
@@ -180,11 +175,6 @@ struct platform_device sec_device_backlight = {
 
 struct platform_device sec_device_dpram = {
 	.name	= "dpram-device",
-	.id		= -1,
-};
-
-struct platform_device sec_device_ts = {
-	.name	= "s3c-ts",
 	.id		= -1,
 };
 
@@ -243,6 +233,44 @@ static struct platform_device sec_device_headset = {
         },
 };
 
+#ifdef CONFIG_TOUCHSCREEN_S3C
+static struct s3c_ts_mach_info s3c_ts_platform __initdata = {
+	.delay 			= 10000, 	//41237
+	.presc 			= 49,
+	.oversampling_shift	= 2,		//4
+	.resol_bit 			= 12,
+	.s3c_adc_con		= ADC_TYPE_2,	
+	.panel_resistance	= 1,		// For measuring pressure
+	.threshold		= 300,
+};
+
+static struct resource s3c_ts_resource[] = {
+               [0] = {
+                       .start = S3C_PA_ADC,
+                       .end   = S3C_PA_ADC + SZ_4K - 1,
+                       .flags = IORESOURCE_MEM,
+               },
+               [1] = {
+                       .start = IRQ_PENDN,
+                       .end   = IRQ_PENDN,
+                       .flags = IORESOURCE_IRQ,
+               },
+               [2] = {
+                       .start = IRQ_ADC,
+                       .end   = IRQ_ADC,
+                       .flags = IORESOURCE_IRQ,
+               },
+};
+
+struct platform_device s3c_device_ts = {
+	.name	= "s3c-ts",
+	.id		= -1,
+	.num_resources  = ARRAY_SIZE(s3c_ts_resource),
+	.resource       = s3c_ts_resource,
+	.dev.platform_data = &s3c_ts_platform,
+};
+#endif
+
 static struct s3c6410_pmem_setting pmem_setting = {
         .pmem_start = RESERVED_PMEM_START,
         .pmem_size = RESERVED_PMEM,
@@ -286,7 +314,7 @@ static struct platform_device *instinctq_devices[] __initdata = {
 	&s3c_device_adc,
 #endif
 #ifdef CONFIG_TOUCHSCREEN_S3C
-	&sec_device_ts,
+	&s3c_device_ts,
 #endif
 	&s3c_device_lcd,
 	&s3c_device_keypad,
@@ -325,18 +353,6 @@ static struct i2c_board_info i2c_devs2[] __initdata = {
 static struct i2c_board_info i2c_devs3[] __initdata = {
 //	{ I2C_BOARD_INFO("max8906", 0x), },  	/* Max8698 PMIC */
 };
-
-#ifdef CONFIG_TOUCHSCREEN_S3C
-static struct s3c_ts_mach_info s3c_ts_platform __initdata = {
-	.delay 			= 10000, //41237
-	.presc 			= 49,
-	.oversampling_shift	= 2,//4
-	.resol_bit 			= 12,
-	.s3c_adc_con		= ADC_TYPE_2,	
-	.panel_resistance	= 1,	// For measuring pressure
-	.threshold		= 300,
-};
-#endif
 
 #if defined(CONFIG_S3C_ADC)
 static struct s3c_adc_mach_info s3c_adc_platform __initdata = {
@@ -574,12 +590,13 @@ static void __init instinctq_machine_init(void)
 	s3c_i2c0_set_platdata(NULL);
 	s3c_i2c1_set_platdata(NULL);
 
-#ifdef CONFIG_S3C_ADC
-	s3c_adc_set_platdata(&s3c_adc_platform);
-#endif
 #if defined(CONFIG_TOUCHSCREEN_S3C)
         s3c_ts_set_platdata(&s3c_ts_platform);
 #endif
+#ifdef CONFIG_S3C_ADC
+	s3c_adc_set_platdata(&s3c_adc_platform);
+#endif
+
 
 	i2c_register_board_info(0, i2c_devs0, ARRAY_SIZE(i2c_devs0));
 	i2c_register_board_info(1, i2c_devs1, ARRAY_SIZE(i2c_devs1));
