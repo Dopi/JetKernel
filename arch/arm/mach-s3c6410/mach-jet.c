@@ -975,7 +975,7 @@ static int instinctq_sleep_gpio_table[][6] = {
 
 static void check_pmic(void)
 {
-	unsigned char reg_buff = 0;
+/*	unsigned char reg_buff = 0;
 
 	if (Get_MAX8906_PM_REG(REG_CARD1TV, &reg_buff)) {
 		pr_info("%s: CARD1TV (%d)\n", __func__, reg_buff);
@@ -995,6 +995,7 @@ static void check_pmic(void)
 	if (Get_MAX8906_PM_REG(REG_CARD2FSEQ, &reg_buff)) {
 		pr_info("%s: REG_CARD2FSEQ (%d)\n", __func__, reg_buff);
 	}
+*/
 }
 
 void s3c_config_sleep_gpio(void)

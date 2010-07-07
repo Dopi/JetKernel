@@ -2,7 +2,7 @@
 #define __LINUX_PMIC_H
 
 #if defined (CONFIG_PMIC_MAX8906)
-#include <linux/i2c/max8906.h>
+//#include <linux/i2c/max8906.h>
 #elif defined (CONFIG_PMIC_MAX8698)
 #include <linux/i2c/max8698.h>
 #endif
