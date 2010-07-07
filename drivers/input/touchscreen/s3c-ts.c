@@ -64,6 +64,8 @@
 
 #define CONFIG_TOUCHSCREEN_S3C_DEBUG
 //#undef CONFIG_TOUCHSCREEN_S3C_DEBUG
+#define CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
+#undef CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
 
 /* For ts->dev.id.version */
 #define S3C_TSVERSION	0x0101
@@ -619,7 +621,27 @@ static int __init s3c_ts_init(void)
 
 	printk(banner);
 	res = platform_driver_register(&s3c_ts_driver);
-//	while (1==1) res = res;
+
+#ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
+	while (1==1)
+	{
+		unsigned long data0;
+		unsigned long data1;
+		int adc;
+
+		for(adc=0; adc<4; adc++)
+		{
+
+			writel(readl(ts_base+S3C_ADCCON)|S3C_ADCCON_RESSEL_12BIT,
+				ts_base+S3C_ADCCON);
+
+			data0 = readl(ts_base+S3C_ADCDAT0);
+			data1 = readl(ts_base+S3C_ADCDAT1);
+
+		}
+	}
+#endif // #ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
+
 	return res;
 }
 

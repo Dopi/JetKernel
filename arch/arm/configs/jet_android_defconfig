@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
 # Linux kernel version: 2.6.29
-# Tue Jul  6 09:11:53 2010
+# Wed Jul  7 19:12:21 2010
 #
 CONFIG_ARM=y
 CONFIG_SYS_SUPPORTS_APM_EMULATION=y
@@ -780,8 +780,8 @@ CONFIG_I2C_S3C=y
 # CONFIG_SENSORS_TSL2550 is not set
 # CONFIG_SENSORS_AKM8976 is not set
 # CONFIG_SENSORS_PCA963X is not set
-# CONFIG_PMIC_MAX8906 is not set
-CONFIG_PMIC_MAX8698=y
+CONFIG_PMIC_MAX8906=y
+# CONFIG_PMIC_MAX8698 is not set
 # CONFIG_AMP_MAX9877 is not set
 # CONFIG_I2C_DEBUG_CORE is not set
 # CONFIG_I2C_DEBUG_ALGO is not set
