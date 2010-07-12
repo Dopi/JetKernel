@@ -522,6 +522,9 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 		goto fail;
 	}
 
+	// trigger conversion for testing
+	writel(readl(ts_base+S3C_ADCCON) | S3C_ADCCON_ENABLE_START , ts_base +S3C_ADCCON);
+
 	return 0;
 
 fail:
