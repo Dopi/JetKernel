@@ -205,7 +205,7 @@ static void touch_timer_fire(unsigned long data)
 			if(ts->yp > calibrate_max_y) calibrate_max_y = ts->yp;
 			calibrate_count++;
 
-			if(calibrate_count=2000)
+			if(calibrate_count=50000)
 			{
 				printk(DEBUG_LVL "Xmin: %03ld, Xmax: %03ld, Ymin: %03ld\n, Ymax: %03ld", calibrate_min_x, calibrate_max_x, calibrate_min_y, calibrate_max_y);
 
