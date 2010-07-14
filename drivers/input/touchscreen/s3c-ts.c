@@ -68,6 +68,16 @@
 #undef CONFIG_TOUCHSCREEN_S3C_DEBUG
 #define CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
 #undef CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
+#define TOUCHSCREEN_S3C_CALIBRATE
+//#undef TOUCHSCREEN_S3C_CALIBRATE
+
+#ifdef TOUCHSCREEN_S3C_CALIBRATE
+	int calibrate_count=0;
+	int calibrate_min_x=S3C_ADCDAT0_XPDATA_MASK_12BIT*10;
+	int calibrate_max_x=0;
+	int calibrate_min_y=S3C_ADCDAT1_YPDATA_MASK_12BIT*10;
+	int calibrate_max_y=0;
+#endif
 
 /* For ts->dev.id.version */
 #define S3C_TSVERSION	0x0101
@@ -186,6 +196,24 @@ static void touch_timer_fire(unsigned long data)
 				struct timeval tv;
 				do_gettimeofday(&tv);
 				printk(DEBUG_LVL "T: %06d, X: %03ld, Y: %03ld\n", (int)tv.tv_usec, ts->xp, ts->yp);
+			}
+#endif
+#ifdef TOUCHSCREEN_S3C_CALIBRATE
+			if(ts->xp < calibrate_min_x) calibrate_min_x = ts->xp;
+			if(ts->xp > calibrate_max_x) calibrate_max_x = ts->xp;
+			if(ts->yp < calibrate_min_y) calibrate_min_y = ts->yp;
+			if(ts->yp > calibrate_max_y) calibrate_max_y = ts->yp;
+			calibrate_count++;
+
+			if(calibrate_count=2000)
+			{
+				printk(DEBUG_LVL "Xmin: %03ld, Xmax: %03ld, Ymin: %03ld\n, Ymax: %03ld", calibrate_min_x, calibrate_max_x, calibrate_min_y, calibrate_max_y);
+
+				calibrate_count=0;
+				calibrate_min_x=S3C_ADCDAT0_XPDATA_MASK_12BIT*10;
+				calibrate_max_x=0;
+				calibrate_min_y=S3C_ADCDAT1_YPDATA_MASK_12BIT*10;
+				calibrate_max_y=0;
 			}
 #endif
 			ts->xp = (ts->xp >> ts->shift);
