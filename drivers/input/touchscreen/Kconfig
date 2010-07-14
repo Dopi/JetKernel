@@ -102,6 +102,17 @@ config TOUCHSCREEN_S3C
 	  To compile this driver as a module, choose M here: the
 	  module will be called s3c_ts.
 
+config TOUCHSCREEN_JET
+    bool "Jet semi-flip touch"
+	depends on TOUCHSCREEN_S3C
+	default n
+	help
+	  Say Y here to enable the driver for the touchscreen on the
+	  GT-S8000 Jet phone. (flipped-x, normal-y)
+
+	  Say N here to enable the driver for the old version touchscreen on the
+	  S3C SMDK board.
+
 config TOUCHSCREEN_NEW
     bool "new flip touch"
 	depends on TOUCHSCREEN_S3C
