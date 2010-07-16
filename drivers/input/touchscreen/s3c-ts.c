@@ -68,8 +68,8 @@
 #undef CONFIG_TOUCHSCREEN_S3C_DEBUG
 #define CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
 #undef CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
-#define TOUCHSCREEN_S3C_CALIBRATE
-//#undef TOUCHSCREEN_S3C_CALIBRATE
+#define TOUCHSCREEN_S3C_CALIBRATE	// enable calibration logging
+#undef TOUCHSCREEN_S3C_CALIBRATE
 
 #ifdef TOUCHSCREEN_S3C_CALIBRATE
 	int calibrate_count=0;
@@ -207,13 +207,15 @@ static void touch_timer_fire(unsigned long data)
 
 			if(calibrate_count=50000)
 			{
-				printk(DEBUG_LVL "Xmin: %03ld, Xmax: %03ld, Ymin: %03ld\n, Ymax: %03ld", calibrate_min_x, calibrate_max_x, calibrate_min_y, calibrate_max_y);
+				printk(DEBUG_LVL "Xmin: %03ld, Xmax: %03ld, Ymin: %03ld\n, Ymax: %03ld", 
+					calibrate_min_x >> ts->shift, calibrate_max_x >> ts->shift, 
+					calibrate_min_y >> ts->shift, calibrate_max_y >> ts->shift);
 
 				calibrate_count=0;
-				calibrate_min_x=S3C_ADCDAT0_XPDATA_MASK_12BIT*10;
-				calibrate_max_x=0;
-				calibrate_min_y=S3C_ADCDAT1_YPDATA_MASK_12BIT*10;
-				calibrate_max_y=0;
+				//calibrate_min_x=S3C_ADCDAT0_XPDATA_MASK_12BIT << ts->shift;
+				//calibrate_max_x=0;
+				//calibrate_min_y=S3C_ADCDAT1_YPDATA_MASK_12BIT << ts->shift;
+				//calibrate_max_y=0;
 			}
 #endif
 			ts->xp = (ts->xp >> ts->shift);
@@ -507,8 +509,10 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 	ts->dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
 
 	if (s3c_ts_cfg->resol_bit == 12) {
-		input_set_abs_params(ts->dev, ABS_X, 0, 0xFFF, 0, 0);
-		input_set_abs_params(ts->dev, ABS_Y, 0, 0xFFF, 0, 0);
+//		input_set_abs_params(ts->dev, ABS_X, 0, 0xFFF, 0, 0);
+		input_set_abs_params(ts->dev, ABS_X, 1081, 2854, 0, 0);		// simple calibration
+//		input_set_abs_params(ts->dev, ABS_Y, 0, 0xFFF, 0, 0);
+		input_set_abs_params(ts->dev, ABS_Y, 1081, 3056, 0, 0);		// simple calibration
 	} else {
 		input_set_abs_params(ts->dev, ABS_X, 0, 0x3FF, 0, 0);
 		input_set_abs_params(ts->dev, ABS_Y, 0, 0x3FF, 0, 0);
@@ -574,9 +578,6 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 		ret = -EIO;
 		goto fail;
 	}
-
-	// trigger conversion for testing
-	writel(readl(ts_base+S3C_ADCCON) | S3C_ADCCON_ENABLE_START , ts_base +S3C_ADCCON);
 
 	return 0;
 
