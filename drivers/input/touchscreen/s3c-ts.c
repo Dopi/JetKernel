@@ -73,9 +73,9 @@
 
 #ifdef TOUCHSCREEN_S3C_CALIBRATE
 	int calibrate_count=0;
-	int calibrate_min_x=S3C_ADCDAT0_XPDATA_MASK_12BIT*10;
+	int calibrate_min_x=S3C_ADCDAT0_XPDATA_MASK_12BIT << ts->shift;
 	int calibrate_max_x=0;
-	int calibrate_min_y=S3C_ADCDAT1_YPDATA_MASK_12BIT*10;
+	int calibrate_min_y=S3C_ADCDAT1_YPDATA_MASK_12BIT << ts->shift;
 	int calibrate_max_y=0;
 #endif
 
