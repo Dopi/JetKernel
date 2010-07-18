@@ -7,6 +7,7 @@
 #include <linux/i2c/max8698.h>
 #endif
 
+#if defined(CONFIG_PMIC_MAX8698) || defined(CONFIG_PMIC_MAX8906)
 /*===========================================================================
 
 FUNCTION set_pmic
@@ -37,5 +38,6 @@ typedef enum {
 
 extern boolean set_pmic(pmic_pm_type pm_type, int value);
 extern boolean get_pmic(pmic_pm_type pm_type, int *value);
+#endif
 
 #endif /* __LINUX_PMIC_H */
