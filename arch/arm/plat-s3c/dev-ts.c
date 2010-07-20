@@ -15,16 +15,39 @@
 #include <linux/platform_device.h>
 
 #include <mach/map.h>
+#include <asm/irq.h>
 #include <plat/devs.h>
 #include <plat/cpu.h>
-#include <plat/adcts.h>
 #include <plat/ts.h>
 
 /* Touch srcreen */
+#if 0
+static struct resource s3c_ts_resource[] = {
+	[0] = {
+		.start = S3C_PA_ADC,
+		.end   = S3C_PA_ADC + SZ_4K - 1,
+		.flags = IORESOURCE_MEM,
+	},
+	[1] = {
+		.start = IRQ_PENDN,
+		.end   = IRQ_PENDN,
+		.flags = IORESOURCE_IRQ,
+	},
+	[2] = {
+		.start = IRQ_ADC,
+		.end   = IRQ_ADC,
+		.flags = IORESOURCE_IRQ,
+	}
+	
+};
+
 struct platform_device s3c_device_ts = {
 	.name		  = "s3c-ts",
 	.id		  = -1,
+	.num_resources	  = ARRAY_SIZE(s3c_ts_resource),
+	.resource	  = s3c_ts_resource,
 };
+#endif
 
 void __init s3c_ts_set_platdata(struct s3c_ts_mach_info *pd)
 {

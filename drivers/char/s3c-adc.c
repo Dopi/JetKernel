@@ -1,5 +1,4 @@
-/* linux/arch/arm/plat-s3c64xx/adc.c
- *
+/*
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -66,35 +65,36 @@
 #define ADC_WITH_TOUCHSCREEN
 
 static struct clk	*adc_clock;
-
 static void __iomem 	*base_addr;
-void __iomem *s3c_adc_base_addr;
-EXPORT_SYMBOL(s3c_adc_base_addr);
-
 static int adc_port =  0;
 struct s3c_adc_mach_info *plat_data;
 
+static int ready_to_work = 0;
 
 #ifdef ADC_WITH_TOUCHSCREEN
 static DEFINE_MUTEX(adc_mutex);
-static DECLARE_MUTEX(adc_sem);
+struct mutex *g_s3c_adc_mutex = &adc_mutex;
+
+#ifndef ADC_WITH_TOUCHSCREEN
+static struct resource	*adc_mem;
+#endif
 
 static unsigned long data_for_ADCCON;
 static unsigned long data_for_ADCTSC;
 
-static void s3c_adc_save_SFR_on_ADC(void)
-{
-	data_for_ADCCON = readl(base_addr + S3C_ADCCON);
-	data_for_ADCTSC = readl(base_addr + S3C_ADCTSC);
+static void s3c_adc_save_SFR_on_ADC(void) {
+
+	data_for_ADCCON = readl(base_addr+S3C_ADCCON);
+	data_for_ADCTSC = readl(base_addr+S3C_ADCTSC);
 }
 
-static void s3c_adc_restore_SFR_on_ADC(void)
-{
-	writel(data_for_ADCCON, base_addr + S3C_ADCCON);
-	writel(data_for_ADCTSC, base_addr + S3C_ADCTSC);
+static void s3c_adc_restore_SFR_on_ADC(void) {
+
+	writel(data_for_ADCCON, base_addr+S3C_ADCCON);
+	writel(data_for_ADCTSC, base_addr+S3C_ADCTSC);
 }
 #else
-static struct resource	*adc_mem;
+static DEFINE_MUTEX(adc_mutex);
 #endif
 
 static int s3c_adc_open(struct inode *inode, struct file *file)
@@ -103,103 +103,103 @@ static int s3c_adc_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
-unsigned int s3c_adc_convert(void)
+int s3c_adc_convert(void)
 {
 	unsigned int adc_return = 0;
 	unsigned long data0;
 	unsigned long data1;
+	int i = 0;
 
-	writel(readl(base_addr + S3C_ADCCON) | S3C_ADCCON_SELMUX(adc_port), base_addr + S3C_ADCCON);
-
-	udelay(10);
-
-	writel(readl(base_addr + S3C_ADCCON) | S3C_ADCCON_ENABLE_START, base_addr + S3C_ADCCON);
-
-	do {
-		data0 = readl(base_addr + S3C_ADCCON);
-	} while(!(data0 & S3C_ADCCON_ECFLG));
-
-	data1 = readl(base_addr + S3C_ADCDAT0);
-
-	if (plat_data->resolution == 12)
-		adc_return = data1 & S3C_ADCDAT0_XPDATA_MASK_12BIT;
-	else
-		adc_return = data1 & S3C_ADCDAT0_XPDATA_MASK;
-
-	return adc_return;
-}
-
-/* 12bit resolution, prescaler = 49 */
-unsigned int s3c_adc_conv(unsigned int channel)
-{
-	unsigned int adc_return = 0;
-	unsigned long data0;
-	unsigned long data1;
-	int count=0;
+	if (!ready_to_work) {
+		pr_err("%s:E: tried to read ADC before ready to work\n", __func__);
+		return -EIO;
+	}
 	
-	unsigned long temp;
+	writel((readl(base_addr+S3C_ADCCON) & ~S3C_ADCCON_MUXMASK)
+			| S3C_ADCCON_SELMUX(adc_port), base_addr+S3C_ADCCON);
 
-	down(&adc_sem);
+	/* Normal Operation Mode */
+	writel(readl(base_addr+S3C_ADCCON) & ~S3C_ADCCON_STDBM,
+			base_addr+S3C_ADCCON);
 
-	temp = readl(base_addr + S3C_ADCCON);
-	temp &= ~((0x7) << 3);	/* erase previous channel. */
-	writel(temp, base_addr + S3C_ADCCON);
-
-//	printk("called s3c_adc_conv\n");
-	writel(readl(base_addr + S3C_ADCCON) | S3C_ADCCON_SELMUX(channel), base_addr + S3C_ADCCON);
-//	printk("ADCCON : 0x%08x\n", readl(base_addr + S3C_ADCCON));
-	udelay(10);
-	writel(readl(base_addr + S3C_ADCCON) | S3C_ADCCON_ENABLE_START, base_addr + S3C_ADCCON);
-
-//	printk("before do~while\n");
 	do {
-		data0 = readl(base_addr + S3C_ADCCON);
-		count++;
-		if(count>10000){
-			printk("fail converting\n");
+		writel(readl(base_addr+S3C_ADCCON) | S3C_ADCCON_ENABLE_START,
+				base_addr+S3C_ADCCON);
+
+		udelay(10);
+
+		data0 = readl(base_addr+S3C_ADCCON);
+		if (!(data0 & S3C_ADCCON_ENABLE_START) && (data0 & S3C_ADCCON_ECFLG)) {
+			data1 = readl(base_addr+S3C_ADCDAT0);
 			break;
+		} else {
+			pr_err("%s:E: read ADC failed(i=%d,port=%d)\n",
+					__func__, i, adc_port);
+			if (++i > 10)
+				goto __end__;
 		}
-	} while(!(data0 & S3C_ADCCON_ECFLG));
-
-	data1 = readl(base_addr + S3C_ADCDAT0);
+	} while (1);
 
 	if (plat_data->resolution == 12)
+	{
 		adc_return = data1 & S3C_ADCDAT0_XPDATA_MASK_12BIT;
-	else
+	} else {
 		adc_return = data1 & S3C_ADCDAT0_XPDATA_MASK;
+	}
 
-	up(&adc_sem);
-
-//	printk("[ADCCON] 0x%08x, [count] %05d [data] %05d\n", readl(base_addr + S3C_ADCCON), count, adc_return);
+__end__:
+	/* Standby Mode */
+	writel(readl(base_addr+S3C_ADCCON) | S3C_ADCCON_STDBM,
+			base_addr+S3C_ADCCON);
 
 	return adc_return;
 }
-EXPORT_SYMBOL(s3c_adc_conv);
 
-
-int s3c_adc_get(struct s3c_adc_request *req)
+#if 0
+static int s3c_adc_get(struct s3c_adc_request *req)
 {
+	unsigned adc_channel = req->channel;
 	int adc_value_ret = 0;
-	int old_port = adc_port;
-	
-#ifdef ADC_WITH_TOUCHSCREEN
-	mutex_lock(&adc_mutex);
-	s3c_adc_save_SFR_on_ADC();
-#endif
-	
-	adc_port = req->channel;
+
 	adc_value_ret = s3c_adc_convert();
-	adc_port = old_port;
-	
-#ifdef ADC_WITH_TOUCHSCREEN
-	s3c_adc_restore_SFR_on_ADC();
-	mutex_unlock(&adc_mutex);
-#endif
-	req->callback(req->channel, req->param, adc_value_ret);
+
+	req->callback(adc_channel,req->param,adc_value_ret);
 
 	return 0;
 }
-EXPORT_SYMBOL(s3c_adc_get);
+#endif
+
+int s3c_adc_get_adc_data(int channel)
+{	
+	int adc_value = 0;
+	int cur_adc_port = 0;
+
+#ifdef ADC_WITH_TOUCHSCREEN
+        mutex_lock(&adc_mutex);
+	s3c_adc_save_SFR_on_ADC();
+#else
+        mutex_lock(&adc_mutex);
+#endif
+
+	cur_adc_port = adc_port;
+	adc_port = channel;
+
+	adc_value = s3c_adc_convert();
+
+	adc_port = cur_adc_port;
+
+#ifdef ADC_WITH_TOUCHSCREEN
+	s3c_adc_restore_SFR_on_ADC();
+	mutex_unlock(&adc_mutex);
+#else
+	mutex_unlock(&adc_mutex);
+#endif
+
+	pr_debug("%s : Converted Value: %03d\n", __FUNCTION__, adc_value);
+
+	return adc_value;
+}
+EXPORT_SYMBOL(s3c_adc_get_adc_data);
 
 
 static ssize_t
@@ -238,15 +238,17 @@ static int s3c_adc_ioctl(struct inode *inode, struct file *file,
        printk(KERN_INFO " s3c_adc_ioctl(cmd:: %d) entered\n", cmd);
 
 	switch (cmd) {
-		case ADC_INPUT_PIN:
-			adc_port = (unsigned int) arg;
 
-			if (adc_port >= 4)
-				printk(" %d is already reserved for TouchScreen\n", adc_port);
-			return 0;
+		case ADC_INPUT_PIN:
+			  adc_port = (unsigned int) arg;
+
+                       if (adc_port >= 4)
+                            printk(" %d is already reserved for TouchScreen\n", adc_port);
+                      return 0;
 
               default:
 			return -ENOIOCTLCMD;
+
 	}
 }
 
@@ -267,8 +269,9 @@ static struct s3c_adc_mach_info *s3c_adc_get_platdata(struct device *dev)
 {
 	if(dev->platform_data != NULL)
 	{
+		printk(KERN_INFO "ADC platform data read\n");
 		return (struct s3c_adc_mach_info*) dev->platform_data;
-	} else {
+	}else{
 		printk(KERN_INFO "No ADC platform data \n");
 		return 0;
 	}
@@ -294,8 +297,8 @@ static int __init s3c_adc_probe(struct platform_device *pdev)
 	}
 
 	size = (res->end - res->start) + 1;
-
-#if !defined(ADC_WITH_TOUCHSCREEN)
+	
+#ifndef ADC_WITH_TOUCHSCREEN
 	adc_mem = request_mem_region(res->start, size, pdev->name);
 	if(adc_mem == NULL){
 		dev_err(dev, "failed to get memory region\n");
@@ -310,7 +313,7 @@ static int __init s3c_adc_probe(struct platform_device *pdev)
 		ret = -ENOENT;
 		goto err_map;
 	}
-
+	
 	adc_clock = clk_get(&pdev->dev, "adc");
 
 	if(IS_ERR(adc_clock)){
@@ -327,13 +330,13 @@ static int __init s3c_adc_probe(struct platform_device *pdev)
 	if ((plat_data->presc & 0xff) > 0)
 		writel(S3C_ADCCON_PRSCEN | S3C_ADCCON_PRSCVL(plat_data->presc & 0xff), base_addr + S3C_ADCCON);
 	else
-		writel(0, base_addr + S3C_ADCCON);
+		writel(0, base_addr+S3C_ADCCON);
 
 	/* Initialise registers */
 	if ((plat_data->delay & 0xffff) > 0)
 		writel(plat_data->delay & 0xffff, base_addr + S3C_ADCDLY);
 
-	if (plat_data->resolution == 12)
+	if (plat_data->resolution == 12) 
 		writel(readl(base_addr + S3C_ADCCON) | S3C_ADCCON_RESSEL_12BIT, base_addr + S3C_ADCCON);
 
 	ret = misc_register(&s3c_adc_miscdev);
@@ -343,7 +346,8 @@ static int __init s3c_adc_probe(struct platform_device *pdev)
 		goto err_clk;
 	}
 
-	printk(KERN_INFO "S5P64XX ADC driver successfully probed\n");
+	ready_to_work = 1;
+	printk(KERN_INFO "S3C64XX ADC driver successfully probed !\n");
 
 	return 0;
 
@@ -354,12 +358,11 @@ err_clk:
 err_map:
 	iounmap(base_addr);
 
-#if !defined(ADC_WITH_TOUCHSCREEN)
+#ifndef ADC_WITH_TOUCHSCREEN
 err_req:
 	release_resource(adc_mem);
 	kfree(adc_mem);
 #endif
-
 	return ret;
 }
 
@@ -375,9 +378,11 @@ static unsigned int adccon, adctsc, adcdly;
 
 static int s3c_adc_suspend(struct platform_device *dev, pm_message_t state)
 {
-	adccon = readl(base_addr + S3C_ADCCON);
-	adctsc = readl(base_addr + S3C_ADCTSC);
-	adcdly = readl(base_addr + S3C_ADCDLY);
+	ready_to_work = 0;
+
+	adccon = readl(base_addr+S3C_ADCCON);
+	adctsc = readl(base_addr+S3C_ADCTSC);
+	adcdly = readl(base_addr+S3C_ADCDLY);
 
 	clk_disable(adc_clock);
 
@@ -388,9 +393,11 @@ static int s3c_adc_resume(struct platform_device *pdev)
 {
 	clk_enable(adc_clock);
 
-	writel(adccon, base_addr + S3C_ADCCON);
-	writel(adctsc, base_addr + S3C_ADCTSC);
-	writel(adcdly, base_addr + S3C_ADCDLY);
+	writel(adccon, base_addr+S3C_ADCCON);
+	writel(adctsc, base_addr+S3C_ADCTSC);
+	writel(adcdly, base_addr+S3C_ADCDLY);
+
+	ready_to_work = 1;
 
 	return 0;
 }
@@ -410,7 +417,7 @@ static struct platform_driver s3c_adc_driver = {
 	},
 };
 
-static char banner[] __initdata = KERN_INFO "S3C64XX ADC driver, (c) 2008 Samsung Electronics\n";
+static char banner[] __initdata = KERN_INFO "S3C64XX ADC driver, (c) 2007 Samsung Electronics\n";
 
 int __init s3c_adc_init(void)
 {
@@ -426,7 +433,6 @@ void __exit s3c_adc_exit(void)
 module_init(s3c_adc_init);
 module_exit(s3c_adc_exit);
 
-MODULE_AUTHOR("boyko.lee@samsung.com");
+MODULE_AUTHOR("boyko.lee@samsung.com>");
 MODULE_DESCRIPTION("S3C64XX ADC driver");
 MODULE_LICENSE("GPL");
-

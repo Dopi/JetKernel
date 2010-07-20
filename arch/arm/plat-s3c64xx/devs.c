@@ -28,7 +28,6 @@
 #include <plat/regs-spi.h>
 #include <plat/devs.h>
 #include <plat/adc.h>
-#include <plat/adcts.h>
 #include <linux/android_pmem.h>
 #include <plat/reserved_mem.h>
 
@@ -245,51 +244,8 @@ struct platform_device s3c_device_lcd = {
 	}
 };
 
-#ifdef CONFIG_S3C64XX_ADCTS
-/* ADCTS */
-static struct resource s3c_adcts_resource[] = {
-	[0] = {
-		.start = S3C_PA_ADC,
-		.end   = S3C_PA_ADC + SZ_4K - 1,
-		.flags = IORESOURCE_MEM,
-	},
-	[1] = {
-		.start = IRQ_PENDN,
-		.end   = IRQ_PENDN,
-		.flags = IORESOURCE_IRQ,
-	},
-	[2] = {
-		.start = IRQ_ADC,
-		.end   = IRQ_ADC,
-		.flags = IORESOURCE_IRQ,
-	}
-
-};
-
-struct platform_device s3c_device_adcts = {
-	.name		  = "s3c-adcts",
-	.id		  = -1,
-	.num_resources	  = ARRAY_SIZE(s3c_adcts_resource),
-	.resource	  = s3c_adcts_resource,
-};
-
-void __init s3c_adcts_set_platdata(struct s3c_adcts_plat_info *pd)
-{
-	struct s3c_adcts_plat_info *npd;
-
-	npd = kmalloc(sizeof(*npd), GFP_KERNEL);
-	if (npd) {
-		memcpy(npd, pd, sizeof(*npd));
-		s3c_device_adcts.dev.platform_data = npd;
-	} else {
-		printk(KERN_ERR "no memory for ADC platform data\n");
-	}
-}
-EXPORT_SYMBOL(s3c_device_adcts);
-
-#else
-
-/* ADC : Old ADC driver */
+#if defined(CONFIG_S3C_ADC)
+/* ADC */
 static struct resource s3c_adc_resource[] = {
 	[0] = {
 		.start = S3C_PA_ADC,
@@ -329,7 +285,6 @@ void __init s3c_adc_set_platdata(struct s3c_adc_mach_info *pd)
 	}
 }
 EXPORT_SYMBOL(s3c_device_adc);
-
 #endif
 
 /* Keypad interface */

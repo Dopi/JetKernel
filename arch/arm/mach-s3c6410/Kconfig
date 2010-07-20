@@ -45,7 +45,6 @@ config MACH_INSTINCTQ
 	select S3C_DEV_I2C1
 	select S3C6410_SETUP_SDHCI
 	select S3C64XX_SETUP_I2C1
-	select S3C64XX_ADC
 #	select S3C_DMA_PL080_NEW
 	help
 	  Machine support for the Samsung INSTINCTQ

@@ -35,7 +35,6 @@
 #include <mach/map.h>
 
 #include <plat/regs-serial.h>
-#include <plat/devs.h>
 
 #include "samsung.h"
 
