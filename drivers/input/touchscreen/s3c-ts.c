@@ -62,8 +62,22 @@
 #include <plat/ts.h>
 #include <mach/irqs.h>
 
+#include <plat/gpio-cfg.h>
+
 #define CONFIG_TOUCHSCREEN_S3C_DEBUG
-//#undef CONFIG_TOUCHSCREEN_S3C_DEBUG
+#undef CONFIG_TOUCHSCREEN_S3C_DEBUG
+#define CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
+#undef CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
+#define TOUCHSCREEN_S3C_CALIBRATE	// enable calibration logging
+#undef TOUCHSCREEN_S3C_CALIBRATE
+
+#ifdef TOUCHSCREEN_S3C_CALIBRATE
+	int calibrate_count=0;
+	int calibrate_min_x=S3C_ADCDAT0_XPDATA_MASK_12BIT << ts->shift;
+	int calibrate_max_x=0;
+	int calibrate_min_y=S3C_ADCDAT1_YPDATA_MASK_12BIT << ts->shift;
+	int calibrate_max_y=0;
+#endif
 
 /* For ts->dev.id.version */
 #define S3C_TSVERSION	0x0101
@@ -184,6 +198,26 @@ static void touch_timer_fire(unsigned long data)
 				printk(DEBUG_LVL "T: %06d, X: %03ld, Y: %03ld\n", (int)tv.tv_usec, ts->xp, ts->yp);
 			}
 #endif
+#ifdef TOUCHSCREEN_S3C_CALIBRATE
+			if(ts->xp < calibrate_min_x) calibrate_min_x = ts->xp;
+			if(ts->xp > calibrate_max_x) calibrate_max_x = ts->xp;
+			if(ts->yp < calibrate_min_y) calibrate_min_y = ts->yp;
+			if(ts->yp > calibrate_max_y) calibrate_max_y = ts->yp;
+			calibrate_count++;
+
+			if(calibrate_count=50000)
+			{
+				printk(DEBUG_LVL "Xmin: %03ld, Xmax: %03ld, Ymin: %03ld\n, Ymax: %03ld", 
+					calibrate_min_x >> ts->shift, calibrate_max_x >> ts->shift, 
+					calibrate_min_y >> ts->shift, calibrate_max_y >> ts->shift);
+
+				calibrate_count=0;
+				//calibrate_min_x=S3C_ADCDAT0_XPDATA_MASK_12BIT << ts->shift;
+				//calibrate_max_x=0;
+				//calibrate_min_y=S3C_ADCDAT1_YPDATA_MASK_12BIT << ts->shift;
+				//calibrate_max_y=0;
+			}
+#endif
 			ts->xp = (ts->xp >> ts->shift);
 			ts->yp = (ts->yp >> ts->shift);
 			if (ts->pressure < ts->threshold_pressure) {
@@ -268,9 +302,13 @@ static int calc_pressure(void)
 		 (unsigned int)pressure_info[1] - 100000);
 
 	do_div(pressure_info[0], (2^ts->resol_bit)*100000);
+#ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG
 	printk(DEBUG_LVL "Raw pressure [%llu]\n", pressure_info[0]);
+#endif
 	ts->pressure = (int)(pressure_info[0]);
+#ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG
 	printk(DEBUG_LVL "pressure = %d\n", ts->pressure);
+#endif
 
 	return 0;
 }
@@ -316,6 +354,10 @@ start_conversion:
 				(data0 & S3C_ADCDAT0_XPDATA_MASK_12BIT);
 		ts->xp += S3C_ADCDAT1_YPDATA_MASK_12BIT -
 				(data1 & S3C_ADCDAT1_YPDATA_MASK_12BIT);
+#elif defined(CONFIG_TOUCHSCREEN_JET)
+		ts->xp += S3C_ADCDAT0_XPDATA_MASK_12BIT -
+				(data0 & S3C_ADCDAT0_XPDATA_MASK_12BIT);
+		ts->yp += data1 & S3C_ADCDAT1_YPDATA_MASK_12BIT;
 #else
 		ts->xp += data0 & S3C_ADCDAT0_XPDATA_MASK_12BIT;
 		ts->yp += data1 & S3C_ADCDAT1_YPDATA_MASK_12BIT;
@@ -326,6 +368,10 @@ start_conversion:
 				(data0 & S3C_ADCDAT0_XPDATA_MASK);
 		ts->xp += S3C_ADCDAT1_YPDATA_MASK -
 				(data1 & S3C_ADCDAT1_YPDATA_MASK);
+#elif defined(CONFIG_TOUCHSCREEN_JET)
+		ts->xp += S3C_ADCDAT0_XPDATA_MASK -
+				(data0 & S3C_ADCDAT0_XPDATA_MASK);
+		ts->yp += data1 & S3C_ADCDAT1_YPDATA_MASK;
 #else
 		ts->xp += data0 & S3C_ADCDAT0_XPDATA_MASK;
 		ts->yp += data1 & S3C_ADCDAT1_YPDATA_MASK;
@@ -333,7 +379,9 @@ start_conversion:
 	}
 
 	ts->count++;
+#ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG
 	printk(DEBUG_LVL "count [%d]\n", ts->count);
+#endif
 
 	if (ts->count < (1<<ts->shift)) {
 		writel(S3C_ADCTSC_PULL_UP_DISABLE | AUTOPST, ts_base+S3C_ADCTSC);
@@ -406,6 +454,11 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 
 	clk_enable(ts_clock);
 
+	// enable TS switch
+	s3c_gpio_cfgpin(GPIO_TOUCH_EN, S3C_GPIO_SFN(GPIO_TOUCH_EN_AF));
+	s3c_gpio_setpull(GPIO_TOUCH_EN, S3C_GPIO_PULL_UP);
+	gpio_direction_output(GPIO_TOUCH_EN, GPIO_LEVEL_HIGH);
+
 	s3c_ts_cfg = s3c_ts_get_platdata(&pdev->dev);
 
 	if ((s3c_ts_cfg->presc&0xff) > 0)
@@ -456,8 +509,10 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 	ts->dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
 
 	if (s3c_ts_cfg->resol_bit == 12) {
-		input_set_abs_params(ts->dev, ABS_X, 0, 0xFFF, 0, 0);
-		input_set_abs_params(ts->dev, ABS_Y, 0, 0xFFF, 0, 0);
+//		input_set_abs_params(ts->dev, ABS_X, 0, 0xFFF, 0, 0);
+		input_set_abs_params(ts->dev, ABS_X, 1081, 2854, 0, 0);		// simple calibration
+//		input_set_abs_params(ts->dev, ABS_Y, 0, 0xFFF, 0, 0);
+		input_set_abs_params(ts->dev, ABS_Y, 1081, 3056, 0, 0);		// simple calibration
 	} else {
 		input_set_abs_params(ts->dev, ABS_X, 0, 0x3FF, 0, 0);
 		input_set_abs_params(ts->dev, ABS_Y, 0, 0x3FF, 0, 0);
@@ -494,6 +549,8 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 		ret = -EIO;
 		goto err_irq;
 	}
+	else
+		printk(KERN_INFO "s3c_ts.c: TS_IRQ registered (%d) \n", ts_irq->start); // DEBUG
 
 	/* For IRQ_ADC */
 	ts_irq = platform_get_resource(pdev, IORESOURCE_IRQ, 1);
@@ -509,6 +566,8 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 		ret =  -EIO;
 		goto err_irq;
 	}
+	else
+		printk(KERN_INFO "s3c_ts.c: ADC_IRQ registered (%d) \n", ts_irq->start); // DEBUG
 
 	printk(KERN_INFO "%s got loaded successfully : %d bits\n", s3c_ts_name, s3c_ts_cfg->resol_bit);
 
@@ -619,7 +678,27 @@ static int __init s3c_ts_init(void)
 
 	printk(banner);
 	res = platform_driver_register(&s3c_ts_driver);
-//	while (1==1) res = res;
+
+#ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
+	while (1==1)
+	{
+		unsigned long data0;
+		unsigned long data1;
+		int adc;
+
+		for(adc=0; adc<4; adc++)
+		{
+
+			writel(readl(ts_base+S3C_ADCCON)|S3C_ADCCON_RESSEL_12BIT,
+				ts_base+S3C_ADCCON);
+
+			data0 = readl(ts_base+S3C_ADCDAT0);
+			data1 = readl(ts_base+S3C_ADCDAT1);
+
+		}
+	}
+#endif // #ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
+
 	return res;
 }
 

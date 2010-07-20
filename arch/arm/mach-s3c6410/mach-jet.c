@@ -178,11 +178,6 @@ struct platform_device sec_device_dpram = {
 	.id		= -1,
 };
 
-struct platform_device sec_device_max9877 = {
-    .name   = "max9877",
-	.id     = -1,
-};
-
 //mk93.lee
 struct platform_device sec_device_battery = {
 	.name   = "instinctq-battery",
@@ -328,7 +323,6 @@ static struct platform_device *instinctq_devices[] __initdata = {
 	&s3c_device_vpp,
 	&sec_device_backlight,
 	&sec_device_dpram,
-	&sec_device_max9877,
 	&sec_device_battery,
 	&sec_device_rfkill,
 	&sec_device_btsleep,  // BT_SLEEP_ENABLER
@@ -573,75 +567,6 @@ static void instinctq_switch_init(void)
 	if (device_create_file(switch_dev, &dev_attr_uart_sel) < 0)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_uart_sel.attr.name);
 };
-
-extern int s3c_ts_init(void);
-
-static void __init instinctq_machine_init(void)
-{
-	printk("INSTINCTQ Machine INIT : Board REV 0x%x\n", CONFIG_INSTINCTQ_REV);
-	
-	instinctq_init_gpio();
-
-	//MOTOR and VIBTONZE DISABLE
-	s3c_gpio_cfgpin(GPIO_VIB_EN, S3C_GPIO_SFN(GPIO_VIB_EN_AF));
-	s3c_gpio_setpull(GPIO_VIB_EN, S3C_GPIO_PULL_DOWN);
-	gpio_direction_output(GPIO_VIB_EN, GPIO_LEVEL_LOW);
-
-	s3c_i2c0_set_platdata(NULL);
-	s3c_i2c1_set_platdata(NULL);
-
-#if defined(CONFIG_TOUCHSCREEN_S3C)
-        s3c_ts_set_platdata(&s3c_ts_platform);
-#endif
-#ifdef CONFIG_S3C_ADC
-	s3c_adc_set_platdata(&s3c_adc_platform);
-#endif
-
-
-	i2c_register_board_info(0, i2c_devs0, ARRAY_SIZE(i2c_devs0));
-	i2c_register_board_info(1, i2c_devs1, ARRAY_SIZE(i2c_devs1));
-
-#ifdef CONFIG_I2C_GPIO
-	i2c_register_board_info(2, i2c_devs2, ARRAY_SIZE(i2c_devs2));
-	i2c_register_board_info(3, i2c_devs3, ARRAY_SIZE(i2c_devs3));
-#endif
-
-	platform_add_devices(instinctq_devices, ARRAY_SIZE(instinctq_devices));
-	s3c6410_add_mem_devices (&pmem_setting);
-
-	s3c6410_pm_init();
-
-	instinctq_set_qos();
-
-	pm_power_off = instinctq_pm_power_off;
-
-	register_reboot_notifier(&instinctq_reboot_notifier);
-
-	instinctq_switch_init();
-
-#ifdef CONFIG_SEC_LOG_BUF
-	sec_log_buf_init();
-#endif
-
-}
-
-MACHINE_START(INSTINCTQ, "SPH-M900")
-
-	/* Maintainer: Ben Dooks <ben@fluff.org> */
-	.phys_io		= S3C_PA_UART & 0xfff00000,
-	.io_pg_offst	= (((u32)S3C_VA_UART) >> 18) & 0xfffc,
-	.boot_params	= S3C64XX_PA_SDRAM + 0x100,
-
-	.init_irq		= s3c6410_init_irq,
-	.fixup			= instinctq_fixup,
-	.map_io			= instinctq_map_io,
-	.init_machine	= instinctq_machine_init,
-#ifndef CONFIG_HIGH_RES_TIMERS
-	.timer			= &s3c64xx_timer,
-#else
-	.timer			= &sec_timer,
-#endif /* CONFIG_HIGH_RES_TIMERS */
-MACHINE_END
 
 #if defined(CONFIG_RTC_DRV_S3C)
 /* RTC common Function for samsung APs*/
@@ -927,13 +852,14 @@ static int instinctq_gpio_table[][6] = {
 	{ GPIO_KEYSCAN_0, GPIO_KEYSCAN_0_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_KEYSCAN_1, GPIO_KEYSCAN_1_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_KEYSCAN_2, GPIO_KEYSCAN_2_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
-	{ GPIO_KEYSCAN_3, GPIO_KEYSCAN_3_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 #if !defined(CONFIG_JET_OPTION)
+	{ GPIO_KEYSCAN_3, GPIO_KEYSCAN_3_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_KEYSCAN_4, GPIO_KEYSCAN_4_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_KEYSCAN_5, GPIO_KEYSCAN_5_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_KEYSCAN_6, GPIO_KEYSCAN_6_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_KEYSCAN_7, GPIO_KEYSCAN_7_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 #endif
+	{ GPIO_TOUCH_EN, GPIO_TOUCH_EN_AF, GPIO_LEVEL_HIGH, S3C_GPIO_PULL_UP, 0, 0 },
 	{ GPIO_T_FLASH_DETECT, GPIO_T_FLASH_DETECT_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_PHONE_ON, GPIO_PHONE_ON_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_VIB_EN, GPIO_VIB_EN_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
@@ -1030,8 +956,8 @@ static int instinctq_sleep_gpio_table[][6] = {
 	{ GPIO_KEYSCAN_5, 1, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_KEYSCAN_6, 1, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_KEYSCAN_7, 1, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
-	{ GPIO_TOUCH_EN, GPIO_TOUCH_EN_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
 #endif
+	{ GPIO_TOUCH_EN, GPIO_TOUCH_EN_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_PHONE_ON, GPIO_PHONE_ON_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
 	/* GPM */
 	{ GPIO_FM_I2C_SCL, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
@@ -1050,27 +976,27 @@ static int instinctq_sleep_gpio_table[][6] = {
 
 static void check_pmic(void)
 {
-#if !defined(CONFIG_JET_OPTION)
-	unsigned char reg_buff = 0;
-	if (Get_MAX8698_PM_REG(ELDO3, &reg_buff)) {
-		pr_info("%s: OTGI 1.2V (%d)\n", __func__, reg_buff);
+/*	unsigned char reg_buff = 0;
+
+	if (Get_MAX8906_PM_REG(REG_CARD1TV, &reg_buff)) {
+		pr_info("%s: CARD1TV (%d)\n", __func__, reg_buff);
 	}
-	if (Get_MAX8698_PM_REG(ELDO4, &reg_buff)) {
-		pr_info("%s: BT_WL 2.6V (%d)\n", __func__, reg_buff);
+	if (Get_MAX8906_PM_REG(REG_CARD1EN, &reg_buff)) {
+		pr_info("%s: CARD1EN 2.6V (%d)\n", __func__, reg_buff);
 	}
-	if (Get_MAX8698_PM_REG(ELDO5, &reg_buff)) {
-		pr_info("%s: MMC 3.0V (%d)\n", __func__, reg_buff);
+	if (Get_MAX8906_PM_REG(REG_CARD1FSEQ, &reg_buff)) {
+		pr_info("%s: REG_CARD1FSEQ (%d)\n", __func__, reg_buff);
 	}
-	if (Get_MAX8698_PM_REG(ELDO6, &reg_buff)) {
-		pr_info("%s: VLCD 1.8V (%d)\n", __func__, reg_buff);
+	if (Get_MAX8906_PM_REG(REG_CARD2TV, &reg_buff)) {
+		pr_info("%s: CARD2TV (%d)\n", __func__, reg_buff);
 	}
-	if (Get_MAX8698_PM_REG(ELDO7, &reg_buff)) {
-		pr_info("%s: VLCD 2.8V (%d)\n", __func__, reg_buff);
+	if (Get_MAX8906_PM_REG(REG_CARD2EN, &reg_buff)) {
+		pr_info("%s: CARD2EN (%d)\n", __func__, reg_buff);
 	}
-	if (Get_MAX8698_PM_REG(ELDO8, &reg_buff)) {
-		pr_info("%s: OTG 3.3V (%d)\n", __func__, reg_buff);
+	if (Get_MAX8906_PM_REG(REG_CARD2FSEQ, &reg_buff)) {
+		pr_info("%s: REG_CARD2FSEQ (%d)\n", __func__, reg_buff);
 	}
-#endif
+*/
 }
 
 void s3c_config_sleep_gpio(void)
@@ -1139,3 +1065,74 @@ void s3c_config_wakeup_source(void)
 	}
 }
 EXPORT_SYMBOL(s3c_config_wakeup_source);
+
+extern int s3c_ts_init(void);
+
+static void __init instinctq_machine_init(void)
+{
+	printk("INSTINCTQ Machine INIT : Board REV 0x%x\n", CONFIG_INSTINCTQ_REV);
+	
+	instinctq_init_gpio();
+
+	//MOTOR and VIBTONZE DISABLE
+	s3c_gpio_cfgpin(GPIO_VIB_EN, S3C_GPIO_SFN(GPIO_VIB_EN_AF));
+	s3c_gpio_setpull(GPIO_VIB_EN, S3C_GPIO_PULL_DOWN);
+	gpio_direction_output(GPIO_VIB_EN, GPIO_LEVEL_LOW);
+
+	s3c_i2c0_set_platdata(NULL);
+	s3c_i2c1_set_platdata(NULL);
+
+#if defined(CONFIG_TOUCHSCREEN_S3C)
+        s3c_ts_set_platdata(&s3c_ts_platform);
+#endif
+#ifdef CONFIG_S3C_ADC
+	s3c_adc_set_platdata(&s3c_adc_platform);
+#endif
+
+
+	i2c_register_board_info(0, i2c_devs0, ARRAY_SIZE(i2c_devs0));
+	i2c_register_board_info(1, i2c_devs1, ARRAY_SIZE(i2c_devs1));
+
+#ifdef CONFIG_I2C_GPIO
+	i2c_register_board_info(2, i2c_devs2, ARRAY_SIZE(i2c_devs2));
+	i2c_register_board_info(3, i2c_devs3, ARRAY_SIZE(i2c_devs3));
+#endif
+
+	platform_add_devices(instinctq_devices, ARRAY_SIZE(instinctq_devices));
+	s3c6410_add_mem_devices (&pmem_setting);
+
+	s3c6410_pm_init();
+
+	instinctq_set_qos();
+
+	pm_power_off = instinctq_pm_power_off;
+
+	register_reboot_notifier(&instinctq_reboot_notifier);
+
+	instinctq_switch_init();
+
+#ifdef CONFIG_SEC_LOG_BUF
+	sec_log_buf_init();
+#endif
+
+	check_pmic();
+}
+
+MACHINE_START(INSTINCTQ, "SPH-M900")
+
+	/* Maintainer: Ben Dooks <ben@fluff.org> */
+	.phys_io		= S3C_PA_UART & 0xfff00000,
+	.io_pg_offst	= (((u32)S3C_VA_UART) >> 18) & 0xfffc,
+	.boot_params	= S3C64XX_PA_SDRAM + 0x100,
+
+	.init_irq		= s3c6410_init_irq,
+	.fixup			= instinctq_fixup,
+	.map_io			= instinctq_map_io,
+	.init_machine	= instinctq_machine_init,
+#ifndef CONFIG_HIGH_RES_TIMERS
+	.timer			= &s3c64xx_timer,
+#else
+	.timer			= &sec_timer,
+#endif /* CONFIG_HIGH_RES_TIMERS */
+MACHINE_END
+
