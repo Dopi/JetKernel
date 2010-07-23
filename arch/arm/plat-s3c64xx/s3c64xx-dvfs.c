@@ -88,9 +88,15 @@ static unsigned char transition_state_532MHz[][2] = {
 /* frequency voltage matching table */
 static const unsigned int frequency_match_532MHz[][4] = {
 /* frequency, Mathced VDD ARM voltage , Matched VDD INT*/
+#ifdef CONFIG_PMIC_MAX8906
+	{532000, 1100, 1200, 0},
+	{266000, 1100, 1200, 1},
+	{133000, 1000, 1200, 2},
+#else
 	{532000, 1100, 1250, 0},
 	{266000, 1100, 1250, 1},
 	{133000, 1000, 1250, 2},
+#endif
 #ifdef USE_DVFS_AL1_LEVEL
 	{133000, 1050, 1050, 3},
 	{66000, 1050, 1050, 4},
@@ -102,10 +108,17 @@ static const unsigned int frequency_match_532MHz[][4] = {
 /* frequency voltage matching table */
 static const unsigned int frequency_match_800MHz[][4] = {
 /* frequency, Mathced VDD ARM voltage , Matched VDD INT*/
+#ifdef CONFIG_PMIC_MAX8906
+	{800000, 1350, 1200, 0},
+	{400000, 1150, 1200, 1},
+	{266000, 1100, 1200, 2},
+	{133000, 1050, 1200, 3},
+#else
 	{800000, 1350, 1250, 0},
 	{400000, 1150, 1250, 1},
 	{266000, 1100, 1250, 2},
 	{133000, 1050, 1250, 3},
+#endif
 #ifdef USE_DVFS_AL1_LEVEL
 	{133000, 1050, 1050, 4},
 	{66000, 1050, 1050, 5},
