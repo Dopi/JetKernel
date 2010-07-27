@@ -77,19 +77,23 @@ EXPORT_SYMBOL(backlight_level_ctrl);
 #define S3C_FB_VSW			2 		/* Vsync Width */
 #define S3C_FB_VBP			6 		/* Back Porch */
 
-//#define S3C_FB_HRES             320     /* Horizon pixel Resolition */
+//#define S3C_FB_HRES             320     /* Horizontal pixel Resolition */
 //#define S3C_FB_VRES             480     /* Vertical pixel Resolution */
-#define S3C_FB_HRES             480     /* Horizon pixel Resolition */
+#define S3C_FB_HRES             480     /* Horizontal pixel Resolition */
 #define S3C_FB_VRES             800     /* Vertical pixel Resolution */
 #define S3C_FB_HRES_VIRTUAL     S3C_FB_HRES     /* Horizon pixel Resolition */
 #define S3C_FB_VRES_VIRTUAL     S3C_FB_VRES * 2 /* Vertial pixel Resolution */
+#define S3C_FB_WIDTH             40      /* Horizontal screen size in mm */
+#define S3C_FB_HEIGHT            67      /* Vertical screen size in mm */
 
-//#define S3C_FB_HRES_OSD         320     /* Horizon pixel Resolition */
+//#define S3C_FB_HRES_OSD         320     /* Horizontal pixel Resolition */
 //#define S3C_FB_VRES_OSD         480     /* Vertial pixel Resolution */
-#define S3C_FB_HRES_OSD         480     /* Horizon pixel Resolition */
+#define S3C_FB_HRES_OSD         480     /* Horizontal pixel Resolition */
 #define S3C_FB_VRES_OSD         800     /* Vertial pixel Resolution */
 #define S3C_FB_HRES_OSD_VIRTUAL S3C_FB_HRES_OSD     /* Horizon pixel Resolition */
 #define S3C_FB_VRES_OSD_VIRTUAL S3C_FB_VRES_OSD * 2 /* Vertial pixel Resolution */
+#define S3C_FB_WIDTH_OSD             40      /* Horizontal screen size in mm */
+#define S3C_FB_HEIGHT_OSD            67      /* Vertical screen size in mm */
 
 #define S3C_FB_VFRAME_FREQ  	60		/* Frame Rate Frequency */
 
@@ -122,8 +126,8 @@ static void s3cfb_set_fimd_info(void)
 	s3c_fimd.vidosd1b 	= S3C_VIDOSDxB_OSD_RBX_F(S3C_FB_HRES_OSD - 1) |
 							S3C_VIDOSDxB_OSD_RBY_F(S3C_FB_VRES_OSD - 1);
 
-	s3c_fimd.width		= S3C_FB_HRES;
-	s3c_fimd.height 	= S3C_FB_VRES;
+	s3c_fimd.width		= S3C_FB_HRES;	//S3C_FB_WIDTH;
+	s3c_fimd.height 	= S3C_FB_VRES;	//S3C_FB_HEIGHT;
 	s3c_fimd.xres 		= S3C_FB_HRES;
 	s3c_fimd.yres 		= S3C_FB_VRES;
 
@@ -135,8 +139,8 @@ static void s3cfb_set_fimd_info(void)
 	s3c_fimd.yres_virtual = S3C_FB_VRES;
 #endif
 
-	s3c_fimd.osd_width 	= S3C_FB_HRES_OSD;
-	s3c_fimd.osd_height = S3C_FB_VRES_OSD;
+	s3c_fimd.osd_width 	= S3C_FB_HRES_OSD; //S3C_FB_WIDTH_OSD;
+	s3c_fimd.osd_height 	= S3C_FB_VRES_OSD; //S3C_FB_HEIGHT_OSD;
 	s3c_fimd.osd_xres 	= S3C_FB_HRES_OSD;
 	s3c_fimd.osd_yres 	= S3C_FB_VRES_OSD;
 
@@ -157,9 +161,9 @@ static void s3cfb_set_fimd_info(void)
 	s3c_fimd.right_margin 	= S3C_FB_HBP;
 	s3c_fimd.lower_margin 	= S3C_FB_VBP;
 
-	s3c_fimd.set_lcd_power		 = lcd_power_ctrl;
-	s3c_fimd.set_backlight_power = backlight_power_ctrl;
-	s3c_fimd.set_brightness 	 = backlight_level_ctrl;
+	s3c_fimd.set_lcd_power		= lcd_power_ctrl;
+	s3c_fimd.set_backlight_power 	= backlight_power_ctrl;
+	s3c_fimd.set_brightness 	= backlight_level_ctrl;
 
 	s3c_fimd.backlight_min = BACKLIGHT_LEVEL_MIN;
 	s3c_fimd.backlight_max = BACKLIGHT_LEVEL_MAX;

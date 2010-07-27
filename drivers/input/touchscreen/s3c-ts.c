@@ -489,6 +489,7 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 			break;
 		}
 	}
+	printk(KERN_INFO "s3c_ts.c: delay=%d oversampling=%d \n", s3c_ts_cfg->delay & 0xffff, s3c_ts_cfg->oversampling_shift); // DEBUG
 
 	writel(WAIT4INT(0), ts_base+S3C_ADCTSC);
 
