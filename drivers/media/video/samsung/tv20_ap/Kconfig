@@ -1,0 +1,15 @@
+#
+# Configuration for Post Porcessor
+#
+#config S5PC100_TVOUT
+#        bool "S5PC100 TV-out device support"
+#        depends on (VIDEO_DEV=y)
+#        default y if VIDEO_DEV
+
+config VIDEO_TV20
+	bool "Samsung TV Driver for s5pc1xx & s5pc11x" 
+	depends on VIDEO_SAMSUNG
+	default n
+	---help---
+	  This is a TV driver for Samsung SMDK_S5PC100 & SMDK_S5PC110
+

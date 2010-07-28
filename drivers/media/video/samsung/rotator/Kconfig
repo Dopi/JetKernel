@@ -1,0 +1,13 @@
+#
+# Configuration for rotator
+#
+
+config VIDEO_ROTATOR
+	bool "Samsung Image Rotator Driver" 
+	depends on VIDEO_SAMSUNG && (CPU_S3C6410 || CPU_S5PC100)
+	default n
+	---help---
+	  This is a Rotator for Samsung S3C6410 and S5PC100.
+
+
+
