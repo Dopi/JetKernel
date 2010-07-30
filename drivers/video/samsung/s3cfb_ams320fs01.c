@@ -126,8 +126,8 @@ static void s3cfb_set_fimd_info(void)
 	s3c_fimd.vidosd1b 	= S3C_VIDOSDxB_OSD_RBX_F(S3C_FB_HRES_OSD - 1) |
 							S3C_VIDOSDxB_OSD_RBY_F(S3C_FB_VRES_OSD - 1);
 
-	s3c_fimd.width		= S3C_FB_HRES;	//S3C_FB_WIDTH;
-	s3c_fimd.height 	= S3C_FB_VRES;	//S3C_FB_HEIGHT;
+	s3c_fimd.width		= S3C_FB_WIDTH;	// S3C_FB_HRES;
+	s3c_fimd.height 	= S3C_FB_HEIGHT;// S3C_FB_VRES;
 	s3c_fimd.xres 		= S3C_FB_HRES;
 	s3c_fimd.yres 		= S3C_FB_VRES;
 
@@ -139,8 +139,8 @@ static void s3cfb_set_fimd_info(void)
 	s3c_fimd.yres_virtual = S3C_FB_VRES;
 #endif
 
-	s3c_fimd.osd_width 	= S3C_FB_HRES_OSD; //S3C_FB_WIDTH_OSD;
-	s3c_fimd.osd_height 	= S3C_FB_VRES_OSD; //S3C_FB_HEIGHT_OSD;
+	s3c_fimd.osd_width 	= S3C_FB_WIDTH_OSD;	// S3C_FB_HRES_OSD; 
+	s3c_fimd.osd_height 	= S3C_FB_HEIGHT_OSD;	// S3C_FB_VRES_OSD;
 	s3c_fimd.osd_xres 	= S3C_FB_HRES_OSD;
 	s3c_fimd.osd_yres 	= S3C_FB_VRES_OSD;
 
