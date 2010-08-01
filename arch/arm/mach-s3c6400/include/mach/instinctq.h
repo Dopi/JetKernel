@@ -10,6 +10,9 @@
  *  published by the Free Software Foundation.
  */
 
+#ifdef CONFIG_JET_OPTION
+#include "jet.h"
+#else
 #ifndef ASM_MACH_INSTINCTQ_H
 
 #define ASM_MACH_INSTINCTQ_H
@@ -29,11 +32,7 @@
 #error	"Board revision is not defined!"
 #endif
 
-#ifdef CONFIG_JET_OPTION
-#include "jet_gpio.h"
-#else
 #include "instinctq_gpio.h"
-#endif
 
 #define I2C_CAM_DIS do {	\
 	s3c_gpio_cfgpin(GPIO_I2C1_SCL, S3C_GPIO_INPUT);			\
@@ -129,4 +128,6 @@
 #define	LCD_30V_ON do {}	while (0)
 
 #endif	/* ASM_MACH_INSTINCTQ_H */
+
+#endif /* CONFIG_JET_OPTION */
 

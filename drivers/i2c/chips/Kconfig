@@ -128,6 +128,15 @@ config PMIC_MAX8906
 	  This provides Applocations and Baseband Processor Power Management,
 	  ADC/TSC, RTC, and Audio Subsystem for Mobile Applications.
 
+config MAX8906_VERBOSE_LOGGING
+    bool "MAX8906 verbose logging messages"
+	depends on PMIC_MAX8906
+	default n
+	help
+	  Say Y here to enable verbose kernel logging for MAX8906
+
+	  Say N here to not have verbose logging messages for MAX8906
+
 config PMIC_MAX8698
 	tristate "Maxim MAX8698 Power Management chip"
 	depends on I2C

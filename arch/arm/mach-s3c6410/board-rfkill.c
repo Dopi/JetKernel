@@ -32,15 +32,13 @@
 #include <mach/hardware.h>
 #include <linux/i2c/pmic.h>
 
-//#ifdef CONFIG_MACH_INSTINCTQ
-//#include <mach/instinctq.h>	/*Updated by kumar.gvs 22 Apr 2009*/
-//#elif CONFIG_MACH_JET
-//#include <mach/jet.h>
-//#endif
-
 #define BT_SLEEP_ENABLER
 
 #define IRQ_BT_HOST_WAKE      IRQ_EINT(22)
+
+#ifdef CONFIG_JET_OPTION
+#define GPIO_BT_WLAN_REG_ON 	GPIO_WLAN_BT_SHUTDOWN
+#endif
 
 static struct wake_lock rfkill_wake_lock;
 static struct wake_lock bt_wake_lock;

@@ -1,10 +1,9 @@
 /*
- *  linux/include/asm-arm/arch-s3c2410/jet.h
+ *  linux/include/asm-arm/arch-s3c6400/jet.h
  *
- *  Author:	Samsung Electronics
- *  Created:	05, Jul, 2007
- *  Copyright:	Samsung Electronics Co.Ltd.
- *  Copyright: 	2010 JetDroid project
+ *  Author:	dopi711@googlemail.com
+ *  Created:	29, Jun, 2010
+ *  Copyright: 	JetDroid project (http://code.google.com/p/jetdroid)
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -21,6 +20,19 @@
  * Board Configuration
  */
 
+#ifdef CONFIG_MACH_INSTINCTQ
+
+#define CONFIG_INSTINCTQ_REV00			0x00	/* REV00 */
+#define CONFIG_INSTINCTQ_REV01			0x01	/* REV01 */
+
+#ifdef CONFIG_BOARD_REVISION
+#define CONFIG_INSTINCTQ_REV			CONFIG_BOARD_REVISION
+#else
+#error	"Board revision is not defined!"
+#endif /* CONFIG_BOARD_REVISION */
+
+#else /* CONFIG_MACH_INSTINCTQ */
+
 #define CONFIG_JET_REV00			0x00	/* REV00 */
 #define CONFIG_JET_REV01			0x01	/* REV01 */
 
@@ -28,7 +40,9 @@
 #define CONFIG_JET_REV			CONFIG_BOARD_REVISION
 #else
 #error	"Board revision is not defined!"
-#endif
+#endif /* CONFIG_BOARD_REVISION */
+
+#endif /* CONFIG_MACH_INSTINCTQ */
 
 #include "jet_gpio.h"
 
@@ -93,37 +107,6 @@
 
 #define CAM_MEM_SIZE	0x0D000000
 #define S5K4CA_ID	0x78 
-
-#define	LCD_18V_OFF do {  \
-		if (Get_MAX8698_PM_REG(ELDO6, &onoff_lcd_18)) {  \
-			pr_info("%s: LCD 1.8V off(%d)\n", __func__, onoff_lcd_18);  \
-			if (onoff_lcd_18) \
-				Set_MAX8698_PM_REG(ELDO6, 0);  \
-		}  \
-}	while (0)
-#define	LCD_28V_OFF do {  \
-		if (Get_MAX8698_PM_REG(ELDO7, &onoff_lcd_28)) {  \
-			pr_info("%s: LCD 2.8V off(%d)\n", __func__, onoff_lcd_28);  \
-			if (onoff_lcd_28) \
-				Set_MAX8698_PM_REG(ELDO7, 0);  \
-		}  \
-}	while (0)
-#define	LCD_30V_OFF do {}	while (0)
-
-#define	LCD_18V_ON do {  \
-		if (onoff_lcd_18) {  \
-			pr_info("%s: LCD 1.8V On\n", __func__);  \
-			Set_MAX8698_PM_REG(ELDO6, 1);  \
-		}  \
-}	while (0)
-#define	LCD_28V_ON do {  \
-		if (onoff_lcd_28) {  \
-		pr_info("%s: LCD 2.8V On\n", __func__);  \
-		Set_MAX8698_PM_REG(ELDO7, 1);  \
-	}  \
-}while (0)
-
-#define	LCD_30V_ON do {}	while (0)
 
 #endif	/* ASM_MACH_JET_H */
 

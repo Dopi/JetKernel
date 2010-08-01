@@ -189,6 +189,7 @@ max8906_register_type  max8906reg[ENDOFREG] =
     {  0xD0,        0x16 }, // REG_ALARM1_YEAR1,
     {  0xD0,        0x17 }, // REG_ALARM1_YEAR2,
 
+
     {  0xD0,        0x18 }, // REG_ALARM0_CNTL,
     {  0xD0,        0x19 }, // REG_ALARM1_CNTL,
     {  0xD0,        0x1A }, // REG_RTC_STATUS,
@@ -1230,6 +1231,7 @@ max8906_regulator_name_type regulator_name[NUMOFREG] =
 
 
 max8906_irq_mask_type max8906_irq_init_array[NUMOFIRQ] = {
+
     { REG_ON_OFF_IRQ_MASK, ON_OFF_IRQ_M},
     { REG_CHG_IRQ1_MASK,   CHG_IRQ1_M  },
     { REG_CHG_IRQ2_MASK,   CHG_IRQ2_M  },
@@ -2206,7 +2208,9 @@ boolean change_vcc_arm(int voltage)
 {
 	byte reg_value = 0;
 
+#ifdef CONFIG_MAX8906_VERBOSE_LOGGING
 	pr_info(PREFIX "%s:I: voltage: %d\n", __func__, voltage);
+#endif
 
 	if(voltage < arm_voltage_table[0] || voltage > arm_voltage_table[60]) {
 		pr_err(PREFIX "%s:E: invalid voltage: %d\n", __func__, voltage);
@@ -2250,6 +2254,10 @@ boolean change_vcc_arm(int voltage)
 	/* Start Voltage Change */
 	Set_MAX8906_PM_REG(AGO, 0x01);
 
+#ifdef CONFIG_MAX8906_VERBOSE_LOGGING
+	pr_info(PREFIX "%s:I: Succeeded!\n", __func__);
+#endif
+
 	return TRUE;
 }
 
@@ -2257,7 +2265,9 @@ boolean change_vcc_internal(int voltage)
 {	
 	byte reg_value = 0;
 
+#ifdef CONFIG_MAX8906_VERBOSE_LOGGING
 	pr_info(PREFIX "%s:I: voltage: %d\n", __func__, voltage);
+#endif
 
 	if(voltage < int_voltage_table[0] || voltage > int_voltage_table[2]) {
 		pr_err(PREFIX "%s:E: invalid voltage: %d\n", __func__, voltage);
@@ -2276,6 +2286,10 @@ boolean change_vcc_internal(int voltage)
 		pr_err(PREFIX "%s:E: set pmic reg fail(%d)\n", __func__, reg_value);
 		return FALSE;
 	}
+
+#ifdef CONFIG_MAX8906_VERBOSE_LOGGING
+	pr_info(PREFIX "%s:I: Succeeded!\n", __func__);
+#endif
 
 	return TRUE;
 }

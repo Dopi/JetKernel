@@ -49,6 +49,9 @@
 #if defined(CONFIG_MACH_BONANZA)
 #define GPIO_BT_WLAN_REG_ON GPIO_BT_WLAN_EN
 #endif
+#ifdef CONFIG_JET_OPTION
+#define GPIO_BT_WLAN_REG_ON 	GPIO_WLAN_BT_SHUTDOWN
+#endif
 
 uint flags = 0;
 spinlock_t regon_lock = SPIN_LOCK_UNLOCKED;
