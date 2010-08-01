@@ -41,6 +41,8 @@
  * 2006-09-05: Ryu Euiyoul <ryu.real@gmail.com>
  *      - added power management suspend and resume code
  *
+ * 2010-08-01: Dopi <Dopi711@googlemail.com>
+ *      - added calibration code
  */
 
 #include <linux/errno.h>
@@ -68,16 +70,32 @@
 #undef CONFIG_TOUCHSCREEN_S3C_DEBUG
 #define CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
 #undef CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
-#define TOUCHSCREEN_S3C_CALIBRATE	// enable calibration logging
-#undef TOUCHSCREEN_S3C_CALIBRATE
+#define TOUCHSCREEN_S3C_GET_CALIBRATION	// enable calibration logging
+#undef TOUCHSCREEN_S3C_GET_CALIBRATION
 
-#ifdef TOUCHSCREEN_S3C_CALIBRATE
+#ifdef TOUCHSCREEN_S3C_GET_CALIBRATION
 	int calibrate_count=0;
 	int calibrate_min_x=S3C_ADCDAT0_XPDATA_MASK_12BIT << ts->shift;
 	int calibrate_max_x=0;
 	int calibrate_min_y=S3C_ADCDAT1_YPDATA_MASK_12BIT << ts->shift;
 	int calibrate_max_y=0;
-#endif
+#endif // TOUCHSCREEN_S3C_GET_CALIBRATION
+
+#ifdef CONFIG_S3C_TS_CALIBRATION
+	int xmin = 0;
+	int xmax = S3C_ADCDAT0_XPDATA_MASK_12BIT;	// FIXME: only valid for 12bit 
+	int ymin = 0;
+	int ymax = S3C_ADCDAT1_YPDATA_MASK_12BIT;	// FIXME: only valid for 12bit 
+
+module_param(xmin, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(xmin, "S3C-TS calibration x minimum value");
+module_param(xmax, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(xmax, "S3C-TS calibration x maximum value");
+module_param(ymin, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(ymin, "S3C-TS calibration y minimum value");
+module_param(ymax, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(ymax, "S3C-TS calibration y maximum value");
+#endif // CONFIG_S3C_TS_CALIBRATION
 
 /* For ts->dev.id.version */
 #define S3C_TSVERSION	0x0101
@@ -198,7 +216,7 @@ static void touch_timer_fire(unsigned long data)
 				printk(DEBUG_LVL "T: %06d, X: %03ld, Y: %03ld\n", (int)tv.tv_usec, ts->xp, ts->yp);
 			}
 #endif
-#ifdef TOUCHSCREEN_S3C_CALIBRATE
+#ifdef TOUCHSCREEN_S3C_GET_CALIBRATION
 			if(ts->xp < calibrate_min_x) calibrate_min_x = ts->xp;
 			if(ts->xp > calibrate_max_x) calibrate_max_x = ts->xp;
 			if(ts->yp < calibrate_min_y) calibrate_min_y = ts->yp;
@@ -240,7 +258,6 @@ static void touch_timer_fire(unsigned long data)
 		writel(readl(ts_base+S3C_ADCCON) | S3C_ADCCON_ENABLE_START,
 				ts_base+S3C_ADCCON);
 #else
-
 		check_valid_pressure();
 #endif
 	} else {
@@ -490,6 +507,9 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 		}
 	}
 	printk(KERN_INFO "s3c_ts.c: delay=%d oversampling=%d \n", s3c_ts_cfg->delay & 0xffff, s3c_ts_cfg->oversampling_shift); // DEBUG
+#ifdef CONFIG_S3C_TS_CALIBRATION
+	printk(KERN_INFO "s3c_ts.c: calibration: xmin=%d xmax=%d ymin=%d ymax=%d\n", xmin,xmax,ymin,ymax);
+#endif
 
 	writel(WAIT4INT(0), ts_base+S3C_ADCTSC);
 
@@ -510,10 +530,13 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 	ts->dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
 
 	if (s3c_ts_cfg->resol_bit == 12) {
-//		input_set_abs_params(ts->dev, ABS_X, 0, 0xFFF, 0, 0);
-		input_set_abs_params(ts->dev, ABS_X, 1081, 2854, 0, 0);		// simple calibration
-//		input_set_abs_params(ts->dev, ABS_Y, 0, 0xFFF, 0, 0);
-		input_set_abs_params(ts->dev, ABS_Y, 1081, 3056, 0, 0);		// simple calibration
+#ifdef CONFIG_S3C_TS_CALIBRATION
+		input_set_abs_params(ts->dev, ABS_X, xmin, xmax, 0, 0);		// simple calibration
+		input_set_abs_params(ts->dev, ABS_Y, ymin, ymax, 0, 0);		// simple calibration
+#else
+		input_set_abs_params(ts->dev, ABS_X, 0, 0xFFF, 0, 0);
+		input_set_abs_params(ts->dev, ABS_Y, 0, 0xFFF, 0, 0);
+#endif
 	} else {
 		input_set_abs_params(ts->dev, ABS_X, 0, 0x3FF, 0, 0);
 		input_set_abs_params(ts->dev, ABS_Y, 0, 0x3FF, 0, 0);

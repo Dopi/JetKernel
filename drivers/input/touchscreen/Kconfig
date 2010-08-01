@@ -133,6 +133,16 @@ config TOUCHSCREEN_PRESSURE_CHECK
 
 	  Say N here to use the the driver without pressure check
 
+config S3C_TS_CALIBRATION
+    bool "Kernel level calibration support"
+	depends on TOUCHSCREEN_S3C
+	default n
+	help
+	  Say Y here to enable touchscreen calibration from within the driver.
+	  Calibration settings can be passed via module parameters or the kernel commandline.
+
+	  Say N here to go without calibration support from the driver.
+
 config TOUCHSCREEN_DA9034
 	tristate "Touchscreen support for Dialog Semiconductor DA9034"
 	depends on PMIC_DA903X
