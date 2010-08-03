@@ -493,7 +493,7 @@ static int __init s3c_keypad_probe(struct platform_device *pdev)
 		mod_timer(&keypad_timer,keypad_timer.expires);
 	}
 
-	printk( DEVICE_NAME " Initialized\n");
+	printk( DEVICE_NAME " Initialized (columns=%d rows=%d)\n", KEYPAD_COLUMNS, KEYPAD_ROWS);
 	return 0;
 
 out:
