@@ -8,6 +8,8 @@
  * published by the Free Software Foundation.
 */
 
+#include <linux/earlysuspend.h>
+
 #ifndef __ASM_ARCH_TS_H
 #define __ASM_ARCH_TS_H __FILE__
 
@@ -40,6 +42,8 @@ struct s3c_ts_info {
 	int			pressure;
 	int			threshold_pressure;
 	enum s3c_adc_type	s3c_adc_con;
+	struct early_suspend	early_suspend;
+	int			ts_switch_claimed;	
 };
 
 extern void __init s3c_ts_set_platdata(struct s3c_ts_mach_info *pd);

@@ -55,6 +55,7 @@
 #include <linux/delay.h>
 #include <linux/platform_device.h>
 #include <linux/clk.h>
+#include <linux/earlysuspend.h>
 
 #include <asm/io.h>
 #include <asm/irq.h>
@@ -96,6 +97,11 @@ MODULE_PARM_DESC(ymin, "S3C-TS calibration y minimum value");
 module_param(ymax, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(ymax, "S3C-TS calibration y maximum value");
 #endif // CONFIG_S3C_TS_CALIBRATION
+
+#ifdef CONFIG_HAS_EARLYSUSPEND
+void s3c_ts_early_suspend(struct early_suspend *h);
+void s3c_ts_late_resume(struct early_suspend *h);
+#endif	/* CONFIG_HAS_EARLYSUSPEND */
 
 /* For ts->dev.id.version */
 #define S3C_TSVERSION	0x0101
@@ -140,6 +146,66 @@ static struct resource		*ts_mem;
 static struct resource		*ts_irq;
 static struct clk		*ts_clock;
 static struct s3c_ts_info 	*ts;
+
+/*
+ * Touchscreen switch enable / disable
+ */
+
+int s3c_ts_switch_enable(struct s3c_ts_info *ts)
+{
+	if(ts->ts_switch_claimed) {
+		s3c_gpio_setpull(GPIO_TOUCH_EN, S3C_GPIO_PULL_NONE);
+		gpio_direction_output(GPIO_TOUCH_EN, GPIO_LEVEL_HIGH);
+
+		printk(KERN_INFO "%s: ts_switch enabled\n", s3c_ts_name);
+	}
+
+	return 0;
+}
+
+int s3c_ts_switch_disable(struct s3c_ts_info *ts)
+{
+	if(ts->ts_switch_claimed) {
+		s3c_gpio_setpull(GPIO_TOUCH_EN, S3C_GPIO_PULL_DOWN);
+		gpio_direction_input(GPIO_TOUCH_EN);
+
+		printk(KERN_INFO "%s: ts_switch disabled\n", s3c_ts_name);
+	}
+
+	return 0;
+}
+
+int s3c_ts_switch_claim(struct s3c_ts_info *ts)
+{
+	int ret;
+
+	ret = gpio_request(GPIO_TOUCH_EN,"s3c_ts_switch");
+	if(ret) {
+		ts->ts_switch_claimed = 0;
+		s3c_gpio_cfgpin(GPIO_TOUCH_EN, S3C_GPIO_SFN(GPIO_TOUCH_EN_AF));
+		printk(KERN_INFO "%s: Requesting GPIO%d succeded\n", s3c_ts_name, GPIO_TOUCH_EN);
+	}
+	else {
+		ts->ts_switch_claimed = -1;
+		printk(KERN_ERR "%s: Requesting GPIO%d failed ERR %d\n", s3c_ts_name, GPIO_TOUCH_EN, ret);
+	}
+
+	return ret;	
+}
+
+int s3c_ts_switch_release(struct s3c_ts_info *ts)
+{
+	if(ts->ts_switch_claimed) {
+		s3c_ts_switch_disable(ts);
+		gpio_free(GPIO_TOUCH_EN);
+		ts->ts_switch_claimed = -1;
+
+		printk(KERN_INFO "%s: GPIO%d released\n", s3c_ts_name, GPIO_TOUCH_EN);
+	}
+	
+	return 0;
+}
+
 
 static int curr_measure;
 
@@ -471,11 +537,6 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 
 	clk_enable(ts_clock);
 
-	// enable TS switch
-	s3c_gpio_cfgpin(GPIO_TOUCH_EN, S3C_GPIO_SFN(GPIO_TOUCH_EN_AF));
-	s3c_gpio_setpull(GPIO_TOUCH_EN, S3C_GPIO_PULL_UP);
-	gpio_direction_output(GPIO_TOUCH_EN, GPIO_LEVEL_HIGH);
-
 	s3c_ts_cfg = s3c_ts_get_platdata(&pdev->dev);
 
 	if ((s3c_ts_cfg->presc&0xff) > 0)
@@ -506,9 +567,9 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 			break;
 		}
 	}
-	printk(KERN_INFO "s3c_ts.c: delay=%d oversampling=%d \n", s3c_ts_cfg->delay & 0xffff, s3c_ts_cfg->oversampling_shift); // DEBUG
+	printk(KERN_INFO "%s: delay=%d oversampling=%d \n", s3c_ts_name, s3c_ts_cfg->delay & 0xffff, s3c_ts_cfg->oversampling_shift); // DEBUG
 #ifdef CONFIG_S3C_TS_CALIBRATION
-	printk(KERN_INFO "s3c_ts.c: calibration: xmin=%d xmax=%d ymin=%d ymax=%d\n", xmin,xmax,ymin,ymax);
+	printk(KERN_INFO "%s: calibration: xmin=%d xmax=%d ymin=%d ymax=%d\n", s3c_ts_name, xmin,xmax,ymin,ymax);
 #endif
 
 	writel(WAIT4INT(0), ts_base+S3C_ADCTSC);
@@ -593,6 +654,14 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 	else
 		printk(KERN_INFO "s3c_ts.c: ADC_IRQ registered (%d) \n", ts_irq->start); // DEBUG
 
+	/* Claim & enable TS switch */
+	ret = s3c_ts_switch_claim(ts);
+	if (ret != 0) {
+		ret =  -EIO;
+		goto fail;
+	}
+	s3c_ts_switch_enable(ts);
+		
 	printk(KERN_INFO "%s got loaded successfully : %d bits\n", s3c_ts_name, s3c_ts_cfg->resol_bit);
 
 	/* All went ok, so register to the input system */
@@ -602,6 +671,13 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 		ret = -EIO;
 		goto fail;
 	}
+
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	ts->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
+	ts->early_suspend.suspend = s3c_ts_early_suspend;
+	ts->early_suspend.resume = s3c_ts_late_resume;
+	register_early_suspend(&ts->early_suspend);
+#endif	/* CONFIG_HAS_EARLYSUSPEND */
 
 	return 0;
 
@@ -630,7 +706,14 @@ err_req:
 
 static int s3c_ts_remove(struct platform_device *dev)
 {
-	printk(KERN_INFO "s3c_ts_remove() of TS called !\n");
+	printk(KERN_INFO "%s: s3c_ts_remove() of TS called !\n", s3c_ts_name);
+
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	unregister_early_suspend(&ts->early_suspend);
+#endif	/* CONFIG_HAS_EARLYSUSPEND */
+
+	s3c_ts_switch_release(ts);
+
 	disable_irq(IRQ_ADC);
 	disable_irq(IRQ_PENDN);
 	free_irq(IRQ_PENDN, ts->dev);
@@ -662,11 +745,15 @@ static int s3c_ts_suspend(struct platform_device *dev, pm_message_t state)
 
 	clk_disable(ts_clock);
 
+	s3c_ts_switch_disable(ts);
+
 	return 0;
 }
 
 static int s3c_ts_resume(struct platform_device *pdev)
 {
+	s3c_ts_switch_enable(ts);
+
 	clk_enable(ts_clock);
 
 	writel(adccon, ts_base+S3C_ADCCON);
@@ -682,6 +769,18 @@ static int s3c_ts_resume(struct platform_device *pdev)
 #define s3c_ts_suspend NULL
 #define s3c_ts_resume  NULL
 #endif
+
+#ifdef CONFIG_HAS_EARLYSUSPEND
+void s3c_ts_early_suspend(struct early_suspend *h)
+{
+	s3c_ts_suspend(NULL, PMSG_SUSPEND);
+}
+
+void s3c_ts_late_resume(struct early_suspend *h)
+{
+	s3c_ts_resume(NULL);
+}
+#endif	/* CONFIG_HAS_EARLYSUSPEND */
 
 static struct platform_driver s3c_ts_driver = {
        .probe          = s3c_ts_probe,
