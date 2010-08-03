@@ -29,6 +29,7 @@
 #include <linux/irq.h>
 #include <asm/io.h>
 #include <plat/gpio-cfg.h>
+
 #include "s3c-keypad.h"
 #include "s3c-keypad-board.h"
 
@@ -42,12 +43,16 @@ static struct wake_lock s3c_key_wake_lock;
 
 #include <linux/dprintk.h>
 
-#define S3C_KEYPAD_DEBUG 
+#ifdef CONFIG_S3C_KEYPAD_DEBUG
+#define S3C_KEYPAD_DEBUG    1
+#else
+#undef S3C_KEYPAD_DEBUG
+#endif
 
 #ifdef S3C_KEYPAD_DEBUG
-#define DPRINTK(x...) printk("S3C-Keypad " x)
+#define DPRINTK(x...) printk(KERN_INFO"S3C-Keypad " x)
 #else
-#define DPRINTK(x...)		/* !!!! */
+#define DPRINTK(x...)           /* !!!! */
 #endif
 
 #define DEVICE_NAME "s3c-keypad"
@@ -110,7 +115,7 @@ static void process_input_report (struct s3c_keypad *s3c_keypad, u32 prevmask, u
 	u32 release_mask = ((keymask ^ prevmask) & prevmask); 
 
 
-#if (CONFIG_SPICA_REV == CONFIG_SPICA_TEST_REV01)	// Temporary Code by SYS.LSI
+#if defined(CONFIG_MACH_SPICA) && (CONFIG_SPICA_REV == CONFIG_SPICA_TEST_REV01)	// Temporary Code by SYS.LSI
         u32 wake_key;
 
 	if (keypad_sleep_flag) {
@@ -118,7 +123,7 @@ static void process_input_report (struct s3c_keypad *s3c_keypad, u32 prevmask, u
 		while (press_mask) {
 			if (press_mask & 1) {
 				wake_key = GET_KEYCODE(i+index);
-				if(wake_key == ENDCALL_KEY || wake_key == HOLD_KEY) {
+				if(wake_key == KEYCODE_ENDCALL || wake_key == KEYCODE_HOLDKEY) {
 					keypad_sleep_flag = 0;
 					input_report_key(dev, wake_key,1);
 					DPRINTK(": Pressed (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
@@ -132,7 +137,7 @@ static void process_input_report (struct s3c_keypad *s3c_keypad, u32 prevmask, u
 		while (release_mask) {
 			if (release_mask & 1) {
 				wake_key = GET_KEYCODE(i+index);
-				if(wake_key == ENDCALL_KEY || wake_key == HOLD_KEY)
+				if(wake_key == KEYCODE_ENDCALL || wake_key == KEYCODE_HOLDKEY)
 					input_report_key(dev, wake_key,0);
 				DPRINTK(": Released (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
 				dprintk(KPD_RLS, ": Released (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
@@ -162,7 +167,7 @@ static void process_input_report (struct s3c_keypad *s3c_keypad, u32 prevmask, u
 			release_mask >>= 1;
 			i++;
 		}
-#if (CONFIG_SPICA_REV == CONFIG_SPICA_TEST_REV01)	// Temporary Code by SYS.LSI
+#if defined(CONFIG_MACH_SPICA) && (CONFIG_SPICA_REV == CONFIG_SPICA_TEST_REV01)	// Temporary Code by SYS.LSI
 	}
 #endif
 }

@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
 # Linux kernel version: 2.6.29
-# Mon Aug  2 22:52:22 2010
+# Tue Aug  3 14:37:13 2010
 #
 CONFIG_ARM=y
 CONFIG_SYS_SUPPORTS_APM_EMULATION=y
@@ -637,6 +637,7 @@ CONFIG_INPUT_KEYBOARD=y
 # CONFIG_KEYBOARD_STOWAWAY is not set
 # CONFIG_KEYBOARD_GPIO is not set
 CONFIG_KEYPAD_S3C=y
+CONFIG_S3C_KEYPAD_DEBUG=y
 CONFIG_INPUT_MOUSE=y
 # CONFIG_MOUSE_PS2 is not set
 # CONFIG_MOUSE_SERIAL is not set

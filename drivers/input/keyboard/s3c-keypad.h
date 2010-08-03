@@ -23,6 +23,9 @@ static void __iomem *key_base;
 #define KEYCODE_ENDCALL	249
 #define KEYCODE_FOCUS	250
 #define KEYCODE_HOLDKEY	251
+#define KEYCODE_SYM	251
+#define KEYCODE_MENU	252
+#define KEYCODE_TAB	253
 
 #define KEYPAD_ROW_GPIOCON      S3C64XX_GPKCON1
 #define KEYPAD_ROW_GPIOPUD      S3C64XX_GPKPUD
