@@ -69,8 +69,19 @@
 
 #define CONFIG_TOUCHSCREEN_S3C_DEBUG
 #undef CONFIG_TOUCHSCREEN_S3C_DEBUG
+
+#ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG
+#define DEBUG_LVL    KERN_ERR
+#define DPRINTK(x...) printk(DEBUG_LVL "S3C TouchScreen: " x)
+#define IPRINTK(x...) printk(KERN_INFO "S3C TouchScreen: " x)
+#else
+#define DPRINTK(x...)           /* !!!! */
+#define IPRINTK(x...)           /* !!!! */
+#endif
+
 #define CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
 #undef CONFIG_TOUCHSCREEN_S3C_DEBUG_SPECIAL
+
 #define TOUCHSCREEN_S3C_GET_CALIBRATION	// enable calibration logging
 #undef TOUCHSCREEN_S3C_GET_CALIBRATION
 
@@ -127,8 +138,6 @@ void s3c_ts_late_resume(struct early_suspend *h);
 				S3C_ADCTSC_PULL_UP_DISABLE | S3C_ADCTSC_XY_PST(0))
 #define YM_SEL_MUX		S3C_ADCMUX_YM
 
-#define DEBUG_LVL    KERN_ERR
-
 /* Touchscreen default configuration */
 struct s3c_ts_mach_info s3c_ts_default_cfg __initdata = {
 	.delay			= 50000,	// 50000
@@ -150,14 +159,14 @@ static struct s3c_ts_info 	*ts;
 /*
  * Touchscreen switch enable / disable
  */
-
+#ifdef CONFIG_JET_OPTION
 int s3c_ts_switch_enable(struct s3c_ts_info *ts)
 {
-	if(ts->ts_switch_claimed) {
+	if(ts->ts_switch_claimed == 1) {
 		s3c_gpio_setpull(GPIO_TOUCH_EN, S3C_GPIO_PULL_NONE);
 		gpio_direction_output(GPIO_TOUCH_EN, GPIO_LEVEL_HIGH);
 
-		printk(KERN_INFO "%s: ts_switch enabled\n", s3c_ts_name);
+		IPRINTK("ts_switch enabled\n", s3c_ts_name);
 	}
 
 	return 0;
@@ -165,11 +174,11 @@ int s3c_ts_switch_enable(struct s3c_ts_info *ts)
 
 int s3c_ts_switch_disable(struct s3c_ts_info *ts)
 {
-	if(ts->ts_switch_claimed) {
+	if(ts->ts_switch_claimed == 1) {
 		s3c_gpio_setpull(GPIO_TOUCH_EN, S3C_GPIO_PULL_DOWN);
 		gpio_direction_input(GPIO_TOUCH_EN);
 
-		printk(KERN_INFO "%s: ts_switch disabled\n", s3c_ts_name);
+		IPRINTK("ts_switch disabled\n", s3c_ts_name);
 	}
 
 	return 0;
@@ -180,14 +189,14 @@ int s3c_ts_switch_claim(struct s3c_ts_info *ts)
 	int ret;
 
 	ret = gpio_request(GPIO_TOUCH_EN,"s3c_ts_switch");
-	if(ret) {
-		ts->ts_switch_claimed = 0;
+	if(ret == 0) {
+		ts->ts_switch_claimed = 1;
 		s3c_gpio_cfgpin(GPIO_TOUCH_EN, S3C_GPIO_SFN(GPIO_TOUCH_EN_AF));
-		printk(KERN_INFO "%s: Requesting GPIO%d succeded\n", s3c_ts_name, GPIO_TOUCH_EN);
+		IPRINTK("Requesting GPIO%d succeded\n", s3c_ts_name, GPIO_TOUCH_EN);
 	}
 	else {
-		ts->ts_switch_claimed = -1;
-		printk(KERN_ERR "%s: Requesting GPIO%d failed ERR %d\n", s3c_ts_name, GPIO_TOUCH_EN, ret);
+		ts->ts_switch_claimed = 0;
+		IPRINTK("Requesting GPIO%d failed ERR %d\n", s3c_ts_name, GPIO_TOUCH_EN, ret);
 	}
 
 	return ret;	
@@ -195,17 +204,17 @@ int s3c_ts_switch_claim(struct s3c_ts_info *ts)
 
 int s3c_ts_switch_release(struct s3c_ts_info *ts)
 {
-	if(ts->ts_switch_claimed) {
+	if(ts->ts_switch_claimed == 1) {
 		s3c_ts_switch_disable(ts);
 		gpio_free(GPIO_TOUCH_EN);
-		ts->ts_switch_claimed = -1;
+		ts->ts_switch_claimed = 0;
 
-		printk(KERN_INFO "%s: GPIO%d released\n", s3c_ts_name, GPIO_TOUCH_EN);
+		IPRINTK("GPIO%d released\n", s3c_ts_name, GPIO_TOUCH_EN);
 	}
 	
 	return 0;
 }
-
+#endif /* CONFIG_JET_OPTION */
 
 static int curr_measure;
 
@@ -279,7 +288,7 @@ static void touch_timer_fire(unsigned long data)
 			{
 				struct timeval tv;
 				do_gettimeofday(&tv);
-				printk(DEBUG_LVL "T: %06d, X: %03ld, Y: %03ld\n", (int)tv.tv_usec, ts->xp, ts->yp);
+				DPRINTK("T: %06d, X: %03ld, Y: %03ld\n", (int)tv.tv_usec, ts->xp, ts->yp);
 			}
 #endif
 #ifdef TOUCHSCREEN_S3C_GET_CALIBRATION
@@ -291,7 +300,7 @@ static void touch_timer_fire(unsigned long data)
 
 			if(calibrate_count=50000)
 			{
-				printk(DEBUG_LVL "Xmin: %03ld, Xmax: %03ld, Ymin: %03ld\n, Ymax: %03ld", 
+				IPRINTK("Calibration Xmin: %03ld, Xmax: %03ld, Ymin: %03ld\n, Ymax: %03ld", 
 					calibrate_min_x >> ts->shift, calibrate_max_x >> ts->shift, 
 					calibrate_min_y >> ts->shift, calibrate_max_y >> ts->shift);
 
@@ -353,9 +362,7 @@ static irqreturn_t stylus_updown(int irqno, void *param)
 	updown = (!(data0 & S3C_ADCDAT0_UPDOWN)) && (!(data1 &
 				S3C_ADCDAT1_UPDOWN));
 
-#ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG
-       printk(DEBUG_LVL "   %c\n",	updown ? 'D' : 'U');
-#endif
+	DPRINTK("  %c\n",	updown ? 'D' : 'U');
 
 	/* TODO we should never get an interrupt with updown set while
 	 * the timer is running, but maybe we ought to verify that the
@@ -385,13 +392,9 @@ static int calc_pressure(void)
 		 (unsigned int)pressure_info[1] - 100000);
 
 	do_div(pressure_info[0], (2^ts->resol_bit)*100000);
-#ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG
-	printk(DEBUG_LVL "Raw pressure [%llu]\n", pressure_info[0]);
-#endif
+	DPRINTK("Raw pressure [%llu]\n", pressure_info[0]);
 	ts->pressure = (int)(pressure_info[0]);
-#ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG
-	printk(DEBUG_LVL "pressure = %d\n", ts->pressure);
-#endif
+	DPRINTK("pressure = %d\n", ts->pressure);
 
 	return 0;
 }
@@ -462,9 +465,7 @@ start_conversion:
 	}
 
 	ts->count++;
-#ifdef CONFIG_TOUCHSCREEN_S3C_DEBUG
-	printk(DEBUG_LVL "count [%d]\n", ts->count);
-#endif
+	DPRINTK("count [%d]\n", ts->count);
 
 	if (ts->count < (1<<ts->shift)) {
 		writel(S3C_ADCTSC_PULL_UP_DISABLE | AUTOPST, ts_base+S3C_ADCTSC);
@@ -654,6 +655,7 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 	else
 		printk(KERN_INFO "s3c_ts.c: ADC_IRQ registered (%d) \n", ts_irq->start); // DEBUG
 
+#ifdef CONFIG_JET_OPTION
 	/* Claim & enable TS switch */
 	ret = s3c_ts_switch_claim(ts);
 	if (ret != 0) {
@@ -661,6 +663,7 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 		goto fail;
 	}
 	s3c_ts_switch_enable(ts);
+#endif /* CONFIG_JET_OPTION */
 		
 	printk(KERN_INFO "%s got loaded successfully : %d bits\n", s3c_ts_name, s3c_ts_cfg->resol_bit);
 
@@ -712,7 +715,9 @@ static int s3c_ts_remove(struct platform_device *dev)
 	unregister_early_suspend(&ts->early_suspend);
 #endif	/* CONFIG_HAS_EARLYSUSPEND */
 
+#ifdef CONFIG_JET_OPTION
 	s3c_ts_switch_release(ts);
+#endif /* CONFIG_JET_OPTION */
 
 	disable_irq(IRQ_ADC);
 	disable_irq(IRQ_PENDN);
@@ -745,14 +750,18 @@ static int s3c_ts_suspend(struct platform_device *dev, pm_message_t state)
 
 	clk_disable(ts_clock);
 
+#ifdef CONFIG_JET_OPTION
 	s3c_ts_switch_disable(ts);
+#endif /* CONFIG_JET_OPTION */
 
 	return 0;
 }
 
 static int s3c_ts_resume(struct platform_device *pdev)
 {
+#ifdef CONFIG_JET_OPTION
 	s3c_ts_switch_enable(ts);
+#endif /* CONFIG_JET_OPTION */
 
 	clk_enable(ts_clock);
 
