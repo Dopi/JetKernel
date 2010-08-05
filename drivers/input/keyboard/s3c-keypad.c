@@ -401,7 +401,7 @@ static int __init s3c_keypad_probe(struct platform_device *pdev)
 
 	writel(KEYIFCOL_CLEAR, key_base+S3C_KEYIFCOL);
 
-	for(key = 200; key < 232; key++){
+	for(key = 0; key < 20; key++){
         	input_set_capability(input_dev, EV_KEY, key+1);
 	}
 
