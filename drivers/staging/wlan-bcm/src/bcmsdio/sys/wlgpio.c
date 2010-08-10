@@ -58,8 +58,13 @@ spinlock_t regon_lock = SPIN_LOCK_UNLOCKED;
 static void s3c_WLAN_SDIO_on(void)
 {
 #if defined(CONFIG_MACH_INSTINCTQ)
+#if defined(CONFIG_JET_OPTION)
+	s3c_gpio_cfgpin(GPIO_WLAN_CLK, S3C_GPIO_SFN(GPIO_WLAN_CLK_AF));
+	s3c_gpio_cfgpin(GPIO_WLAN_CMD, S3C_GPIO_SFN(GPIO_WLAN_CMD_AF));
+#else
 	s3c_gpio_cfgpin(GPIO_SDIO_CLK, S3C_GPIO_SFN(GPIO_SDIO_CLK_AF));
 	s3c_gpio_cfgpin(GPIO_SDIO_CMD, S3C_GPIO_SFN(GPIO_SDIO_CMD_AF));
+#endif
 #else
 	s3c_gpio_cfgpin(GPIO_WLAN_CLK, S3C_GPIO_SFN(GPIO_WLAN_CLK_AF));
 	s3c_gpio_cfgpin(GPIO_WLAN_CMD, S3C_GPIO_SFN(GPIO_WLAN_CMD_AF));
@@ -69,8 +74,13 @@ static void s3c_WLAN_SDIO_on(void)
 	s3c_gpio_cfgpin(GPIO_WLAN_D_2, S3C_GPIO_SFN(GPIO_WLAN_D_2_AF));
 	s3c_gpio_cfgpin(GPIO_WLAN_D_3, S3C_GPIO_SFN(GPIO_WLAN_D_3_AF));
 #if defined(CONFIG_MACH_INSTINCTQ)
+#if defined(CONFIG_JET_OPTION)
+	s3c_gpio_setpull(GPIO_WLAN_CLK, S3C_GPIO_PULL_NONE);
+	s3c_gpio_setpull(GPIO_WLAN_CMD, S3C_GPIO_PULL_NONE);
+#else
 	s3c_gpio_setpull(GPIO_SDIO_CLK, S3C_GPIO_PULL_NONE);
 	s3c_gpio_setpull(GPIO_SDIO_CMD, S3C_GPIO_PULL_NONE);
+#endif
 #else
 	s3c_gpio_setpull(GPIO_WLAN_CLK, S3C_GPIO_PULL_NONE);
 	s3c_gpio_setpull(GPIO_WLAN_CMD, S3C_GPIO_PULL_NONE);
@@ -84,8 +94,13 @@ static void s3c_WLAN_SDIO_on(void)
 static void s3c_WLAN_SDIO_off(void)
 {
 #if defined(CONFIG_MACH_INSTINCTQ)
+#if defined(CONFIG_JET_OPTION)
+	s3c_gpio_cfgpin(GPIO_WLAN_CLK, S3C_GPIO_INPUT);
+	s3c_gpio_cfgpin(GPIO_WLAN_CMD, S3C_GPIO_INPUT);
+#else
 	s3c_gpio_cfgpin(GPIO_SDIO_CLK, S3C_GPIO_INPUT);
 	s3c_gpio_cfgpin(GPIO_SDIO_CMD, S3C_GPIO_INPUT);
+#endif
 #else
 	s3c_gpio_cfgpin(GPIO_WLAN_CLK, S3C_GPIO_INPUT);
 	s3c_gpio_cfgpin(GPIO_WLAN_CMD, S3C_GPIO_INPUT);
@@ -95,8 +110,13 @@ static void s3c_WLAN_SDIO_off(void)
 	s3c_gpio_cfgpin(GPIO_WLAN_D_2, S3C_GPIO_INPUT);
 	s3c_gpio_cfgpin(GPIO_WLAN_D_3, S3C_GPIO_INPUT);
 #if defined(CONFIG_MACH_INSTINCTQ)
+#if defined(CONFIG_JET_OPTION)
+	s3c_gpio_setpull(GPIO_WLAN_CLK, S3C_GPIO_PULL_DOWN);
+	s3c_gpio_setpull(GPIO_WLAN_CMD, S3C_GPIO_PULL_NONE);
+#else
 	s3c_gpio_setpull(GPIO_SDIO_CLK, S3C_GPIO_PULL_DOWN);
 	s3c_gpio_setpull(GPIO_SDIO_CMD, S3C_GPIO_PULL_NONE);
+#endif
 #else
 	s3c_gpio_setpull(GPIO_WLAN_CLK, S3C_GPIO_PULL_DOWN);
 	s3c_gpio_setpull(GPIO_WLAN_CMD, S3C_GPIO_PULL_NONE);
