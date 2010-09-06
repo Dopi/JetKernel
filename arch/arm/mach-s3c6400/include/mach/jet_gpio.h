@@ -32,12 +32,6 @@
 
 /* S3C64XX_GPA(0) ~ S3C64XX_GPA(7) */
 
-#define GPIO_AP_SCL		    		S3C64XX_GPA(2)
-#define GPIO_AP_SCL_AF	    			1
-
-#define GPIO_AP_SDA		    		S3C64XX_GPA(3)
-#define GPIO_AP_SDA_AF	    			1
-
 #define GPIO_BT_RXD				S3C64XX_GPA(4)
 #define GPIO_BT_RXD_AF				2
 
@@ -52,25 +46,25 @@
 
 /* S3C64XX_GPB(0) ~ S3C64XX_GPB(6) */
 
-#define GPIO_PDA_RXD				S3C64XX_GPB(0)  // AP_RXD
-#define GPIO_PDA_RXD_AF				2
+#define GPIO_AP_RXD				S3C64XX_GPB(0) 
+#define GPIO_AP_RXD_AF				2
 
-#define GPIO_PDA_TXD				S3C64XX_GPB(1)  // AP_TXD
-#define GPIO_PDA_TXD_AF				2
+#define GPIO_AP_TXD				S3C64XX_GPB(1)
+#define GPIO_AP_TXD_AF				2
 
-#define GPIO_I2C1_SCL				S3C64XX_GPB(2)  // CAM_SCL
-#define GPIO_I2C1_SCL_AF			6
+#define GPIO_AP_FLM_RXD				S3C64XX_GPB(2) 	
+#define GPIO_AP_FLM_RXD_AF			2
 
-#define GPIO_I2C1_SDA				S3C64XX_GPB(3)  // CAM_SDA
-#define GPIO_I2C1_SDA_AF			6
+#define GPIO_AP_FLM_TXD				S3C64XX_GPB(3)
+#define GPIO_AP_FLM_TXD_AF			2
 
 // S3C64XX_GPB(4)
 
-#define GPIO_I2C0_SCL				S3C64XX_GPB(5)  // TOUCH_I2C_SCL_F
-#define GPIO_I2C0_SCL_AF			2
+#define GPIO_AP_SCL_3V		    		S3C64XX_GPB(5)
+#define GPIO_AP_SCL_3V_AF   			2
 
-#define GPIO_I2C0_SDA				S3C64XX_GPB(6)  // TOUCH_I2C_SDA_F
-#define GPIO_I2C0_SDA_AF			2
+#define GPIO_AP_SDA_3V		    		S3C64XX_GPB(6)
+#define GPIO_AP_SDA_3V_AF			2
 
 /* S3C64XX_GPC(0) ~ S3C64XX_GPC(7) */
 
