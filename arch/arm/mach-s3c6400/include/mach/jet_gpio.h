@@ -86,44 +86,44 @@
 #define GPIO_WLAN_CLK				S3C64XX_GPC(5)
 #define GPIO_WLAN_CLK_AF			3
 
-#define GPIO_WLAN_WAKE				S3C64XX_GPC(6)
-#define GPIO_WLAN_WAKE_AF			1  // output
+// S3C64XX_GPC(6)	N.C.
 
-#define GPIO_BT_WAKE				S3C64XX_GPC(7)
-#define GPIO_BT_WAKE_AF				1  // output
+// S3C64XX_GPC(7)	N.C.
+
 
 /* S3C64XX_GPD(0) ~ S3C64XX_GPD(4) */
 
 #define GPIO_I2S_CLK				S3C64XX_GPD(0)
-#define GPIO_I2S_CLK_AF				3
+#define GPIO_I2S_CLK_AF				3		// I2S CLK[0] 
 
 // S3C64XX_GPD(1)
 
 #define GPIO_I2S_LRCLK				S3C64XX_GPD(2)  // AP_I2S_SYNC
-#define GPIO_I2S_LRCLK_AF			3
+#define GPIO_I2S_LRCLK_AF			3		// I2S LRCLK[0] 
 
 #define GPIO_I2S_DI				S3C64XX_GPD(3)
-#define GPIO_I2S_DI_AF				3
+#define GPIO_I2S_DI_AF				3		// I2S DI[0]
 
 #define GPIO_I2S_DO				S3C64XX_GPD(4)
-#define GPIO_I2S_DO_AF				3
+#define GPIO_I2S_DO_AF				3		// I2S DO[0]
 
 /* S3C64XX_GPE(0) ~ S3C64XX_GPE(4) */
 
-//#define GPIO_BT_RST_N				S3C64XX_GPE(0)
-//#define GPIO_BT_RST_N_AF			1
+#define GPIO_VT_PCM_CLK				S3C64XX_GPE(0)
+#define GPIO_VT_PCM_CLK_AF			2		// VT_PCM_CLK
 
-#define GPIO_BOOT				S3C64XX_GPE(1)
-#define GPIO_BOOT_AF				1
+#define GPIO_WLAN_WAKE				S3C64XX_GPE(1)
+#define GPIO_WLAN_WAKE_AF			1  		// output
 
-//#define GPIO_WLAN_RST_N				S3C64XX_GPE(2)
-//#define GPIO_WLAN_RST_N_AF			1
+#define GPIO_VT_PCM_SYNC			S3C64XX_GPE(2)
+#define GPIO_VT_PCM_SYNC_AF			2		// PCM FSYNC[1]
 
-#define GPIO_PWR_I2C_SCL			S3C64XX_GPE(3)
-#define GPIO_PWR_I2C_SCL_AF			1
+#define GPIO_VT_PCM_IN				S3C64XX_GPE(3)
+#define GPIO_VT_PCM_IN_AF			2		// PCM SIN[1]
 
-#define GPIO_PWR_I2C_SDA			S3C64XX_GPE(4)
-#define GPIO_PWR_I2C_SDA_AF			1
+#define GPIO_VT_PCM_OUT				S3C64XX_GPE(4)
+#define GPIO_VT_PCM_OUT_AF			2		// PCM SOUT[1]
+
 
 /* S3C64XX_GPF(0) ~ S3C64XX_GPF(15) */
 
@@ -397,8 +397,8 @@
 #define GPIO_T_FLASH_DETECT			S3C64XX_GPL(8)
 #define GPIO_T_FLASH_DETECT_AF			1
 
-#define GPIO_PHONE_ON				S3C64XX_GPL(9)
-#define GPIO_PHONE_ON_AF			1
+#define GPIO_DET_35				S3C64XX_GPL(9)
+#define GPIO_DET_35_AF				3		// Ext. Interrupt [17]
 
 #define GPIO_VIB_EN				S3C64XX_GPL(10)
 #define GPIO_VIB_EN_AF				1
@@ -429,8 +429,8 @@
 #define GPIO_BT_HOST_WAKE			S3C64XX_GPM(3)
 #define GPIO_BT_HOST_WAKE_AF			3
 
-//#define GPIO_OJ_MOTION				S3C64XX_GPM(4)
-//#define GPIO_OJ_MOTION_AF			3
+#define GPIO_BT_WAKE				S3C64XX_GPM(4)
+#define GPIO_BT_WAKE_AF				1  // output
 
 #define GPIO_MSENSE_RST_N			S3C64XX_GPM(5)
 #define GPIO_MSENSE_RST_N_AF			1
@@ -455,26 +455,26 @@
 #define GPIO_POWER_N				S3C64XX_GPN(5)
 #define GPIO_POWER_N_AF				2
 
-//#define GPIO_TF_DETECT				S3C64XX_GPN(6)
-//#define GPIO_TF_DETECT_AF			2
+#define GPIO_PHONE_ON				S3C64XX_GPN(6)
+#define GPIO_PHONE_ON_AF			2		// Ext. Interrupt[6]
 
 #define GPIO_PHONE_ACTIVE			S3C64XX_GPN(7)
-#define GPIO_PHONE_ACTIVE_AF			2
+#define GPIO_PHONE_ACTIVE_AF			2		// Ext. Interrupt[7] 
 
 #define GPIO_TOUCH_INT				S3C64XX_GPN(8)
 #define GPIO_TOUCH_INT_AF			2
 
-#define GPIO_JACK_INT_N				S3C64XX_GPN(9)
-#define GPIO_JACK_INT_N_AF			2
+#define GPIO_PWR_I2C_SCL			S3C64XX_GPN(9)
+#define GPIO_PWR_I2C_SCL_AF			1
 
-#define GPIO_DET_35				S3C64XX_GPN(10)
-#define GPIO_DET_35_AF				2
+#define GPIO_PWR_I2C_SDA			S3C64XX_GPN(10)
+#define GPIO_PWR_I2C_SDA_AF			1
 
 #define GPIO_EAR_SEND_END			S3C64XX_GPN(11)
 #define GPIO_EAR_SEND_END_AF			2
 
-#define GPIO_RESOUT_N				S3C64XX_GPN(12)
-#define GPIO_RESOUT_N_AF			2
+#define GPIO_JACK_INT_N				S3C64XX_GPN(12)
+#define GPIO_JACK_INT_N_AF			2
 
 #define GPIO_BOOT_EINT13			S3C64XX_GPN(13)
 #define GPIO_BOOT_EINT13_AF			2
@@ -494,6 +494,9 @@
 
 #define GPIO_LCD_RST_N				S3C64XX_GPO(2)
 #define GPIO_LCD_RST_N_AF			1
+
+#define GPIO_RESOUT_N				S3C64XX_GPO(3)
+#define GPIO_RESOUT_N_AF			2
 
 // S3C64XX_GPO(3) ~ S3C64XX_GPO(5)
 
