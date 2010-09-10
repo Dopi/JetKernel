@@ -503,7 +503,7 @@ static ssize_t uart_switch_store(		struct device *dev, struct device_attribute *
 
 	if (strncmp(buf, "PDA", 3) == 0 || strncmp(buf, "pda", 3) == 0)	{
 		// FIXME: GPIO_UART_SEL	unknown	
-		//gpio_set_value(GPIO_UART_SEL, GPIO_LEVEL_HIGH);		
+		gpio_set_value(GPIO_UART_SEL, GPIO_LEVEL_HIGH);		
 		uart_current_owner = 1;		
 		switch_sel |= UART_SEL_MASK;
 		printk("[UART Switch] Path : PDA\n");	
@@ -511,7 +511,7 @@ static ssize_t uart_switch_store(		struct device *dev, struct device_attribute *
 
 	if (strncmp(buf, "MODEM", 5) == 0 || strncmp(buf, "modem", 5) == 0) {	
 		// FIXME: GPIO_UART_SEL	unknown		
-		//gpio_set_value(GPIO_UART_SEL, GPIO_LEVEL_LOW);		
+		gpio_set_value(GPIO_UART_SEL, GPIO_LEVEL_LOW);		
 		uart_current_owner = 0;		
 		switch_sel &= ~UART_SEL_MASK;
 		printk("[UART Switch] Path : MODEM\n");	
@@ -560,14 +560,12 @@ static void instinctq_switch_init(void)
 	if (IS_ERR(switch_dev))
 		pr_err("Failed to create device(switch)!\n");
 
-#if 0 // FIXME: GPIO_UART_SEL unknown
 	if (gpio_is_valid(GPIO_UART_SEL)) {
 		if (gpio_request(GPIO_UART_SEL, S3C_GPIO_LAVEL(GPIO_UART_SEL))) 
 			printk(KERN_ERR "Failed to request GPIO_UART_SEL!\n");
 		gpio_direction_output(GPIO_UART_SEL, gpio_get_value(GPIO_UART_SEL));
 	}
 	s3c_gpio_setpull(GPIO_UART_SEL, S3C_GPIO_PULL_NONE);
-#endif
 
 	if (device_create_file(switch_dev, &dev_attr_uart_sel) < 0)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_uart_sel.attr.name);
@@ -834,12 +832,14 @@ static int instinctq_gpio_table[][6] = {
 
 	/** ALIVE PART **/
 	/* GPK */
+/*
 	{ GPIO_CHG_EN, GPIO_CHG_EN_AF, GPIO_LEVEL_HIGH, S3C_GPIO_PULL_NONE, 0, 0 }, 
 	{ GPIO_AUDIO_EN, GPIO_AUDIO_EN_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_EAR_MIC_BIAS, GPIO_EAR_MIC_BIAS_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_MICBIAS_EN, GPIO_MICBIAS_EN_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_MONOHEAD_DET, GPIO_MONOHEAD_DET_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_CAM_EN, GPIO_CAM_EN_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
+*/
 	{ GPIO_PHONE_RST_N, GPIO_PHONE_RST_N_AF, GPIO_LEVEL_HIGH, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_KEYSENSE_0, GPIO_KEYSENSE_0_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_KEYSENSE_1, GPIO_KEYSENSE_1_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
@@ -897,7 +897,7 @@ static int instinctq_gpio_table[][6] = {
 	{ S3C64XX_GPP(10), 1, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },
 	{ S3C64XX_GPP(14), 1, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },
 	/* GPQ */
-	//{ GPIO_UART_SEL, 	GPIO_UART_SEL_AF, 	GPIO_LEVEL_HIGH, S3C_GPIO_PULL_NONE, 0, 0 },
+	{ GPIO_UART_SEL, 	GPIO_UART_SEL_AF, 	GPIO_LEVEL_HIGH, S3C_GPIO_PULL_NONE, 0, 0 },
 };
 
 void s3c_config_gpio_table(int array_size, int (*gpio_table)[6])
@@ -945,7 +945,7 @@ void instinctq_init_gpio(void)
 static int instinctq_sleep_gpio_table[][6] = {
 	/** ALIVE PART **/
 	/* GPK */
-	{ GPIO_CAM_EN, GPIO_CAM_EN_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
+	{ GPIO_CAM_EN, 		GPIO_CAM_EN_AF, 	GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_VMSMP_26V, GPIO_VMSMP_26V_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	/* GPL */
 	{ GPIO_KEYSCAN_0, 1, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
