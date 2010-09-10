@@ -473,8 +473,7 @@
 #define GPIO_EAR_SEND_END			S3C64XX_GPN(11)
 #define GPIO_EAR_SEND_END_AF			2
 
-#define GPIO_RESOUT_N				S3C64XX_GPN(12)
-#define GPIO_RESOUT_N_AF			2
+// S3C64XX_GPN(12)
 
 #define GPIO_BOOT_EINT13			S3C64XX_GPN(13)
 #define GPIO_BOOT_EINT13_AF			2
@@ -495,7 +494,10 @@
 #define GPIO_LCD_RST_N				S3C64XX_GPO(2)
 #define GPIO_LCD_RST_N_AF			1
 
-// S3C64XX_GPO(3) ~ S3C64XX_GPO(5)
+#define GPIO_RESOUT_N				S3C64XX_GPO(3)
+#define GPIO_RESOUT_N_AF			3		// Ext. Interrupt Group7 [3]
+
+// S3C64XX_GPO(4) ~ S3C64XX_GPO(5)
 
 #define GPIO_LCD_CS_N				S3C64XX_GPO(6)
 #define GPIO_LCD_CS_N_AF			1

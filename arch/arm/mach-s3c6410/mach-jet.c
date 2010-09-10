@@ -502,7 +502,6 @@ static ssize_t uart_switch_store(		struct device *dev, struct device_attribute *
 		sec_get_param_value(__SWITCH_SEL, &switch_sel);
 
 	if (strncmp(buf, "PDA", 3) == 0 || strncmp(buf, "pda", 3) == 0)	{
-		// FIXME: GPIO_UART_SEL	unknown	
 		gpio_set_value(GPIO_UART_SEL, GPIO_LEVEL_HIGH);		
 		uart_current_owner = 1;		
 		switch_sel |= UART_SEL_MASK;
@@ -510,7 +509,6 @@ static ssize_t uart_switch_store(		struct device *dev, struct device_attribute *
 	}	
 
 	if (strncmp(buf, "MODEM", 5) == 0 || strncmp(buf, "modem", 5) == 0) {	
-		// FIXME: GPIO_UART_SEL	unknown		
 		gpio_set_value(GPIO_UART_SEL, GPIO_LEVEL_LOW);		
 		uart_current_owner = 0;		
 		switch_sel &= ~UART_SEL_MASK;
@@ -887,10 +885,11 @@ static int instinctq_gpio_table[][6] = {
 	{ GPIO_POWER_N, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_PHONE_ACTIVE, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_EAR_SEND_END, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
-	{ GPIO_RESOUT_N, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_UP, 0, 0 },
 	{ GPIO_BOOT_EINT13, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_BOOT_EINT14, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_BOOT_EINT15, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
+	/* GPO */
+	{ GPIO_RESOUT_N, 	0, 	GPIO_LEVEL_NONE, S3C_GPIO_PULL_UP, 0, 0 },
 	/** MEMORY PART **/
 	/* GPP */
 	{ S3C64XX_GPP(8), 1, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },
