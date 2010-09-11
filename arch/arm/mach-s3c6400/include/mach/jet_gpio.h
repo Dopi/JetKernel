@@ -504,7 +504,11 @@
 #define GPIO_LCD_SDI			    	S3C64XX_GPO(7)
 #define GPIO_LCD_SDI_AF				1
 
-// S3C64XX_GPO(8) ~ S3C64XX_GPO(9)
+#define GPIO_AP_SCL_1V8			    	S3C64XX_GPO(8)
+#define GPIO_AP_SCL_1V8_AF			1		// output
+
+#define GPIO_AP_SDA_1V8			    	S3C64XX_GPO(9)
+#define GPIO_AP_SDA_1V8_AF			1		// output
 
 #define GPIO_LCD_RST_N				S3C64XX_GPO(10)
 #define GPIO_LCD_RST_N_AF			1
