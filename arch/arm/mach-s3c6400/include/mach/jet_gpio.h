@@ -120,11 +120,10 @@
 //#define GPIO_WLAN_RST_N				S3C64XX_GPE(2)
 //#define GPIO_WLAN_RST_N_AF			1
 
-#define GPIO_PWR_I2C_SCL			S3C64XX_GPE(3)
-#define GPIO_PWR_I2C_SCL_AF			1		// 1 = Output
+// S3C64XX_GPE(3)
 
-#define GPIO_PWR_I2C_SDA			S3C64XX_GPE(4)
-#define GPIO_PWR_I2C_SDA_AF			1		// 1 = Output
+// S3C64XX_GPE(4)
+
 
 /* S3C64XX_GPF(0) ~ S3C64XX_GPF(15) */
 
@@ -464,9 +463,11 @@
 //#define GPIO_TOUCH_INT				S3C64XX_GPN(8)
 //#define GPIO_TOUCH_INT_AF			2
 
-// S3C64XX_GPN(9)
+#define GPIO_PWR_I2C_SCL			S3C64XX_GPN(9)	// PWR_SCL_3.0V
+#define GPIO_PWR_I2C_SCL_AF			1		// 1 = Output
 
-// S3C64XX_GPN(10)
+#define GPIO_PWR_I2C_SDA			S3C64XX_GPN(10)	// PWR_SDA_3.0V
+#define GPIO_PWR_I2C_SDA_AF			1		// 1 = Output
 
 #define GPIO_EAR_SEND_END			S3C64XX_GPN(11)
 #define GPIO_EAR_SEND_END_AF			2
