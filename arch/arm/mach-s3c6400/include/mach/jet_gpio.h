@@ -167,7 +167,7 @@
 #define GPIO_CAM_D_7				S3C64XX_GPF(12)
 #define GPIO_CAM_D_7_AF				2		// CAMIF YDATA[7]
 
-//#define GPIO_MIC_SEL_EN_REV04			S3C64XX_GPF(13)
+//#define GPIO_MIC_SEL_EN_gpqREV04			S3C64XX_GPF(13)
 //#define GPIO_MIC_SEL_EN_REV04_AF		1
 
 //#define GPIO_LUM_PWM				S3C64XX_GPF(14)
@@ -491,8 +491,7 @@
 
 // S3C64XX_GPO(1)
 
-#define GPIO_LCD_RST_N				S3C64XX_GPO(2)
-#define GPIO_LCD_RST_N_AF			1
+// S3C64XX_GPO(2)
 
 #define GPIO_RESOUT_N				S3C64XX_GPO(3)
 #define GPIO_RESOUT_N_AF			3		// Ext. Interrupt Group7 [3]
@@ -505,7 +504,13 @@
 #define GPIO_LCD_SDI			    	S3C64XX_GPO(7)
 #define GPIO_LCD_SDI_AF				1
 
-// S3C64XX_GPO(8) ~ S3C64XX_GPO(11)
+// S3C64XX_GPO(8) ~ S3C64XX_GPO(9)
+
+#define GPIO_LCD_RST_N				S3C64XX_GPO(10)
+#define GPIO_LCD_RST_N_AF			1
+
+// #define GPIO_LCD_DET				S3C64XX_GPO(11)	
+// #define GPIO_LCD_DET_AF			1	
 
 #define GPIO_LCD_SDO			    	S3C64XX_GPO(12)
 #define GPIO_LCD_SDO_AF				1
