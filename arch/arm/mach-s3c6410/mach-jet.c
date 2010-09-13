@@ -160,7 +160,6 @@ static struct platform_device s3c_device_i2c3 = {
 	.dev.platform_data	= &i2c3_platdata,
 };
 
-#if 0
 static struct i2c_gpio_platform_data i2c4_platdata = {
 	.sda_pin		= GPIO_USBSW_SDA_3V0,
 	.scl_pin		= GPIO_USBSW_SCL_3V0,
@@ -175,7 +174,6 @@ static struct platform_device s3c_device_i2c4 = {
 	.id					= 4,
 	.dev.platform_data	= &i2c4_platdata,
 };
-#endif
 
 static struct i2c_gpio_platform_data i2c5_platdata = {
 	.sda_pin		= GPIO_AP_SDA_1V8,
@@ -333,10 +331,10 @@ static struct platform_device *instinctq_devices[] __initdata = {
 	&s3c_device_hsmmc2,
 
 	&s3c_device_i2c0,
-//	&s3c_device_i2c1,
 #ifdef CONFIG_I2C_GPIO
 	&s3c_device_i2c2,
 	&s3c_device_i2c3,
+	&s3c_device_i2c4,
 	&s3c_device_i2c5,
 #endif
 #ifdef CONFIG_S3C_ADC
@@ -366,7 +364,6 @@ static struct platform_device *instinctq_devices[] __initdata = {
 };
 
 static struct i2c_board_info i2c_devs0[] __initdata = {
-//	{ I2C_BOARD_INFO("USBIC", 0x25), },		/* uUSB ic */
 };
 
 static struct i2c_board_info i2c_devs1[] __initdata = {
@@ -380,6 +377,13 @@ static struct i2c_board_info i2c_devs2[] __initdata = {
 
 static struct i2c_board_info i2c_devs3[] __initdata = {
 //	{ I2C_BOARD_INFO("max8906", 0x), },  	/* Max8698 PMIC */
+};
+
+static struct i2c_board_info i2c_devs4[] __initdata = {
+//	{ I2C_BOARD_INFO("USBIC", 0x25), },		/* uUSB ic */
+};
+
+static struct i2c_board_info i2c_devs5[] __initdata = {
 };
 
 #if defined(CONFIG_S3C_ADC)
@@ -870,7 +874,7 @@ static int instinctq_gpio_table[][6] = {
 	{ GPIO_MONOHEAD_DET, GPIO_MONOHEAD_DET_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_CAM_EN, GPIO_CAM_EN_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
 */
-	{ GPIO_PHONE_RST_N, GPIO_PHONE_RST_N_AF, GPIO_LEVEL_HIGH, S3C_GPIO_PULL_NONE, 0, 0 },
+//	{ GPIO_PHONE_RST_N, GPIO_PHONE_RST_N_AF, GPIO_LEVEL_HIGH, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_KEYSENSE_0, GPIO_KEYSENSE_0_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_KEYSENSE_1, GPIO_KEYSENSE_1_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_KEYSENSE_2, GPIO_KEYSENSE_2_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
@@ -1120,7 +1124,7 @@ static void __init instinctq_machine_init(void)
 	gpio_direction_output(GPIO_VIBTONE_EN, GPIO_LEVEL_LOW);
 
 	s3c_i2c0_set_platdata(NULL);
-	s3c_i2c1_set_platdata(NULL);
+//	s3c_i2c1_set_platdata(NULL);
 
 #if defined(CONFIG_TOUCHSCREEN_S3C)
         s3c_ts_set_platdata(&s3c_ts_platform);
@@ -1131,11 +1135,12 @@ static void __init instinctq_machine_init(void)
 
 
 	i2c_register_board_info(0, i2c_devs0, ARRAY_SIZE(i2c_devs0));
-	i2c_register_board_info(1, i2c_devs1, ARRAY_SIZE(i2c_devs1));
-
+//	i2c_register_board_info(1, i2c_devs1, ARRAY_SIZE(i2c_devs1));
 #ifdef CONFIG_I2C_GPIO
 	i2c_register_board_info(2, i2c_devs2, ARRAY_SIZE(i2c_devs2));
 	i2c_register_board_info(3, i2c_devs3, ARRAY_SIZE(i2c_devs3));
+	i2c_register_board_info(4, i2c_devs4, ARRAY_SIZE(i2c_devs4));
+	i2c_register_board_info(5, i2c_devs5, ARRAY_SIZE(i2c_devs5));
 #endif
 
 	platform_add_devices(instinctq_devices, ARRAY_SIZE(instinctq_devices));
