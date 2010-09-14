@@ -321,7 +321,7 @@
 /* S3C64XX_GPK(0) ~ S3C64XX_GPK(15) */
 
 #define GPIO_TA_SEL				S3C64XX_GPK(0)
-#define GPIO_TA_SEL_AF				0
+#define GPIO_TA_SEL_AF				0		// input (FIXME: eigentlich irq IRQ ???)
 
 #define GPIO_CAM_EN				S3C64XX_GPK(1)
 #define GPIO_CAM_EN_AF				1
@@ -408,8 +408,8 @@
 #define GPIO_PS_VOUT				S3C64XX_GPL(12)	// GPIO_PS_VOUT_30 
 #define GPIO_PS_VOUT_AF				3		// Ext. Interrupt [20] 
 
-//#define GPIO_TA_USB_SEL				S3C64XX_GPL(13)
-//#define GPIO_TA_USB_SEL_AF			1
+#define GPIO_BOOT_MODE				S3C64XX_GPL(13)
+#define GPIO_BOOT_MODE_AF			0	
 
 //#define GPIO_BT_HOST_WAKE			S3C64XX_GPL(14)
 //#define GPIO_BT_HOST_WAKE_AF			3
