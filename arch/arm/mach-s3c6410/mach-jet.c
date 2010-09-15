@@ -90,8 +90,11 @@ EXPORT_SYMBOL(sec_set_param_value);
 void (*sec_get_param_value)(int idx, void *value);
 EXPORT_SYMBOL(sec_get_param_value);
 
-
 void instinctq_init_gpio(void);
+
+extern void (*ftm_enable_usb_sw)(int mode);
+extern void fsa9480_SetAutoSWMode(void);
+extern void fsa9480_MakeRxdLow(void);
 
 #define UCON S3C_UCON_DEFAULT
 #define ULCON S3C_LCON_CS8 | S3C_LCON_PNONE
@@ -366,9 +369,9 @@ static struct platform_device *instinctq_devices[] __initdata = {
 static struct i2c_board_info i2c_devs0[] __initdata = {
 };
 
-static struct i2c_board_info i2c_devs1[] __initdata = {
+//static struct i2c_board_info i2c_devs1[] __initdata = {
 //	{ I2C_BOARD_INFO("???", 0x00), },	/* Camera */
-};
+//};
 
 static struct i2c_board_info i2c_devs2[] __initdata = {
 //	{ I2C_BOARD_INFO("KXSD9", 0x18), },		/* accelerator */
@@ -380,7 +383,7 @@ static struct i2c_board_info i2c_devs3[] __initdata = {
 };
 
 static struct i2c_board_info i2c_devs4[] __initdata = {
-//	{ I2C_BOARD_INFO("USBIC", 0x25), },		/* uUSB ic */
+//	{ I2C_BOARD_INFO("fsa9480", 0x25), },		/* uUSB ic */
 };
 
 static struct i2c_board_info i2c_devs5[] __initdata = {
@@ -520,6 +523,18 @@ static void instinctq_pm_power_off(void)
 	}
 
 	while (1);
+}
+
+static void spica_ftm_enable_usb_sw(int mode)
+{
+	pr_info("%s: mode(%d)\n", __func__, mode);
+	if (mode) {
+		fsa9480_SetAutoSWMode();
+	} else {
+		fsa9480_MakeRxdLow();
+		mdelay(10);
+		fsa9480_MakeRxdLow();
+	}
 }
 
 static int uart_current_owner = 0;
@@ -778,15 +793,14 @@ static int instinctq_gpio_table[][6] = {
 	{ GPIO_WLAN_RST_N, 	GPIO_WLAN_RST_N_AF, 	GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },
 	{ GPIO_WLAN_CMD, 	GPIO_WLAN_CMD_AF, 	GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE },
 	{ GPIO_WLAN_CLK, 	GPIO_WLAN_CLK_AF, 	GPIO_LEVEL_NONE, S3C_GPIO_PULL_DOWN, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN },
-	{ GPIO_WLAN_WAKE,	GPIO_WLAN_WAKE_AF, 	GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },
-	{ GPIO_BT_WAKE, 	GPIO_BT_WAKE_AF, 	GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },
 	/* GPD */
 	{ GPIO_I2S_CLK, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_DOWN, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN },
 	{ GPIO_I2S_LRCLK, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_DOWN, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN },
 	{ GPIO_I2S_DI, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_DOWN, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN },
 	{ GPIO_I2S_DO, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_DOWN, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN },
 	/* GPE */
-	{ GPIO_BOOT, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE },
+	{ GPIO_WLAN_WAKE,	GPIO_WLAN_WAKE_AF, 	GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },
+//	{ GPIO_BOOT, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE },
 	/* GPF */
 	{ GPIO_CAM_MCLK, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_DOWN, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN },
 	{ GPIO_CAM_HSYNC, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_DOWN, S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN },
@@ -910,7 +924,7 @@ static int instinctq_gpio_table[][6] = {
 	{ GPIO_WLAN_HOST_WAKE, 	GPIO_WLAN_HOST_WAKE_AF,	GPIO_LEVEL_NONE, S3C_GPIO_PULL_DOWN, 0, 0 },
 	{ GPIO_BT_HOST_WAKE,	GPIO_BT_HOST_WAKE_AF,	GPIO_LEVEL_NONE, S3C_GPIO_PULL_DOWN, 0, 0 },
 #if (CONFIG_INSTINCTQ_REV >= CONFIG_INSTINCTQ_REV00)
-//	{ GPIO_OJ_MOTION, GPIO_OJ_MOTION_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 }, 
+	{ GPIO_BT_WAKE, 	GPIO_BT_WAKE_AF, 	GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },
 	{ GPIO_MSENSE_RST_N, GPIO_MSENSE_RST_N_AF, GPIO_LEVEL_HIGH, S3C_GPIO_PULL_NONE, 0, 0 }, 
 #endif
 	/* GPN */
@@ -1155,6 +1169,8 @@ static void __init instinctq_machine_init(void)
 	register_reboot_notifier(&instinctq_reboot_notifier);
 
 	instinctq_switch_init();
+
+	ftm_enable_usb_sw = spica_ftm_enable_usb_sw;
 
 #ifdef CONFIG_SEC_LOG_BUF
 	sec_log_buf_init();

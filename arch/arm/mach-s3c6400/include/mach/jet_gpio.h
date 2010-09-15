@@ -86,11 +86,10 @@
 #define GPIO_WLAN_CLK				S3C64XX_GPC(5)
 #define GPIO_WLAN_CLK_AF			3
 
-#define GPIO_WLAN_WAKE				S3C64XX_GPC(6)
-#define GPIO_WLAN_WAKE_AF			1  // output
+// S3C64XX_GPC(6)	N.C.
 
-#define GPIO_BT_WAKE				S3C64XX_GPC(7)
-#define GPIO_BT_WAKE_AF				1  // output
+// S3C64XX_GPC(7)	N.C.
+
 
 /* S3C64XX_GPD(0) ~ S3C64XX_GPD(4) */
 
@@ -114,8 +113,10 @@
 //#define GPIO_BT_RST_N				S3C64XX_GPE(0)
 //#define GPIO_BT_RST_N_AF			1
 
-#define GPIO_BOOT				S3C64XX_GPE(1)
-#define GPIO_BOOT_AF				0		// 0 = Input
+#define GPIO_WLAN_WAKE				S3C64XX_GPE(1)
+#define GPIO_WLAN_WAKE_AF			1  // output
+//#define GPIO_BOOT				S3C64XX_GPE(1)
+//#define GPIO_BOOT_AF				0		// 0 = Input
 
 //#define GPIO_WLAN_RST_N				S3C64XX_GPE(2)
 //#define GPIO_WLAN_RST_N_AF			1
@@ -428,8 +429,8 @@
 #define GPIO_BT_HOST_WAKE			S3C64XX_GPM(3)
 #define GPIO_BT_HOST_WAKE_AF			3
 
-//#define GPIO_OJ_MOTION				S3C64XX_GPM(4)
-//#define GPIO_OJ_MOTION_AF			3
+#define GPIO_BT_WAKE				S3C64XX_GPM(4)
+#define GPIO_BT_WAKE_AF				1  // output
 
 #define GPIO_MSENSE_RST_N			S3C64XX_GPM(5)
 #define GPIO_MSENSE_RST_N_AF			1
