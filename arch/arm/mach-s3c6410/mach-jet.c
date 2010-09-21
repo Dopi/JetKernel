@@ -329,9 +329,9 @@ static struct platform_device *instinctq_devices[] __initdata = {
 	&s3c_device_dma2,
 	&s3c_device_dma3,
 #endif
-	&s3c_device_hsmmc0,
-//	&s3c_device_hsmmc1,
-	&s3c_device_hsmmc2,
+	&s3c_device_hsmmc0,	// external SD (TF)
+	&s3c_device_hsmmc1,	// internal SD (iNAND)
+	&s3c_device_hsmmc2,	// BT_WLAN_SDIO
 
 	&s3c_device_i2c0,
 #ifdef CONFIG_I2C_GPIO
