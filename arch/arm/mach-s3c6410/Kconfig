@@ -41,10 +41,12 @@ config MACH_INSTINCTQ
 	bool "INSTINCTQ"
 	select CPU_S3C6410
 	select S3C_DEV_HSMMC
+#	select S3C_DEV_HSMMC1
 	select S3C_DEV_HSMMC2
-	select S3C_DEV_I2C1
+#	select S3C_DEV_I2C1
 	select S3C6410_SETUP_SDHCI
-	select S3C64XX_SETUP_I2C1
+	select S3C64XX_SETUP_I2C0
+#	select S3C64XX_SETUP_I2C1
 #	select S3C_DMA_PL080_NEW
 	help
 	  Machine support for the Samsung INSTINCTQ
@@ -53,10 +55,12 @@ config MACH_JET
 	bool "JET"
 	select CPU_S3C6410
 	select S3C_DEV_HSMMC
+	select S3C_DEV_HSMMC1
 	select S3C_DEV_HSMMC2
-	select S3C_DEV_I2C1
+#	select S3C_DEV_I2C1
 	select S3C6410_SETUP_SDHCI
-	select S3C64XX_SETUP_I2C1
+	select S3C64XX_SETUP_I2C0
+#	select S3C64XX_SETUP_I2C1
 #	select S3C_DMA_PL080_NEW
 	help
 	  Machine support for the Samsung JET (GT-S8000)
