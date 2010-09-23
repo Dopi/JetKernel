@@ -1,0 +1,119 @@
+Only in arch/arm/mach-s3c6400: built-in.o
+Only in arch/arm/mach-s3c6400: .built-in.o.cmd
+diff -rbu /home/martin/Desktop/arm/mach-s3c6400/include/mach/hardware.h arch/arm/mach-s3c6400/include/mach/hardware.h
+--- /home/martin/Desktop/arm/mach-s3c6400/include/mach/hardware.h	2009-12-25 16:56:22.000000000 +0100
++++ arch/arm/mach-s3c6400/include/mach/hardware.h	2010-07-20 00:49:15.000000000 +0200
+@@ -1,5 +1,6 @@
+ /* linux/arch/arm/mach-s3c6400/include/mach/hardware.h
+  *
++ * Copyright 2010 JetDroid project
+  * Copyright 2008 Openmoko, Inc.
+  * Copyright 2008 Simtec Electronics
+  *      Ben Dooks <ben@simtec.co.uk>
+@@ -11,8 +12,12 @@
+ #ifndef __ASM_ARCH_HARDWARE_H
+ #define __ASM_ARCH_HARDWARE_H __FILE__
+ 
+-#ifdef CONFIG_MACH_SATURN
+-#include <mach/saturn.h> 
++#ifdef CONFIG_MACH_INSTINCTQ
++#include <mach/instinctq.h> 
+ #endif
+ 
+-#endif /* __ASM_ARCH_IRQ_H */
++#ifdef CONFIG_MACH_JET
++#include <mach/jet.h> 
++#endif
++
++#endif /* __ASM_ARCH_HARDWARE_H */
+Only in arch/arm/mach-s3c6400/include/mach: instinctq_gpio.h
+Only in arch/arm/mach-s3c6400/include/mach: instinctq.h
+Only in arch/arm/mach-s3c6400/include/mach: jet_gpio.h
+Only in arch/arm/mach-s3c6400/include/mach: jet.h
+diff -rbu /home/martin/Desktop/arm/mach-s3c6400/include/mach/param.h arch/arm/mach-s3c6400/include/mach/param.h
+--- /home/martin/Desktop/arm/mach-s3c6400/include/mach/param.h	2009-12-25 16:56:22.000000000 +0100
++++ arch/arm/mach-s3c6400/include/mach/param.h	2010-07-20 00:49:15.000000000 +0200
+@@ -16,20 +16,19 @@
+ /* Default Parameter Values */
+ 
+ #define SERIAL_SPEED		7		/* Baudrate */
+-#define LCD_LEVEL			0x061	/* Backlight Level */
++#define LCD_LEVEL			0x07F	/* Backlight Level */
+ #define BOOT_DELAY			0		/* Boot Wait Time */
+ #define LOAD_RAMDISK		0		/* Enable Ramdisk Loading */
+ #define SWITCH_SEL			1		/* Switch Setting (UART[1], USB[0]) */
+ #define PHONE_DEBUG_ON		0		/* Enable Phone Debug Mode */
+-#define LCD_DIM_LEVEL		0x011	/* Backlight Dimming Level */
++#define LCD_DIM_LEVEL		0x01D	/* Backlight Dimming Level */
+ #define MELODY_MODE			0		/* Melody Mode */
+ #define REBOOT_MODE			0		/* Reboot Mode */
+ #define NATION_SEL			0		/* Language Configuration */
+ #define SET_DEFAULT_PARAM	0		/* Set Param to Default */
+-#define VERSION_LINE		"I8315XXIE00"	/* Set Image Info */
++#define VERSION_LINE		"INSTINCTQXXIE00"	/* Set Image Info */
+ #define COMMAND_LINE		"console=ttySAC2,115200"
+ #define	BOOT_VERSION		" version=Sbl(1.0.0) "
+-#define AUTO_RAMDUMP_MODE	1		// whether panic enter ramdump mode or not
+ 
+ typedef enum {
+ 	__SERIAL_SPEED,
+@@ -44,11 +43,7 @@
+ 	__NATION_SEL,
+ 	__SET_DEFAULT_PARAM,
+ 	__PARAM_INT_11,
+-#ifdef CONFIG_MACH_SATURN
+-	__AUTO_RAMDUMP_MODE,
+-#else
+ 	__PARAM_INT_12,
+-#endif
+ 	__PARAM_INT_13,
+ 	__PARAM_INT_14,
+ 	__VERSION,
+Only in arch/arm/mach-s3c6400/include/mach: spica_rev00.h
+diff -rbu /home/martin/Desktop/arm/mach-s3c6400/include/mach/system.h arch/arm/mach-s3c6400/include/mach/system.h
+--- /home/martin/Desktop/arm/mach-s3c6400/include/mach/system.h	2009-12-25 16:56:22.000000000 +0100
++++ arch/arm/mach-s3c6400/include/mach/system.h	2010-07-20 00:49:15.000000000 +0200
+@@ -18,10 +18,6 @@
+ void (*s3c64xx_idle)(void);
+ void (*s3c64xx_reset_hook)(void);
+ 
+-#ifdef CONFIG_MACH_SATURN
+-extern void __iomem *s3c6410_wdt_addr;
+-#endif
+-
+ void s3c64xx_default_idle(void)
+ {
+ 	/* nothing here yet */
+@@ -37,22 +33,9 @@
+ 
+ void arch_reset(char mode)
+ {
+-#ifdef CONFIG_MACH_SATURN
+-	void __iomem	*wdt_reg = s3c6410_wdt_addr;
+-
+-	printk(KERN_ERR ">>Watchdog reset tried to assert reset\n");
+-	mdelay(50);
+-
+-	if (!wdt_reg ){
+-		//wdt_reg = ioremap(S3C64XX_PA_WATCHDOG,S3C64XX_SZ_WATCHDOG);
+-		while(1);
+-		}
+-#else
+ 	void __iomem	*wdt_reg;
+ 
+-	printk(KERN_ERR ">>Watchdog reset tried to assert reset\n");
+ 	wdt_reg = ioremap(S3C64XX_PA_WATCHDOG,S3C64XX_SZ_WATCHDOG);
+-#endif
+ 
+ 	/* nothing here yet */
+ 
+@@ -63,7 +46,7 @@
+ 	/* wait for reset to assert... */
+ 	mdelay(500);
+ 
+-	printk(KERN_ERR "<<Watchdog reset failed to assert reset\n");
++	printk(KERN_ERR "Watchdog reset failed to assert reset\n");
+ 
+ 	/* delay to allow the serial port to show the message */
+ 	mdelay(50);
+Only in arch/arm/mach-s3c6400: modules.order
