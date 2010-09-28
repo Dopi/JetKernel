@@ -1063,6 +1063,7 @@ static void check_pmic(void)
 	if (Get_MAX8906_PM_REG(REG_CARD2FSEQ, &reg_buff)) {
 		pr_info("%s: REG_CARD2FSEQ (%d)\n", __func__, reg_buff);
 	}
+
 */
 }
 
@@ -1189,6 +1190,8 @@ static void __init instinctq_machine_init(void)
 #endif
 
 	check_pmic();
+
+	printk("INSTINCTQ Machine INIT END\n");
 }
 
 MACHINE_START(INSTINCTQ, "SPH-M900")

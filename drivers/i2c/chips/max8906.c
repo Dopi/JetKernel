@@ -15,6 +15,8 @@
 
 #define MSG_HIGH(a,b,c,d)		{}
 
+#define pmic_extra_debug
+
 max8906_register_type  max8906reg[ENDOFREG] =
 {
     //========================================================
@@ -188,6 +190,7 @@ max8906_register_type  max8906reg[ENDOFREG] =
     {  0xD0,        0x15 }, // REG_ALARM1_MONTH,
     {  0xD0,        0x16 }, // REG_ALARM1_YEAR1,
     {  0xD0,        0x17 }, // REG_ALARM1_YEAR2,
+
 
 
     {  0xD0,        0x18 }, // REG_ALARM0_CNTL,
@@ -2766,7 +2769,7 @@ static int max8906_write(struct i2c_client *client, u8 reg, u8 data)
 unsigned int pmic_read(u8 slaveaddr, u8 reg, u8 *data, u8 length)
 {
 	struct i2c_client *client;
-#if 0	
+#ifdef pmic_extra_debug	
 	printk("%s -> slaveaddr 0x%02x, reg 0x%02x, data 0x%02x\n",	__FUNCTION__, slaveaddr, reg, *data);
 #endif	
 	if (slaveaddr == MAX8906_GPM_ID)
@@ -2788,7 +2791,7 @@ unsigned int pmic_read(u8 slaveaddr, u8 reg, u8 *data, u8 length)
 unsigned int pmic_write(u8 slaveaddr, u8 reg, u8 *data, u8 length)
 {
 	struct i2c_client *client;
-#if 0	
+#ifdef pmic_extra_debug	
 	printk("%s -> slaveaddr 0x%02x, reg 0x%02x, data 0x%02x\n",	__FUNCTION__, slaveaddr, reg, *data);
 #endif	
 	if (slaveaddr == MAX8906_GPM_ID)
@@ -2833,6 +2836,10 @@ static int max8906_attach(struct i2c_adapter *adap, int addr, int kind)
 	c->adapter = adap;
 	c->driver = &max8906_driver;
 
+#ifdef pmic_extra_debug	
+	printk("%s -> adapter: %s  slaveaddr: 0x%02x\n",	__FUNCTION__, c->name, addr);
+#endif	
+
 	if ((ret = i2c_attach_client(c)))
 		goto error;
 
@@ -2846,6 +2853,9 @@ static int max8906_attach(struct i2c_adapter *adap, int addr, int kind)
 		max8906_apm_i2c_client = c;
 
 error:
+#ifdef pmic_extra_debug	
+	printk("%s -> return %i\n",	__FUNCTION__, ret);
+#endif	
 	return ret;
 }
 
