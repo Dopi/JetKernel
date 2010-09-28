@@ -339,10 +339,10 @@
 #define GPIO_FM_RST_AF				1
 
 #define GPIO_USBSW_SCL_3V0			S3C64XX_GPK(6)
-#define GPIO_USBSW_SCL_3V0_AF			1
+#define GPIO_USBSW_SCL_3V0_AF			0		// should be output (1) but all other sources init it as input (0)
 
 #define GPIO_USBSW_SDA_3V0			S3C64XX_GPK(7)
-#define GPIO_USBSW_SDA_3V0_AF			1
+#define GPIO_USBSW_SDA_3V0_AF			0		// should be output (1) but all other sources init it as input (0)
 
 #define GPIO_KEYSENSE_0				S3C64XX_GPK(8)
 #define GPIO_KEYSENSE_0_AF			3
@@ -418,10 +418,10 @@
 /* S3C64XX_GPM(0) ~ S3C64XX_GPM(5) */
 
 #define GPIO_FM_I2C_SCL				S3C64XX_GPM(0)
-#define GPIO_FM_I2C_SCL_AF			1
+#define GPIO_FM_I2C_SCL_AF			0		// should be output (1) but all other sources init it as input (0)
 
 #define GPIO_FM_I2C_SDA				S3C64XX_GPM(1)
-#define GPIO_FM_I2C_SDA_AF			1
+#define GPIO_FM_I2C_SDA_AF			0		// should be output (1) but all other sources init it as input (0)
 
 #define GPIO_WLAN_HOST_WAKE			S3C64XX_GPM(2)
 #define GPIO_WLAN_HOST_WAKE_AF			3
@@ -465,10 +465,10 @@
 //#define GPIO_TOUCH_INT_AF			2
 
 #define GPIO_PWR_I2C_SCL			S3C64XX_GPN(9)	// PWR_SCL_3.0V
-#define GPIO_PWR_I2C_SCL_AF			1		// 1 = Output
+#define GPIO_PWR_I2C_SCL_AF			0		// should be output (1) but all other sources init it as input (0)
 
 #define GPIO_PWR_I2C_SDA			S3C64XX_GPN(10)	// PWR_SDA_3.0V
-#define GPIO_PWR_I2C_SDA_AF			1		// 1 = Output
+#define GPIO_PWR_I2C_SDA_AF			0		// should be output (1) but all other sources init it as input (0)
 
 #define GPIO_EAR_SEND_END			S3C64XX_GPN(11)
 #define GPIO_EAR_SEND_END_AF			2
@@ -506,10 +506,10 @@
 #define GPIO_LCD_SDI_AF				1
 
 #define GPIO_AP_SCL_1V8			    	S3C64XX_GPO(8)
-#define GPIO_AP_SCL_1V8_AF			1		// output
+#define GPIO_AP_SCL_1V8_AF			0		// should be output (1) but all other sources init it as input (0)
 
 #define GPIO_AP_SDA_1V8			    	S3C64XX_GPO(9)
-#define GPIO_AP_SDA_1V8_AF			1		// output
+#define GPIO_AP_SDA_1V8_AF			0		// should be output (1) but all other sources init it as input (0)
 
 #define GPIO_LCD_RST_N				S3C64XX_GPO(10)
 #define GPIO_LCD_RST_N_AF			1
