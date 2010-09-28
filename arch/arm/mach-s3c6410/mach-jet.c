@@ -527,6 +527,7 @@ static void instinctq_pm_power_off(void)
 
 static void spica_ftm_enable_usb_sw(int mode)
 {
+	printk(KERN_INFO "%s: mode(%d)\n", __func__, mode); 
 	pr_info("%s: mode(%d)\n", __func__, mode);
 	if (mode) {
 		fsa9480_SetAutoSWMode();
@@ -880,7 +881,10 @@ static int instinctq_gpio_table[][6] = {
 
 	/** ALIVE PART **/
 	/* GPK */
-	{ GPIO_TA_SEL,		0,	GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
+	{ GPIO_TA_SEL,		GPIO_TA_SEL_AF,		GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
+	{ GPIO_USBSW_SCL_3V0, 	GPIO_USBSW_SCL_3V0_AF,	GPIO_LEVEL_HIGH, S3C_GPIO_PULL_NONE, 0, 0 },
+	{ GPIO_USBSW_SDA_3V0, 	GPIO_USBSW_SDA_3V0_AF,	GPIO_LEVEL_HIGH, S3C_GPIO_PULL_NONE, 0, 0 },
+
 /*
 	{ GPIO_AUDIO_EN, GPIO_AUDIO_EN_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_EAR_MIC_BIAS, GPIO_EAR_MIC_BIAS_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
@@ -1000,6 +1004,8 @@ static int instinctq_sleep_gpio_table[][6] = {
 	/** ALIVE PART **/
 	/* GPK */
 	{ GPIO_CAM_EN, 		GPIO_CAM_EN_AF, 	GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
+	{ GPIO_USBSW_SCL_3V0, 	0, 			GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
+	{ GPIO_USBSW_SDA_3V0, 	0,			GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_VMSMP_26V, GPIO_VMSMP_26V_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	/* GPL */
 	{ GPIO_KEYSCAN_0, 1, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
@@ -1171,6 +1177,7 @@ static void __init instinctq_machine_init(void)
 	instinctq_switch_init();
 
 	ftm_enable_usb_sw = spica_ftm_enable_usb_sw;
+//	spica_ftm_enable_usb_sw(true);
 
 #ifdef CONFIG_SEC_LOG_BUF
 	sec_log_buf_init();
