@@ -562,12 +562,12 @@ static void set_input_path_gain(struct snd_soc_codec *codec, int mode)
 	switch(mode)
 	{
   		case MM_AUDIO_VOICEMEMO_MAIN:		
-			codec->write(codec, 0x05, 0x5B); 	//MIC-AMP 18dB 2009.07.10
-			codec->write(codec, 0x12, 0xD9);
-			codec->write(codec, 0x13, 0xD9);
+			codec->write(codec, 0x05, 0x5B); 	//MIC-AMP 18dB 2009.07.10 -> fix by sircid
+			codec->write(codec, 0x12, 0xD9); 
+			codec->write(codec, 0x13, 0xD9); 
 			break;		
   		case MM_AUDIO_VOICEMEMO_SUB:		
-			codec->write(codec, 0x05, 0x5B); 	//MIC-AMP 18dB 2009.07.10
+			codec->write(codec, 0x05, 0x5B); 	//MIC-AMP 18dB 2009.07.10 -> fix by sircid
 			codec->write(codec, 0x12, 0xD9);
 			codec->write(codec, 0x13, 0xD9);
 			break;
@@ -589,8 +589,8 @@ static void set_path_gain(struct snd_soc_codec *codec, int mode)
 
 	/* VOICEMEMO Path : only SPK */
     if (mode == MM_AUDIO_VOICEMEMO_MAIN ||
-            mode == MM_AUDIO_VOICEMEMO_SUB )
-            mode = MM_AUDIO_PLAYBACK_SPK;
+		mode == MM_AUDIO_VOICEMEMO_SUB)
+            mode = MM_AUDIO_VOICECALL_RCV; // fix by sircid
     else if(mode  == MM_AUDIO_VOICEMEMO_EAR)
             mode = MM_AUDIO_PLAYBACK_HP;
 
@@ -604,7 +604,7 @@ static void set_path_gain(struct snd_soc_codec *codec, int mode)
 			break;
 		case MM_AUDIO_PLAYBACK_SPK :
 		case MM_AUDIO_PLAYBACK_SPK_HP :
-			codec->write(codec, 0x08, 0x95); 	// Output Volume Control : OUT2[7:4]/OUT1[2:0]
+			codec->write(codec, 0x08, 0xC5); 	// Output Volume Control : OUT2[7:4]/OUT1[2:0] [increase vol]
 			codec->write(codec, 0x1A, 0x18); 	// Lch Output Digital Vol
 			codec->write(codec, 0x1B, 0x18); 	// Rch Output Digital Vol
 			break;
@@ -803,31 +803,34 @@ int path_enable(struct snd_soc_codec *codec, int mode)
 			break;
 		
 		case MM_AUDIO_VOICEMEMO_MAIN :
+		case MM_AUDIO_VOICEMEMO_SUB :
 			//P("set MM_AUDIO_VOICEMEMO_MAIN");
 			mic_set_path(AK4671_MIC_PATH_MAIN);
-			codec->write(codec, 0x04, 0x14); 		// => MIC-AMP Lch=IN1+/-
-			codec->write(codec, 0x0B, 0x01); 		// D/A Lch -> Lout2
-			codec->write(codec, 0x0C, 0x01); 		// D/A Rch -> Rout2
-			codec->write(codec, 0x00, 0x01); 		// => VCOM power-up
-			mdelay(2); 		// Wait more than 100ns
-			codec->write(codec, 0x00, 0xD5); 		// D/A power-up
-			codec->write(codec, 0x10, 0x63); 		// PMLO2,PMRO2,PMLO2S,PMRO2s='1'
-			mdelay(1);		// wait 100ns
-			codec->write(codec, 0x10, 0x67); 		// MUTEN='1'
-			break;
+			codec->write(codec, 0x0B, 0x00); 		// D/A Lch -> Lout2
+			codec->write(codec, 0x0C, 0x00); 		// D/A Rch -> Rout2
+			codec->write(codec, 0x10, 0x00); 		// D/A Lch -> Lout2
 
-		case MM_AUDIO_VOICEMEMO_SUB :
-			//P("set MM_AUDIO_VOICEMEMO_SUB");
-			mic_set_path(AK4671_MIC_PATH_SUB);
-			codec->write(codec, 0x04, 0x04); 		// => MIC-AMP Lch=LIN2
-			codec->write(codec, 0x0B, 0x01); 		// D/A Lch -> Lout2
-			codec->write(codec, 0x0C, 0x01); 		// D/A Rch -> Rout2
-			codec->write(codec, 0x00, 0x01); 		// => VCOM power-up
-			mdelay(2); 		// Wait more than 100ns
-			codec->write(codec, 0x00, 0xD5); 		// D/A power-up
-			codec->write(codec, 0x10, 0x63); 		// PMLO2,PMRO2,PMLO2S,PMRO2s='1'
-			mdelay(1);		// wait 100ns
-			codec->write(codec, 0x10, 0x67); 		// MUTEN='1'
+
+			codec->write(codec, 0x0F, 0x20);	// RCP/RCN mode
+			codec->write(codec, 0x11, 0xA0);	// LOP/LON, gain=0dB
+			codec->write(codec, 0x0A, 0x20);	// MIC-AMP Rch -> RCP/RCN
+			codec->write(codec, 0x0D, 0x20);	// MIC-AMP Lch -> LOP/LON
+			codec->write(codec, 0x04, 0x9C);	// MIC-AMP Lch=IN1+/-, IN4+/- Differential Input
+			codec->write(codec, 0x00, 0x01); 	// => VCOM power-up
+			codec->write(codec, 0x00, 0x0D);	// MIC-AMP, A/D power-up
+			codec->write(codec, 0x06, 0x03);	// PMLOOPL, PMLOOPR power-up
+			codec->write(codec, 0x0F, 0x27);	// PMLO1, PMRO1 power-up
+			mdelay(1);
+			codec->write(codec, 0x0F, 0x23);	// LOPS1=0
+			codec->write(codec, 0x11, 0xA4);	// LOPS3=1, use for pop noise cancel
+			codec->write(codec, 0x11, 0xA7);	// PMLO3, PMRO3 power-up
+			mdelay(30); 				// Wait more than 30ms(Output capacitor=1uF, AVDD=3.3V)
+			codec->write(codec, 0x11, 0xA3);	// LOPS3=0
+
+			/* MIC-AMP Rch + A/P Rch => RCP/RCN */
+			codec->write(codec, 0x00, 0xD5);	// DAC-Rch power-up
+			mdelay(2);
+			codec->write(codec, 0x0A, 0x21);	// (MIC-AMP-Rch mixing DAC-Rch) to RCP/RCN
 			break;
 
 		case MM_AUDIO_VOICEMEMO_EAR :
@@ -900,6 +903,8 @@ int path_disable(struct snd_soc_codec *codec, int mode)
 			break;
 			
 		case MM_AUDIO_VOICECALL_RCV :
+		case MM_AUDIO_VOICEMEMO_MAIN : // fix by sircid
+		case MM_AUDIO_VOICEMEMO_SUB :
 			//P("set MM_AUDIO_VOICECALL_RCV Off");
 			/* MIC-AMP Rch + A/P Rch => RCP/RCN Off */
 			codec->write(codec, 0x19, 0x04);	// use soft mute to cut signal
@@ -967,18 +972,6 @@ int path_disable(struct snd_soc_codec *codec, int mode)
 			//codec->write(codec, 0x01, 0x00);
 			codec->write(codec, 0x00, 0x00);	// VCOM and others power-down
 
-			break;
-
-		case MM_AUDIO_VOICEMEMO_MAIN :
-			//P("set MM_AUDIO_VOICEMEMO_MAIN Off");
-			codec->write(codec, 0x00, 0x01);
-			codec->write(codec, 0x00, 0x00);
-			break;
-
-		case MM_AUDIO_VOICEMEMO_SUB :
-			//P("set MM_AUDIO_VOICEMEMO_SUB Off");
-			codec->write(codec, 0x00, 0x01);
-			codec->write(codec, 0x00, 0x00);
 			break;
 
 		case MM_AUDIO_VOICEMEMO_EAR :

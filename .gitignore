@@ -3,7 +3,7 @@
 # subdirectories here. Add them in the ".gitignore" file
 # in that subdirectory instead.
 #
-# NOTE! Please use 'git-ls-files -i --exclude-standard'
+# NOTE! Please use 'git ls-files -i --exclude-standard'
 # command after changing this file, to see if there are
 # any tracked files which get ignored after the change.
 #
@@ -22,9 +22,14 @@
 *.lst
 *.symtypes
 *.order
+modules.builtin
 *.elf
 *.bin
 *.gz
+*.bz2
+*.lzma
+*.patch
+*.gcno
 
 #
 # Top-level generic files
@@ -32,6 +37,7 @@
 tags
 TAGS
 vmlinux
+vmlinuz
 System.map
 Module.markers
 Module.symvers
@@ -41,14 +47,11 @@ Module.symvers
 #
 # Generated include files
 #
-include/asm
-include/asm-*/asm-offsets.h
 include/config
+include/linux/version.h
+include/generated
 include/linux/autoconf.h
 include/linux/compile.h
-include/linux/version.h
-include/linux/utsrelease.h
-include/linux/bounds.h
 
 # stgit generated dirs
 patches-*
@@ -61,6 +64,13 @@ series
 cscope.*
 ncscope.*
 
+# gnu global files
+GPATH
+GRTAGS
+GSYMS
+GTAGS
+
 *.orig
 *~
 \#*#
+

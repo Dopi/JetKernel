@@ -805,7 +805,7 @@ static void amp_path_control(int mode)
 	{
 		if((mode & 0xf) == MM_AUDIO_OUT_HP)
 			amp_path = AK4671_AMP_PATH_HP;
-		else
+		else if((mode & 0xf) != MM_AUDIO_OUT_RCV) // fix by sircid
 			amp_path = AK4671_AMP_PATH_SPK;
 	}
 

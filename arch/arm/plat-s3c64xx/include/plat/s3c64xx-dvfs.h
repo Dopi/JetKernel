@@ -13,8 +13,8 @@
 #define MAXIMUM_FREQ 800000
 //#undef USE_DVS
 #define USE_DVS
-//#define USE_DVFS_AL1_LEVEL
-#undef USE_DVFS_AL1_LEVEL
+#define USE_DVFS_AL1_LEVEL
+//#undef USE_DVFS_AL1_LEVEL
 #define KHZ_T		1000
 
 #define MPU_CLK		"clk_cpu"

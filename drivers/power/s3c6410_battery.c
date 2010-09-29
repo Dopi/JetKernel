@@ -13,6 +13,12 @@
  *
  */
 
+
+/*
+ * Modded by GuybrushT to enable a more precise battery level tracking
+ */
+
+
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/power_supply.h>
@@ -82,9 +88,9 @@ static void s3c_bat_status_update(struct power_supply *bat_ps);
 
 #define ADC_DATA_ARR_SIZE	6
 #define ADC_TOTAL_COUNT		10
-#define POLLING_INTERVAL	2000
+#define POLLING_INTERVAL	10000     // GuybrushT mod, old: 2000
 #ifdef __TEST_MODE_INTERFACE__
-#define POLLING_INTERVAL_TEST	1000
+#define POLLING_INTERVAL_TEST	5000      // GuybrushT mod, old: 1000
 #endif /* __TEST_MODE_INTERFACE__ */
 
 #ifdef __BATTERY_COMPENSATION__
@@ -608,9 +614,17 @@ static int s3c_get_bat_level(struct power_supply *bat_ps)
 #endif /* __CHECK_CHG_CURRENT__ */
 		dev_dbg(dev, "%s: (full)level = %d\n", __func__, bat_level );
 	} else if (batt_full >= bat_vol && bat_vol > batt_almost) {
-		int temp = (batt_full - batt_almost) / 2;
-		if (bat_vol > (batt_almost + temp))
+		int temp = (batt_full - batt_almost) / 3;
+		if (bat_vol > (batt_almost + temp * 5 / 2))
+			bat_level = 95;
+		else if (bat_vol > (batt_almost + temp * 2))
+			bat_level = 90;
+		else if (bat_vol > (batt_almost + temp * 3 / 2))
+			bat_level = 85;
+		else if (bat_vol > (batt_almost + temp))
 			bat_level = 80;
+		else if (bat_vol > (batt_almost + temp / 2))
+			bat_level = 75;
 		else
 			bat_level = 70;
 
@@ -620,23 +634,41 @@ static int s3c_get_bat_level(struct power_supply *bat_ps)
 		dev_dbg(dev, "%s: (almost)level = %d\n", __func__, bat_level);
 	} else if (batt_almost >= bat_vol && bat_vol > batt_high) {
 		int temp = (batt_almost - batt_high) / 2;
-		if (bat_vol > (batt_high + temp))
+		if (bat_vol > (batt_high + temp * 3 / 2))
+			bat_level = 65;
+		else if (bat_vol > (batt_high + temp))
 			bat_level = 60;
+		else if (bat_vol > (batt_high + temp / 2))
+			bat_level = 55;
 		else
 			bat_level = 50;
 		dev_dbg(dev, "%s: (high)level = %d\n", __func__, bat_level );
 	} else if (batt_high >= bat_vol && bat_vol > batt_medium) {
 		int temp = (batt_high - batt_medium) / 2;
-		if (bat_vol > (batt_medium + temp))
+		if (bat_vol > (batt_medium + temp * 3 / 2))
+			bat_level = 45;
+		else if (bat_vol > (batt_medium + temp))
 			bat_level = 40;
+		else if (bat_vol > (batt_medium + temp / 2))
+			bat_level = 35;
 		else
 			bat_level = 30;
 		dev_dbg(dev, "%s: (med)level = %d\n", __func__, bat_level);
 	} else if (batt_medium >= bat_vol && bat_vol > batt_low) {
-		bat_level = 15;
+		int temp = (batt_medium - batt_low) / 3;
+		if (bat_vol > (batt_low + temp * 2))
+			bat_level = 25;
+		else if (bat_vol > (batt_low + temp))
+			bat_level = 20;
+		else
+			bat_level = 15;
 		dev_dbg(dev, "%s: (low)level = %d\n", __func__, bat_level);
 	} else if (batt_low >= bat_vol && bat_vol > batt_critical) {
-		bat_level = 5;
+		int temp = (batt_low - batt_critical) / 2;
+		if (bat_vol > (batt_critical + temp))
+			bat_level = 10;
+		else
+			bat_level = 5;
 		dev_dbg(dev, "%s: (cri)level = %d, vol = %d\n", __func__,
 				bat_level, bat_vol);
 	} else if (batt_critical >= bat_vol && bat_vol > batt_min) {
@@ -665,6 +697,10 @@ __end__:
 #endif /* __TEMP_ADC_VALUE__ */
 }
 #else /* __ANDROID_BAT_LEVEL_CONCEPT__ */
+
+
+
+
 static int s3c_get_bat_level(struct power_supply *bat_ps)
 {
 	int bat_level = 0;
@@ -704,10 +740,16 @@ static int s3c_get_bat_level(struct power_supply *bat_ps)
 		dev_dbg(dev, "%s: (full)level = %d\n", __func__, bat_level );
 	} else if (batt_full >= bat_vol && bat_vol > batt_almost) {
 		int temp = (batt_full - batt_almost) / 3;
-		if (bat_vol > (batt_almost + temp * 2))
+		if (bat_vol > (batt_almost + temp * 5 / 2))
+			bat_level = 95;
+		else if (bat_vol > (batt_almost + temp * 2))
 			bat_level = 90;
+		else if (bat_vol > (batt_almost + temp * 3 / 2))
+			bat_level = 85;
 		else if (bat_vol > (batt_almost + temp))
 			bat_level = 80;
+		else if (bat_vol > (batt_almost + temp / 2))
+			bat_level = 75;
 		else
 			bat_level = 70;
 
@@ -723,16 +765,43 @@ static int s3c_get_bat_level(struct power_supply *bat_ps)
 		}
 		dev_dbg(dev, "%s: (almost)level = %d\n", __func__, bat_level);
 	} else if (batt_almost >= bat_vol && bat_vol > batt_high) {
-		bat_level = 50;
+		int temp = (batt_almost - batt_high) / 2;
+		if (bat_vol > (batt_high + temp * 3 / 2))
+			bat_level = 65;
+		else if (bat_vol > (batt_high + temp))
+			bat_level = 60;
+		else if (bat_vol > (batt_high + temp / 2))
+			bat_level = 55;
+		else
+			bat_level = 50;
+
 		dev_dbg(dev, "%s: (high)level = %d\n", __func__, bat_level );
 	} else if (batt_high >= bat_vol && bat_vol > batt_medium) {
-		bat_level = 30;
+		int temp = (batt_high - batt_medium) / 2;
+		if (bat_vol > (batt_medium + temp * 3 / 2))
+			bat_level = 45;
+		else if (bat_vol > (batt_medium + temp))
+			bat_level = 40;
+		else if (bat_vol > (batt_medium + temp / 2))
+			bat_level = 35;
+		else
+			bat_level = 30;
 		dev_dbg(dev, "%s: (med)level = %d\n", __func__, bat_level);
 	} else if (batt_medium >= bat_vol && bat_vol > batt_low) {
-		bat_level = 15;
+		int temp = (batt_medium - batt_low) / 3;
+		if (bat_vol > (batt_low + temp * 2))
+			bat_level = 25;
+		else if (bat_vol > (batt_low + temp))
+			bat_level = 20;
+		else
+			bat_level = 15;
 		dev_dbg(dev, "%s: (low)level = %d\n", __func__, bat_level);
 	} else if (batt_low >= bat_vol && bat_vol > batt_critical) {
-		bat_level = 5;
+		int temp = (batt_low - batt_critical) / 2;
+		if (bat_vol > (batt_critical + temp))
+			bat_level = 10;
+		else
+			bat_level = 5;
 		dev_info(dev, "%s: (cri)level = %d, vol = %d\n", __func__,
 				bat_level, bat_vol);
 	} else if (batt_critical >= bat_vol && bat_vol > batt_min) {

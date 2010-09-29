@@ -3,6 +3,7 @@
  * Quantum TSP driver.
  *
  * Copyright (C) 2009 Samsung Electronics Co. Ltd.
+ * Copyright (C) 2010 Lambertus Gorter (Multi-touch)
  *
  */
 
@@ -1279,23 +1280,26 @@ static u8 firmware_data[] =
 	0x93,0xCA,0xB0,0x72,0x5E,0x1E,0x00,0xD1,0x09,0x00,0x00
 };
 
-//#define QT5480_DEBUG
+#define DBG_SAMSUNG 0x01
+#define DBG_DEV     0x02
+#define DBG_I2C     0x04
+
 
 // print message
-#if defined(QT5480_DEBUG) || defined(DEBUG)
-	#define DEBUG_MSG(p, x...)			printk("[QT5480]:[%s] ", __func__); printk(p, ## x);		
-#else
-	#define DEBUG_MSG(p, x...)	if(show_debug_message) { printk("[QT5480]:[%s] ", __func__); printk(p, ## x); }
-#endif
-
 #define PRINT_MSG(p, x...)		{ printk("[QT5480]:[%s] ", __func__); printk(p, ## x); }
-
+//#define QT5480_DEBUG
 #ifdef QT5480_DEBUG
+	#define DEBUG_MSG(p, x...)			printk("[QT5480]:[%s] ", __func__); printk(p, ## x);
+	#define DBG_I2C_MSG(p,x...) 		printk("[QT5480]:DBG_I2C:[%s] ", __func__); printk(p, ## x);
+	#define DBG_DEV_MSG(p,x...) 		printk("[QT5480]:DBG_DEV:[%s] ", __func__); printk(p, ## x);
 	#define ENTER_FUNC	{ printk("[QT5480] +%s\n", __func__); }
 	#define LEAVE_FUNC	{ printk("[QT5480] -%s\n", __func__); }
 #else
-	#define ENTER_FUNC	if(show_debug_message) { printk("[QT5480] +%s\n", __func__); }
-	#define LEAVE_FUNC	if(show_debug_message) { printk("[QT5480] -%s\n", __func__); }
+	#define DEBUG_MSG(p, x...)	if(show_debug_message & DBG_SAMSUNG) { printk("[QT5480]:DBG_SAMSUNG:[%s] ", __func__); printk(p, ## x); }
+	#define DBG_I2C_MSG(p,x...) if(show_debug_message & DBG_I2C) { printk("[QT5480]:DBG_I2C:[%s] ", __func__); printk(p, ## x); }
+	#define DBG_DEV_MSG(p,x...) if(show_debug_message & DBG_DEV) { printk("[QT5480]:DBG_DEV:[%s] ", __func__); printk(p, ## x); }
+	#define ENTER_FUNC	if(show_debug_message & DBG_SAMSUNG) { printk("[QT5480] +%s\n", __func__); }
+	#define LEAVE_FUNC	if(show_debug_message & DBG_SAMSUNG) { printk("[QT5480] -%s\n", __func__); }
 #endif
 
 // definition for some macro for convenience
@@ -1305,13 +1309,7 @@ static u8 firmware_data[] =
 
 #define QT5480_I2C_ADDR 				0x60
 #define QT5480_BOOTLOADER_MODE_I2C_ADDR	0x4A
-
-#if (CONFIG_SPICA_REV > CONFIG_SPICA_TEST_REV00)
 #define QT5480_CHIP_ID 0x0F
-#else
-#define QT5480_CHIP_ID 0x40
-#endif
-
 #define IRQ_TOUCH_INT IRQ_EINT(20)
 
 //
@@ -1549,7 +1547,7 @@ static u8 g_qt5480_setup[] = {
  56, 56, 56, 72,
  
  16, 255,  50,   0,
- 48,   6,   8,   0,
+ 48,  22,   8,   0,
   0,   0,   0,   0,
   0,   0,   0,   0,
   0,   0,   0,  12,
@@ -1564,7 +1562,7 @@ static u8 g_qt5480_setup[] = {
  64,  64,  64,  64,
  64,  64,  64,  64,
  64,  64,  64,  64,
-  2,   6,   8,   3,
+  2,   14,   8,   3,
   0,   0,   1,   0,
   0,   0,  25,   0,
   0,  26,   0,   6,
@@ -1772,150 +1770,237 @@ static int qt5480_write_setup_code(void)
 	return 0;
 	}
 
+
+#define STATE_RELEASED 0
+#define STATE_ENTER    1
+#define STATE_CONTACT  2
+#define SINGLETOUCH_FLAG 0x01
+#define MULTITOUCH_FLAG  0x02
+
+
+
+typedef struct report_t
+{
+  int contact; //finger on screen
+  int pos_x;   //x coordinate
+  int pos_y;   //y coordinate
+} report_t;
+
+typedef struct touch_t
+{
+  int ready;         //new data ready
+  report_t curr_pos;  //current status (to be reported)
+  report_t prev_pos; //last reported status
+} touch_t;
+
+
+//
+//qt5480_handle_data
+//read and decode i2c data
+//
+static void qt5480_handle_data(touch_t* touch, u8* buf)
+{
+  static int palm_touch = 0;
+  static int ignore = 0;
+
+  /* Read i2c data leave on failure */
+  //if(qt5480_i2c_read(buf, BASIC_READ_COUNT) < 0)
+  //{
+  //  PRINT_MSG("i2c_read failed.\n")
+  //  return;
+  //}
+
+  switch(buf[0])
+  {
+    case 3:
+      ignore = 0;
+	  /* palm touch */
+	  if(buf[3] & 0x20)
+	  {
+		ignore = 1;
+	    palm_touch = 1;
+	  }else if(palm_touch){
+	    palm_touch = 0;
+		qt5480_i2c_write(REG_CALIBRATE, 0x55);
+	  }
+      /* Tracking lost */
+	  if(buf[4] & 0x10)
+	  {
+		ignore = 1;
+	  }
+	  /* Clibrating */
+	  if(buf[4] & 0x40)
+	  {
+		ignore = 1;
+	  }
+
+	  /* contacts */
+	  if(!ignore)
+	  {
+        touch[0].curr_pos.contact = (buf[4]&0x01)?1:0;
+	    touch[1].curr_pos.contact = (buf[4]&0x02)?1:0;
+        touch[0].ready = 1;
+        touch[1].ready = 1;
+      }
+
+	  /* Error bit */
+	  if(buf[4] & 0x20 && !ignore)
+	  {
+	     touch[0].curr_pos.contact = 0;
+		 touch[1].curr_pos.contact = 0;
+	  }
+	break;
+	case 4:
+	  if(ignore) break;
+	  touch[0].curr_pos.pos_y = ((buf[1] * 4 + buf[2] / 64) * 480 ) / 1024;
+	  touch[0].curr_pos.pos_x = ((buf[3] * 4 + buf[4] / 64) * 320 ) / 1024;
+	  touch[0].ready = 1;
+	  if(!touch[1].curr_pos.contact) touch[1].ready = 1;
+	break;
+	case 5:
+	  if(ignore) break;
+	  touch[1].curr_pos.pos_y = ((buf[1] * 4 + buf[2] / 64) * 480 ) / 1024;
+	  touch[1].curr_pos.pos_x = ((buf[3] * 4 + buf[4] / 64) * 320 ) / 1024;
+	  touch[1].ready = 1;
+	  if(!touch[0].curr_pos.contact) touch[0].ready = 1;
+	break;
+	case 255: //ERROR
+      touch[0].curr_pos.contact = 0;
+	  touch[1].curr_pos.contact = 0;
+      touch[0].ready = 1;
+      touch[1].ready = 1;
+	break;
+  }
+}
+
+
+#define ECLAIR_SWIPE_BUG
+//
+// qt5480_report_input
+// write to input device
+//
+static void qt5480_report_input(touch_t* touch, struct input_dev* dev)
+{
+#ifdef ECLAIR_SWIPE_BUG
+  static int first_to_enter = 0;
+#endif
+  int changed = 0;
+
+
+  /* leave if both touches are not ready yet*/
+  if(!touch[0].ready || !touch[1].ready) return;
+
+  /* leave if there are no changes*/
+  changed |= (touch[0].curr_pos.contact == touch[0].prev_pos.contact)?0:1;
+  changed |= (touch[1].curr_pos.contact == touch[1].prev_pos.contact)?0:1;
+  if(touch[0].curr_pos.contact)
+  {
+    changed |= (touch[0].curr_pos.pos_x == touch[0].prev_pos.pos_x)?0:1;
+    changed |= (touch[0].curr_pos.pos_y == touch[0].prev_pos.pos_y)?0:1;
+  }
+  if(touch[1].curr_pos.contact)
+  {
+    changed |= (touch[1].curr_pos.pos_x == touch[1].prev_pos.pos_x)?0:1;
+    changed |= (touch[1].curr_pos.pos_y == touch[1].prev_pos.pos_y)?0:1;
+  }
+  if(!changed) return;
+
+
+
+#ifdef ECLAIR_SWIPE_BUG
+  /*
+     If two fingers were on the screen and the one that arrived first is lifted
+     then report both fingers before continuing.
+	 (Otherwise Android 2.1 will report the second finger lifted and the first
+	 finger moving to the position of the second finger)
+  */
+  if(touch[0].prev_pos.contact && touch[1].prev_pos.contact)
+  {
+    if(!touch[first_to_enter].curr_pos.contact)
+    {
+      input_report_abs(dev, ABS_MT_TOUCH_MAJOR, 0);
+      input_report_abs(dev, ABS_MT_POSITION_X, touch[0].curr_pos.pos_x);
+      input_report_abs(dev, ABS_MT_POSITION_Y, touch[0].curr_pos.pos_y);
+	  DBG_DEV_MSG("TOUCH:%d @%d:%d\n", 0, touch[0].curr_pos.pos_x, touch[0].curr_pos.pos_y);
+      input_mt_sync(dev);
+      DBG_DEV_MSG("MT_SYNC\n");
+      input_report_abs(dev, ABS_MT_TOUCH_MAJOR, 0);
+      input_report_abs(dev, ABS_MT_POSITION_X, touch[1].curr_pos.pos_x);
+      input_report_abs(dev, ABS_MT_POSITION_Y, touch[1].curr_pos.pos_y);
+	  DBG_DEV_MSG("TOUCH:%d @%d:%d\n", 0, touch[1].curr_pos.pos_x, touch[1].curr_pos.pos_y);
+	  input_mt_sync(dev);
+      DBG_DEV_MSG("MT_SYNC\n");
+      input_sync(dev);
+      DBG_DEV_MSG("SYNC\n");
+	  touch[0].prev_pos.contact = 0;
+	  touch[1].prev_pos.contact = 0;
+    }
+  }
+  if(touch[0].curr_pos.contact && !touch[1].curr_pos.contact) first_to_enter = 0;
+  if(touch[1].curr_pos.contact && !touch[0].curr_pos.contact) first_to_enter = 1;
+#endif
+
+  /* report touch[0] only on contact or on leaving */
+  if(touch[0].curr_pos.contact || touch[0].prev_pos.contact)
+  {
+    input_report_abs(dev, ABS_MT_TOUCH_MAJOR, touch[0].curr_pos.contact);
+    input_report_abs(dev, ABS_MT_POSITION_X, touch[0].curr_pos.pos_x);
+    input_report_abs(dev, ABS_MT_POSITION_Y, touch[0].curr_pos.pos_y);
+	DBG_DEV_MSG("TOUCH:%d @%d:%d\n", touch[0].curr_pos.contact, touch[0].curr_pos.pos_x, touch[0].curr_pos.pos_y);
+	input_mt_sync(dev);
+    DBG_DEV_MSG("MT_SYNC\n");
+  }
+
+  /* report touch[1] only on contact or on leaving */
+  if(touch[1].curr_pos.contact || touch[1].prev_pos.contact)
+  {
+    input_report_abs(dev, ABS_MT_TOUCH_MAJOR, touch[1].curr_pos.contact);
+    input_report_abs(dev, ABS_MT_POSITION_X, touch[1].curr_pos.pos_x);
+    input_report_abs(dev, ABS_MT_POSITION_Y, touch[1].curr_pos.pos_y);
+	DBG_DEV_MSG("TOUCH:%d @%d:%d\n", touch[1].curr_pos.contact, touch[1].curr_pos.pos_x, touch[1].curr_pos.pos_y);
+	input_mt_sync(dev);
+    DBG_DEV_MSG("MT_SYNC\n");
+  }
+  input_sync(dev);
+  DBG_DEV_MSG("SYNC\n");
+
+  touch[0].ready = 0;
+  touch[1].ready = 0;
+  touch[0].prev_pos = touch[0].curr_pos;
+  touch[1].prev_pos = touch[1].curr_pos;
+}
+
 //
 // qt5480_work_func
+//  read and i2c data and write input device.
 //
-u8 palm_touch = 0;
-u8 TouchFlag = 0,DoubleCalFlag= 0;
 static void qt5480_work_func(struct work_struct *aWork)
-	{
-	int ret;
-	int x, y, cal_x, cal_y;
-    u8 read_buf[5];
+{
+    static touch_t touch[] =
+    {
+      {0,{0,0,0},{0,0,0}},
+      {0,{0,0,0},{0,0,0}},
+    };
 
-	ENTER_FUNC;
+	u8 read_buf[5];
+    int ret;
+
+	/* receive i2c data*/
 	ret = qt5480_i2c_read(read_buf, BASIC_READ_COUNT);
-	DEBUG_MSG(" 0x%x 0x%x 0x%x 0x%x 0x%x\n",read_buf[0], read_buf[1], read_buf[2], read_buf[3], read_buf[4]);
 	enable_irq(g_qt5480_ts_driver->client->irq);
-	
-	DO_AND_RETURN_IF_TRUE(ret < 0, PRINT_MSG("i2c read failed.\n"));
-
-
-#ifdef  CONFIG_CPU_FREQ
-	set_dvfs_perf_level();
-#endif
-
-	// buf[0] == most significant 8 bits of the address
-	if(read_buf[0] == 3) 
-		{
-		if((read_buf[3] & 0x20) == 0x20) 
-			{
-			palm_touch = 1;///
-//			qt5480_i2c_write(REG_CALIBRATE, 0x55);///
-			DEBUG_MSG("palm_touch : %d  %x\n", palm_touch, read_buf[3]);
-			}
-		else if((read_buf[3] & 0x20) == 0x00) 
-			{
-			if(palm_touch == 1)
-				{
-				palm_touch = 0;
-				DEBUG_MSG("palm_touch : %d  %x\n", palm_touch, read_buf[3]);
-				qt5480_i2c_write(REG_CALIBRATE, 0x55);
-				msleep(10);
-				DEBUG_MSG("Palm Release Cal\n");
-				}
-			}
-		if(palm_touch == 0)
-			{
-			if((read_buf[4]&0x40) == 0x40) 
-				{
-				PRINT_MSG("Calibrating : %x\n", read_buf[4]);
-				}
-			else if((read_buf[4]&0x81) == 0x81)  // Press
-				{ 
-//				input_report_key(g_qt5480_ts_driver->input_dev, BTN_TOUCH, 1);
-//				input_sync(g_qt5480_ts_driver->input_dev);
-				TouchFlag = 1;
-				if((read_buf[4]&0x10) == 0x10) 
-					{
-					TouchFlag = 0;
-					DoubleCalFlag = 1;
-					qt5480_i2c_write(REG_CALIBRATE, 0x55);
-					msleep(10);
-					PRINT_MSG("Calibrated: %x\n", read_buf[4]);
-					}
-				}
-			else if(read_buf[4] == 0x00) // Release
-				{
-				input_report_key(g_qt5480_ts_driver->input_dev, BTN_TOUCH, 0);
-				input_sync(g_qt5480_ts_driver->input_dev);
-				TouchFlag = 0;
-				if(DoubleCalFlag == 1)
-					{
-					DoubleCalFlag = 0;
-					qt5480_i2c_write(REG_CALIBRATE, 0x55);
-					msleep(10);
-					PRINT_MSG("Calibrated: %x\n", read_buf[4]);
-					}
-				}		
-			else 
-				{
-				PRINT_MSG("unknown press code : %x\n", read_buf[4]);
-				DO_IF_TRUE(read_buf[4] & 0x20, PRINT_MSG("ERROR BIT set\n"));
-				}
-			}
-		else if(read_buf[3] == 0xFF && read_buf[4] == 0xFF)
-			{
-			input_report_key(g_qt5480_ts_driver->input_dev, BTN_TOUCH, 0);
-			input_sync(g_qt5480_ts_driver->input_dev);
-			TouchFlag = 0;
-			}
-			
-		}
-	else if (read_buf[0] == 4) // indicates a change in te status bytes 16 - 19
-		{
-		y = (read_buf[1]<<2) + ((read_buf[2]>>6)& 0x3);
-		x = (read_buf[3]<<2) + ((read_buf[4]>>6)& 0x3);
-			
-#if (CONFIG_SPICA_REV > CONFIG_SPICA_TEST_REV00)
-		cal_x = (x * 320) / 1024;
-		cal_y = (y * 480) / 1024;
-#else
-		cal_x = ((1024 - x) * 240) / 1024;
-		cal_y = ((1024 - y) * 400) / 1024;
-#endif
-
-		if(palm_touch == 0)
-			{
-			if(TouchFlag)
-				{
-				if(x)	
-					{
-					input_report_abs(g_qt5480_ts_driver->input_dev, ABS_X, cal_x);
-					}
-				
-				if(y)
-					{
-					input_report_abs(g_qt5480_ts_driver->input_dev, ABS_Y, cal_y);
-					}
-				
-				if(TouchFlag == 1)
-					{
-					input_report_key(g_qt5480_ts_driver->input_dev, BTN_TOUCH, 1);
-					TouchFlag = 2;
-					}
-				input_sync(g_qt5480_ts_driver->input_dev);
-				
-				}
-			}
-		}
-	else if((read_buf[0] == 0xFF) &&(read_buf[4] == 0x00))// Release
-		{
-		input_report_key(g_qt5480_ts_driver->input_dev, BTN_TOUCH, 0); 
-		input_sync(g_qt5480_ts_driver->input_dev);
-		TouchFlag = 0;
-		}
-	else
-		{
-		// If the chip is read when the CHANGE line is not asserted, 
-		// it returns a packet with the header byte 0xFF, indicating that the packet data is invalid.
-		PRINT_MSG("unknown code: %x\n", read_buf[0]);
-		}
-	
-//	enable_irq(g_qt5480_ts_driver->client->irq);
-
-	LEAVE_FUNC;
+	if(ret < 0 )
+	{
+	  PRINT_MSG("i2c_read failed.");
+	  return;
 	}
+	
+	/* handle received data */
+	DBG_I2C_MSG("Read data [%02x] %02x %02x %02x %02x\n", read_buf[0], read_buf[1], read_buf[2], read_buf[3], read_buf[4]);
+	qt5480_handle_data(touch, read_buf);
+
+	/* handle input device */
+	qt5480_report_input(touch, g_qt5480_ts_driver->input_dev);
+}
 
 //
 // qt5480_irq_handler
@@ -2211,16 +2296,18 @@ static int qt5480_probe(struct platform_device *aDevice)
 	set_bit(BTN_TOUCH, g_qt5480_ts_driver->input_dev->keybit);
 	set_bit(EV_ABS, g_qt5480_ts_driver->input_dev->evbit);
 	
-#if (CONFIG_SPICA_REV > CONFIG_SPICA_TEST_REV00)
 	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_X, 0, 320, 0, 0);
 	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_Y, 0, 480, 0, 0);
-#else
-	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_X, 0, 240, 0, 0);
-	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_Y, 0, 400, 0, 0);
-#endif	
-
 	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_PRESSURE, 0, 255, 0, 0);
 	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_TOOL_WIDTH, 0, 15, 0, 0);
+
+	/* multitouch input device parameters */
+	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_MT_POSITION_X, 0, 320, 0, 0);
+	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_MT_POSITION_Y, 0, 480, 0, 0);
+	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
+	input_set_abs_params(g_qt5480_ts_driver->input_dev, ABS_MT_WIDTH_MAJOR, 0, 15, 0, 0);
+
+
 
 	ret = input_register_device(g_qt5480_ts_driver->input_dev);
 	if (ret) 
@@ -2379,13 +2466,13 @@ static int qt5480_resume(void)
 	int ret;
 
 	ENTER_FUNC;
-	ret = qt5480_i2c_write(REG_LP_MODE, 32); // LP Mode
+	ret = qt5480_i2c_write(REG_LP_MODE, g_qt5480_setup[REG_LP_MODE - 512]); // LP Mode
 	DO_IF_TRUE(ret < 0, PRINT_MSG("write LP Mode Register failed(%d)!\n", ret));
 
-	ret = qt5480_i2c_write(REG_AWAKE_TIMEOUT, 50);  // Awake Timeout
+	ret = qt5480_i2c_write(REG_AWAKE_TIMEOUT, g_qt5480_setup[REG_AWAKE_TIMEOUT - 512]);  // Awake Timeout
 	DO_IF_TRUE(ret < 0, PRINT_MSG("write Awake Timeout  Register failed(%d)!\n", ret));
 
-	ret = qt5480_i2c_write(REG_STATUS_MASK, 6); // Status Mask
+	ret = qt5480_i2c_write(REG_STATUS_MASK, g_qt5480_setup[REG_STATUS_MASK - 512]); // Status Mask
 	DO_IF_TRUE(ret < 0, PRINT_MSG(" write Status Mask Register failed(%d)!\n", ret));
 
 	ret = qt5480_i2c_write(REG_CALIBRATE, 0x55);
@@ -2642,14 +2729,20 @@ static ssize_t debug_flag_show(struct device *aDevice, struct device_attribute *
 	}
 
 static ssize_t debug_flag_store(struct device *aDevice, struct device_attribute *aAttribute, const char *aBuf, size_t aSize)
-	{
-	if(*aBuf == '0')
-		show_debug_message = 0;
-	else
-		show_debug_message = 1;
+{
+    int index = 0;
+	int value = 0;
 
-	return show_debug_message;
+	while(index < aSize &&  aBuf[index] >= '0' && aBuf[index] <= '9')
+	{
+		value = value * 10 + (aBuf[index] - '0');
+		index++;
 	}
+
+	show_debug_message = value;
+
+	return index;
+}
 
 // Declaration for the attribute of GPIO/I2C
 static DEVICE_ATTR(gpio, S_IRUGO | S_IWUSR, gpio_show, gpio_store);
@@ -2748,13 +2841,14 @@ int __init qt5480_init(void)
 	}
 
 //
-// Handler for release
+// Handler for release (fixed by Steph from samdroid.net)
 //
 void __exit qt5480_exit(void)
 	{
 	ENTER_FUNC;
 	// stop interrupt handling
-	
+	disable_irq(g_qt5480_ts_driver->client->irq);
+
 	// destroy work queue first
 	// because we need to remove a chance use i2c driver
 	if (g_qt5480_work_queue)
@@ -2762,8 +2856,16 @@ void __exit qt5480_exit(void)
 		flush_workqueue(g_qt5480_work_queue);
 		destroy_workqueue(g_qt5480_work_queue);
 		}
-	
+	device_remove_file(g_ts_dev, &dev_attr_gpio);
+	device_remove_file(g_ts_dev, &dev_attr_i2c);
+	device_remove_file(g_ts_dev, &dev_attr_debug);
+	device_remove_file(g_ts_dev, &dev_attr_setup);
+	device_destroy(sec_class, 0);
+	device_del(g_ts_dev);
+
+	i2c_detach_client(g_qt5480_ts_driver->client);
 	i2c_del_driver(&g_qt5480_i2c_driver);
+	platform_driver_unregister(&g_qt5480_driver);
 	LEAVE_FUNC;
 	}
 
