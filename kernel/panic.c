@@ -64,7 +64,7 @@ NORET_TYPE void panic(const char * fmt, ...)
 #if defined(CONFIG_S390)
 	unsigned long caller = (unsigned long) __builtin_return_address(0);
 #endif
-
+	emergency_restart(); // when kernel panic occurs, restart device
 	/*
 	 * It's possible to come here directly from a panic-assertion and not
 	 * have preempt disabled. Some functions called from here want

@@ -94,4 +94,9 @@ config CHARGER_PCF50633
 	help
 	 Say Y to include support for NXP PCF50633 Main Battery Charger.
 
+config FUEL_GAUGE_MAX17040
+	tristate "Fuel Gause MAX17040 Chip driver"
+	help
+	  Say Y to enable Fuel Gause MAX17040 Chip driver support for the battery.
+
 endif # POWER_SUPPLY

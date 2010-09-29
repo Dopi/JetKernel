@@ -694,7 +694,7 @@ static int gp2a_opt_probe( struct platform_device* pdev )
 	if (IS_ERR(lightsensor_class))
 		pr_err("Failed to create class(lightsensor)!\n");
 
-	switch_cmd_dev = device_create(lightsensor_class, NULL, 0, NULL, "switch_cmd");
+	switch_cmd_dev = device_create_drvdata(lightsensor_class, NULL, 0, NULL, "switch_cmd");
 	if (IS_ERR(switch_cmd_dev))
 		pr_err("Failed to create device(switch_cmd_dev)!\n");
 

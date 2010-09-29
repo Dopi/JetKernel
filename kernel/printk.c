@@ -150,6 +150,77 @@ static struct struct_kernel_log_mark kernel_log_mark = {
 	.special_mark_4 = (('k' << 24) | ('l' << 16) | ('o' << 8) | ('g' << 0)),
 	.p__log_buf = __log_buf, 
 };
+
+#ifdef CONFIG_SEC_LOG_BUF
+
+#include <linux/io.h>
+#include <linux/platform_device.h>
+
+#include <plat/reserved_mem.h>
+
+static struct sec_log_buf s_log_buf;			
+
+extern struct class *sec_class;
+
+extern struct device *sec_log_dev;
+
+static ssize_t sec_log_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return log_buf_len; 
+}
+
+static DEVICE_ATTR(log, S_IRUGO |S_IWUGO | S_IRUSR | S_IWUSR, sec_log_show, NULL);
+
+void sec_log_buf_init(void)
+{
+	char *start;
+	int i, count, copy_log_len, copy_log_start;
+
+	start = (char *)ioremap(SEC_LOG_BUF_START, SEC_LOG_BUF_SIZE);
+
+	s_log_buf.flag = (unsigned int *)start;
+	s_log_buf.count = (unsigned int *)(start + 4);
+	s_log_buf.data = (char *)(start + SEC_LOG_BUF_FLAG_SIZE);
+
+	sec_log_dev = device_create_drvdata(sec_class, NULL, 0, NULL, "sec_log");
+	if (IS_ERR(sec_log_dev))
+		pr_err("Failed to create device(sec_log)!\n");
+
+	if (device_create_file(sec_log_dev, &dev_attr_log))
+		pr_err("Failed to create device file(log)!\n");
+	
+	if (*s_log_buf.flag == SEC_LOG_BUF_MAGIC) {
+		if (log_end < log_buf_len) {
+			copy_log_start = 0;
+			copy_log_len = log_end;
+		}	
+		else {
+			copy_log_start = log_end;
+			copy_log_len = log_buf_len;
+		}
+
+		count = (*s_log_buf.count & LOG_BUF_MASK);
+
+		for (i = 0; i < copy_log_len; i++) {
+			*(s_log_buf.data + ((count + i) & LOG_BUF_MASK)) =
+				*(log_buf + ((copy_log_start + i) & LOG_BUF_MASK));	
+		}
+
+		*s_log_buf.count = ((*s_log_buf.count + copy_log_len) & LOG_BUF_MASK);
+
+		log_buf = s_log_buf.data;
+	
+		/* RAM Dump Info */
+		kernel_log_mark.p__log_buf = (void *)(SEC_LOG_BUF_START + SEC_LOG_BUF_FLAG_SIZE);
+		
+		log_start = (log_start + count);
+		con_start = (con_start + count);
+		log_end = (log_end + count);
+	}	
+}
+
+#endif
+
 static int __init log_buf_len_setup(char *str)
 {
 	unsigned size = memparse(str, &str);
@@ -547,6 +618,10 @@ static void emit_log_char(char c)
 {
 	LOG_BUF(log_end) = c;
 	log_end++;
+#ifdef CONFIG_SEC_LOG_BUF
+	if (s_log_buf.count)
+		(*s_log_buf.count)++;
+#endif
 	if (log_end - log_start > log_buf_len)
 		log_start = log_end - log_buf_len;
 	if (log_end - con_start > log_buf_len)

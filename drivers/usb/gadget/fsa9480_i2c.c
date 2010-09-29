@@ -20,6 +20,10 @@ extern ftm_sleep;
 #define FSA9480_USB 	2
 
 #define FSA9480UCX		0x4A
+/* MODEM USB_SEL Pin control */
+/* 1 : PDA, 2 : MODEM */
+#define SWITCH_PDA			1
+#define SWITCH_MODEM		2
 static unsigned short fsa9480_normal_i2c[] = {I2C_CLIENT_END };
 static unsigned short fsa9480_ignore[] = { I2C_CLIENT_END };
 static unsigned short fsa9480_i2c_probe[] = { 0, FSA9480UCX >> 1, I2C_CLIENT_END };
@@ -64,17 +68,17 @@ void get_usb_serial(char *usb_serial_number)
 	char temp_serial_number[13] = {0};
 
 	u32 serial_number=0;
-	
+
 	serial_number = (system_serial_high << 16) + (system_serial_low >> 16);
 
-	sprintf(temp_serial_number,"5700%08x",serial_number);
+	sprintf(temp_serial_number,"6500%08x",serial_number);
 	strcpy(usb_serial_number,temp_serial_number);
 }
 
 
 int available_PM_Set(void)
 {
-    DEBUG_FSA9480("[FSA9480]%s ", __func__);
+	DEBUG_FSA9480("[FSA9480]%s ", __func__);
 	if(driver_find("max8698", &i2c_bus_type))
 		return 1;
 	return 0;
@@ -208,7 +212,8 @@ static int fsa9480_modify(struct i2c_client *client, u8 reg, u8 data, u8 mask)
 
    fsa9480_read(client, reg, &original_value);
    DEBUG_FSA9480("[FSA9480] %s Original value is 0x%02x\n ",__func__, original_value);
-   modified_value = ((original_value&~mask)| data);
+   modified_value = ((original_value&~mask)
+| data);
    DEBUG_FSA9480("[FSA9480] %s modified value is 0x%02x\n ",__func__, modified_value);
    fsa9480_write(client, reg, modified_value);
 
@@ -219,9 +224,10 @@ static int fsa9480_modify(struct i2c_client *client, u8 reg, u8 data, u8 mask)
 /* UART <-> USB switch (for UART/USB JIG) */
 void fsa9480_check_usb_connection(void)
 {
-    DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
 	u8 control, int1, deviceType1, deviceType2, manual1, manual2,pData,adc, carkitint1;
 	bool bInitConnect = false;
+    DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
+
 
 	fsa9480_read(&fsa9480_i2c_client, REGISTER_INTERRUPT1, &int1); // interrupt clear
 	fsa9480_read(&fsa9480_i2c_client, REGISTER_DEVICETYPE1, &deviceType1);
@@ -255,7 +261,25 @@ void fsa9480_check_usb_connection(void)
 	DEBUG_FSA9480("[FSA9480] DEVICETYPE1 is 0x%02x\n ",deviceType1);
 	//DEBUG_FSA9480("[FSA9480] DEVICETYPE2 is 0x%02x\n ",deviceType2);
 	//DEBUG_FSA9480("[FSA9480] MANUALSW1 is 0x%02x\n ",manual1);
-	//DEBUG_FSA9480("[FSA9480] MANUALSW1 is 0x%02x\n ",manual2);
+	//DEBUG_FSA9480("[FSA9480] MANUALSW2 is 0x%02x\n ",manual2);
+
+
+	/* recover manual-SW1 from i2c-reset mode */
+	if(manual1 == 0x00)
+	{	
+		printk("[FSA9480] Recovery mode for i2c-reset \n");
+		if(usb_path == SWITCH_PDA)
+		{
+			/* reset manual2 s/w register */
+			fsa9480_write(&fsa9480_i2c_client, REGISTER_MANUALSW1, 0x24);
+		}
+		else
+		{
+			/* reset manual2 s/w register */
+			fsa9480_write(&fsa9480_i2c_client, REGISTER_MANUALSW1, 0x90);
+		}
+
+	}
 
 	/* TA Connection */
 	if(deviceType1 ==0x40)
@@ -335,9 +359,6 @@ void fsa9480_check_usb_connection(void)
 			bInitConnect = true;
 			s3c_udc_power_up();
 		}
-
-
-
 			
 	}
 	/* Auto mode settings */
@@ -420,8 +441,9 @@ static ssize_t usb_sel_store(
 		struct device *dev, struct device_attribute *attr,
 		const char *buf, size_t size)
 {
-    DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
 	int switch_sel;
+
+    DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
 
 	if (sec_get_param_value)
 		sec_get_param_value(__SWITCH_SEL, &switch_sel);
@@ -434,7 +456,21 @@ static ssize_t usb_sel_store(
 	if(strncmp(buf, "MODEM", 5) == 0 || strncmp(buf, "modem", 5) == 0) {
 		usb_switch_mode(SWITCH_MODEM);
 		switch_sel &= ~USB_SEL_MASK;
-}
+	}
+	
+	if(strncmp(buf, "RESET", 5) == 0 || strncmp(buf, "reset", 5) == 0) 
+	{
+		printk("[FSA9480] %s : reset i2c0 \n");
+		/* TEST */
+		gpio_direction_output(GPIO_I2C0_SCL, 0);
+		gpio_direction_output(GPIO_I2C0_SDA, 0);
+		printk("[FSA9480] %s : delay 30ms \n");
+		mdelay(30);
+		s3c_gpio_cfgpin(GPIO_I2C0_SCL, S3C_GPIO_SFN(GPIO_I2C0_SCL_AF));
+		s3c_gpio_cfgpin(GPIO_I2C0_SDA, S3C_GPIO_SFN(GPIO_I2C0_SDA_AF));
+
+
+	}
 
 	if (sec_set_param_value)
 		sec_set_param_value(__SWITCH_SEL, &switch_sel);
@@ -605,7 +641,7 @@ static int fsa9480_i2c_detach(struct i2c_client *client)
 
 static int fsa9480_i2c_resume(void)
 {
-   DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
+	DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
    
    if(ftm_sleep == 1)
    	{

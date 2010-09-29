@@ -102,7 +102,7 @@ void s3c6410_setup_sdhci0_cfg_card(struct platform_device *dev,
 
 	/* don't need to alter anything acording to card-type */
 
-	writel(S3C64XX_SDHCI_CONTROL4_DRIVE_4mA, r + S3C64XX_SDHCI_CONTROL4);
+	writel(S3C64XX_SDHCI_CONTROL4_DRIVE_2mA, r + S3C64XX_SDHCI_CONTROL4);
 
 	ctrl2 = readl(r + S3C_SDHCI_CONTROL2);
 	ctrl2 &= S3C_SDHCI_CTRL2_SELBASECLK_MASK;

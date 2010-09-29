@@ -58,13 +58,13 @@ config TOUCHSCREEN_CORGI
 	  NOTE: this driver is deprecated, try enable SPI and generic
 	  ADS7846-based touchscreen driver.
 
-config TOUCHSCREEN_QT5480
+config TOUCHSCREEN_QT602240
 	tristate "quantum touchscreen driver"
 	depends on ARCH_S3C2410 || ARCH_S3C64XX
 	default y
 	help
 	  Say Y here to enable the driver for the touchscreen on the
-	  S3C spica board.
+	  S3C saturn board.
 	  
 	  If unsure, say N.
  

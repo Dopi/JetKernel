@@ -178,6 +178,12 @@
 #define AK4671_MIC_PATH_MAIN			0
 #define AK4671_MIC_PATH_SUB				1
 
+/* 0 : unmute 
+ * 1 : mute   */
+#define AK4671_INPUT_MUTE				1
+#define AK4671_INPUT_UNMUTE 			0
+
+
 struct ak4671_setup_data {
 	unsigned short i2c_address;
 };
@@ -211,6 +217,6 @@ extern int idle_mode_enable(struct snd_soc_codec *, int);
 extern int idle_mode_disable(struct snd_soc_codec *, int);
 extern int voice_call_rec_enable(struct snd_soc_codec *, int);
 extern int voice_call_rec_disable(struct snd_soc_codec *, int);
-
+extern void set_mic_mute(struct snd_soc_codec *codec, int mode, int mute);
 
 #endif

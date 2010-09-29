@@ -18,6 +18,10 @@
 void (*s3c64xx_idle)(void);
 void (*s3c64xx_reset_hook)(void);
 
+#ifdef CONFIG_MACH_SATURN
+extern void __iomem *s3c6410_wdt_addr;
+#endif
+
 void s3c64xx_default_idle(void)
 {
 	/* nothing here yet */
@@ -33,9 +37,22 @@ static void arch_idle(void)
 
 void arch_reset(char mode)
 {
+#ifdef CONFIG_MACH_SATURN
+	void __iomem	*wdt_reg = s3c6410_wdt_addr;
+
+	printk(KERN_ERR ">>Watchdog reset tried to assert reset\n");
+	mdelay(50);
+
+	if (!wdt_reg ){
+		//wdt_reg = ioremap(S3C64XX_PA_WATCHDOG,S3C64XX_SZ_WATCHDOG);
+		while(1);
+		}
+#else
 	void __iomem	*wdt_reg;
 
+	printk(KERN_ERR ">>Watchdog reset tried to assert reset\n");
 	wdt_reg = ioremap(S3C64XX_PA_WATCHDOG,S3C64XX_SZ_WATCHDOG);
+#endif
 
 	/* nothing here yet */
 
@@ -46,7 +63,7 @@ void arch_reset(char mode)
 	/* wait for reset to assert... */
 	mdelay(500);
 
-	printk(KERN_ERR "Watchdog reset failed to assert reset\n");
+	printk(KERN_ERR "<<Watchdog reset failed to assert reset\n");
 
 	/* delay to allow the serial port to show the message */
 	mdelay(50);

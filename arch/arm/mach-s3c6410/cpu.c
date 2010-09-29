@@ -84,7 +84,7 @@ void __init s3c6410_map_io(void)
 
 	s3c6410_default_sdhci0();
 
-#if defined(CONFIG_MACH_SPICA)
+#if defined(CONFIG_MACH_SATURN)
 	s3c6410_default_sdhci2();
 #endif
 

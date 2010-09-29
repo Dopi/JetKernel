@@ -24,14 +24,8 @@
 #include <linux/switch.h>
 #include <linux/input.h>
 
-#include <linux/wakelock.h>	//<<yamaia><system><JKCha>
-
-
 struct class *switch_class;
 static atomic_t device_count;
-
-static struct wake_lock switch_class_wake_lock;	//<<yamaia><system><JKCha>
-static int switch_class_wake_lock_inited = 0; //<<yamaia><system><jswoo>
 
 static ssize_t state_show(struct device *dev, struct device_attribute *attr,
 		char *buf)
@@ -129,10 +123,6 @@ void switch_set_state(struct switch_dev *sdev, int state)
 	int length;
 
 	if (sdev->state != state) {
-
-		if( switch_class_wake_lock_inited != 0)					//<<yamaia><system><jswoo>
-		wake_lock_timeout(&switch_class_wake_lock, 2 * HZ);	//<<yamaia><system><JKCha>
-		
 		sdev->state = state;
 
 		prop_buf = (char *)get_zeroed_page(GFP_KERNEL);
@@ -222,14 +212,8 @@ void switch_dev_unregister(struct switch_dev *sdev)
 }
 EXPORT_SYMBOL_GPL(switch_dev_unregister);
 
-
-
 static int __init switch_class_init(void)
 {
-	//<<yamaia><system><JKCha>
-	wake_lock_init(&switch_class_wake_lock, WAKE_LOCK_SUSPEND,"sec_switch");
-	//<<yamaia><system><jswoo>
-	switch_class_wake_lock_inited =1;
 	return create_switch_class();
 }
 

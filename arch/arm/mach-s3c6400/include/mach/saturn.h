@@ -1,5 +1,5 @@
 /*
- *  linux/include/asm-arm/arch-s3c2410/spica.h
+ *  linux/include/asm-arm/arch-s3c2410/saturn.h
  *
  *  Author:		Samsung Electronics
  *  Created:	05, Jul, 2007
@@ -10,42 +10,40 @@
  *  published by the Free Software Foundation.
  */
 
-#ifndef ASM_MACH_SPICA_H
+#ifndef ASM_MACH_SATURN_H
 
-#define ASM_MACH_SPICA_H
+#define ASM_MACH_SATURN_H
 
 /* 
  * Board Configuration
  */
 
-#define CONFIG_SPICA_REV00			0x80	/* REV00 */
-#define CONFIG_SPICA_REV01			0x81	/* REV01 */
-#define CONFIG_SPICA_REV02			0x82	/* REV02 */
-#define CONFIG_SPICA_REV03			0x83	/* REV03 */
-#define CONFIG_SPICA_REV04			0x84	/* REV04 */
-#define CONFIG_SPICA_REV05			0x85	/* REV05 */
-#define CONFIG_SPICA_REV06			0x86	/* REV06 */
-#define CONFIG_SPICA_REV07			0x87	/* REV07 */
-#define CONFIG_SPICA_REV08			0x88	/* REV08 */
-#define CONFIG_SPICA_REV09			0x89	/* REV09 */
+#define CONFIG_SATURN_REV00			0x80	/* REV00 */
+#define CONFIG_SATURN_REV01			0x81	/* REV01 */
+#define CONFIG_SATURN_REV02			0x82	/* REV02 */
+#define CONFIG_SATURN_REV03			0x83	/* REV03 */
+#define CONFIG_SATURN_REV04			0x84	/* REV04 */
+#define CONFIG_SATURN_REV05			0x85	/* REV05 */
+#define CONFIG_SATURN_REV06			0x86	/* REV06 */
+#define CONFIG_SATURN_REV07			0x87	/* REV07 */
+#define CONFIG_SATURN_REV08			0x88	/* REV08 */
+#define CONFIG_SATURN_REV09			0x89	/* REV09 */
 
-#define CONFIG_SPICA_TEST_REV00	0x00	
-#define CONFIG_SPICA_TEST_REV01	0x01	
-#define CONFIG_SPICA_TEST_REV02	0x02	
-#define CONFIG_SPICA_TEST_REV03	0x03	
+#define CONFIG_SATURN_TEST_REV00	0x00	
+#define CONFIG_SATURN_TEST_REV01	0x01	
+#define CONFIG_SATURN_TEST_REV02	0x02	
+#define CONFIG_SATURN_TEST_REV03	0x03	
 
 #ifdef CONFIG_BOARD_REVISION
-#define CONFIG_SPICA_REV			CONFIG_BOARD_REVISION
+#define CONFIG_SATURN_REV			CONFIG_BOARD_REVISION
 #else
 #error	"Board revision is not defined!"
 #endif
 
-#if (CONFIG_SPICA_REV == CONFIG_SPICA_TEST_REV00)
-#include "spica_rev00.h"
-#elif (CONFIG_SPICA_REV == CONFIG_SPICA_TEST_REV01)
-#include "spica_rev01.h"
-#elif (CONFIG_SPICA_REV == CONFIG_SPICA_TEST_REV02)
-#include "spica_rev02.h"
+#if (CONFIG_SATURN_REV == CONFIG_SATURN_TEST_REV00)
+#include "saturn_rev00.h"
+#elif (CONFIG_SATURN_REV == CONFIG_SATURN_TEST_REV02)
+#include "saturn_rev02.h"
 #else
 #error	"Board revision is not valid!"
 #endif
@@ -87,6 +85,8 @@
 #define	MCAM_RST_DIS do {	\
 	/* MCAM RST Low */	\
 	if (gpio_is_valid(GPIO_MCAM_RST_N)) {	\
+		if (gpio_request	\
+		    (GPIO_MCAM_RST_N, S3C_GPIO_LAVEL(GPIO_MCAM_RST_N_AF)))	\
 		gpio_direction_output(GPIO_MCAM_RST_N, GPIO_LEVEL_LOW);	\
 	}	\
 	s3c_gpio_setpull(GPIO_MCAM_RST_N, S3C_GPIO_PULL_NONE);	\
@@ -97,11 +97,13 @@
 } while (0)
 
 #define	VCAM_RST_DIS do { } while (0)
-#define	VCAM_RST_EN do { } while (0)
+
+#define	VCAM_RST_EN do {	} while (0)
 
 #define	CAM_PWR_DIS do {	\
 	/* CAM PWR Low */	\
 	if (gpio_is_valid(GPIO_CAM_EN)) {	\
+		if (gpio_request(GPIO_CAM_EN, S3C_GPIO_LAVEL(GPIO_CAM_EN_AF)))	\
 		gpio_direction_output(GPIO_CAM_EN, GPIO_LEVEL_LOW);	\
 	}	\
 	s3c_gpio_setpull(GPIO_CAM_EN, S3C_GPIO_PULL_NONE);	\
@@ -119,6 +121,8 @@
 #define	MCAM_STB_DIS do {	\
 	/* CAM_3M STB Low */	\
 	if (gpio_is_valid(GPIO_CAM_3M_STBY_N)) {	\
+		if (gpio_request	\
+		    (GPIO_CAM_3M_STBY_N, S3C_GPIO_LAVEL(GPIO_CAM_3M_STBY_N_AF)))	\
 		gpio_direction_output(GPIO_CAM_3M_STBY_N, GPIO_LEVEL_LOW);	\
 	}	\
 	s3c_gpio_setpull(GPIO_CAM_3M_STBY_N, S3C_GPIO_PULL_NONE);	\
@@ -128,11 +132,7 @@
 
 #define CAM_MEM_SIZE	0x0D000000
 
-#if (CONFIG_SPICA_REV == CONFIG_SPICA_TEST_REV02)
 #define S5K4CA_ID	0x78
-#else
-#define S5K4CA_ID	0x5A
-#endif
 
 #define	LCD_18V_OFF do {  \
 		if (Get_MAX8698_PM_REG(ELDO6, &onoff_lcd_18)) {  \
@@ -151,7 +151,7 @@
 	}	while (0)
 
 #define	LCD_18V_ON do {  \
-		if (!onoff_lcd_18) {  \
+		if (onoff_lcd_18) {  \
 			pr_info("%s: LCD 1.8V On\n", __func__);  \
 			Set_MAX8698_PM_REG(ELDO6, 1);  \
 		}  \
@@ -159,10 +159,10 @@
 #define	LCD_28V_ON do {} while (0)
 
 #define	LCD_30V_ON do {  \
-		if (!onoff_lcd_30) {  \
+		if (onoff_lcd_30) {  \
 		pr_info("%s: LCD 3.0V On\n", __func__);  \
 		Set_MAX8698_PM_REG(ELDO7, 1);  \
 	}  \
 }	while (0)
 
-#endif	/* ASM_MACH_SPICA_H */
+#endif	/* ASM_MACH_SATURN_H */

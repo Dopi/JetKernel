@@ -25,5 +25,5 @@ obj-$(CONFIG_PM)    += pm.o
 # Machine support
 
 obj-$(CONFIG_MACH_SMDK6410)		+= mach-smdk6410.o
-obj-$(CONFIG_MACH_SPICA)	+= mach-spica.o board-rfkill.o
+obj-$(CONFIG_MACH_SATURN)	+= mach-saturn.o board-rfkill.o
 obj-$(CONFIG_SEC_HEADSET)	+= sec_headset.o

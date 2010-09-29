@@ -11,109 +11,110 @@
  *
  */
 
-#define DRIVER_NAME	"spica-battery"
+#define DRIVER_NAME	"saturn-battery"
 
 /*
- * Spica Rev00 board Battery Table
+ * Saturn Rev02 board Battery Table
  */
-#define BATT_CAL		2447	/* 3.60V */
+#define BATT_CAL		2472	/* 3.65V */
 
-#define BATT_MAXIMUM		406	/* 4.176V */
-#define BATT_FULL		353	/* 4.10V  */
-#define BATT_SAFE_RECHARGE 353	/* 4.10V */
-#define BATT_ALMOST_FULL	188 /* 3.8641V */	//322	/* 4.066V */
-#define BATT_HIGH		112 /* 3.7554V */ 		//221	/* 3.919V */
-#define BATT_MED		66 /* 3.6907V */ 		//146	/* 3.811V */
-#define BATT_LOW		43 /* 3.6566V */		//112	/* 3.763V */
-#define BATT_CRITICAL		8 /* 3.6037V */ 	//(74)	/* 3.707V */
-#define BATT_MINIMUM		(-28) /* 3.554V */	//(38)	/* 3.655V */
-#define BATT_OFF		(-128) /* 3.4029V */	//(-103)	/* 3.45V  */
+#define BATT_MAXIMUM		379	/* 4.20V */
+#define BATT_FULL		310	/* 4.10V */
+#define BATT_SAFE_RECHARGE	310	/* 4.10V */
+#define BATT_ALMOST_FULL	248	/* 4.01V */
+#define BATT_HIGH		131	/* 3.84V */
+#define BATT_MED		69	/* 3.75V */
+#define BATT_LOW		41	/* 3.71V */
+#define BATT_CRITICAL		0	/* 3.65V */
+#define BATT_MINIMUM		(-42)	/* 3.59V */
+#define BATT_OFF		(-173)	/* 3.40V */
 
 /*
- * Spica Rev00 board Temperature Table
+ * Saturn Rev02 board Temperature Table
  */
+
+#define NUM_TEMP_TBL	69
+
 const int temper_table[][2] =  {
 	/* ADC, Temperature (C) */
-	{ 1632,		-50	},
-	{ 1616,		-40	},
-	{ 1599,		-30	},
-	{ 1583,		-20	},
-	{ 1566,		-10	},
-	{ 1550,		0	},
-	{ 1530,		10	},
-	{ 1510,		20	},
-	{ 1490,		30	},
-	{ 1470,		40	},
-	{ 1450,		50	},
-	{ 1428,		60	},
-	{ 1406,		70	},
-	{ 1384,		80	},
-	{ 1362,		90	},
-	{ 1340,		100	},
-	{ 1317,		110	},
-	{ 1294,		120	},
-	{ 1270,		130	},
-	{ 1247,		140	},
-	{ 1224,		150	},
-	{ 1202,		160	},
-	{ 1179,		170	},
-	{ 1157,		180	},
-	{ 1134,		190	},
-	{ 1112,		200	},
-	{ 1088,		210	},
-	{ 1065,		220	},
-	{ 1041,		230	},
-	{ 1018,		240	},
-	{ 994,		250	},
-	{ 972,		260	},
-	{ 951,		270	},
-	{ 929,		280	},
-	{ 908,		290	},
-	{ 886,		300	},
-	{ 866,		310	},
-	{ 845,		320	},
-	{ 825,		330	},
-	{ 804,		340	},
-	{ 784,		350	},
-	{ 764,		360	},
-	{ 744,		370	},
-	{ 724,		380	},
-	{ 704,		390	},
-	{ 684,		400	},
-	{ 666,		410	},
-	{ 648,		420	},
-	{ 629,		430	},
-	{ 611,		440	},
-	{ 593,		450	},
-	{ 577,		460	},
-	{ 560,		470	},
-	{ 544,		480	},
-	{ 527,		490	},
-	{ 511,		500	},
-	{ 497,		510	},
-	{ 482,		520	},
-	{ 468,		530	},
-	{ 453,		540	},
-	{ 439,		550	},
-	{ 426,		560	},
-	{ 414,		570	},
-	{ 401,		580	},
-	{ 388,		590	},
-	{ 375,		600	},
-	{ 364,		610	},
-	{ 354,		620	},
-	{ 343,		630	},
-	{ 334,		640	},
-	{ 324,		650	},
+	{	1640 	,	-50	},
+	{	1626 	,	-40	},
+	{	1612 	,	-30	},
+	{	1598 	,	-20	},
+	{	1584 	,	-10	},
+	{	1570 	,	0	},
+	{	1545	,	10	},
+	{	1520	,	20	},
+	{	1495	,	30	},
+	{	1470	,	40	},
+	{	1445	,	50	},
+	{	1420	,	60	},
+	{	1395	,	70	},
+	{	1370	,	80	},
+	{	1345	,	90	},
+	{	1321	,	100 },
+	{	1296	,	110 },
+	{	1271	,	120 },
+	{	1246	,	130 },
+	{	1221	,	140 },
+	{	1196	,	150 },
+	{	1171	,	160 },
+	{	1146	,	170 },
+	{	1121	,	180 },
+	{	1096	,	190 },
+	{	1071	,	200 },
+	{	1046	,	210 },
+	{	1021	,	220 },
+	{	996 	,	230 },
+	{	971 	,	240 },
+	{	946 	,	250 },
+	{	921 	,	260 },
+	{	896 	,	270 },
+	{	871 	,	280 },
+	{	846 	,	290 },
+	{	822 	,	300 },
+	{	797 	,	310 },
+	{	772 	,	320 },
+	{	747 	,	330 },
+	{	722 	,	340 },
+	{	697 	,	350 },
+	{	672 	,	360 },
+	{	647 	,	370 },
+	{	622 	,	380 },
+	{	597 	,	390 },
+	{	572 	,	400	},
+	{	561 	,	410	},
+	{	549 	,	420 },
+	{	538 	,	430	},
+	{	526 	,	440 },
+	{	515 	,	450 },
+	{	503 	,	460 },
+	{	492 	,	470 },
+	{	480 	,	480 },
+	{	469 	,	490 },
+	{	457 	,	500 },
+	{	446 	,	510 },
+	{	434 	,	520 },
+	{	423 	,	530 },
+	{	411 	,	540 },
+	{	400 	,	550 },
+	{	388 	,	560 },
+	{	377 	,	570 },
+	{	365 	,	580	},
+	{	357 	,	590	},
+	{	349 	,	600	},
+	{	341 	,	610	},
+	{	333 	,	620	},
+	{	325 	,	630	},
 };
 
-#define TEMP_HIGH_BLOCK		temper_table[68][0]
-#define TEMP_HIGH_RECOVER	temper_table[63][0]
+#define TEMP_HIGH_BLOCK		temper_table[NUM_TEMP_TBL-1][0]
+#define TEMP_HIGH_RECOVER	temper_table[NUM_TEMP_TBL-6][0]
 #define TEMP_LOW_BLOCK		temper_table[0][0]
 #define TEMP_LOW_RECOVER	temper_table[5][0]
 
 /*
- * Spica Rev00 board ADC channel
+ * Saturn Rev02 board ADC channel
  */
 typedef enum s3c_adc_channel {
 	S3C_ADC_VOLTAGE = 0,
@@ -128,46 +129,56 @@ typedef enum s3c_adc_channel {
 #define IRQ_TA_CHG_N		IRQ_EINT(25)
 
 /*
- * Spica GPIO for battery driver
+ * Saturn GPIO for battery driver
  */
 const unsigned int gpio_ta_connected	= GPIO_TA_CONNECTED_N;
 const unsigned int gpio_ta_connected_af	= GPIO_TA_CONNECTED_N_AF;
-const unsigned int gpio_chg_ing		= GPIO_TA_CHG_N;
-const unsigned int gpio_chg_ing_af	= GPIO_TA_CHG_N_AF;
-const unsigned int gpio_chg_en		= GPIO_TA_EN;
-const unsigned int gpio_chg_en_af	= GPIO_TA_EN_AF;
+const unsigned int gpio_chg_ing		= GPIO_CHG_ING_N;
+const unsigned int gpio_chg_ing_af	= GPIO_CHG_ING_N_AF;
+const unsigned int gpio_chg_en		= GPIO_CHG_EN;
+const unsigned int gpio_chg_en_af	= GPIO_CHG_EN_AF;
 
 /******************************************************************************
  * Battery driver features
  * ***************************************************************************/
 /* #define __TEMP_ADC_VALUE__ */
 /* #define __USE_EGPIO__ */
-/* #define __CHECK_BATTERY_V_F__ */
-#define __BATTERY_V_F__
-#define __BATTERY_COMPENSATION__
+#define __CHECK_BATTERY_V_F__
+#define __BATTERY_V_F__ 
+/* #define __BATTERY_COMPENSATION__ */
 /* #define __CHECK_BOARD_REV__ */
 /* #define __BOARD_REV_ADC__ */
 #define __TEST_DEVICE_DRIVER__
-/* #define __ALWAYS_AWAKE_DEVICE__  */
+/* #define __ALWAYS_AWAKE_DEVICE__ */
 #define __TEST_MODE_INTERFACE__
+/* #define __CHECK_CHG_CURRENT__ */
+/* #define __ADJUST_RECHARGE_ADC__ */
+#if CONFIG_FUEL_GAUGE_MAX17040 // for Saturn
+#define __FUEL_GAUGES_IC__  
+#endif 
+#define __AVG_TEMP_ADC__
 /*****************************************************************************/
 
-#define TOTAL_CHARGING_TIME	(6*60*60*1000)	/* 6 hours */
+#define TOTAL_CHARGING_TIME	(5*60*60*1000)	/* 5 hours */
 #define TOTAL_RECHARGING_TIME	(2*60*60*1000)	/* 2 hours */
 
-#ifdef __BATTERY_COMPENSATION__
-#define COMPENSATE_VIBRATOR		19
-#define COMPENSATE_CAMERA		25
-#define COMPENSATE_MP3			17
-#define COMPENSATE_VIDEO		28
-#define COMPENSATE_VOICE_CALL_2G	13
-#define COMPENSATE_VOICE_CALL_3G	14
-#define COMPENSATE_DATA_CALL		25
-#define COMPENSATE_LCD			0
-#define COMPENSATE_TA			0
-#define COMPENSATE_CAM_FALSH		0
-#define COMPENSATE_BOOTING		52
-#endif /* __BATTERY_COMPENSATION__ */
+#ifdef __CHECK_BATTERY_V_F__
+#define BATT_VF_MAX		100
+#define BATT_VF_MIN		0
+#endif /* __CHECK_BATTERY_V_F__ */
 
-#define convert_adc2voltage(x)		((x - 2170) * 10 / 7 / 100 * 100 + 3200)
+#ifdef __CHECK_CHG_CURRENT__
+#define CURRENT_OF_FULL_CHG		65
+#endif /* __CHECK_CHG_CURRENT__ */
+
+#ifdef __ADJUST_RECHARGE_ADC__
+#define BATT_RECHARGE_CODE		50	/* 0.05V */
+#endif /* __ADJUST_RECHARGE_ADC__ */
+
+#ifdef __FUEL_GAUGES_IC__
+#define SOC_LB_FOR_POWER_OFF		27
+
+#define FULL_CHARGE_COND_VOLTAGE	4000
+#define RECHARGE_COND_VOLTAGE		4080
+#endif /* __FUEL_GAUGES_IC__ */
 

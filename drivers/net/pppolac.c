@@ -3,7 +3,6 @@
  * Driver for PPP on L2TP Access Concentrator / PPPoLAC Socket (RFC 2661)
  *
  * Copyright (C) 2009 Google, Inc.
- * Author: Chia-chi Yeh <chiachi@android.com>
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -22,8 +21,10 @@
  * only works on IPv4 due to the lack of UDP encapsulation support in IPv6. */
 
 #include <linux/module.h>
+#include <linux/workqueue.h>
 #include <linux/skbuff.h>
 #include <linux/file.h>
+#include <linux/netdevice.h>
 #include <linux/net.h>
 #include <linux/udp.h>
 #include <linux/ppp_defs.h>
@@ -31,6 +32,7 @@
 #include <linux/if_pppox.h>
 #include <linux/ppp_channel.h>
 #include <net/tcp_states.h>
+#include <asm/uaccess.h>
 
 #define L2TP_CONTROL_BIT	0x80
 #define L2TP_LENGTH_BIT		0x40
@@ -51,10 +53,10 @@ static inline union unaligned *unaligned(void *ptr)
 	return (union unaligned *)ptr;
 }
 
-static int pppolac_recv(struct sock *sk_udp, struct sk_buff *skb)
+static int pppolac_recv_core(struct sock *sk_udp, struct sk_buff *skb)
 {
-	struct sock *sk;
-	struct pppolac_opt *opt;
+	struct sock *sk = (struct sock *)sk_udp->sk_user_data;
+	struct pppolac_opt *opt = &pppox_sk(sk)->proto.lac;
 	__u8 bits;
 	__u8 *ptr;
 
@@ -64,9 +66,9 @@ static int pppolac_recv(struct sock *sk_udp, struct sk_buff *skb)
 
 	/* Put it back if it is a control packet. */
 	if (skb->data[sizeof(struct udphdr)] & L2TP_CONTROL_BIT)
-		return 1;
+		return opt->backlog_rcv(sk_udp, skb);
 
-	/* Now the packet is ours. Skip UDP header. */
+	/* Skip UDP header. */
 	skb_pull(skb, sizeof(struct udphdr));
 
 	/* Check the version. */
@@ -93,26 +95,12 @@ static int pppolac_recv(struct sock *sk_udp, struct sk_buff *skb)
 			!skb_pull(skb, skb->data[-2] << 8 | skb->data[-1]))
 		goto drop;
 
-	/* Now ptr is pointing to the tunnel and skb is pointing to the payload.
-	 * We have to lock sk_udp to prevent sk from being closed. */
-	lock_sock(sk_udp);
-	sk = sk_udp->sk_user_data;
-	if (!sk) {
-		release_sock(sk_udp);
-		goto drop;
-	}
-	sock_hold(sk);
-	release_sock(sk_udp);
-	opt = &pppox_sk(sk)->proto.lac;
-
 	/* Check the tunnel and the session. */
-	if (unaligned(ptr)->u32 != opt->local) {
-		sock_put(sk);
+	if (unaligned(ptr)->u32 != opt->local)
 		goto drop;
-	}
 
-	/* Check the sequence if it is present. According to RFC 2661 page 10
-	 * and 43, the only thing to do is updating opt->sequencing. */
+	/* Check the sequence if it is present. According to RFC 2661 section
+	 * 5.4, the only thing to do is to update opt->sequencing. */
 	opt->sequencing = bits & L2TP_SEQUENCE_BIT;
 
 	/* Skip PPP address and control if they are present. */
@@ -124,26 +112,50 @@ static int pppolac_recv(struct sock *sk_udp, struct sk_buff *skb)
 	if (skb->len >= 1 && skb->data[0] & 1)
 		skb_push(skb, 1)[0] = 0;
 
-	/* Finally, deliver the packet to PPP channel. We have to lock sk to
-	 * prevent another thread from calling pppox_unbind_sock(). */
+	/* Finally, deliver the packet to PPP channel. */
 	skb_orphan(skb);
-	lock_sock(sk);
 	ppp_input(&pppox_sk(sk)->chan, skb);
-	release_sock(sk);
-	sock_put(sk);
-	return 0;
-
+	return NET_RX_SUCCESS;
 drop:
 	kfree_skb(skb);
+	return NET_RX_DROP;
+}
+
+static int pppolac_recv(struct sock *sk_udp, struct sk_buff *skb)
+{
+	sock_hold(sk_udp);
+	sk_receive_skb(sk_udp, skb, 0);
 	return 0;
 }
+
+static struct sk_buff_head delivery_queue;
+
+static void pppolac_xmit_core(struct work_struct *delivery_work)
+{
+	mm_segment_t old_fs = get_fs();
+	struct sk_buff *skb;
+
+	set_fs(KERNEL_DS);
+	while ((skb = skb_dequeue(&delivery_queue))) {
+		struct sock *sk_udp = skb->sk;
+		struct kvec iov = {.iov_base = skb->data, .iov_len = skb->len};
+		struct msghdr msg = {
+			.msg_iov = (struct iovec *)&iov,
+			.msg_iovlen = 1,
+			.msg_flags = MSG_NOSIGNAL | MSG_DONTWAIT,
+		};
+		sk_udp->sk_prot->sendmsg(NULL, sk_udp, &msg, skb->len);
+		kfree_skb(skb);
+	}
+	set_fs(old_fs);
+}
+
+static DECLARE_WORK(delivery_work, pppolac_xmit_core);
 
 static int pppolac_xmit(struct ppp_channel *chan, struct sk_buff *skb)
 {
 	struct sock *sk_udp = (struct sock *)chan->private;
 	struct pppolac_opt *opt = &pppox_sk(sk_udp->sk_user_data)->proto.lac;
-	struct msghdr msg = {.msg_flags = MSG_NOSIGNAL | MSG_DONTWAIT};
-	struct kvec iov;
 
 	/* Install PPP address and control. */
 	skb_push(skb, 2);
@@ -166,11 +178,10 @@ static int pppolac_xmit(struct ppp_channel *chan, struct sk_buff *skb)
 	skb->data[1] = L2TP_VERSION;
 	unaligned(&skb->data[2])->u32 = opt->remote;
 
-	/* Now send the packet via UDP socket. */
-	iov.iov_base = skb->data;
-	iov.iov_len = skb->len;
-	kernel_sendmsg(sk_udp->sk_socket, &msg, &iov, 1, skb->len);
-	kfree_skb(skb);
+	/* Now send the packet via the delivery queue. */
+	skb_set_owner_w(skb, sk_udp);
+	skb_queue_tail(&delivery_queue, skb);
+	schedule_work(&delivery_work);
 	return 1;
 }
 
@@ -235,6 +246,7 @@ static int pppolac_connect(struct socket *sock, struct sockaddr *useraddr,
 	po->chan.mtu = PPP_MTU - 80;
 	po->proto.lac.local = unaligned(&addr->local)->u32;
 	po->proto.lac.remote = unaligned(&addr->remote)->u32;
+	po->proto.lac.backlog_rcv = sk_udp->sk_backlog_rcv;
 
 	error = ppp_register_channel(&po->chan);
 	if (error)
@@ -243,8 +255,8 @@ static int pppolac_connect(struct socket *sock, struct sockaddr *useraddr,
 	sk->sk_state = PPPOX_CONNECTED;
 	udp_sk(sk_udp)->encap_type = UDP_ENCAP_L2TPINUDP;
 	udp_sk(sk_udp)->encap_rcv = pppolac_recv;
+	sk_udp->sk_backlog_rcv = pppolac_recv_core;
 	sk_udp->sk_user_data = sk;
-
 out:
 	if (sock_udp) {
 		release_sock(sk_udp);
@@ -270,12 +282,12 @@ static int pppolac_release(struct socket *sock)
 
 	if (sk->sk_state != PPPOX_NONE) {
 		struct sock *sk_udp = (struct sock *)pppox_sk(sk)->chan.private;
-		pppox_unbind_sock(sk);
-
 		lock_sock(sk_udp);
-		sk_udp->sk_user_data = NULL;
+		pppox_unbind_sock(sk);
 		udp_sk(sk_udp)->encap_type = 0;
 		udp_sk(sk_udp)->encap_rcv = NULL;
+		sk_udp->sk_backlog_rcv = pppox_sk(sk)->proto.lac.backlog_rcv;
+		sk_udp->sk_user_data = NULL;
 		release_sock(sk_udp);
 		sockfd_put(sk_udp->sk_socket);
 	}
@@ -349,6 +361,8 @@ static int __init pppolac_init(void)
 	error = register_pppox_proto(PX_PROTO_OLAC, &pppolac_pppox_proto);
 	if (error)
 		proto_unregister(&pppolac_proto);
+	else
+		skb_queue_head_init(&delivery_queue);
 	return error;
 }
 

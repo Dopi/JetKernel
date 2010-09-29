@@ -1590,10 +1590,11 @@ static irqreturn_t sdhci_irq_cd(int irq, void *dev_id)
 	int ext_CD_int = 0;
 	int eint_num = 0;
 	unsigned int eint0msk;
+	unsigned int flags;
 
-	spin_lock(&host->lock);
+	spin_lock_irqsave(&host->lock, flags);
 
-	mdelay(1);
+	mdelay(1000);
 	eint_num = irq - IRQ_EINT(0);
 	__raw_writel((1 << eint_num), S3C64XX_EINT0PEND);
 
@@ -1617,7 +1618,7 @@ static irqreturn_t sdhci_irq_cd(int irq, void *dev_id)
 	tasklet_schedule(&host->card_tasklet);	
 	mmiowb();
 
-	spin_unlock(&host->lock);
+	spin_unlock_irqrestore(&host->lock, flags);
 
 	return IRQ_HANDLED;
 }

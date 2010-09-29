@@ -20,7 +20,7 @@
  *---------------------------------------------------------------------------*
 */
 /**
- *  @version 	RFS_1.3.1_b072_RTM
+ *  @version 	RFS_1.3.1_b067_RTM
  *  @file	include/linux/rfs_fs_sb.h
  *  @brief	header file for RFS superblock
  *

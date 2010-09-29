@@ -29,6 +29,7 @@
 #define VERSION_LINE		"I8315XXIE00"	/* Set Image Info */
 #define COMMAND_LINE		"console=ttySAC2,115200"
 #define	BOOT_VERSION		" version=Sbl(1.0.0) "
+#define AUTO_RAMDUMP_MODE	1		// whether panic enter ramdump mode or not
 
 typedef enum {
 	__SERIAL_SPEED,
@@ -43,7 +44,11 @@ typedef enum {
 	__NATION_SEL,
 	__SET_DEFAULT_PARAM,
 	__PARAM_INT_11,
+#ifdef CONFIG_MACH_SATURN
+	__AUTO_RAMDUMP_MODE,
+#else
 	__PARAM_INT_12,
+#endif
 	__PARAM_INT_13,
 	__PARAM_INT_14,
 	__VERSION,

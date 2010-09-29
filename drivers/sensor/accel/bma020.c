@@ -21,6 +21,10 @@ int bma020_init(bma020_t *bma020)
 	p_bma020->ml_version = BMA020_GET_BITSLICE(data, ML_VERSION);	/* get ML Version */
 	p_bma020->al_version = BMA020_GET_BITSLICE(data, AL_VERSION);	/* get AL Version */
 
+	// make sure the default value of the interrupt enable register
+	data = 0x00; // All interrupt disable
+	p_bma020->BMA020_BUS_WRITE_FUNC(p_bma020->dev_addr, 0x0b, &data, 1 );
+
 	return comres;
 
 }

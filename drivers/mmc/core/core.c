@@ -846,6 +846,9 @@ void mmc_rescan(struct work_struct *work)
 	 */
 	err = mmc_send_app_op_cond(host, 0, &ocr);
 	if (!err) {
+#if 1	// added by sj2202.park to prevent recognization of contiguous mmc insert/remove intr.
+		mdelay(1000);
+#endif
 		if (mmc_attach_sd(host, ocr))
 			mmc_power_off(host);
 		extend_wakelock = 1;

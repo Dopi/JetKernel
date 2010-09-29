@@ -6,6 +6,8 @@ obj-$(CONFIG_LEDS_TRIGGERS)		+= led-triggers.o
 
 # LED Platform Drivers
 obj-$(CONFIG_LEDS_ATMEL_PWM)		+= leds-atmel-pwm.o
+# hsil for Saturn LED
+obj-$(CONFIG_LEDS_AAT4297)		+= leds-aat4297.o
 obj-$(CONFIG_LEDS_LOCOMO)		+= leds-locomo.o
 obj-$(CONFIG_LEDS_S3C24XX)		+= leds-s3c24xx.o
 obj-$(CONFIG_LEDS_AMS_DELTA)		+= leds-ams-delta.o

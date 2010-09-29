@@ -49,7 +49,7 @@
 #include "epautoconf.c"
 #include "composite.c"
 
-MODULE_AUTHOR("SeungSoo Yange");
+MODULE_AUTHOR("SeungSoo Yang");
 MODULE_DESCRIPTION("Android Composite USB Driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("1.0");

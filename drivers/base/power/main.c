@@ -684,7 +684,6 @@ static int suspend_device(struct device *dev, pm_message_t state)
  *
  *	Execute the appropriate "suspend" callbacks for all devices.
  */
-extern unsigned char ftm_sleep;
 static int dpm_suspend(pm_message_t state)
 {
 	struct list_head list;
@@ -705,13 +704,8 @@ static int dpm_suspend(pm_message_t state)
 		mutex_lock(&dpm_list_mtx);
 		if (error) {
 			pm_dev_err(dev, state, "", error);
-			if (ftm_sleep) {
-				pr_err("PM: %s: ftm mode\n", __func__);
-				error = 0;
-			} else {
-				put_device(dev);
-				break;
-			}
+			put_device(dev);
+			break;
 		}
 		dev->power.status = DPM_OFF;
 		if (!list_empty(&dev->power.entry))

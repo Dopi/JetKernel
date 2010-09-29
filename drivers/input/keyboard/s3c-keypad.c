@@ -32,18 +32,11 @@
 #include "s3c-keypad.h"
 #include "s3c-keypad-board.h"
 
+#include <mach/param.h>
+
 #ifdef CONFIG_CPU_FREQ 
 #include <plat/s3c64xx-dvfs.h>
 #endif
-
-
-
-//[ <<yamaia><system><JKCha>
-#include <linux/wakelock.h>	
-
-static struct wake_lock s3c_key_wake_lock;	
-//] wake lock for keypad scan operation complete
-
 
 //#define S3C_KEYPAD_DEBUG 
 
@@ -61,11 +54,25 @@ static struct wake_lock s3c_key_wake_lock;
 #define FIRST_SCAN_INTERVAL    	(1)
 #define SCAN_INTERVAL    	(HZ/50)
 
+#undef  __FORCE_PANIC_BY_KEY__
+#define FORCE_PANIC_KEY1_IDX	0	//volume down
+#define FORCE_PANIC_KEY2_IDX	18	//volume up
+#define FORCE_PANIC_KEY3_IDX	24	//full shutter
+//saturn key index: menu(3), home(18), back(19), volup(0) voldown(8), camhalf(24), camfull(25)
+
 static struct timer_list keypad_timer;
 static int is_timer_on = FALSE;
 static struct clk *keypad_clock;
 static u32 prevmask_low = 0, prevmask_high = 0;
 static int keypad_sleep_flag = 0;	// Temporay Code by SYS.LSI
+
+// ramdump mode flag
+static int auto_ramdump_mode = 0;
+//__module_param_call("", autoramdump, param_set_int, param_get_int, &auto_ramdump_mode, 0444);
+//MODULE_PARM_DESC(autoramdump, "Enable auto ramdump mode.");
+#define MAX_AUTO_RAMDUMP_MODE_VALUE 1
+
+extern void s3c_set_panic_flag(unsigned int val);
 
 static int keypad_scan(u32 *keymask_low, u32 *keymask_high)
 {
@@ -90,16 +97,6 @@ static int keypad_scan(u32 *keymask_low, u32 *keymask_high)
 #endif
 	}
 
-	//[ <<yamaia><system><JKCha>
-	if(*keymask_low == 0x04040404)
-	{
-		//Preventing Send Key Event in the case of Right & Menu & Send & Home Keys... 
-		*keymask_low = *keymask_low & 0xFFFBFFFF;  
-		// 1111 1111 1111 1011 1111 1111 1111 1111  <<yamaia><system><JKCha>
-	}
-	//] wake lock for keypad scan operation complete
-
-
 	writel(KEYIFCOL_CLEAR, key_base+S3C_KEYIFCOL);
 
 	return 0;
@@ -112,62 +109,27 @@ static void process_input_report (struct s3c_keypad *s3c_keypad, u32 prevmask, u
 	u32 press_mask = ((keymask ^ prevmask) & keymask); 
 	u32 release_mask = ((keymask ^ prevmask) & prevmask); 
 
-
-#if (CONFIG_SPICA_REV == CONFIG_SPICA_TEST_REV01)	// Temporary Code by SYS.LSI
-        u32 wake_key;
-
-	if (keypad_sleep_flag) {
-		i = 0;
-		while (press_mask) {
-			if (press_mask & 1) {
-				wake_key = GET_KEYCODE(i+index);
-				if(wake_key == ENDCALL_KEY || wake_key == HOLD_KEY) {
-					keypad_sleep_flag = 0;
-					input_report_key(dev, wake_key,1);
-					DPRINTK(": Pressed (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
-					dprintk(KPD_PRS, ": Pressed (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
-				}
-			}
-			press_mask >>= 1;
-			i++;
+	i = 0;
+	while (press_mask) {
+		if (press_mask & 1) {
+			input_report_key(dev, GET_KEYCODE(i+index),1);
+			DPRINTK(": Pressed (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
+			printk("[S3C-Keypad] Pressed (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
 		}
-		i = 0;
-		while (release_mask) {
-			if (release_mask & 1) {
-				wake_key = GET_KEYCODE(i+index);
-				if(wake_key == ENDCALL_KEY || wake_key == HOLD_KEY)
-					input_report_key(dev, wake_key,0);
-				DPRINTK(": Released (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
-				dprintk(KPD_RLS, ": Released (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
-			}
-			release_mask >>= 1;
-			i++;
-		}
+		press_mask >>= 1;
+		i++;
 	}
-	else {
-#endif
-		i = 0;
-		while (press_mask) {
-			if (press_mask & 1) {
-				input_report_key(dev, GET_KEYCODE(i+index),1);
-				DPRINTK(": Pressed (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
-			}
-			press_mask >>= 1;
-			i++;
-		}
 
-		i = 0;
-		while (release_mask) {
-			if (release_mask & 1) {
-				input_report_key(dev,GET_KEYCODE(i+index),0);
-				DPRINTK(": Released (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
-			}
-			release_mask >>= 1;
-			i++;
+	i = 0;
+	while (release_mask) {
+		if (release_mask & 1) {
+			input_report_key(dev,GET_KEYCODE(i+index),0);
+			DPRINTK(": Released (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
+			printk("[S3C-Keypad] Released (index: %d, Keycode: %d)\n", i+index, GET_KEYCODE(i+index));
 		}
-#if (CONFIG_SPICA_REV == CONFIG_SPICA_TEST_REV01)	// Temporary Code by SYS.LSI
+		release_mask >>= 1;
+		i++;
 	}
-#endif
 }
 
 static inline void process_special_key (struct s3c_keypad *s3c_keypad, u32 keymask_low, u32 keymask_high)
@@ -185,6 +147,7 @@ static inline void process_special_key (struct s3c_keypad *s3c_keypad, u32 keyma
 		    && !(prev_bitmask & (1<<i))) {
         	        input_report_key(dev, special_key->keycode, 1);
 			DPRINTK(": Pressed (Keycode: %d, SPECIAL KEY)\n", special_key->keycode);
+			printk("[S3C-Keypad] Pressed (Keycode: %d, SPECIAL KEY)\n", special_key->keycode);
 			prev_bitmask |= (1<<i);
 			continue;
 		}
@@ -194,6 +157,7 @@ static inline void process_special_key (struct s3c_keypad *s3c_keypad, u32 keyma
 		{
 	       	        input_report_key(dev, special_key->keycode, 0);
 			DPRINTK(": Released (Keycode: %d, SPECIAL KEY)\n", special_key->keycode);
+			printk("[S3C-Keypad] Released (Keycode: %d, SPECIAL KEY)\n", special_key->keycode);
 			prev_bitmask ^= (1<<i);
 		}
 	}
@@ -220,11 +184,13 @@ static void keypad_timer_handler(unsigned long data)
 #endif
 
 	if (keymask_low | keymask_high) {
+		DPRINTK("%s (keymask valid)\n", __func__);		
 		mod_timer(&keypad_timer,jiffies + SCAN_INTERVAL);
+		is_timer_on = TRUE;
 	} else {
+		DPRINTK("%s (keymask invalid)\n", __func__);		
 		writel(KEYIFCON_INIT, key_base+S3C_KEYIFCON);
 		is_timer_on = FALSE;
-		wake_lock_timeout(&s3c_key_wake_lock, 2 * HZ); // <<yamaia><system><JKCha> : wake lock for keypad scan operation complete
 	}	
 }
 
@@ -233,14 +199,11 @@ static irqreturn_t s3c_keypad_isr(int irq, void *dev_id)
 #ifdef  CONFIG_CPU_FREQ
 	set_dvfs_perf_level();
 #endif
-
-	wake_lock(&s3c_key_wake_lock); // <<yamaia><system><JKCha> : wake lock for keypad scan operation complete
-	
 	/* disable keypad interrupt and schedule for keypad timer handler */
 	writel(readl(key_base+S3C_KEYIFCON) & ~(INT_F_EN|INT_R_EN), key_base+S3C_KEYIFCON);
 
 	keypad_timer.expires = jiffies + FIRST_SCAN_INTERVAL;
-	if ( is_timer_on == FALSE) {
+	if ( is_timer_on == FALSE && !timer_pending(&keypad_timer) ) {
 		add_timer(&keypad_timer);
 		is_timer_on = TRUE;
 	} else {
@@ -301,15 +264,39 @@ static irqreturn_t gpio_int_handler(int irq, void *dev_id)
 	        if(state) {
         	        input_report_key(dev, gpio_key->keycode, 1);
                 	DPRINTK(": Pressed (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
+                	printk("[S3C-Keypad] Pressed (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
 	        }
         	else  {
 	                input_report_key(dev, gpio_key->keycode, 0);
         	        DPRINTK(": Released (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
+        	        printk("[S3C-Keypad] Released (Keycode: %d, GPIO KEY)\n", gpio_key->keycode);
 	        }
 	}
  
         return IRQ_HANDLED;
 }
+
+#if 1	// application can set the flag
+ssize_t s3c_keypad_show_ramdump_attr(struct device_driver *driver, char *buf)
+{
+	int val=0;
+	
+	DPRINTK(": show ramdump attr\n");
+
+	auto_ramdump_mode = 0;		// temporary
+	return snprintf(buf, PAGE_SIZE, "%d\n", auto_ramdump_mode);
+}
+
+ssize_t s3c_keypad_store_ramdump_attr(struct device_driver *driver, const char *buf, size_t count)
+{
+	int val, val2;
+	DPRINTK(": store ramdump attr\n");
+
+	return count;
+}
+
+DRIVER_ATTR(auto_ramdump, S_IRUGO|S_IWUGO, s3c_keypad_show_ramdump_attr, s3c_keypad_store_ramdump_attr);
+#endif
 
 static int __init s3c_keypad_probe(struct platform_device *pdev)
 {
@@ -578,6 +565,7 @@ static int s3c_keypad_suspend(struct platform_device *pdev, pm_message_t state)
 	struct s3c_keypad_slide *slide = extra->slide;
 	struct s3c_keypad_gpio_key *gpio_key = extra->gpio_key;
 
+	DPRINTK("%s\n", __func__);		
 	keypad_sleep_flag = 1;
 
 	writel(KEYIFCON_CLEAR, key_base+S3C_KEYIFCON);
@@ -614,21 +602,34 @@ static int s3c_keypad_resume(struct platform_device *pdev)
 	struct s3c_keypad_slide *slide = extra->slide;
 	struct s3c_keypad_gpio_key *gpio_key = extra->gpio_key;
 
+	DPRINTK("%s\n", __func__);		
+	s3c6410_pm_do_restore(s3c_keypad_save, ARRAY_SIZE(s3c_keypad_save));
+
 	clk_enable(keypad_clock);
 
-	if (is_timer_on)
+	if (is_timer_on || (keypad_timer.entry.next != NULL))
+	{
+		DPRINTK("%s (del_timer): is_timer_on = %d\n", __func__, is_timer_on);	
 		del_timer (&keypad_timer);
-	is_timer_on = TRUE;
+	}
+
+	is_timer_on = FALSE;
 	prevmask_low = 0;
 	prevmask_high = 0;
-	s3c_keypad_isr (0, NULL);
+	
+	keypad_timer_handler((unsigned long)s3c_keypad);
+	if (is_timer_on)
+	{
+		/* disable keypad interrupt and schedule for keypad timer handler */
+		writel(readl(key_base+S3C_KEYIFCON) & ~(INT_F_EN|INT_R_EN), key_base+S3C_KEYIFCON);
+	}
 	
 	enable_irq(IRQ_KEYPAD);
 
 	if (slide)
 	{
-		enable_irq(slide->eint);
 		slide_int_handler (slide->eint, (void *) s3c_keypad);
+		enable_irq(slide->eint);
 	}
 
 	if (gpio_key)
@@ -636,16 +637,13 @@ static int s3c_keypad_resume(struct platform_device *pdev)
 		int i;
 		for (i=0; i<extra->gpio_key_num; i++, gpio_key+=1)
 		{
-        		enable_irq(gpio_key->eint);
 			gpio_int_handler (gpio_key->eint, (void *) s3c_keypad);
+        		enable_irq(gpio_key->eint);
 		}
 	}
 
-
 	writel(KEYIFCON_INIT, key_base+S3C_KEYIFCON);
 	writel(KEYIFFC_DIV, key_base+S3C_KEYIFFC);
-
-	s3c6410_pm_do_restore(s3c_keypad_save, ARRAY_SIZE(s3c_keypad_save));
 
 	writel(KEYIFCOL_CLEAR, key_base+S3C_KEYIFCOL);
 
@@ -671,19 +669,22 @@ static int __init s3c_keypad_init(void)
 {
 	int ret;
 
-	// <<yamaia><system><JKCha><jswoo> : wake lock Init for keypad scan operation complete
-	wake_lock_init(&s3c_key_wake_lock, WAKE_LOCK_SUSPEND,"s3c-keypad");
-
 	ret = platform_driver_register(&s3c_keypad_driver);
 	
 	if(!ret)
-	   printk(KERN_INFO "S3C Keypad Driver\n");
+		{
+		printk(KERN_INFO "S3C Keypad Driver\n");
+
+		driver_create_file(&s3c_keypad_driver.driver, &driver_attr_auto_ramdump);
+		}
 
 	return ret;
 }
 
 static void __exit s3c_keypad_exit(void)
 {
+	driver_remove_file(&s3c_keypad_driver.driver, &driver_attr_auto_ramdump);
+
 	platform_driver_unregister(&s3c_keypad_driver);
 }
 

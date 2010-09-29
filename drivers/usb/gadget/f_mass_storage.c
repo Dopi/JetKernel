@@ -1293,31 +1293,13 @@ static int do_inquiry(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 	buf[3] = 2;		/* SCSI-2 INQUIRY data format */
 	buf[4] = 31;		/* Additional length */
 				/* No special options */
-
-#define CONFIG_SAMSUNG_KIES_UMS_SUPPORT
-#define CONFIG_SAMSUNG_MODEL_NAME			"GT-I5700"
-
-#if defined(CONFIG_SAMSUNG_KIES_UMS_SUPPORT) && defined(CONFIG_SAMSUNG_MODEL_NAME)
-	{
-		u8 model_name[16];
-
-		strncpy(model_name, CONFIG_SAMSUNG_MODEL_NAME , sizeof(model_name));
-
-		/* Internal Device :Phone, External Device : Card */
-		sprintf(buf + 8, "%s - %s", model_name, "Card");
-		
-//		printk("model_name = %s, buf+8=%s\n",model_name, buf+8);
-	}
+//by ss1
+#if 0
+	sprintf(buf + 8, "%-8s%-16s%04x", fsg->vendor,
+			fsg->product, fsg->release);
 #else
-
-	//by ss1
-	#if 0
-		sprintf(buf + 8, "%-8s%-16s%04x", fsg->vendor,
-				fsg->product, fsg->release);
-	#else
-		sprintf(buf + 8, "%-8s%-16s%04x", vendor_id,
-				product_id, fsg->release);
-	#endif
+	sprintf(buf + 8, "%-8s%-16s%04x", vendor_id,
+			product_id, fsg->release);
 
 #endif
 	return 36;

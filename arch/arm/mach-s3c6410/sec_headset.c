@@ -36,7 +36,9 @@
 #include <asm/mach-types.h>
 #include <mach/sec_headset.h>
 
-//#define CONFIG_DEBUG_SEC_HEADSET
+extern int call_state;
+
+// #define CONFIG_DEBUG_SEC_HEADSET
 
 #ifdef CONFIG_DEBUG_SEC_HEADSET
 #define SEC_HEADSET_DBG(fmt, arg...) printk(KERN_INFO "[HEADSET] " fmt "\r\n", ## arg)
@@ -52,7 +54,8 @@
 
 #define SEND_END_CHECK_COUNT	3
 #define SEND_END_CHECK_TIME get_jiffies_64() + 6 //30ms
-//#define SEND_END_CHECK_TIME get_jiffies_64() + 30 /*(HZ/25) //1000ms / 25 = 40ms*/
+#define SEND_END_CHECK_TIME_INCALL get_jiffies_64() + (HZ/6) // 1000ms /6 = 167ms
+//#define SEND_END_CHECK_TIME get_jiffies_64() + (HZ/50) //1000ms / 50 = 20ms
 //#define SEND_END_CHECK_TIME get_jiffies_64() + (HZ/100) //1000ms / 100 = 10ms 
 
 extern int s3c_adc_get_adc_data(int channel);
@@ -60,6 +63,8 @@ extern int s3c_adc_get_adc_data(int channel);
 struct sec_headset_info {
 	struct sec_headset_port port;
 	struct input_dev *input;
+	
+	atomic_t btn_state;
 };
 
 static struct sec_headset_info *hi;
@@ -106,14 +111,22 @@ static void ear_adc_caculrator(unsigned long arg)
 	
 	if (state)
 	{
+		gpio_set_value(GPIO_MICBIAS_EN, 1); 
+		SEC_HEADSET_DBG("MICBIAS enable before adc check  \n");
+		msleep(200); 
 		adc = s3c_adc_get_adc_data(3);
-        if((adc > 1700 && adc < 2000) || (adc > 2400 && adc < 2700) || (adc > 2900 && adc < 3400) || (adc > 400 && adc < 700))
+		SEC_HEADSET_DBG("MICBIAS disable after adc check  \n");
+		gpio_set_value(GPIO_MICBIAS_EN, 0); 
+             
+		if((adc > 1700 && adc < 3400) /*|| (adc > 2400 && adc < 2700) || (adc > 2800 && adc < 3400) */ || (adc > 200 && adc < 700))
 		{
 			printk("4pole ear-mic adc is %d\n", adc);
 			enable_irq (send_end->eint);
 			send_end_irq_token++;
+			SEC_HEADSET_DBG("MICBIAS enable after token is %d \n", send_end_irq_token);
+			gpio_set_value(GPIO_MICBIAS_EN, 1); 
 		}
-		else if(adc < 5)
+		else if(adc < 10)
 		{
 			printk("3pole earphone adc is %d\n", adc);
 			headset_status = 0;
@@ -159,8 +172,9 @@ static void headset_detect_timer_handler(unsigned long arg)
 		}
 		else if(headset_detect_timer_token == 4)
 		{
-			gpio_set_value(GPIO_MICBIAS_EN, 1); 
-			schedule_delayed_work(&ear_adc_cal_work, 200);
+			//gpio_set_value(GPIO_MICBIAS_EN, 1); 
+			//schedule_delayed_work(&ear_adc_cal_work, 200);
+			schedule_work(&ear_adc_cal_work);
 			SEC_HEADSET_DBG("mic bias enable add work queue \n");
 			headset_detect_timer_token = 0;
 		}
@@ -191,15 +205,37 @@ static void ear_switch_change(struct work_struct *ignored)
 	}
 	else if(!state)
 	{
-		switch_set_state(&switch_earjack, state);
+        	switch_set_state(&switch_earjack, state);
 		printk("Headset detached %d \n", send_end_irq_token);        	
 		headset_status = state;
+
+		if( atomic_read(&hi->btn_state) ){
+			atomic_set(&hi->btn_state,0);
+			input_report_key(hi->input, KEYCODE_SENDEND, 0);
+			input_sync(hi->input);
+		}
+			
 		if(send_end_irq_token > 0)
 		{
+			/* Only for Saturn
+			 * To reduce pop-up noise, disable micbias when disconnecting earpiece 
+			 * But, if phone is in incall state, must re-enable micbias immediately  
+			 * because of mic mute problem 
+			 */
+			 /* Eclair Version Only 
+			 ** In Eclair Version, do not diable micbias
+			 */
+			 SEC_HEADSET_DBG("call_state = %d when disconnecting earphone\n",call_state); 
+			 if( !call_state )
+			 {
+			 	SEC_HEADSET_DBG("MICBIAS disable when earphone disconnected \n"); 
+			    gpio_set_value(GPIO_MICBIAS_EN, 0); 
+			 }
 			disable_irq (send_end->eint);
 			send_end_irq_token--;
 		}
-		wake_unlock(&headset_sendend_wake_lock);
+		//wake_unlock(&headset_sendend_wake_lock);
+		wake_lock_timeout(&headset_sendend_wake_lock, HZ*3 );
 	}
 	else
 		SEC_HEADSET_DBG("Headset state does not valid. or send_end event");
@@ -219,13 +255,14 @@ static void send_end_key_event_timer_handler(unsigned long arg)
 		if(send_end_key_timer_token < SEND_END_CHECK_COUNT)
 		{	
 			send_end_key_timer_token++;
-			send_end_key_event_timer.expires = SEND_END_CHECK_TIME; 
+			send_end_key_event_timer.expires = call_state?SEND_END_CHECK_TIME_INCALL:SEND_END_CHECK_TIME; 
 			add_timer(&send_end_key_event_timer);
-			SEC_HEADSET_DBG("SendEnd Timer Restart %d", send_end_key_timer_token);
+			SEC_HEADSET_DBG("SendEnd Timer Restart %d (call_state = %d)", send_end_key_timer_token,call_state);
 		}
 		else if(send_end_key_timer_token == SEND_END_CHECK_COUNT)
 		{
 			printk("SEND/END is pressed\n");
+			atomic_set(&hi->btn_state,1);
 			input_report_key(hi->input, KEYCODE_SENDEND, 1);
 			input_sync(hi->input);
 			send_end_key_timer_token = 0;
@@ -245,7 +282,8 @@ static void sendend_switch_change(struct work_struct *ignored)
 
 	del_timer(&send_end_key_event_timer);
 	send_end_key_timer_token = 0;
-    mdelay(10); // for earjack keyevent delay	
+    mdelay(10); // for earjack keyevent delay
+	
 	headset_state = gpio_get_value(det_headset->gpio) ^ det_headset->low_active;
 	state = gpio_get_value(send_end->gpio) ^ send_end->low_active;
 
@@ -255,13 +293,14 @@ static void sendend_switch_change(struct work_struct *ignored)
 		{
 			SEC_HEADSET_DBG(KERN_ERR "SISO:sendend isr work queue\n");
     			switch_set_state(&switch_sendend, state);
+			atomic_set(&hi->btn_state,0);
 			input_report_key(hi->input, KEYCODE_SENDEND, state);
 			input_sync(hi->input);
 			printk("SEND/END %s.\n", "released");
 			wake_unlock(&headset_sendend_wake_lock);
 		}else{
 			wake_lock(&headset_sendend_wake_lock);
-			send_end_key_event_timer.expires = SEND_END_CHECK_TIME; // 10ms ??
+			send_end_key_event_timer.expires = call_state ? SEND_END_CHECK_TIME_INCALL : SEND_END_CHECK_TIME; // 10ms ??
 			add_timer(&send_end_key_event_timer);
 			switch_set_state(&switch_sendend, state);
 			SEC_HEADSET_DBG("SEND/END %s.timer start \n", "pressed");
@@ -287,7 +326,7 @@ static irqreturn_t send_end_irq_handler(int irq, void *dev_id)
 {
    struct sec_gpio_info   *det_headset = &hi->port.det_headset;
    int headset_state;
-
+   
    SEC_HEADSET_DBG("sendend isr");
    del_timer(&send_end_key_event_timer);
    headset_state = gpio_get_value(det_headset->gpio) ^ det_headset->low_active;
@@ -312,6 +351,8 @@ static int sec_headset_probe(struct platform_device *pdev)
 	hi = kzalloc(sizeof(struct sec_headset_info), GFP_KERNEL);
 	if (!hi)
 		return -ENOMEM;
+
+	atomic_set(&hi->btn_state,0);
 
 	memcpy (&hi->port, pdata->port, sizeof(struct sec_headset_port));
 

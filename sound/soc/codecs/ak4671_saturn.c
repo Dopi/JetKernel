@@ -1,5 +1,5 @@
 /*
- * ak4671_spica.c  --  AK4671 Spica Board specific code
+ * ak4671_saturn.c  --  AK4671 Saturn Board specific code
  *
  * Copyright (C) 2008 Samsung Electronics, Seung-Bum Kang
  *
@@ -32,14 +32,11 @@
 #include "ak4671.h"
 #include "max9877_def.h"
 
-//#define AUDIO_SPECIFIC_DEBUG	1
-//#define MAX9877_SPECIFIC_DEBUG  1
-#define SUBJECT "ak4671_spica.c"
-
-#define P1(format,...)\
-	printk ("["SUBJECT "(%d)] " format "\n", __LINE__, ## __VA_ARGS__);
+#define AUDIO_SPECIFIC_DEBUG	1
+//#define MAX9877_SPECIFIC_DEBUG 
 
 #if AUDIO_SPECIFIC_DEBUG
+#define SUBJECT "ak4671_saturn.c"
 #define P(format,...)\
 	printk ("[ "SUBJECT " (%s,%d) ] " format "\n", __func__, __LINE__, ## __VA_ARGS__);
 #define FI \
@@ -72,6 +69,7 @@ static struct i2c_client_address_data max9877_addr_data = {
 	.probe      = max9877_i2c_probe,
 };
 
+extern int shutdown_flag;
 
 short int get_headset_status();//import from arc/arm/s3c6410/sec_headset.c
 
@@ -208,11 +206,25 @@ int audio_init(void)
 	}
 	s3c_gpio_setpull(GPIO_MICBIAS_EN, S3C_GPIO_PULL_NONE);
 
+	/* MIC_SEL */
+	if (gpio_is_valid(GPIO_MIC_SEL_N)) {
+		if (gpio_request(GPIO_MIC_SEL_N, S3C_GPIO_LAVEL(GPIO_MIC_SEL_N))) 
+			printk(KERN_ERR "Failed to request GPIO_MIC_SEL_N! \n");
+		gpio_direction_output(GPIO_MIC_SEL_N, 0);
+	}
+	s3c_gpio_setpull(GPIO_MIC_SEL_N, S3C_GPIO_PULL_NONE);
+
 	return 0;
 }
 
 int audio_power(int en)
 {
+	if(shutdown_flag)
+	{
+		gpio_set_value(GPIO_AUDIO_EN, 0);
+		return 0;
+	}
+
 	P("AUDIO POWER : %d", en);
 	if (en)
 		gpio_set_value(GPIO_AUDIO_EN, 1);
@@ -230,7 +242,7 @@ int amp_init(void)
 
 	ret = i2c_add_driver(&max9877_i2c_driver);
 	if (ret != 0)
-		printk(KERN_ERR "can't add i2c driver");
+		printk(KERN_ERR "can't add i2c driver\n");
 
 //	FO
 	return ret;
@@ -238,54 +250,152 @@ int amp_init(void)
 
 int amp_enable(int en)
 {
-        u8 pData = 0;
+	u8 pData = 0;
 
-        P("AMP EN : %d", en);
-        max9877_read(&max9877_i2c_client, MAX9877_OUTPUT_MODE_CONTROL, &pData);
+	if(shutdown_flag && en)
+		return 0;
+	
+	P("AMP EN : %d", en);
+	max9877_read(&max9877_i2c_client, MAX9877_OUTPUT_MODE_CONTROL, &pData);
+	
+	if (en){ 
+		max9877_write(&max9877_i2c_client, MAX9877_OUTPUT_MODE_CONTROL, pData | SHDN ); /* Low Power shutdown mode : 1 */
+		mdelay(10);
 
-        if (en){
-                max9877_write(&max9877_i2c_client, MAX9877_SPEAKER_VOLUME, 0);
-                max9877_write(&max9877_i2c_client, MAX9877_LEFT_HEADPHONE_VOLUME,0);
-                max9877_write(&max9877_i2c_client, MAX9877_RIGHT_HEADPHONE_VOLUME,0);
+//		if (cur_amp_path == AK4671_AMP_PATH_SPK_HP) {/*when ringtone earphone level under 100db for ear : HW require  */
+//			max9877_write(&max9877_i2c_client, MAX9877_SPEAKER_VOLUME, 31);
+//			max9877_write(&max9877_i2c_client, MAX9877_LEFT_HEADPHONE_VOLUME,0x14); 
+//			max9877_write(&max9877_i2c_client, MAX9877_RIGHT_HEADPHONE_VOLUME,0x14); 
+//		}else {
+//		max9877_write(&max9877_i2c_client, MAX9877_SPEAKER_VOLUME, 31);
+//		max9877_write(&max9877_i2c_client, MAX9877_LEFT_HEADPHONE_VOLUME,31); 
+//		max9877_write(&max9877_i2c_client, MAX9877_RIGHT_HEADPHONE_VOLUME,31); 
+//		}
 
-                max9877_write(&max9877_i2c_client, MAX9877_OUTPUT_MODE_CONTROL, pData | SHDN ); /* Low Power shutdown mode : 1 */
-                mdelay(30);
+	}else{
+		max9877_write(&max9877_i2c_client, MAX9877_SPEAKER_VOLUME, 0);
+		max9877_write(&max9877_i2c_client, MAX9877_LEFT_HEADPHONE_VOLUME,0); 
+		max9877_write(&max9877_i2c_client, MAX9877_RIGHT_HEADPHONE_VOLUME,0); 
+		
+		mdelay(10);
+		max9877_write(&max9877_i2c_client, MAX9877_OUTPUT_MODE_CONTROL, pData & ~SHDN ); /* Low Power shutdown mode : 0 */
+			
+	}
+	return 0;
+}
 
-                if (cur_amp_path == AK4671_AMP_PATH_SPK_HP)
-                {/*when ringtone earphone level under 100db for ear : HW require  */
-                     max9877_write(&max9877_i2c_client, MAX9877_SPEAKER_VOLUME, 31);
-                     max9877_write(&max9877_i2c_client, MAX9877_LEFT_HEADPHONE_VOLUME,0x11);
-                     max9877_write(&max9877_i2c_client, MAX9877_RIGHT_HEADPHONE_VOLUME,0x11);
-                }
-                else if (cur_amp_path == AK4671_AMP_PATH_HP)
+static void set_amp_gain(int mode)
+{
+	u8 spk_vol, left_ear_vol, right_ear_vol;
+    
+	spk_vol = 0x1F;
+	left_ear_vol = 0x1F;
+	right_ear_vol = 0x1F;
+  
+	P("SET AMP gain : 0x%x", mode);
+
+	/* Set output amp gain */
+            if( (0xf0 & mode) == MM_AUDIO_VOICECALL )
+            {
+                P("MM_AUDIO_VOICECALL amp gain setting", mode);
+                if( (0x0f & mode ) == MM_AUDIO_OUT_HP )
                 {
-                     max9877_write(&max9877_i2c_client, MAX9877_SPEAKER_VOLUME, 0);
-                     max9877_write(&max9877_i2c_client, MAX9877_LEFT_HEADPHONE_VOLUME,31);
-                     max9877_write(&max9877_i2c_client, MAX9877_RIGHT_HEADPHONE_VOLUME,31);
+                    P("Amp Gain Setting for MM_AUDIO_VOICECALL -> MM_AUDIO_OUT_HP");
+                    spk_vol = 0x00;
+                    left_ear_vol = 0x18; // 0x15 -> 0x18
+                    right_ear_vol = 0x18; // 0x15 -> 0x18
+ 
                 }
-                else if (cur_amp_path == AK4671_AMP_PATH_SPK)
+                else if ( (0x0f & mode) == MM_AUDIO_OUT_SPK)
                 {
-                     max9877_write(&max9877_i2c_client, MAX9877_SPEAKER_VOLUME, 31);
-                     max9877_write(&max9877_i2c_client, MAX9877_LEFT_HEADPHONE_VOLUME,0);
-                     max9877_write(&max9877_i2c_client, MAX9877_RIGHT_HEADPHONE_VOLUME,0);
+                    P("Amp Gain Setting for MM_AUDIO_VOICECALL -> MM_AUDIO_OUT_SPK");
+                    spk_vol = 0x17; // 0x16 -> 0x17
+                    left_ear_vol = 0x00;
+                    right_ear_vol = 0x00; 
+                }              
+            }
+            else if ( ( 0xf0 & mode ) == MM_AUDIO_PLAYBACK )
+            {
+                P("MM_AUDIO_PLAYBACK amp gain setting", mode);
+                if ( (0x0f & mode ) == MM_AUDIO_OUT_SPK_HP 
+                    || (0x0f & mode ) == MM_AUDIO_OUT_RING_SPK_HP) {/*when ringtone earphone level under 100db for ear : HW require  */
+                    P("Amp Gain Setting for MM_AUDIO_PLAYBACK -> MM_AUDIO_OUT_SPK_HP");
+                    spk_vol = 0x1F;
+                    left_ear_vol = 0x11; // 0x14 -> 0x11
+                    right_ear_vol = 0x11; // 0x14 -> 0x11
+                }else  if( (0x0f & mode ) == MM_AUDIO_OUT_HP )
+                {
+                    P("Amp Gain Setting for MM_AUDIO_PLAYBACK -> MM_AUDIO_OUT_HP");
+                    spk_vol = 0x00;
+                    left_ear_vol = 0x1F;
+                    right_ear_vol = 0x1F; 
                 }
-
-        }else{
-                max9877_write(&max9877_i2c_client, MAX9877_SPEAKER_VOLUME, 0);
-                max9877_write(&max9877_i2c_client, MAX9877_LEFT_HEADPHONE_VOLUME,0);
-                max9877_write(&max9877_i2c_client, MAX9877_RIGHT_HEADPHONE_VOLUME,0);
-
-                mdelay(30);
-                max9877_write(&max9877_i2c_client, MAX9877_OUTPUT_MODE_CONTROL, pData & ~SHDN ); /* Low Power shutdown mode : 0 */
-
-        }
-        return 0;
+                else if ( (0x0f & mode) == MM_AUDIO_OUT_SPK)
+                {
+                    P("Amp Gain Setting for MM_AUDIO_PLAYBACK -> MM_AUDIO_OUT_SPK");
+                    spk_vol = 0x1F;
+                    left_ear_vol = 0x00;
+                    right_ear_vol = 0x00; 
+                }       
+            }
+            else if ( ( 0xf0 & mode ) == MM_AUDIO_FMRADIO )
+            {
+                P("MM_AUDIO_FMRADIO amp gain setting", mode);
+                if( (0x0f & mode ) == MM_AUDIO_OUT_HP )
+                {
+                    P("Amp Gain Setting for MM_AUDIO_FMRADIO -> MM_AUDIO_OUT_HP");
+                    spk_vol = 0x00;
+                    left_ear_vol = 0x1F;
+                    right_ear_vol = 0x1F; 
+                }
+                else if ( (0x0f & mode) == MM_AUDIO_OUT_SPK)
+                {
+                    P("Amp Gain Setting for MM_AUDIO_FMRADIO -> MM_AUDIO_OUT_SPK");
+                    spk_vol = 0x1F;
+                    left_ear_vol = 0x00;
+                    right_ear_vol = 0x00; 
+                }
+                else if ( (0x0f & mode ) == MM_AUDIO_OUT_SPK_HP )
+                {
+                    P("Amp Gain Setting for MM_AUDIO_FMRADIO -> MM_AUDIO_OUT_SPK_HP");
+                    spk_vol = 0x1F;
+                    left_ear_vol = 0x14;
+                    right_ear_vol = 0x14; 
+                }
+            }
+            else if ( (0xf0 & mode ) == MM_AUDIO_VOICEMEMO )
+            {
+                P("MM_AUDIO_VOICEMEMO amp gain setting", mode);
+                if( (0x0f & mode ) == MM_AUDIO_OUT_HP )
+                {
+                    P("Amp Gain Setting for MM_AUDIO_VOICEMEMO -> MM_AUDIO_OUT_HP");
+                    spk_vol = 0x00;
+                    left_ear_vol = 0x1F;
+                    right_ear_vol = 0x1F; 
+                }
+                else if ( (0x0f & mode) == MM_AUDIO_OUT_SPK)
+                {
+                    P("Amp Gain Setting for MM_AUDIO_VOICEMEMO -> MM_AUDIO_OUT_SPK");
+                    spk_vol = 0x1F;
+                    left_ear_vol = 0x00;
+                    right_ear_vol = 0x00; 
+                } 
+            }
+            else
+            {
+                P("unknown mode for amp gain setting = 0x%x",mode);
+            }
+            
+            P("Amp Gain Setting for spk_vol = 0x%02x, left_ear_vol = 0x%02x, right_ear_vol = 0x%02x",spk_vol,left_ear_vol,right_ear_vol);
+            max9877_write(&max9877_i2c_client, MAX9877_SPEAKER_VOLUME, spk_vol);
+            max9877_write(&max9877_i2c_client, MAX9877_LEFT_HEADPHONE_VOLUME,left_ear_vol); 
+            max9877_write(&max9877_i2c_client, MAX9877_RIGHT_HEADPHONE_VOLUME,right_ear_vol); 
 }
 
 int amp_set_path(int path)
 {
 	int i; 
-	
+
 #if MAX9877_SPECIFIC_DEBUG
 	u8 pData;
 	/* real all */
@@ -341,7 +451,7 @@ int amp_get_path(int path)
 int amp_register_string(char *buf)
 {
 	int i; 
-	u8 pData;
+	u8 pData = 0;
 
 	sprintf(buf, "%s MAX9877\r\n", buf);
     for(i = 0; i <= MAX9877_OUTPUT_MODE_CONTROL; i++) {
@@ -354,7 +464,7 @@ int amp_register_string(char *buf)
 
 int amp_set_register(unsigned char reg, unsigned char val)
 {
-	P("AMP Register (Write) reg:0x%02x, val:0x%02x\n", reg, val);
+	P("AMP Register (Write) reg:0x%02x, val:0x%02x", reg, val);
 	max9877_write(&max9877_i2c_client, reg, val);
 	return 0;
 }
@@ -414,7 +524,7 @@ int set_sample_rate(struct snd_soc_codec *codec, int bitRate)
 			reg_pll_mode = 0xb0 | AK4671_PLL;
 			break;
 		default:
-			P("[%s] not support bit rate (%d).\n", __func__, bitRate);
+			P("[%s] not support bit rate (%d).", __func__, bitRate);
 			reg_pll_mode = 0x70 | AK4671_PLL;
 			break;
 	}
@@ -424,10 +534,9 @@ int set_sample_rate(struct snd_soc_codec *codec, int bitRate)
 	return 0;
 }
 
-/* Rx only recorded in spica */
 int voice_call_rec_enable(struct snd_soc_codec *codec, int mode)
 {
-	P1("Rec Enable (mode : 0x%x)\n", mode);
+	P("Rec Enable (mode : 0x%x)", mode);
 
 	switch(mode) {
 		case MM_AUDIO_VOICECALL_RCV :
@@ -435,11 +544,11 @@ int voice_call_rec_enable(struct snd_soc_codec *codec, int mode)
 			/* MIC-AMP Rch mixing A/P Rch -> RCP/RCN OFF */
 			codec->write(codec, 0x19, 0x04); 	// use soft mute to cut signal
 			mdelay(24);
-			codec->write(codec, 0x0A, 0x00); 	//Swith-off all output
-			codec->write(codec, 0x0D, 0x00);	// Rout3 mute
+			codec->write(codec, 0x0A, 0x20); 	// only MIC-AMP-Rch to RCP/RCN
 			codec->write(codec, 0x00, 0x0D); 	// DAC-Rch power-up
 
-			codec->write(codec, 0x00, 0x2D); 	// ADC-Lch power-down, Rch power up
+			/* MIC-AMP Lch->LOP/LON and ADC Lch->AP Lch */
+			codec->write(codec, 0x00, 0x3D); 	// ADC-Lch power-up
 			mdelay(24);
 			break;
 
@@ -449,13 +558,12 @@ int voice_call_rec_enable(struct snd_soc_codec *codec, int mode)
 			/* MIC-AMP Rch mixing A/P Rch -> Lout2/Rout OFF */
 			codec->write(codec, 0x19, 0x04); 	// use soft mute to cut signal
 			mdelay(24);
-			codec->write(codec, 0x0B, 0x00); 	// Swith-off all output
-			codec->write(codec, 0x0C, 0x00); 	// Swith-off all output
-			codec->write(codec, 0x0D, 0x00);	// Rout3 mute
+			codec->write(codec, 0x0B, 0x00); 	// Swith-off DAC-Lch
+			codec->write(codec, 0x0C, 0x20); 	// Swith-off DAC-Rch
 			codec->write(codec, 0x00, 0x0D); 	// DAC-Rch power-up
 
 			/* MIC-AMP Lch->LOP/LON and ADC Lch->AP Lch */
-			codec->write(codec, 0x00, 0x2D); 	// ADC-Lch power-down, Rch power up
+			codec->write(codec, 0x00, 0x3D); 	// ADC-Lch power-up
 			mdelay(24);
 			break;
 
@@ -465,10 +573,7 @@ int voice_call_rec_enable(struct snd_soc_codec *codec, int mode)
 			codec->write(codec, 0x15, 0x14); 	// 5-band-EQ-Lch: from SRC-B, Rch: from SVOLA Rch
 
 			/* SRC-B -> DAC Lch -> LOP/LON -> and -> A/P Lch */
-			//codec->write(codec, 0x59, 0x10); 	// SDTO-Lch: from SRC-B
-			codec->write(codec, 0x59, 0x00); 	// SDTO-Lch: from ADM (lch is muted), SDTO-Rch : from ADM (modem)
-			codec->write(codec, 0x53, 0x14);   // Swith-off all output
-			codec->write(codec, 0x0D, 0x00);	// Rout3 mute
+			codec->write(codec, 0x59, 0x10); 	// SDTO-Lch: from SRC-B
 			break;
 		default :
 				printk("[%s] Invalid mode\n", __func__);
@@ -481,37 +586,26 @@ int voice_call_rec_enable(struct snd_soc_codec *codec, int mode)
 
 int voice_call_rec_disable(struct snd_soc_codec *codec, int mode) 
 {
-	P1("Rec Disable (mode : 0x%x)\n", mode);
+	P("Rec Disable (mode : 0x%x)", mode);
 
 	switch(mode) {
 		case MM_AUDIO_VOICECALL_RCV :
 			P("disable REC (MM_AUDIO_VOICECALL_RCV)");
 			/* MIC-AMP Lch->LOP/LON and ADC Lch->AP Lch */
-			codec->write(codec, 0x0A, 0x21); 	// only MIC-AMP-Rch to RCP/RCN	
-			codec->write(codec, 0x0D, 0x20);	
-			codec->write(codec, 0x00, 0x8D); 	// DAC-Rch power-up
+			codec->write(codec, 0x00, 0x0D); 	// DAC-Rch power-up
 			break;
 
 		case MM_AUDIO_VOICECALL_SPK :
 		case MM_AUDIO_VOICECALL_HP :
 			P("disable REC (MM_AUDIO_VOICECALL_HP_SPK)");
 			/* MIC-AMP Lch->LOP/LON and ADC Lch->AP Lch */
-			codec->write(codec, 0x0B, 0x01); 	// Swith-off DAC-Lch
-			codec->write(codec, 0x0C, 0x21); 	// Swith-off DAC-Rch
-			codec->write(codec, 0x0D, 0x20);	
-
-			codec->write(codec, 0x00, 0xCD); 	// DAC-Rch power-up
+			codec->write(codec, 0x00, 0x0D); 	// DAC-Rch power-up
 			break;
 
 		case MM_AUDIO_VOICECALL_BT :
 			P("disable REC (MM_AUDIO_VOICECALL_BT)");
-			/* mixing ADC Rch and A/P Rch -> SRC-A -> PCM-A */
-			codec->write(codec, 0x15, 0x18); 	// 5-band-EQ-Lch: from SRC-B, Rch: from SVOLA Rch
-			
 			/* SRC-B -> DAC Lch -> LOP/LON -> and -> A/P Lch */
 			codec->write(codec, 0x59, 0x00); 	// default
-			codec->write(codec, 0x53, 0x17); 		// PLLBT1,PMSRA/B, PMPCM power up
-			codec->write(codec, 0x0D, 0x01);
 			break;
 		
 		default :
@@ -529,17 +623,46 @@ static void set_bias (struct snd_soc_codec *codec, int mode)
 	/* Set MIC BIAS */
 	/* VOICECALL, VOICEMEMO, PLAYBACK_HP */
 	if ((mode & 0xf0) == MM_AUDIO_VOICECALL || 
-		(mode & 0xf0) == MM_AUDIO_VOICEMEMO )
+		(mode & 0xf0) == MM_AUDIO_VOICEMEMO ||
+		(mode & 0x0f) == MM_AUDIO_PLAYBACK_HP ||  /* for earjack send/end key interrupt */
+		(mode & 0x0f) == MM_AUDIO_PLAYBACK_SPK_HP )
 	{
-		if ((mode & 0x0f) == MM_AUDIO_OUT_RCV || (mode & 0x0f) == MM_AUDIO_OUT_SPK
-			|| (mode & 0x0f) == MM_AUDIO_OUT_HP ) 
-			mic_enable(1);
+		if( mode== MM_AUDIO_VOICECALL_RCV || mode == MM_AUDIO_VOICEMEMO_MAIN || mode == MM_AUDIO_VOICEMEMO_SUB)
+		{
+                   P("Main Mic");
+			gpio_set_value(GPIO_MIC_SEL_N, 1); // 1 : Main-Mic  0 : Sub-Mic
+	        }
+		else if ( mode== MM_AUDIO_VOICECALL_SPK )
+		{
+                   P("Sub Mic");
+			gpio_set_value(GPIO_MIC_SEL_N, 0); 
+		}
+
+                P("MIC_SEL = %d",gpio_get_value(GPIO_MIC_SEL_N));
+             
+		if( (mode & 0xf0) == MM_AUDIO_VOICECALL 
+                || (mode & 0xf0) == MM_AUDIO_VOICEMEMO 
+                )
+		{
+			P("mic bias enable ");
+			if ((mode & 0x0f) == MM_AUDIO_OUT_HP) 
+				mic_enable(1);
+			else if ((mode & 0x0f) == MM_AUDIO_OUT_RCV || (mode & 0x0f) == MM_AUDIO_OUT_SPK)
+				mic_enable(1);
+		}
 	}
 	else
 	{
-		if(!get_headset_status())
+		if(!get_headset_status()){
+			P("mic bias disable ");
 			mic_enable(0);
+		}
 	}
+
+      /*SET AMP Gain before Amp enable/disable */
+      set_amp_gain(mode);
+
+      mdelay(40); // amp pop-up noise
 
 	/* Set AMP BIAS */
 	/* SPK, EARJACK, VOICEMEMO */
@@ -548,36 +671,47 @@ static void set_bias (struct snd_soc_codec *codec, int mode)
 		(mode & 0x0f) == MM_AUDIO_OUT_SPK_HP || 
 		(mode & 0xf0) == MM_AUDIO_VOICEMEMO ) 
 	{
+		P("amp bias enable ");
 		if (mode != MM_AUDIO_VOICECALL_BT)
 			amp_enable(1);	
 	} 
 	else
 	{
-			amp_enable(0);	
+		P("amp bias disable ");
+		amp_enable(0);	
 	}
 }
+
 static void set_input_path_gain(struct snd_soc_codec *codec, int mode)
 {
-	P("set INPUT path gain : 0x%x\n", mode);
+	P("set INPUT path gain : 0x%x", mode);
 	switch(mode)
 	{
   		case MM_AUDIO_VOICEMEMO_MAIN:		
 			codec->write(codec, 0x05, 0x5B); 	//MIC-AMP 18dB 2009.07.10
-			codec->write(codec, 0x12, 0xD9);
-			codec->write(codec, 0x13, 0xD9);
+			codec->write(codec, 0x12, 0xD6);   // 27dB
+			codec->write(codec, 0x13, 0xD6);
 			break;		
   		case MM_AUDIO_VOICEMEMO_SUB:		
 			codec->write(codec, 0x05, 0x5B); 	//MIC-AMP 18dB 2009.07.10
-			codec->write(codec, 0x12, 0xD9);
-			codec->write(codec, 0x13, 0xD9);
+			codec->write(codec, 0x12, 0xD6);   // 27dB
+			codec->write(codec, 0x13, 0xD6);
 			break;
   		case MM_AUDIO_VOICEMEMO_EAR:		
-			codec->write(codec, 0x05, 0x5B); 	// => MIC-AMP Gain=0dB (default)
-			codec->write(codec, 0x12, 0xC5);
+			codec->write(codec, 0x05, 0x5B); 	// MIC-AMP Gain 0dB -> 18dB (default)
+			codec->write(codec, 0x12, 0xC5);   // 19.5
 			codec->write(codec, 0x13, 0xC5);
 			break;
+
+  		case MM_AUDIO_FMRADIO_SPK:		
+			codec->write(codec, 0x05, 0x66); 	// => MIC-AMP Gain=0dB (default)
+			break;
+
+  		case MM_AUDIO_FMRADIO_HP:		
+			codec->write(codec, 0x05, 0x66); 	// => MIC-AMP Gain=0dB (default)
+			break;
 		default :
-			//printk("[%s] Invalid input gain path\n", __func__);
+			printk("[%s] Invalid input gain path\n", __func__);
 			break;
 	}
 }
@@ -588,14 +722,10 @@ static void set_path_gain(struct snd_soc_codec *codec, int mode)
 	set_input_path_gain(codec, mode);
 
 	/* VOICEMEMO Path : only SPK */
-    if (mode == MM_AUDIO_VOICEMEMO_MAIN ||
-            mode == MM_AUDIO_VOICEMEMO_SUB )
-            mode = MM_AUDIO_PLAYBACK_SPK;
-    else if(mode  == MM_AUDIO_VOICEMEMO_EAR)
-            mode = MM_AUDIO_PLAYBACK_HP;
+	if ((mode & 0xf0) == MM_AUDIO_VOICEMEMO)
+		mode = MM_AUDIO_PLAYBACK_SPK;
 
-
-	P("SET Path gain : 0x%x\n", mode);
+	P("SET Path gain : 0x%x", mode);
 
 	/* Set output tunning value */
 	switch (mode) 
@@ -603,10 +733,10 @@ static void set_path_gain(struct snd_soc_codec *codec, int mode)
 		case MM_AUDIO_PLAYBACK_RCV :
 			break;
 		case MM_AUDIO_PLAYBACK_SPK :
-		case MM_AUDIO_PLAYBACK_SPK_HP :
+		case MM_AUDIO_PLAYBACK_SPK_HP:
 			codec->write(codec, 0x08, 0x95); 	// Output Volume Control : OUT2[7:4]/OUT1[2:0]
-			codec->write(codec, 0x1A, 0x18); 	// Lch Output Digital Vol
-			codec->write(codec, 0x1B, 0x18); 	// Rch Output Digital Vol
+			codec->write(codec, 0x1A, 0x0E); 	// 0x18 -> 0x0E Lch Output Digital Vol
+			codec->write(codec, 0x1B, 0x0E); 	// 0x18 -> 0x0E Rch Output Digital Vol
 			break;
 		case MM_AUDIO_PLAYBACK_HP :
 			codec->write(codec, 0x08, 0xB5); 	// Output Volume Control : OUT2[7:4]/OUT1[2:0]
@@ -616,43 +746,50 @@ static void set_path_gain(struct snd_soc_codec *codec, int mode)
 		case MM_AUDIO_VOICECALL_RCV:		
 			//RX
 			//codec->write(codec, 0x0D, 0x20);	//warring this register set in routing sequence also
-			codec->write(codec, 0x05, 0x55);
+			codec->write(codec, 0x05, 0x45); // 0x35 -> 0x45
 			//codec->write(codec, 0x11, 0x10);	//warring this register set in routing sequence also
 			//TX
-			codec->write(codec, 0x08, 0xb4);
+			codec->write(codec, 0x08, 0xB4); // A5 -> 0xB4
 			break;
 	 	case MM_AUDIO_VOICECALL_HP:	
 			//RX
 			//codec->write(codec, 0x0D, 0x20);	//warring 0x0D register set in routing sequence also
-			codec->write(codec, 0x05, 0x55);
+			codec->write(codec, 0x05, 0x45); // 0x55 -> 0x45
 			//codec->write(codec, 0x11, 0x10);	//warring 0x11 register set in routing sequence also
 			//TX
-			codec->write(codec, 0x08, 0xb5);
+			codec->write(codec, 0x08, 0xB5); // 0xA5 -> 0xB5
 			break;
 	 	case MM_AUDIO_VOICECALL_SPK:		
 			//RX
 			//codec->write(codec, 0x0D, 0x20);	//warring 0x0D register set in routing sequence also
-			codec->write(codec, 0x05, 0x5B);
+			codec->write(codec, 0x05, 0x55); // 0x55 -> 0x56 -> 0x55
 			//codec->write(codec, 0x11, 0x10);	//warring 0x11 register set in routing sequence also
 			//TX
-			codec->write(codec, 0x08, 0xa4);
-			break;
-		case MM_AUDIO_VOICECALL_SPK_LOOP:
-			//RX
-			//codec->write(codec, 0x0D, 0x20);	//warring 0x0D register set in routing sequence also
-			codec->write(codec, 0x05, 0x5B);
-			//codec->write(codec, 0x11, 0x10);	//warring 0x11 register set in routing sequence also
-			//TX
-			codec->write(codec, 0x08, 0xa4);
+			codec->write(codec, 0x08, 0xD5); // 0xC5 ->0xD5
 			break;
 	 	case MM_AUDIO_VOICECALL_BT:	
 			//RX
-			codec->write(codec, 0x05, 0x55);
+			codec->write(codec, 0x05, 0x25); // 0x55 -> 0x25
 			codec->write(codec, 0x11, 0x10);
+			codec->write(codec, 0x1B, 0x18); // Rch Output Volume			
 			//TX
 			codec->write(codec, 0x08, 0xa5);
-			codec->write(codec, 0x56, 0x55);
+			codec->write(codec, 0x56, 0x18); // -> 0x18 (0dB)
+			codec->write(codec, 0x1A, 0x1E); // 0x18 -> 0x1E Lch Output Volume
 			break;
+
+  		case MM_AUDIO_FMRADIO_SPK:			
+			codec->write(codec, 0x08, 0xB5); 	// Output Volume Control : OUT2[7:4] = 0dB /OUT1[2:0] = 0dB
+			codec->write(codec, 0x1A, 0x18); 	// Lch Output Digital Vol : 0dB
+			codec->write(codec, 0x1B, 0x18); 	// Rch Output Digital Vol : 0dB
+			break;
+
+  		case MM_AUDIO_FMRADIO_HP:
+			codec->write(codec, 0x08, 0xD5); 	// 0xB5(0dB) -> 0xD5(6dB) Output Volume Control : OUT2[7:4] = 0dB /OUT1[2:0] = 0dB
+			codec->write(codec, 0x1A, 0x18); 	// Lch Output Digital Vol : 0dB
+			codec->write(codec, 0x1B, 0x18); 	// Rch Output Digital Vol : 0dB
+			break;
+                
 		default :
 			printk("[%s] Invalid output gain path\n", __func__);
 	}
@@ -661,7 +798,7 @@ static void set_path_gain(struct snd_soc_codec *codec, int mode)
 
 int path_enable(struct snd_soc_codec *codec, int mode)
 {
-	P("Enable PATH : 0x%x\n", mode);
+	P("Enable PATH : 0x%x", mode);
 
 	/* general init register */
 	if(mode) {
@@ -680,7 +817,7 @@ int path_enable(struct snd_soc_codec *codec, int mode)
 			break;
 
 		case MM_AUDIO_PLAYBACK_RCV :
-			//P("set MM_AUDIO_PLAYBACK_RCV");
+			P("set MM_AUDIO_PLAYBACK_RCV");
 			codec->write(codec, 0x09, 0x01); 	// D/A Lch -> Lout1
 			codec->write(codec, 0x0A, 0x01); 	// D/A Rch -> Rout1
 			codec->write(codec, 0x00, 0x01); 	// VCOM power up
@@ -696,7 +833,7 @@ int path_enable(struct snd_soc_codec *codec, int mode)
 		case MM_AUDIO_PLAYBACK_SPK :
 		case MM_AUDIO_PLAYBACK_HP :
 		case MM_AUDIO_PLAYBACK_SPK_HP :
-			//P("set MM_AUDIO_PLAYBACK_SPK, HP, SPK_HP");
+			P("set MM_AUDIO_PLAYBACK_SPK, HP, SPK_HP");
 			codec->write(codec, 0x0B, 0x01); 	// D/A Lch -> Lout2
 			codec->write(codec, 0x0C, 0x01); 	// D/A Rch -> Rout2
 			codec->write(codec, 0x00, 0x01); 	// VCOM power up
@@ -705,10 +842,12 @@ int path_enable(struct snd_soc_codec *codec, int mode)
 			codec->write(codec, 0x10, 0x63); 	// PMLO2,PMRO2,PMLO2S,PMRO2s='1'
 			mdelay(1);				// wait 100ns
 			codec->write(codec, 0x10, 0x67); 	// MUTEN='1'
+			if( mode != MM_AUDIO_PLAYBACK_SPK)
+				mdelay(130);
 			break;
 
 		case MM_AUDIO_PLAYBACK_BT :
-			//P("set MM_AUDIO_PLAYBACK_BT");
+			P("set MM_AUDIO_PLAYBACK_BT");
 			codec->write(codec, 0x15, 0x00); 	// 5-band EQ Rch=STDI Rch
 			codec->write(codec, 0x15, 0x41); 	// SRC-A = MIX Rch
 			mdelay(1);				// wait 100ns
@@ -718,7 +857,7 @@ int path_enable(struct snd_soc_codec *codec, int mode)
 			break;
 
 		case MM_AUDIO_VOICECALL_RCV :
-			//P("set MM_AUDIO_VOICECALL_RCV");
+			P("set MM_AUDIO_VOICECALL_RCV");
 			codec->write(codec, 0x0F, 0x20);	// RCP/RCN mode
 			codec->write(codec, 0x11, 0xA0);	// LOP/LON, gain=0dB
 			codec->write(codec, 0x0A, 0x20);	// MIC-AMP Rch -> RCP/RCN
@@ -739,23 +878,24 @@ int path_enable(struct snd_soc_codec *codec, int mode)
 			codec->write(codec, 0x00, 0x8D);	// DAC-Rch power-up
 			mdelay(2);
 			codec->write(codec, 0x0A, 0x21);	// (MIC-AMP-Rch mixing DAC-Rch) to RCP/RCN
-			
 
 			break;
 
 		case MM_AUDIO_VOICECALL_SPK :
 		case MM_AUDIO_VOICECALL_HP :
-		case MM_AUDIO_VOICECALL_SPK_LOOP:
-			//P("set MM_AUDIO_VOICECALL_SPK,HP");
-			codec->write(codec, 0x0C, 0x20); 	// MIC-AMP-Lch to Lout2
-			codec->write(codec, 0x10, 0x08); 	// MIC-AMP-Lch to Rout2
+			P("set MM_AUDIO_VOICECALL_SPK,HP");
+			codec->write(codec, 0x0C, 0x20); 	// MIC-AMP-Rch to Rout2
+			codec->write(codec, 0x10, 0x08); 	// MONO DAC to Lout2/Rout2
 			codec->write(codec, 0x0D, 0x20); 	// MIC-AMP Lch -> LOP/LON
 			codec->write(codec, 0x11, 0xA0); 	// LOP/LON gain=0dB
-			if (mode == MM_AUDIO_VOICECALL_SPK || mode == MM_AUDIO_VOICECALL_SPK_LOOP)
-				codec->write(codec, 0x04, 0x8D); 	// MIC-AMP Lch= LIN2, Rch= IN4+/-
-				//codec->write(codec, 0x04, 0x0D); 	// MIC-AMP Lch= LIN2, Rch= RIN4
+			if (mode == MM_AUDIO_VOICECALL_SPK){
+				codec->write(codec, 0x04, 0x9C);	// MIC-AMP Lch=IN1+/-, IN4+/- Differential Input
+				//codec->write(codec, 0x04, 0x8D); 	// MIC-AMP Lch= LIN2, Rch= IN4+/-
+			}
 			else
+			{
 				codec->write(codec, 0x04, 0xCE); 	// MIC-AMP Lch=IN3+/-, Rch=IN4+/-
+			}
 			/* Other setting if needed except for power setting */
 			codec->write(codec, 0x00, 0x01); 	// VCOM power-up
 			codec->write(codec, 0x06, 0x03); 	// PMLOOPL, PMLOOPR power-up
@@ -770,32 +910,32 @@ int path_enable(struct snd_soc_codec *codec, int mode)
 			/* MIC-AMP Rch + A/P Rch => Lout2/Rout2 */
 			codec->write(codec, 0x00, 0xCD);	// DAC-Rch power-up
 			mdelay(2);
-			codec->write(codec, 0x0B, 0x01);	// (MIC-AMP-Rch mixing DAC-Rch) to Lout2
+			codec->write(codec, 0x0B, 0x01);	// (MIC-AMP-Rch mixing DAC-Lch) to Lout2
 			codec->write(codec, 0x0C, 0x21);	// (MIC-AMP-Rch mixing DAC-Rch) to Rout2
-			
+
 			break;
 
 		case MM_AUDIO_VOICECALL_BT :
-			//P("set MM_AUDIO_VOICECALL_BT");
+			P("set MM_AUDIO_VOICECALL_BT");
 			codec->write(codec, 0x01, 0xF8); 		// fs=44.1kHz, MCKI=19.2MHz input
 
 			codec->write(codec, 0x11, 0xA0); 		// LOP/LON, gain=0dB
 			codec->write(codec, 0x0D, 0x01); 		// D/A Lch -> LOP/LON
 			codec->write(codec, 0x04, 0xCE); 		// MIC-AMP Rch= IN4+/- be selected
 			codec->write(codec, 0x15, 0x14); 		// 5-band EQ Lch=SRC-B, Rch=SVOLA Rch
-			codec->write(codec, 0x19, 0x41); 		// OVOLC, SRC-A : Rch
+			codec->write(codec, 0x19, 0x40); 		// OVOLC, SRC-A : Rch, OVOLC = independnet 
 			codec->write(codec, 0x00, 0x01); 		// VCOM power-up
 			mdelay(40);
 			codec->write(codec, 0x00, 0x69); 		// PMVCM, PMMICR, PMADR, PMDAL, PMDAR power up
 			codec->write(codec, 0x53, 0x17); 		// PLLBT1,PMSRA/B, PMPCM power up
 								
 			mdelay(40);					//PLLBT lock time: max 40ms (base on BICKA)
-			codec->write(codec, 0x11, 0xA4); 		// LOPS3=1, use for pop noise cancel
+			codec->write(codec, 0x11, 0x14); // 0xA4 -> 0x14(-6dB) 		// LOPS3=1, use for pop noise cancel
 			mdelay(1); 		// Wait more than 100ns
-			codec->write(codec, 0x11, 0xA7); 		// PMLO3, PMRO3 power-up
+			codec->write(codec, 0x11, 0x17); //0xA7 -> 0x17(-6dB) 		// PMLO3, PMRO3 power-up
 			mdelay(100);					// Wait more than 100ms
 									// (Output capacitor=1uF, AVDD=3.3V)
-			codec->write(codec, 0x11, 0xA3); 		// LOPS3=0
+			codec->write(codec, 0x11, 0x13); //0xA3 -> 0x13(-6dB) 		// LOPS3=0
 			
 			/* Mixing ADC Rch and A/P Rch */
 			codec->write(codec, 0x15, 0x18); 		// Lch: from SRC-B;
@@ -803,9 +943,9 @@ int path_enable(struct snd_soc_codec *codec, int mode)
 			break;
 		
 		case MM_AUDIO_VOICEMEMO_MAIN :
-			//P("set MM_AUDIO_VOICEMEMO_MAIN");
+			P("set MM_AUDIO_VOICEMEMO_MAIN");
 			mic_set_path(AK4671_MIC_PATH_MAIN);
-			codec->write(codec, 0x04, 0x14); 		// => MIC-AMP Lch=IN1+/-
+			codec->write(codec, 0x04, 0x04); 		// MIC-AMP Lch=IN1+/-=> MIC-AMP Lch=IN1
 			codec->write(codec, 0x0B, 0x01); 		// D/A Lch -> Lout2
 			codec->write(codec, 0x0C, 0x01); 		// D/A Rch -> Rout2
 			codec->write(codec, 0x00, 0x01); 		// => VCOM power-up
@@ -817,8 +957,9 @@ int path_enable(struct snd_soc_codec *codec, int mode)
 			break;
 
 		case MM_AUDIO_VOICEMEMO_SUB :
-			//P("set MM_AUDIO_VOICEMEMO_SUB");
+			P("set MM_AUDIO_VOICEMEMO_SUB");
 			mic_set_path(AK4671_MIC_PATH_SUB);
+			codec->write(codec, 0x04, 0x04); 		// MIC-AMP Lch=IN1+/-=> MIC-AMP Lch=IN1
 			codec->write(codec, 0x04, 0x04); 		// => MIC-AMP Lch=LIN2
 			codec->write(codec, 0x0B, 0x01); 		// D/A Lch -> Lout2
 			codec->write(codec, 0x0C, 0x01); 		// D/A Rch -> Rout2
@@ -831,7 +972,7 @@ int path_enable(struct snd_soc_codec *codec, int mode)
 			break;
 
 		case MM_AUDIO_VOICEMEMO_EAR :
-			//P("set MM_AUDIO_VOICEMEMO_EAR");
+			P("set MM_AUDIO_VOICEMEMO_EAR");
 			codec->write(codec, 0x04, 0x42); 		// => MIC-AMP Lch=IN3+/-
 			codec->write(codec, 0x0B, 0x01); 		// D/A Lch -> Lout2
 			codec->write(codec, 0x0C, 0x01); 		// D/A Rch -> Rout2
@@ -844,26 +985,138 @@ int path_enable(struct snd_soc_codec *codec, int mode)
 			break;
 
 		case MM_AUDIO_VOICEMEMO_BT :
-			//P("set MM_AUDIO_VOICEMEMO_BT");
+			P("set MM_AUDIO_VOICEMEMO_BT");
 			codec->write(codec, 0x59, 0x10); 		// => SDTO Lch=SRC-B
 			codec->write(codec, 0x00, 0x01); 		// => VCOM power-up
 			mdelay(2); 		//Wait more than 100ns
 			codec->write(codec, 0x53, 0x0F); 		// => PMPCM,PMSRA, PMSRB=1
 													// PCM reference= BICKA(VCOCBT=10kohm&4.7nF)
 			mdelay(40); 		// Lock time= 40ms
-			break;		
+			break;
+
+		case MM_AUDIO_FMRADIO_RCV :
+			P("set MM_AUDIO_FMRADIO_RCV");
+			codec->write(codec, 0x09, 0x04);	// => LOUT1= LIN2
+			codec->write(codec, 0x0A, 0x04);	// => ROUT1= RIN2
+			codec->write(codec, 0x08, 0xB5);	// => gain=0dB(default)
+			codec->write(codec, 0x00, 0x01);	// => VCOM power-up
+			mdelay(2);							// Wait more than 100ns
+			codec->write(codec, 0x07, 0x0C);	// => PMAINL2, PMAINR2 power-up
+			codec->write(codec, 0x0F, 0x04);	// => LOPS1=1
+			mdelay(2);							// Wait more than 100ns
+			codec->write(codec, 0x0F, 0x07);	// => PMLO1, PMRO1 power-up
+			mdelay(310);						// Wait more than 300ms 
+												// (Output capacitor=1uF, AVDD=3.3V)
+			codec->write(codec, 0x0F, 0x03);	// => LOPS1=0
+			codec->write(codec, 0x0F, 0x23);	// LOPS1='0', RCV mono
+
+                   /* RIN2(FM_ROUT) Rch + DAC(A/P) Rch => RCP/RCN */
+			codec->write(codec, 0x00, 0x81);	// DAC-Rch power-up
+			mdelay(2);
+			codec->write(codec, 0x0A, 0x05);	// (FM_ROUT mixing DAC-Rch) to RCP/RCN
+			break;
+
+		case MM_AUDIO_FMRADIO_SPK :
+		case MM_AUDIO_FMRADIO_HP :
+		case MM_AUDIO_FMRADIO_SPK_HP : 		            
+			P("set MM_AUDIO_FMRADIO_SPK, HP, SPK_HP");
+
+#if 0 // for FM radio recording
+			/* FM Radio -> LOUT2/ROUT2 */
+			codec->write(codec, 0x0B, 0x04);	// => LOUT2= LIN2
+			codec->write(codec, 0x0C, 0x04);	// => ROUT2= RIN2
+			// codec->write(codec, 0x08, 0xD5);	// => L1OUT/R1OUT = 0dB, L2/R2 gain=0dB -> 6dB
+			codec->write(codec, 0x07, 0x0C);	// => PMAINL2, PMAINR2 = 1
+			codec->write(codec, 0x00, 0x01);	// => VCOM power-up
+			mdelay(2);							// Wait more than 100ns
+			codec->write(codec, 0x10, 0x63);	// => PMLO2, PMRO2, PMLO2S, PMRO2S = 1
+			mdelay(2);							// Wait more than 100ns
+			codec->write(codec, 0x10, 0x67);	// => MUTEN=1
+
+			mdelay(2);							// Wait more than 100ns
+			/* MIC-AMP-Lch -> ADC Lch/Rch -> AP Lch/Rch */
+			codec->write(codec, 0x02, 0x26);	// MCKO out, BCKO=64fs, PLL master mode
+			codec->write(codec, 0x04, 0x05); 	// MIC-AMP Lch:LIN2, Rch:RIN2
+			codec->write(codec, 0x01, 0xF8);	// fs=44.1kHz, MCKI=19.2MHz input
+			codec->write(codec, 0x02, 0x27);	// PLL power-up
+			mdelay(40);
+			codec->write(codec, 0x00, 0x3D);	// ADC power-up
+			mdelay(24);
+
+                    	/* FM Radio + DAC => Lout2/Rout2 */
+			codec->write(codec, 0x00, 0xC1);	// DAC-Rch power-up
+			mdelay(2);
+			codec->write(codec, 0x0B, 0x05);	// (FM_LOUT mixing DAC-Lch) to Lout2
+			codec->write(codec, 0x0C, 0x05);	// (FM_ROUT mixing DAC-Rch) to Rout2
+#else
+			/* FM Radio Path Setting */
+			codec->write(codec, 0x0B, 0x20);	// MIC-AMP Lch => LOUT2
+			codec->write(codec, 0x0C, 0x20);	// MIC-AMP Rch => ROUT2
+
+		  	codec->write(codec, 0x04, 0x05); 	// MDIF2[5] = 0 , [3:0] = 0x5 
+			// codec->write(codec, 0x08, 0xB5);	// => gain=0dB(default)
+			codec->write(codec, 0x07, 0x0C);	// => PMAINL2, PMAINR2 = 1
+			codec->write(codec, 0x00, 0x01);	// => VCOM power-up
+			mdelay(2);							// Wait more than 100ns
+			codec->write(codec, 0x00, 0x0D);	// => MIC-AMP
+			codec->write(codec, 0x06, 0x03);	// => PMLOOPL,PMLOOPR power-up
+			codec->write(codec, 0x10, 0x63);	// => PMLO2, PMRO2, PMLO2S, PMRO2S = 1
+			mdelay(2);							// Wait more than 100ns
+			codec->write(codec, 0x10, 0x67);	// => MUTEN=1
+
+			/* FM Radio Recording */
+			codec->write(codec, 0x01, 0xF8);	// Fs = 44.1kHz, MCKI=19.2MHz input
+			// codec->write(codec, 0x05, 0x55);	// MIC-AMP Lch/Rch Gain = 0dB
+			// ALC Setting
+			codec->write(codec, 0x16, 0x05);	// WTM[2:0] = 1(5.8ms) , [ZTM[1:0] = 1(3.8ms)
+			codec->write(codec, 0x14, 0xE1);	// +30dB
+			codec->write(codec, 0x17, 0x01);	// LMTH[1:0] = 1 
+			codec->write(codec, 0x18, 0x03);	// ALC Enable
+			codec->write(codec, 0x00, 0x3D);	// => MIC-AMP + A/D power-up
+		
+			/* AP Path Setting */	
+			/* FM Radio + DAC => LOUT2/ROUT2  */
+			codec->write(codec, 0x00, 0xFD); 	// => MIC-AMP + ADC Lch/Rch power-up + DAC Rch/Lch power-up
+			codec->write(codec, 0x0B, 0x21);	// => MIC_AMP Lch + DAC Lch => LOUT2
+			codec->write(codec, 0x0C, 0x21); 	// => MIC_AMP Rch + DAC Rch => ROUT2
+#endif
+
+			break;
+
+		case MM_AUDIO_FMRADIO_BT :
+			P("set MM_AUDIO_FMRADIO_BT");
+			codec->write(codec, 0x04, 0x24);	// => MIC-AMP Rch=IN2+/-
+			codec->write(codec, 0x19, 0x41);	// => SRC-A= MIX Rch
+			codec->write(codec, 0x15, 0x04);	// => 5-band EQ Rch=SVOLA Rch
+			codec->write(codec, 0x00, 0x01);	// => VCOM power-up
+			mdelay(2); 							// Wait more than 100ns
+			codec->write(codec, 0x00, 0x39);	// => A/D, MIC-AMP Rch power-up
+			codec->write(codec, 0x53, 0x00);	// => PMPCM, PMSRA, PMSRB= ¡°1¡±,
+												// PCM reference= BICKA(if VCOCBT=10kohm & 4.7nF)
+			mdelay(40); 						// Lock time= 40ms
+			break;
+
 		default :
-			printk("[SOUND MODE] invalid mode!!! \n");
+			P("[SOUND MODE] invalid mode!!! ");
 	}
+
+	/* disable soft mute */
+	if (mode ==  MM_AUDIO_VOICECALL_BT)
+		codec->write(codec, 0x19, 0x40); 		// OVOLC, SRC-A : Rch
+	else if ( mode == MM_AUDIO_FMRADIO_BT )
+		codec->write(codec, 0x19, 0x41); 
+	else
+		codec->write(codec, 0x19, 0x01); 	// disable soft mute
 
 
 	set_bias(codec, mode);
+
 	return 0;
 }
 
 int path_disable(struct snd_soc_codec *codec, int mode)
 {
-	P("Diasble PATH : 0x%x\n", mode);
+	P("Diasble PATH : 0x%x", mode);
 
 	amp_enable(0);//for noise reduce
 
@@ -873,7 +1126,7 @@ int path_disable(struct snd_soc_codec *codec, int mode)
 			break;
 
 		case MM_AUDIO_PLAYBACK_RCV :
-			//P("MM_AUDIO_PLAYBACK_RCV Off");
+			P("MM_AUDIO_PLAYBACK_RCV Off");
 			codec->write(codec, 0x0F, 0x27); 	// LOPS='1'
 			mdelay(2); 	// wait more than 1ms
 			codec->write(codec, 0x0F, 0x04); 	// RCP/RCN power-donw
@@ -885,8 +1138,7 @@ int path_disable(struct snd_soc_codec *codec, int mode)
 		case MM_AUDIO_PLAYBACK_SPK :
 		case MM_AUDIO_PLAYBACK_HP :
 		case MM_AUDIO_PLAYBACK_SPK_HP :
-		case MM_AUDIO_PLAYBACK_RING_SPK_HP :
-			//P("MM_AUDIO_PLAYBACK_SPK, HP, SPK_HP Off");
+			P("MM_AUDIO_PLAYBACK_SPK, HP, SPK_HP Off");
 			codec->write(codec, 0x10, 0x73); 	// MUTEN='0'
 			mdelay(30); 	// wait more than 30ms
 			codec->write(codec, 0x10, 0x00); 	// LOUT2/ROUT2 power-down
@@ -900,13 +1152,13 @@ int path_disable(struct snd_soc_codec *codec, int mode)
 			break;
 			
 		case MM_AUDIO_VOICECALL_RCV :
-			//P("set MM_AUDIO_VOICECALL_RCV Off");
+			P("set MM_AUDIO_VOICECALL_RCV Off");
 			/* MIC-AMP Rch + A/P Rch => RCP/RCN Off */
-			codec->write(codec, 0x19, 0x04);	// use soft mute to cut signal
-			mdelay(24);
+			//codec->write(codec, 0x19, 0x04);	// use soft mute to cut signal
+			//mdelay(24);
 			codec->write(codec, 0x0A, 0x20);	// only MIC-AMP-Rch to RCP/RCN
 			codec->write(codec, 0x00, 0x0D);	// DAC-Rch power-up
-			codec->write(codec, 0x04, 0x00);   // Mic Amp input select default
+			codec->write(codec, 0x04, 0x00);	// Mic Amp input select default
 			codec->write(codec, 0x0A, 0x00);	//Mic Amp Rch -> RcP/Rcn select default
 			codec->write(codec, 0x0D, 0x00);	//Mic Amp Lch -> Lop/Lon select default
 			codec->write(codec, 0x06, 0x00);	//pmloopl, pmloopr power down
@@ -925,13 +1177,12 @@ int path_disable(struct snd_soc_codec *codec, int mode)
 
 		case MM_AUDIO_VOICECALL_SPK :
 		case MM_AUDIO_VOICECALL_HP :
-		case MM_AUDIO_VOICECALL_SPK_LOOP:
-			//P("set MM_AUDIO_VOICECALL_SPK,HP Off");
+			P("set MM_AUDIO_VOICECALL_SPK,HP Off");
 
 			/* MIC-AMP Rch + A/P Rch => Lout2/Rout2 Off */
 			#if 0
-			codec->write(codec, 0x19, 0x04); 	// use soft mute to shut-down signal
-			mdelay(24);
+//			codec->write(codec, 0x19, 0x04); 	// use soft mute to shut-down signal
+//			mdelay(24);
 			codec->write(codec, 0x0B, 0x00); 	// Swith-off DAC-Lch
 			codec->write(codec, 0x0C, 0x20); 	// Swith-off DAC-Rch 
 			codec->write(codec, 0x00, 0x0D); 	// DAC power-up
@@ -950,7 +1201,7 @@ int path_disable(struct snd_soc_codec *codec, int mode)
 			break;
 
 		case MM_AUDIO_VOICECALL_BT :
-			//P("set MM_AUDIO_VOICECALL_BT Off");
+			P("set MM_AUDIO_VOICECALL_BT Off");
 
 			/* Mixing ADC Rch and A/P Rch Off */
 			//codec->write(codec, 0x15, 0x14); 	// 5-band-EQ-Lch: from SRC-B;
@@ -970,31 +1221,61 @@ int path_disable(struct snd_soc_codec *codec, int mode)
 			break;
 
 		case MM_AUDIO_VOICEMEMO_MAIN :
-			//P("set MM_AUDIO_VOICEMEMO_MAIN Off");
+			P("set MM_AUDIO_VOICEMEMO_MAIN Off");
 			codec->write(codec, 0x00, 0x01);
 			codec->write(codec, 0x00, 0x00);
 			break;
 
 		case MM_AUDIO_VOICEMEMO_SUB :
-			//P("set MM_AUDIO_VOICEMEMO_SUB Off");
+			P("set MM_AUDIO_VOICEMEMO_SUB Off");
 			codec->write(codec, 0x00, 0x01);
 			codec->write(codec, 0x00, 0x00);
 			break;
 
 		case MM_AUDIO_VOICEMEMO_EAR :
-			//P("set MM_AUDIO_VOICEMEMO_EAR Off");
+			P("set MM_AUDIO_VOICEMEMO_EAR Off");
 			codec->write(codec, 0x00, 0x01);
 			codec->write(codec, 0x00, 0x00);
 			break;
 
 		case MM_AUDIO_VOICEMEMO_BT :
-			//P("set MM_AUDIO_VOICEMEMO_BT Off");
+			P("set MM_AUDIO_VOICEMEMO_BT Off");
 			codec->write(codec, 0x00, 0x01);
 			codec->write(codec, 0x00, 0x00);
-			break;	
+			break;
+
+		case MM_AUDIO_FMRADIO_RCV :
+			P("set MM_AUDIO_FMRADIO_RCV Off");
+			codec->write(codec, 0x0F, 0x27);	// => LOPS1=1
+			mdelay(1);						 	// Wait more than 1ms
+			codec->write(codec, 0x0F, 0x04); 	// => LOUT1/ROUT1 power-down
+			mdelay(1);		 					// Wait more than 1ms
+			codec->write(codec, 0x00, 0x01);
+			codec->write(codec, 0x00, 0x00);
+			break;
+
+		case MM_AUDIO_FMRADIO_SPK :
+		case MM_AUDIO_FMRADIO_HP :
+			P("set MM_AUDIO_FMRADIO_HP/SPK Off");
+			codec->write(codec, 0x10, 0x73);	// => MUTEN=0
+			mdelay(500);						// Wait more than 500ms
+			codec->write(codec, 0x10, 0x00); 	// => LOUT2/ROUT2 power-down
+			codec->write(codec, 0x00, 0x01);
+
+			/* Recording ALC Disable */
+			codec->write(codec, 0x18, 0x02); 	// ALC Disable
+
+			codec->write(codec, 0x00, 0x00);
+			break;
+
+		case MM_AUDIO_FMRADIO_BT :
+			P("set MM_AUDIO_FMRADIO_BT Off");
+			codec->write(codec, 0x00, 0x01);
+			codec->write(codec, 0x00, 0x00);
+			break;
 
 		default:
-			printk("[SOUND MODE] invalid mode!!! \n");
+			P("[SOUND MODE] invalid mode!!! ");
 	}
 
 	return 0;
@@ -1002,39 +1283,40 @@ int path_disable(struct snd_soc_codec *codec, int mode)
 
 int idle_mode_enable(struct snd_soc_codec *codec, int mode)
 {
-	P("Enable Idle Mode : 0x%x\n", mode);
+	P("Enable Idle Mode : 0x%x", mode);
 
 	switch(mode) {
 		case 0:
 			break;
 
 		case MM_AUDIO_PLAYBACK_RCV :
-			//P("set MM_AUDIO_PLAYBACK_RCV");
+			P("set MM_AUDIO_PLAYBACK_RCV");
 			codec->write(codec, 0x00, 0x01); 	// VCOM power up
 			mdelay(1); 		// wait 100ns
 			codec->write(codec, 0x00, 0xC1); 	// D/A power-up
 			codec->write(codec, 0x0F, 0x04); 	// LOPS1="1",use for pop noise cancel 
 			mdelay(1);		// wait 100ns
 			codec->write(codec, 0x0F, 0x07); 	// PML01, PMRO1 power-up
-			mdelay(30); 	// wait more than 300ms
+			mdelay(310); 	// wait more than 300ms
 			codec->write(codec, 0x0F, 0x23);	// LOPS1='0', RCV mono
 			break;
 
 		case MM_AUDIO_PLAYBACK_SPK :
 		case MM_AUDIO_PLAYBACK_HP :
 		case MM_AUDIO_PLAYBACK_SPK_HP :
-		case MM_AUDIO_PLAYBACK_RING_SPK_HP :
-			//P("set MM_AUDIO_PLAYBACK_SPK, HP, SPK_HP");
+			P("set MM_AUDIO_PLAYBACK_SPK, HP, SPK_HP");
 			codec->write(codec, 0x00, 0x01); 	// VCOM power up
 			mdelay(1); 		// wait 100ns
 			codec->write(codec, 0x00, 0xC1); 	// D/A power-up
 			codec->write(codec, 0x10, 0x63); 	// PMLO2,PMRO2,PMLO2S,PMRO2s='1'
 			mdelay(1);		// wait 100ns
 			codec->write(codec, 0x10, 0x67); 	// MUTEN='1'
+			if( mode != MM_AUDIO_PLAYBACK_SPK)
+				mdelay(130);
 			break;
 
 		case MM_AUDIO_PLAYBACK_BT :
-			//P("set MM_AUDIO_PLAYBACK_BT");
+			P("set MM_AUDIO_PLAYBACK_BT");
 			codec->write(codec, 0x15, 0x00); 	// 5-band EQ Rch=STDI Rch
 			codec->write(codec, 0x15, 0x41); 	// SRC-A = MIX Rch
 			mdelay(1);		// wait 100ns
@@ -1054,7 +1336,7 @@ int idle_mode_enable(struct snd_soc_codec *codec, int mode)
 
 int idle_mode_disable(struct snd_soc_codec *codec, int mode)
 {
-	P("Diasble PATH : 0x%x\n", mode);
+	P("Disable Idle mode : PATH : 0x%x", mode);
 
 
 	if(!get_headset_status())
@@ -1068,7 +1350,7 @@ int idle_mode_disable(struct snd_soc_codec *codec, int mode)
 			break;
 
 		case MM_AUDIO_PLAYBACK_RCV :
-			//P("MM_AUDIO_PLAYBACK_RCV Off");
+			P("MM_AUDIO_PLAYBACK_RCV Off");
 			codec->write(codec, 0x0F, 0x04); 	// RCP/RCN power-down
 			mdelay(2); 	// wait more than 1ms
 			codec->write(codec, 0x00, 0x01); 	// VCOM power up
@@ -1078,8 +1360,7 @@ int idle_mode_disable(struct snd_soc_codec *codec, int mode)
 		case MM_AUDIO_PLAYBACK_SPK :
 		case MM_AUDIO_PLAYBACK_HP :
 		case MM_AUDIO_PLAYBACK_SPK_HP :
-		case MM_AUDIO_PLAYBACK_RING_SPK_HP :
-			//P("MM_AUDIO_PLAYBACK_SPK, HP, SPK_HP Off");
+			P("MM_AUDIO_PLAYBACK_SPK, HP, SPK_HP Off");
 			codec->write(codec, 0x10, 0x73); 	// MUTEN='0'
 			mdelay(30); 	// wait more than 30ms
 			codec->write(codec, 0x10, 0x00); 	// LOUT2/ROUT2 power-down
@@ -1099,105 +1380,18 @@ int idle_mode_disable(struct snd_soc_codec *codec, int mode)
 	return 0;
 }
 
-int voice_call_auto_response_enable(struct snd_soc_codec *codec, int mode)
+void set_mic_mute(struct snd_soc_codec *codec, int mode, int mute)
 {
-	P1("auto response Enable (mode : 0x%x)\n", mode);
 
-	switch(mode) {
-		case MM_AUDIO_VOICECALL_RCV :
-			P("enable Play (MM_AUDIO_VOICECALL_RCV)");
-			codec->write(codec, 0x19, 0x01); 	// use soft mute to cut signal
-			mdelay(24);
-			codec->write(codec, 0x0D, 0x01);	//DAC to LON,LOP 
-			codec->write(codec, 0x0E, 0x01);
-			codec->write(codec, 0x0A, 0x00);	//RCP/RON DAC Off
-
-			codec->write(codec, 0x00, 0xC1);	//DAC-L/R power up
-			
-			mdelay(24);
-			break;
-
-		case MM_AUDIO_VOICECALL_SPK :
-		case MM_AUDIO_VOICECALL_HP :
-			P("enable Play (MM_AUDIO_VOICECALL_HP_SPK)");
-			/* MIC-AMP Rch mixing A/P Rch -> Lout2/Rout OFF */
-			codec->write(codec, 0x19, 0x01); 	// use soft mute to cut signal
-			mdelay(24);
-
-			codec->write(codec, 0x0D, 0x01);	//DAC to LON,LOP 
-			codec->write(codec, 0x0E, 0x01);
-			codec->write(codec, 0x0B, 0x00);	//LOUT2 DAC Off
-			codec->write(codec, 0x0C, 0x00);	//OUT2 DAC Off
-			
-			codec->write(codec, 0x00, 0xC1); 	// DAC-Rch power-up
-
-			/* MIC-AMP Lch->LOP/LON and ADC Lch->AP Lch */
-//			codec->write(codec, 0x00, 0x3D); 	// ADC-Lch power-up
-			mdelay(24);
-			break;
-
-		case MM_AUDIO_VOICECALL_BT :
-			P("enable REC (MM_AUDIO_VOICECALL_BT)");
-			/* mixing ADC Rch and A/P Rch -> SRC-A -> PCM-A */
-			codec->write(codec, 0x15, 0x24); 	// PFMXL -> SDIM Lch, PFMXR -> SVOLA, SRMXL -> PFMXL + SRC-B, SRMXR -> PFMXR
-
-			/* SRC-B -> DAC Lch -> LOP/LON -> and -> A/P Lch */
-			codec->write(codec, 0x59, 0x10); 	// SDTO-Lch: from SRC-B
-			codec->write(codec, 0x53, 0x14);   // Swith-off all output
-			break;
-		default :
-				printk("[%s] Invalid mode\n", __func__);
+	if(mute)
+	{
+		P("mute input digital gain");
+		codec->write(codec, AK4671_L_INPUT_VOL, 0x0000); // input digital gain : Mute
+		codec->write(codec, AK4671_L_INPUT_VOL, 0x0000); // input digital gain : Mute
 	}
-
-	codec->write(codec, 0x18, 0x06); 	// IVOLC, ADM Mono
-
-	return 0;
-}
-
-int voice_call_auto_response_disable(struct snd_soc_codec *codec, int mode) 
-{
-	P1("auto response Disable (mode : 0x%x)\n", mode);
-
-	switch(mode) {
-		case MM_AUDIO_VOICECALL_RCV :
-			P("disable auto reponse (MM_AUDIO_VOICECALL_RCV)");
-
-			codec->write(codec, 0x0A, 0x20);	// (MIC-AMP-Rch mixing DAC-Rch) to RCP/RCN		
-			codec->write(codec, 0x0D, 0x20);	// MIC-AMP Lch -> LOP/LON			
-			codec->write(codec, 0x0E, 0x00);
-			codec->write(codec, 0x00, 0x8D);	// DAC-Rch power-up
-			mdelay(2);						
-			codec->write(codec, 0x0A, 0x21);	// (MIC-AMP-Rch mixing DAC-Rch) to RCP/RCN			
-			break;
-
-		case MM_AUDIO_VOICECALL_SPK :
-		case MM_AUDIO_VOICECALL_HP :
-			P("disable auto response (MM_AUDIO_VOICECALL_HP_SPK)");
-			/* MIC-AMP Lch->LOP/LON and ADC Lch->AP Lch */
-			codec->write(codec, 0x0D, 0x20); 	// MIC-AMP Lch -> LOP/LON
-			codec->write(codec, 0x0E, 0x00);
-			codec->write(codec, 0x00, 0xCD);	// DAC-Rch power-up
-			mdelay(2);	
-			codec->write(codec, 0x0B, 0x01);	// (MIC-AMP-Rch mixing DAC-Rch) to Lout2
-			codec->write(codec, 0x0C, 0x21);	// (MIC-AMP-Rch mixing DAC-Rch) to Rout2
-	
-			break;
-
-		case MM_AUDIO_VOICECALL_BT :
-			P("disable auto response (MM_AUDIO_VOICECALL_BT)");
-			codec->write(codec, 0x15, 0x18); 	// 5-band-EQ-Lch: from SRC-B, Rch: from SVOLA Rch
-			/* SRC-B -> DAC Lch -> LOP/LON -> and -> A/P Lch */
-			codec->write(codec, 0x59, 0x00); 	// default
-			codec->write(codec, 0x53, 0x17); 		// PLLBT1,PMSRA/B, PMPCM power up
-			break;
-		
-		default :
-			printk("[%s] Invalid mode\n", __func__);
+	else
+	{
+		P("restore input digital gain");
+		set_input_path_gain(codec, mode);
 	}
-
-	codec->write(codec, 0x18, 0x02); 	// IVOLC
-
-	return 0;
 }
-	
-

@@ -39,7 +39,7 @@ MODULE_LICENSE("GPL");
 static LIST_HEAD(rfkill_list);	/* list of registered rf switches */
 static DEFINE_MUTEX(rfkill_global_mutex);
 
-static unsigned int rfkill_default_state = RFKILL_STATE_UNBLOCKED;
+static unsigned int rfkill_default_state = RFKILL_STATE_SOFT_BLOCKED;
 module_param_named(default_state, rfkill_default_state, uint, 0444);
 MODULE_PARM_DESC(default_state,
 		 "Default initial state for all radio types, 0 = radio off");
@@ -79,6 +79,7 @@ static void rfkill_led_trigger_activate(struct led_classdev *led)
 
 static void rfkill_uevent(struct rfkill *rfkill)
 {
+	printk("%s : %d\n", __func__, rfkill->state);
 	kobject_uevent(&rfkill->dev.kobj, KOBJ_CHANGE);
 }
 
