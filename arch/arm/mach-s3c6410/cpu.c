@@ -26,15 +26,11 @@
 #include <asm/mach/map.h>
 #include <asm/mach/irq.h>
 
-#include <asm/proc-fns.h>
-#include <mach/idle.h>
-
 #include <mach/hardware.h>
 #include <asm/irq.h>
 
 #include <plat/cpu-freq.h>
 #include <plat/regs-serial.h>
-#include <plat/regs-clock.h>
 
 #include <plat/cpu.h>
 #include <plat/devs.h>
@@ -43,33 +39,11 @@
 #include <plat/iic-core.h>
 #include <plat/s3c6400.h>
 #include <plat/s3c6410.h>
-#include <mach/map.h>
 
 /* Initial IO mappings */
 
 static struct map_desc s3c6410_iodesc[] __initdata = {
-	IODESC_ENT(LCD),
-	IODESC_ENT(SROMC),
-	IODESC_ENT(HOSTIFB),
-	IODESC_ENT(OTG),
-	IODESC_ENT(OTGSFR),
-	IODESC_ENT(ONENAND),
 };
-
-static void s3c6410_idle(void)
-{
-	unsigned long tmp;
-
-	/* Ensure our idle mode is to go to idle */
-	/* Set WFI instruction to SLEEP mode */
-
-	tmp = __raw_readl(S3C_PWR_CFG);
-	tmp &= ~(0x3<<5);
-	tmp |= (0x1<<5);
-	__raw_writel(tmp, S3C_PWR_CFG);
-
-	cpu_do_idle();
-}
 
 /* s3c6410_map_io
  *
@@ -81,36 +55,21 @@ void __init s3c6410_map_io(void)
 	iotable_init(s3c6410_iodesc, ARRAY_SIZE(s3c6410_iodesc));
 
 	/* initialise device information early */
-
 	s3c6410_default_sdhci0();
-
-#ifdef CONFIG_MACH_CAPELA
-	s3c6410_default_sdhci1(); // yoohyuk 2009-03-10 Enable SDHC1
-#endif
-
-#if defined(CONFIG_MACH_INSTINCTQ)
-	s3c6410_default_sdhci2();
-#endif
-
-#if defined(CONFIG_MACH_JET)
-	s3c6410_default_sdhci2();
-#endif
+	s3c6410_default_sdhci1();
 
 	/* the i2c devices are directly compatible with s3c2440 */
-	s3c_i2c0_setname("s3c-i2c");
-	s3c_i2c1_setname("s3c-i2c");
-
-	/* set our idle function */
-	s3c64xx_idle = s3c6410_idle;
+	s3c_i2c0_setname("s3c2440-i2c");
+	s3c_i2c1_setname("s3c2440-i2c");
 }
 
 void __init s3c6410_init_clocks(int xtal)
 {
 	printk(KERN_DEBUG "%s: initialising clocks\n", __func__);
-	s3c_register_baseclocks(xtal);
+	s3c24xx_register_baseclocks(xtal);
 	s3c64xx_register_clocks();
-	s3c6410_register_clocks();
-	s3c64xx_setup_clocks();
+	s3c6400_register_clocks();
+	s3c6400_setup_clocks();
 }
 
 void __init s3c6410_init_irq(void)

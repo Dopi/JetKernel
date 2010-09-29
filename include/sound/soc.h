@@ -21,8 +21,6 @@
 #include <sound/control.h>
 #include <sound/ac97_codec.h>
 
-#define SND_SOC_VERSION "0.13.2"
-
 /*
  * Convenience kcontrol builders
  */
@@ -156,7 +154,6 @@ enum snd_soc_bias_level {
 	SND_SOC_BIAS_OFF,
 };
 
-
 struct snd_soc_device;
 struct snd_soc_pcm_stream;
 struct snd_soc_ops;
@@ -240,34 +237,6 @@ int snd_soc_get_volsw_s8(struct snd_kcontrol *kcontrol,
 int snd_soc_put_volsw_s8(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol);
 
-
-// 20081120 LSI
-/* kcontrols for sktlinux */
-int snd_soc_info_audio_play_path(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_info *uinfo);
-int snd_soc_get_audio_play_path(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol);
-int snd_soc_put_audio_play_path(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol);
-int snd_soc_info_audio_phone_path(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_info *uinfo);
-int snd_soc_get_audio_phone_path(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol);
-int snd_soc_put_audio_phone_path(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol);
-int snd_soc_info_audio_rec_path(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_info *uinfo);
-int snd_soc_get_audio_rec_path(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol);
-int snd_soc_put_audio_rec_path(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol);
-int snd_soc_info_audio_mic_path(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_info *uinfo);
-int snd_soc_get_audio_mic_path(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol);
-int snd_soc_put_audio_mic_path(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol);
-
 /* SoC PCM stream information */
 struct snd_soc_pcm_stream {
 	char *stream_name;
@@ -328,8 +297,6 @@ struct snd_soc_codec {
 	struct list_head dapm_paths;
 	enum snd_soc_bias_level bias_level;
 	enum snd_soc_bias_level suspend_bias_level;
-	unsigned int dapm_state;
-	unsigned int suspend_dapm_state;
 	struct delayed_work delayed_work;
 
 	/* codec DAI's */
@@ -348,7 +315,6 @@ struct snd_soc_codec_device {
 	int (*remove)(struct platform_device *pdev);
 	int (*suspend)(struct platform_device *pdev, pm_message_t state);
 	int (*resume)(struct platform_device *pdev);
-	int (*shutdown)(struct platform_device *pdev);
 };
 
 /* SoC platform interface */

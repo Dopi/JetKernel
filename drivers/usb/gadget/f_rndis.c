@@ -437,7 +437,7 @@ invalid:
 		DBG(cdev, "rndis req%02x.%02x v%04x i%04x l%d\n",
 			ctrl->bRequestType, ctrl->bRequest,
 			w_value, w_index, w_length);
-		req->zero = 0;
+		req->zero = (value < w_length);
 		req->length = value;
 		value = usb_ep_queue(cdev->gadget->ep0, req, GFP_ATOMIC);
 		if (value < 0)
@@ -462,15 +462,9 @@ static int rndis_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 			usb_ep_disable(rndis->notify);
 		} else {
 			VDBG(cdev, "init rndis ctrl %d\n", intf);
-			
-			VDBG(cdev, "rndis->hs.notify %p\n", rndis->hs.notify);
-			VDBG(cdev, "rndis->fs.notify %p\n", rndis->fs.notify);
-			
 			rndis->notify_desc = ep_choose(cdev->gadget,
 					rndis->hs.notify,
 					rndis->fs.notify);
-			
-			VDBG(cdev, "rndis->notify_desc %p\n", rndis->notify_desc);
 		}
 		usb_ep_enable(rndis->notify, rndis->notify_desc);
 		rndis->notify->driver_data = rndis;

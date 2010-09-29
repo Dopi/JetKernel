@@ -36,9 +36,6 @@
 #include "sd_ops.h"
 #include "sdio_ops.h"
 
-#include <linux/io.h>
-#include <plat/regs-gpio.h>
-
 static struct workqueue_struct *workqueue;
 
 /*
@@ -733,7 +730,6 @@ void mmc_detect_change(struct mmc_host *host, unsigned long delay)
 
 EXPORT_SYMBOL(mmc_detect_change);
 
-int g_rescan_retry = 0;
 
 void mmc_rescan(struct work_struct *work)
 {
@@ -741,14 +737,6 @@ void mmc_rescan(struct work_struct *work)
 		container_of(work, struct mmc_host, detect.work);
 	u32 ocr;
 	int err;
-
-	unsigned int eint0msk = 0;	
-	int ext_CD_int = 0;
-
-	ext_CD_int = readl(S3C64XX_GPNDAT);
-	ext_CD_int &= 0x40;	/* GPN6 */
-	if( system_rev >= 0x20 )
-		ext_CD_int = !ext_CD_int;
 
 	mmc_bus_get(host);
 
@@ -768,6 +756,7 @@ void mmc_rescan(struct work_struct *work)
 		mmc_go_idle(host);
 
 		mmc_send_if_cond(host, host->ocr_avail);
+
 		/*
 		 * First we search for SDIO...
 		 */
@@ -800,36 +789,12 @@ void mmc_rescan(struct work_struct *work)
 
 		mmc_release_host(host);
 		mmc_power_off(host);
-	}
-	else 
-	{
+	} else {
 		if (host->bus_ops->detect && !host->bus_dead)
 			host->bus_ops->detect(host);
 
 		mmc_bus_put(host);
-
-		if(host->index ==0 && g_rescan_retry)
-		{
-			ext_CD_int = readl(S3C64XX_GPNDAT);
-			ext_CD_int &= 0x40;	/* GPN6 */
-			if( system_rev >= 0x20 )
-				ext_CD_int = !ext_CD_int;
-
-		if (!ext_CD_int)
-		{
-				mmc_detect_change(host, msecs_to_jiffies(200));
-				g_rescan_retry = 0;
-			}
-		}
 	}
-
-	if (!ext_CD_int)
-	{
-		eint0msk = __raw_readl(S3C64XX_EINT0MASK);
-		eint0msk &= 0x0FFFFFFF & ~(1 << 6);
-		__raw_writel(eint0msk, S3C64XX_EINT0MASK);
-	}
-		
 out:
 	if (host->caps & MMC_CAP_NEEDS_POLL)
 		mmc_schedule_delayed_work(&host->detect, HZ);
@@ -926,22 +891,6 @@ int mmc_resume_host(struct mmc_host *host)
 
 EXPORT_SYMBOL(mmc_resume_host);
 
-#endif
-
-#ifdef CONFIG_MMC_EMBEDDED_SDIO
-void mmc_set_embedded_sdio_data(struct mmc_host *host,
-				struct sdio_cis *cis,
-				struct sdio_cccr *cccr,
-				struct sdio_embedded_func *funcs,
-				int num_funcs)
-{
-	host->embedded_sdio_data.cis = cis;
-	host->embedded_sdio_data.cccr = cccr;
-	host->embedded_sdio_data.funcs = funcs;
-	host->embedded_sdio_data.num_funcs = num_funcs;
-}
-
-EXPORT_SYMBOL(mmc_set_embedded_sdio_data);
 #endif
 
 static int __init mmc_init(void)

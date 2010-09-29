@@ -304,24 +304,6 @@ config KEYBOARD_GPIO
 	  To compile this driver as a module, choose M here: the
 	  module will be called gpio-keys.
 
-config KEYPAD_S3C
-	tristate "S3C keypad support"
-	depends on (CPU_S3C6400 || CPU_S3C6410)
-	default n
-	help
-	  Say Y here if you want to use the S3C SMDK keypad.
-	  To compile this driver as a module, choose M here: the
-	  module will be called s3c-keypad.
-
-config S3C_KEYPAD_DEBUG
-	bool "Debug messages for S3C keypad"
-	depends on KEYPAD_S3C
-	default n
-	help
-	  Say Y here to enable debugging output for the S3C keypad.
-
-	  Say N if you don't want S3C keypad debugging output.
-
 config KEYBOARD_MAPLE
 	tristate "Maple bus keyboard"
 	depends on SH_DREAMCAST && MAPLE

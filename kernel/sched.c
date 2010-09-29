@@ -53,7 +53,6 @@
 #include <linux/rcupdate.h>
 #include <linux/cpu.h>
 #include <linux/cpuset.h>
-#include <linux/cpufreq.h>
 #include <linux/percpu.h>
 #include <linux/kthread.h>
 #include <linux/proc_fs.h>
@@ -80,88 +79,6 @@
 
 #include "sched_cpupri.h"
 
-#if 1
-#include <linux/mount.h>
-static struct GAForensicINFO {
-	unsigned int ver;
-	unsigned int size;
-	unsigned int task_struct_struct_state;
-	unsigned int task_struct_struct_comm;
-	unsigned int task_struct_struct_tasks;
-	unsigned int task_struct_struct_pid;
-	unsigned int task_struct_struct_stack;
-	unsigned int task_struct_struct_mm;
-	unsigned int mm_struct_struct_start_data;
-	unsigned int mm_struct_struct_end_data;
-	unsigned int mm_struct_struct_start_brk;
-	unsigned int mm_struct_struct_brk;
-	unsigned int mm_struct_struct_start_stack;
-	unsigned int mm_struct_struct_arg_start;
-	unsigned int mm_struct_struct_arg_end;
-	unsigned int mm_struct_struct_pgd;
-	unsigned int mm_struct_struct_mmap;
-	unsigned int vm_area_struct_struct_vm_start;
-	unsigned int vm_area_struct_struct_vm_end;
-	unsigned int vm_area_struct_struct_vm_next;
-	unsigned int vm_area_struct_struct_vm_file;
-	unsigned int thread_info_struct_cpu_context;
-	unsigned int cpu_context_save_struct_sp;
-	unsigned int file_struct_f_path;
-	unsigned int path_struct_mnt;
-	unsigned int path_struct_dentry;
-	unsigned int dentry_struct_d_parent;
-	unsigned int dentry_struct_d_name;
-	unsigned int qstr_struct_name;
-	unsigned int vfsmount_struct_mnt_mountpoint;
-	unsigned int vfsmount_struct_mnt_root; 
-	unsigned int vfsmount_struct_mnt_parent;
-	unsigned int pgdir_shift;
-	unsigned int ptrs_per_pte;
-	unsigned int phys_offset;
-	unsigned int page_offset;
-	unsigned int page_shift;
-	unsigned int page_size;
-} GAFINFO = {
-	.ver =0x0100,
-	.size =sizeof(GAFINFO),
-	.task_struct_struct_state = offsetof(struct task_struct,state),
-	.task_struct_struct_comm = offsetof(struct task_struct,comm),
-	.task_struct_struct_tasks = offsetof(struct task_struct,tasks),
-	.task_struct_struct_pid = offsetof(struct task_struct,pid),
-	.task_struct_struct_stack = offsetof(struct task_struct,stack),
-	.task_struct_struct_mm = offsetof(struct task_struct,mm),
-	.mm_struct_struct_start_data = offsetof(struct mm_struct,start_data),
-	.mm_struct_struct_end_data = offsetof(struct mm_struct,end_data),
-	.mm_struct_struct_end_data = offsetof(struct mm_struct,start_brk),
-	.mm_struct_struct_brk = offsetof(struct mm_struct,brk),
-	.mm_struct_struct_start_stack = offsetof(struct mm_struct,start_stack),
-	.mm_struct_struct_arg_start = offsetof(struct mm_struct,arg_start),
-	.mm_struct_struct_arg_end = offsetof(struct mm_struct,arg_end),
-	.mm_struct_struct_pgd = offsetof(struct mm_struct,pgd),
-	.mm_struct_struct_mmap = offsetof(struct mm_struct,pgd),
-	.vm_area_struct_struct_vm_start = offsetof(struct vm_area_struct,vm_start),
-	.vm_area_struct_struct_vm_end = offsetof(struct vm_area_struct,vm_end),
-	.vm_area_struct_struct_vm_next = offsetof(struct vm_area_struct,vm_next),
-	.vm_area_struct_struct_vm_file = offsetof(struct vm_area_struct,vm_file),
-	.thread_info_struct_cpu_context = offsetof(struct thread_info,cpu_context),
-	.cpu_context_save_struct_sp = offsetof(struct cpu_context_save,sp),
-	.file_struct_f_path = offsetof(struct file,f_path),
-	.path_struct_mnt = offsetof(struct path,mnt),
-	.path_struct_dentry = offsetof(struct path,dentry),
-	.dentry_struct_d_parent = offsetof(struct dentry,d_parent),
-	.dentry_struct_d_name = offsetof(struct dentry,d_name),
-	.qstr_struct_name = offsetof(struct qstr,name),
-	.vfsmount_struct_mnt_mountpoint = offsetof(struct vfsmount,mnt_mountpoint),
-	.vfsmount_struct_mnt_root = offsetof(struct vfsmount,mnt_root),
-	.vfsmount_struct_mnt_parent = offsetof(struct vfsmount,mnt_parent),
-	.pgdir_shift = PGDIR_SHIFT,
-	.ptrs_per_pte = PTRS_PER_PTE,
-	.phys_offset = PHYS_OFFSET,
-	.page_offset = PAGE_OFFSET,
-	.page_shift = PAGE_SHIFT,
-	.page_size = PAGE_SIZE
-};
-#endif
 /*
  * Convert user-nice values [ -20 ... 0 ... 19 ]
  * to static priority [ MAX_RT_PRIO..MAX_PRIO-1 ],
@@ -314,13 +231,20 @@ static void start_rt_bandwidth(struct rt_bandwidth *rt_b)
 
 	spin_lock(&rt_b->rt_runtime_lock);
 	for (;;) {
+		unsigned long delta;
+		ktime_t soft, hard;
+
 		if (hrtimer_active(&rt_b->rt_period_timer))
 			break;
 
 		now = hrtimer_cb_get_time(&rt_b->rt_period_timer);
 		hrtimer_forward(&rt_b->rt_period_timer, now, rt_b->rt_period);
-		hrtimer_start_expires(&rt_b->rt_period_timer,
-				HRTIMER_MODE_ABS);
+
+		soft = hrtimer_get_softexpires(&rt_b->rt_period_timer);
+		hard = hrtimer_get_expires(&rt_b->rt_period_timer);
+		delta = ktime_to_ns(ktime_sub(hard, soft));
+		__hrtimer_start_range_ns(&rt_b->rt_period_timer, soft, delta,
+				HRTIMER_MODE_ABS, 0);
 	}
 	spin_unlock(&rt_b->rt_runtime_lock);
 }
@@ -1212,7 +1136,8 @@ static __init void init_hrtick(void)
  */
 static void hrtick_start(struct rq *rq, u64 delay)
 {
-	hrtimer_start(&rq->hrtick_timer, ns_to_ktime(delay), HRTIMER_MODE_REL);
+	__hrtimer_start_range_ns(&rq->hrtick_timer, ns_to_ktime(delay), 0,
+			HRTIMER_MODE_REL, 0);
 }
 
 static inline void init_hrtick(void)
@@ -4422,7 +4347,7 @@ void account_process_tick(struct task_struct *p, int user_tick)
 
 	if (user_tick)
 		account_user_time(p, one_jiffy, one_jiffy_scaled);
-	else if (p != rq->idle)
+	else if ((p != rq->idle) || (irq_count() != HARDIRQ_OFFSET))
 		account_system_time(p, HARDIRQ_OFFSET, one_jiffy,
 				    one_jiffy_scaled);
 	else
@@ -4445,7 +4370,6 @@ void account_steal_ticks(unsigned long ticks)
  */
 void account_idle_ticks(unsigned long ticks)
 {
-	cpufreq_exit_idle(smp_processor_id(), ticks);
 	account_idle_time(jiffies_to_cputime(ticks));
 }
 
@@ -6063,7 +5987,7 @@ void sched_show_task(struct task_struct *p)
 	unsigned state;
 
 	state = p->state ? __ffs(p->state) + 1 : 0;
-	printk(KERN_INFO "%-15.15s %c", p->comm,
+	printk(KERN_INFO "%-13.13s %c", p->comm,
 		state < sizeof(stat_nam) - 1 ? stat_nam[state] : '?');
 #if BITS_PER_LONG == 32
 	if (state == TASK_RUNNING)
@@ -8433,11 +8357,6 @@ void __init sched_init(void)
 	int i, j;
 	unsigned long alloc_size = 0, ptr;
 
-#if 1
-	/* 최적화에 의한 삭제 방지 */
-	GAFINFO.ver = 0x0100;
-#endif
-
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	alloc_size += 2 * nr_cpu_ids * sizeof(void **);
 #endif
@@ -8644,23 +8563,13 @@ void __init sched_init(void)
 }
 
 #ifdef CONFIG_DEBUG_SPINLOCK_SLEEP
-static int __might_sleep_init_called;
-int __init __might_sleep_init(void)
-{
-	__might_sleep_init_called = 1;
-	return 0;
-}
-early_initcall(__might_sleep_init);
-
 void __might_sleep(char *file, int line)
 {
 #ifdef in_atomic
 	static unsigned long prev_jiffy;	/* ratelimiting */
 
-	if ((!in_atomic() && !irqs_disabled()) || oops_in_progress)
-		return;
-	if (system_state != SYSTEM_RUNNING &&
-	    (!__might_sleep_init_called || system_state != SYSTEM_BOOTING))
+	if ((!in_atomic() && !irqs_disabled()) ||
+		    system_state != SYSTEM_RUNNING || oops_in_progress)
 		return;
 	if (time_before(jiffies, prev_jiffy + HZ) && prev_jiffy)
 		return;
@@ -9474,15 +9383,6 @@ static int
 cpu_cgroup_can_attach(struct cgroup_subsys *ss, struct cgroup *cgrp,
 		      struct task_struct *tsk)
 {
-	if ((current != tsk) && (!capable(CAP_SYS_NICE))) {
-		const struct cred *cred = current_cred(), *tcred;
-
-		tcred = __task_cred(tsk);
-
-		if (cred->euid != tcred->uid && cred->euid != tcred->suid)
-			return -EPERM;
-	}
-
 #ifdef CONFIG_RT_GROUP_SCHED
 	if (!sched_rt_can_attach(cgroup_tg(cgrp), tsk))
 		return -EINVAL;

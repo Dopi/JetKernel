@@ -29,52 +29,6 @@
 #include <sound/pcm_params.h>
 #include <sound/timer.h>
 
-#undef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
-#ifdef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
-#include "smallfilter.h"
-
-#define MAX_HWORD (32767)
-#define MIN_HWORD (-32768)
-
-/* Conversion constants */
-#define Nhc       8
-#define Na        7
-#define Np       (Nhc+Na)
-#define Npc      (1<<Nhc)
-#define Amask    ((1<<Na)-1)
-#define Pmask    ((1<<Np)-1)
-#define Nh       16
-#define Nb       16
-#define Nhxn     14
-#define Nhg      (Nh-Nhxn)
-#define NLpScl   13
-
-#ifndef MAX
-#define MAX(x,y) ((x)>(y) ?(x):(y))
-#endif
-#ifndef MIN
-#define MIN(x,y) ((x)<(y) ?(x):(y))
-#endif
-
-#define MUS_SAMPLE_BITS 24
-#define MUS_SAMPLE_TYPE_TO_HWORD(x) ((short)((x)>>(MUS_SAMPLE_BITS-16)))
-#define HWORD_TO_MUS_SAMPLE_TYPE(x) ((mus_sample_t)((x)<<(MUS_SAMPLE_BITS-16)))
-
-#define OLDSAMPLE 44100
-#define NEWSAMPLE 8000
-
-static char *buf_user;
-static char *buf_user_org;
-static unsigned short Xoff = 48;
-static unsigned short Xp = 48;
-static unsigned short Xread = 48;   /* Position in input array to read into */
-static unsigned int Time = (48<<Np);          /* Current-time pointer for converter */
-static char isFirst = 1;
-#endif
-
-unsigned int ring_buf_index = 0;
-unsigned int period_index = 0;
-
 /*
  * fill ring buffer with silence
  * runtime->silence_start: starting pointer to silence area
@@ -173,7 +127,6 @@ void snd_pcm_playback_silence(struct snd_pcm_substream *substream, snd_pcm_ufram
 
 static void xrun(struct snd_pcm_substream *substream)
 {
-	printk("%s: [%d]occured XRUN!\n", __func__, substream->stream);
 	snd_pcm_stop(substream, SNDRV_PCM_STATE_XRUN);
 #ifdef CONFIG_SND_PCM_XRUN_DEBUG
 	if (substream->pstr->xrun_debug) {
@@ -198,7 +151,7 @@ static inline snd_pcm_uframes_t snd_pcm_update_hw_ptr_pos(struct snd_pcm_substre
 	if (pos == SNDRV_PCM_POS_XRUN)
 		return pos; /* XRUN */
 #ifdef CONFIG_SND_DEBUG
-	if (pos >= (runtime->buffer_size * ANDROID_BUF_NUM)) {
+	if (pos >= runtime->buffer_size) {
 		snd_printk(KERN_ERR  "BUG: stream = %i, pos = 0x%lx, buffer size = 0x%lx, period size = 0x%lx\n", substream->stream, pos, runtime->buffer_size, runtime->period_size);
 	}
 #endif
@@ -210,7 +163,6 @@ static inline int snd_pcm_update_hw_ptr_post(struct snd_pcm_substream *substream
 					     struct snd_pcm_runtime *runtime)
 {
 	snd_pcm_uframes_t avail;
-	unsigned int stop_threshold = 0;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		avail = snd_pcm_playback_avail(runtime);
@@ -218,13 +170,7 @@ static inline int snd_pcm_update_hw_ptr_post(struct snd_pcm_substream *substream
 		avail = snd_pcm_capture_avail(runtime);
 	if (avail > runtime->avail_max)
 		runtime->avail_max = avail;
-
-	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
-		stop_threshold = runtime->stop_threshold * ANDROID_BUF_NUM;
-	else
-		stop_threshold = runtime->stop_threshold;
-
-	if (avail >= stop_threshold) {
+	if (avail >= runtime->stop_threshold) {
 		if (substream->runtime->status->state == SNDRV_PCM_STATE_DRAINING)
 			snd_pcm_drain_done(substream);
 		else
@@ -266,11 +212,7 @@ static inline int snd_pcm_update_hw_ptr_interrupt(struct snd_pcm_substream *subs
 			return 0;
 		}
 	      __next_buf:
-		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
-			runtime->hw_ptr_base += runtime->buffer_size * ANDROID_BUF_NUM;
-		else
 		runtime->hw_ptr_base += runtime->buffer_size;
-
 		if (runtime->hw_ptr_base == runtime->boundary)
 			runtime->hw_ptr_base = 0;
 		new_hw_ptr = runtime->hw_ptr_base + pos;
@@ -301,6 +243,7 @@ int snd_pcm_update_hw_ptr(struct snd_pcm_substream *substream)
 		return -EPIPE;
 	}
 	new_hw_ptr = runtime->hw_ptr_base + pos;
+
 	delta = old_hw_ptr - new_hw_ptr;
 	if (delta > 0) {
 		if ((snd_pcm_uframes_t)delta < runtime->buffer_size / 2) {
@@ -313,11 +256,7 @@ int snd_pcm_update_hw_ptr(struct snd_pcm_substream *substream)
 #endif
 			return 0;
 		}
-		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
-			runtime->hw_ptr_base += runtime->buffer_size * ANDROID_BUF_NUM;
-		else
 		runtime->hw_ptr_base += runtime->buffer_size;
-
 		if (runtime->hw_ptr_base == runtime->boundary)
 			runtime->hw_ptr_base = 0;
 		new_hw_ptr = runtime->hw_ptr_base + pos;
@@ -1635,22 +1574,7 @@ static int snd_pcm_lib_write_transfer(struct snd_pcm_substream *substream,
 		if ((err = substream->ops->copy(substream, -1, hwoff, buf, frames)) < 0)
 			return err;
 	} else {
-		char *hwbuf = runtime->dma_area + frames_to_bytes(runtime, hwoff) 
-					  + (ring_buf_index * frames_to_bytes(runtime, runtime->buffer_size));
-	
-        if(frames == runtime->buffer_size) 
-			ring_buf_index = (ring_buf_index + 1) % ANDROID_BUF_NUM;
-
-		else if(frames != runtime->buffer_size) {
-			period_index += frames;
-			if(period_index >= runtime->buffer_size) {			
-				ring_buf_index = (ring_buf_index + 1) % ANDROID_BUF_NUM;
-				period_index -= runtime->buffer_size;
-			} 
-		}
-
-		if (snd_BUG_ON(runtime->dma_area)) return -EFAULT;
-//		printk("########### frames = %d #########\n", frames);
+		char *hwbuf = runtime->dma_area + frames_to_bytes(runtime, hwoff);
 		if (copy_from_user(hwbuf, buf, frames_to_bytes(runtime, frames)))
 			return -EFAULT;
 	}
@@ -1708,10 +1632,6 @@ static snd_pcm_sframes_t snd_pcm_lib_write1(struct snd_pcm_substream *substream,
 			if (err < 0)
 				goto _end_unlock;
 		}
-
-		if(avail > runtime->buffer_size)
-			avail = runtime->buffer_size;
-			
 		frames = size > avail ? avail : size;
 		cont = runtime->buffer_size - runtime->control->appl_ptr % runtime->buffer_size;
 		if (frames > cont)
@@ -1777,7 +1697,6 @@ snd_pcm_sframes_t snd_pcm_lib_write(struct snd_pcm_substream *substream, const v
 {
 	struct snd_pcm_runtime *runtime;
 	int nonblock;
-	snd_pcm_sframes_t ret;
 	int err;
 
 	err = pcm_sanity_check(substream);
@@ -1857,116 +1776,6 @@ snd_pcm_sframes_t snd_pcm_lib_writev(struct snd_pcm_substream *substream,
 
 EXPORT_SYMBOL(snd_pcm_lib_writev);
 
-#ifdef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING // sangsu fix : down sample
-
-static inline short WordToHword(int v, int scl)
-{
-    short out;
-    int llsb = (1<<(scl-1));
-    v += llsb;          /* round */
-    v >>= scl;
-    if (v>MAX_HWORD) {
-        v = MAX_HWORD;
-    } else if (v < MIN_HWORD) {
-        v = MIN_HWORD;
-    }
-    out = (short) v;
-    return out;
-}
-
-int FilterUD( short Imp[], short ImpD[],
-		     unsigned short Nwing, char Interp,
-		     short *Xp, short Ph, short Inc, unsigned short dhb)
-{
-    short a;
-    short *Hp, *Hdp, *End;
-    int v, t;
-    unsigned int Ho;
-    
-    v=0;
-    Ho = (Ph*(unsigned int)dhb)>>Np;
-    End = &Imp[Nwing];
-    if (Inc == 1)		/* If doing right wing...              */
-    {				/* ...drop extra coeff, so when Ph is  */
-	End--;			/*    0.5, we don't do too many mult's */
-	if (Ph == 0)		/* If the phase is zero...           */
-	  Ho += dhb;		/* ...then we've already skipped the */
-    }				/*    first sample, so we must also  */
-				/*    skip ahead in Imp[] and ImpD[] */
-    if (Interp)
-      while ((Hp = &Imp[Ho>>Na]) < End) {
-	  t = *Hp;		/* Get IR sample */
-	  Hdp = &ImpD[Ho>>Na];  /* get interp (lower Na) bits from diff table*/
-	  a = Ho & Amask;	/* a is logically between 0 and 1 */
-	  t += (((int)*Hdp)*a)>>Na; /* t is now interp'd filter coeff */
-	  t *= *Xp;		/* Mult coeff by input sample */
-	  if (t & 1<<(Nhxn-1))	/* Round, if needed */
-	    t += 1<<(Nhxn-1);
-	  t >>= Nhxn;		/* Leave some guard bits, but come back some */
-	  v += t;			/* The filter output */
-	  Ho += dhb;		/* IR step */
-	  Xp += Inc;		/* Input signal step. NO CHECK ON BOUNDS */
-      }
-    else 
-      while ((Hp = &Imp[Ho>>Na]) < End) {
-	  t = *Hp;		/* Get IR sample */
-	  t *= *Xp;		/* Mult coeff by input sample */
-	  if (t & 1<<(Nhxn-1))	/* Round, if needed */
-	    t += 1<<(Nhxn-1);
-	  t >>= Nhxn;		/* Leave some guard bits, but come back some */
-	  v += t;			/* The filter output */
-	  Ho += dhb;		/* IR step */
-	  Xp += Inc;		/* Input signal step. NO CHECK ON BOUNDS */
-      }
-    return(v);
-}
-
-/* Sampling rate conversion subroutine */
-
-static int SrcUD(short X[], short Y[], int newSample, unsigned int *Time,
-                 unsigned short Nx, unsigned short Nwing, unsigned short LpScl,
-                 short Imp[], short ImpD[], char Interp)
-{
-    short *Xp, *Ystart;
-    int v;
-    
-    double dh;                  /* Step through filter impulse response */
-    double dt;                  /* Step through input signal */
-    unsigned int endTime;              /* When Time reaches EndTime, return to user */
-    unsigned int dhb, dtb;             /* Fixed-point versions of Dh,Dt */
-    double factor = (double)newSample/(double)44100;
-
-    /* Account for increased filter gain when using factors less than 1 */
-    if (factor < 1)
-      LpScl = LpScl*factor + 0.5;
-
-    dt = 1.0/factor;            /* Output sampling period */
-    dtb = dt*(1<<Np) + 0.5;     /* Fixed-point representation */
-    
-    dh = MIN(Npc, factor*Npc);  /* Filter sampling period */
-    dhb = dh*(1<<Na) + 0.5;     /* Fixed-point representation */
-    
-    Ystart = Y;
-    endTime = *Time + (1<<Np)*(int)Nx;
-    while (*Time < endTime)
-    {
-        Xp = &X[*Time>>Np];     /* Ptr to current input sample */
-        v = FilterUD(Imp, ImpD, Nwing, Interp, Xp, (short)(*Time&Pmask),
-                     -1, dhb);  /* Perform left-wing inner product */
-        v += FilterUD(Imp, ImpD, Nwing, Interp, Xp+1, 
-		      /* previous (triggers warning): (short)((-*Time)&Pmask), */
-                      (short)((((*Time)^Pmask)+1)&Pmask),
-                      1, dhb);  /* Perform right-wing inner product */
-        v >>= Nhg;              /* Make guard bits */
-        v *= LpScl;             /* Normalize for unity filter gain */
-        *Y++ = WordToHword(v,NLpScl);   /* strip guard bits, deposit output */
-        *Time += dtb;           /* Move to next sample by time increment */
-    }
-    return (Y - Ystart);        /* Return the number of output samples */
-}
-#endif // sangsu fix : down sample
-
-
 static int snd_pcm_lib_read_transfer(struct snd_pcm_substream *substream, 
 				     unsigned int hwoff,
 				     unsigned long data, unsigned int off,
@@ -1980,20 +1789,8 @@ static int snd_pcm_lib_read_transfer(struct snd_pcm_substream *substream,
 			return err;
 	} else {
 		char *hwbuf = runtime->dma_area + frames_to_bytes(runtime, hwoff);
-#ifdef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
-    if(runtime->rate == 8000)
-    {
-  		memcpy(buf_user + frames_to_bytes(runtime, off) , hwbuf, frames_to_bytes(runtime, frames));
-    }
-    else
-    {
-  		if (copy_to_user(buf, hwbuf, frames_to_bytes(runtime, frames)))
-  			return -EFAULT;
-    }
-#else
 		if (copy_to_user(buf, hwbuf, frames_to_bytes(runtime, frames)))
 			return -EFAULT;
-#endif
 	}
 	return 0;
 }
@@ -2008,30 +1805,9 @@ static snd_pcm_sframes_t snd_pcm_lib_read1(struct snd_pcm_substream *substream,
 	snd_pcm_uframes_t xfer = 0;
 	snd_pcm_uframes_t offset = 0;
 	int err = 0;
-#ifdef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
-    unsigned int i;
-    unsigned short oldSize1, oldSize2;
-    unsigned short Ncreep;
-    unsigned short Nout;
-    int Ycount, last;
-    unsigned short Nx = 11288;
-    double factor = (double)(runtime->rate)/(double)44100;
-#endif	
 
 	if (size == 0)
 		return 0;
-
-#ifdef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
-//	printk("snd_pcm_lib_read1: sample_rate(%d) \n", runtime->rate);
-  if(runtime->rate == 8000)
-  {
-  	size = (((size*OLDSAMPLE/NEWSAMPLE<<1)+1)>>1)+94;
-        oldSize1 = size;
-  	buf_user = (char *)kmalloc(frames_to_bytes(runtime, oldSize1), GFP_KERNEL);
-        buf_user_org = buf_user;
-//	printk("# %d \n", size);
-  }
-#endif
 
 	snd_pcm_stream_lock_irq(substream);
 	switch (runtime->status->state) {
@@ -2115,48 +1891,9 @@ static snd_pcm_sframes_t snd_pcm_lib_read1(struct snd_pcm_substream *substream,
 		size -= frames;
 		xfer += frames;
 	}
-#ifdef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
-  if(runtime->rate == 8000)
-  {
-        /* Calc reach of LP filter wing & give some creeping room */
-        oldSize2 = xfer;
-
-  	xfer = SrcUD((short*)buf_user_org, (short*)buf_user_org, 8000, &Time, Nx, 
-			    SMALL_FILTER_NWING, SMALL_FILTER_SCALE, SMALL_FILTER_IMP, 
-			    SMALL_FILTER_IMPD, 1);
-//	printk("## %d %u %u\n", xfer, Time, Nx, Xoff);
-  	if ((err = copy_to_user((char __user *)data, buf_user_org, frames_to_bytes(runtime, xfer))) < 0) {
-  		xfer = 0;
-  		goto _end;
-  	}
-
-        Time -= (Nx<<Np);       /* Move converter Nx samples back in time */
-
-        Xp += Nx;               /* Advance by number of samples processed */
-        Ncreep = (Time>>Np) - Xoff; /* Calc time accumulation in Time */
-        if (Ncreep) {
-            Time -= (Ncreep<<Np);    /* Remove time accumulation */
-            Xp += Ncreep;            /* and add it to read pointer */
-        }
-
-        for (i=0; i<oldSize2-Xp+Xoff; i++) { /* Copy part of input signal */
-            buf_user_org[i] = buf_user_org[i+Xp-Xoff]; /* that must be re-used */
-        }
-
-        Xread = i;              /* Pos in input buff to read new data into */
-        Xp = Xoff;
-  }
-#endif
-
  _end_unlock:
 	snd_pcm_stream_unlock_irq(substream);
  _end:
-#ifdef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
-  if(runtime->rate == 8000)
-  {
-   	kfree(buf_user);
-  }
-#endif
 	return xfer > 0 ? (snd_pcm_sframes_t)xfer : err;
 }
 

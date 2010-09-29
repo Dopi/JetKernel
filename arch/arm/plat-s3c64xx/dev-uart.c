@@ -33,7 +33,7 @@
 static struct resource s3c64xx_uart0_resource[] = {
 	[0] = {
 		.start	= S3C_PA_UART0,
-		.end	= S3C_PA_UART0 + S3C_SZ_UART,
+		.end	= S3C_PA_UART0 + 0x100,
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
@@ -57,7 +57,7 @@ static struct resource s3c64xx_uart0_resource[] = {
 static struct resource s3c64xx_uart1_resource[] = {
 	[0] = {
 		.start = S3C_PA_UART1,
-		.end   = S3C_PA_UART1 + S3C_SZ_UART,
+		.end   = S3C_PA_UART1 + 0x100,
 		.flags = IORESOURCE_MEM,
 	},
 	[1] = {
@@ -81,7 +81,7 @@ static struct resource s3c64xx_uart1_resource[] = {
 static struct resource s3c6xx_uart2_resource[] = {
 	[0] = {
 		.start = S3C_PA_UART2,
-		.end   = S3C_PA_UART2 + S3C_SZ_UART,
+		.end   = S3C_PA_UART2 + 0x100,
 		.flags = IORESOURCE_MEM,
 	},
 	[1] = {
@@ -105,7 +105,7 @@ static struct resource s3c6xx_uart2_resource[] = {
 static struct resource s3c64xx_uart3_resource[] = {
 	[0] = {
 		.start = S3C_PA_UART3,
-		.end   = S3C_PA_UART3 + S3C_SZ_UART,
+		.end   = S3C_PA_UART3 + 0x100,
 		.flags = IORESOURCE_MEM,
 	},
 	[1] = {
@@ -127,7 +127,7 @@ static struct resource s3c64xx_uart3_resource[] = {
 };
 
 
-struct s3c_uart_resources s3c64xx_uart_resources[] __initdata = {
+struct s3c24xx_uart_resources s3c64xx_uart_resources[] __initdata = {
 	[0] = {
 		.resources	= s3c64xx_uart0_resource,
 		.nr_resources	= ARRAY_SIZE(s3c64xx_uart0_resource),
@@ -148,29 +148,29 @@ struct s3c_uart_resources s3c64xx_uart_resources[] __initdata = {
 
 /* uart devices */
 
-static struct platform_device s3c_uart_device0 = {
+static struct platform_device s3c24xx_uart_device0 = {
 	.id		= 0,
 };
 
-static struct platform_device s3c_uart_device1 = {
+static struct platform_device s3c24xx_uart_device1 = {
 	.id		= 1,
 };
 
-static struct platform_device s3c_uart_device2 = {
+static struct platform_device s3c24xx_uart_device2 = {
 	.id		= 2,
 };
 
-static struct platform_device s3c_uart_device3 = {
+static struct platform_device s3c24xx_uart_device3 = {
 	.id		= 3,
 };
 
-struct platform_device *s3c_uart_src[4] = {
-	&s3c_uart_device0,
-	&s3c_uart_device1,
-	&s3c_uart_device2,
-	&s3c_uart_device3,
+struct platform_device *s3c24xx_uart_src[4] = {
+	&s3c24xx_uart_device0,
+	&s3c24xx_uart_device1,
+	&s3c24xx_uart_device2,
+	&s3c24xx_uart_device3,
 };
 
-struct platform_device *s3c_uart_devs[4] = {
+struct platform_device *s3c24xx_uart_devs[4] = {
 };
 

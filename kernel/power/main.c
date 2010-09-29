@@ -22,8 +22,6 @@
 #include <linux/freezer.h>
 #include <linux/vmstat.h>
 #include <linux/syscalls.h>
-#include <linux/cpufreq.h>
-#include <linux/wakelock.h>
 
 #include "power.h"
 
@@ -31,26 +29,6 @@ DEFINE_MUTEX(pm_mutex);
 
 unsigned int pm_flags;
 EXPORT_SYMBOL(pm_flags);
-
-#if 1	// added by peres to show valid current state
-suspend_state_t global_state;
-#endif
-
-#ifndef FEATURE_FTM_SLEEP
-#define FEATURE_FTM_SLEEP
-#endif
-
-#ifdef FEATURE_FTM_SLEEP
-unsigned char ftm_sleep = 0;
-EXPORT_SYMBOL(ftm_sleep);
-
-void (*ftm_enable_usb_sw)(int mode);
-EXPORT_SYMBOL(ftm_enable_usb_sw);
-
-extern void wakelock_force_suspend(void);
-
-static struct wake_lock ftm_wake_lock;
-#endif
 
 #ifdef CONFIG_PM_SLEEP
 
@@ -307,22 +285,11 @@ void __attribute__ ((weak)) arch_suspend_enable_irqs(void)
  *
  *	This function should be called after devices have been suspended.
  */
-#ifdef CONFIG_CPU_FREQ
-static char governor_name[CPUFREQ_NAME_LEN];
-static char userspace_governor[CPUFREQ_NAME_LEN] = "userspace";
-#endif /* CONFIG_CPU_FREQ */
 static int suspend_enter(suspend_state_t state)
 {
 	int error = 0;
 
 	device_pm_lock();
-#ifdef CONFIG_CPU_FREQ
-	cpufreq_get_cpufreq_name(0);
-	strcpy(governor_name, cpufreq_governor_name);
-	if(strnicmp(governor_name, userspace_governor, CPUFREQ_NAME_LEN)) {
-		cpufreq_set_policy(0, "performance");
-	}
-#endif /* CONFIG_CPU_FREQ */
 	arch_suspend_disable_irqs();
 	BUG_ON(!irqs_disabled());
 
@@ -341,11 +308,6 @@ static int suspend_enter(suspend_state_t state)
 	device_power_up(PMSG_RESUME);
  Done:
 	arch_suspend_enable_irqs();
-#ifdef CONFIG_CPU_FREQ
-	if(strnicmp(governor_name, userspace_governor, CPUFREQ_NAME_LEN)) {
-		cpufreq_set_policy(0, governor_name);
-	}
-#endif /* CONFIG_CPU_FREQ */
 	BUG_ON(irqs_disabled());
 	device_pm_unlock();
 	return error;
@@ -430,9 +392,6 @@ static void suspend_finish(void)
 
 
 static const char * const pm_states[PM_SUSPEND_MAX] = {
-#ifdef CONFIG_EARLYSUSPEND
-	[PM_SUSPEND_ON]		= "on",
-#endif
 	[PM_SUSPEND_STANDBY]	= "standby",
 	[PM_SUSPEND_MEM]	= "mem",
 };
@@ -529,22 +488,12 @@ static ssize_t state_show(struct kobject *kobj, struct kobj_attribute *attr,
 {
 	char *s = buf;
 #ifdef CONFIG_SUSPEND
-#if 0	// deleted by peres for test
 	int i;
+
 	for (i = 0; i < PM_SUSPEND_MAX; i++) {
 		if (pm_states[i] && valid_state(i))
 			s += sprintf(s,"%s ", pm_states[i]);
 	}
-#else
-	switch(global_state) {
-		case PM_SUSPEND_ON :
-			s += sprintf(s,"%s ", pm_states[PM_SUSPEND_ON]);
-			break;
-		case PM_SUSPEND_MEM :
-			s += sprintf(s,"%s ", pm_states[PM_SUSPEND_MEM]);
-			break;
-	}
-#endif
 #endif
 #ifdef CONFIG_HIBERNATION
 	s += sprintf(s, "%s\n", "disk");
@@ -559,15 +508,8 @@ static ssize_t state_show(struct kobject *kobj, struct kobj_attribute *attr,
 static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 			   const char *buf, size_t n)
 {
-#if 1	// added by peres to show valid current state
-	char *b = buf;
-#endif
 #ifdef CONFIG_SUSPEND
-#ifdef CONFIG_EARLYSUSPEND
-	suspend_state_t state = PM_SUSPEND_ON;
-#else
 	suspend_state_t state = PM_SUSPEND_STANDBY;
-#endif
 	const char * const *s;
 #endif
 	char *p;
@@ -588,44 +530,8 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 		if (*s && len == strlen(*s) && !strncmp(buf, *s, len))
 			break;
 	}
-
-	if (state < PM_SUSPEND_MAX && *s) {
-		printk(KERN_ERR "%s: state:%d (%s)\n", __func__, state, *s);
-#ifdef CONFIG_EARLYSUSPEND
-		if (state == PM_SUSPEND_ON || valid_state(state)) {
-#if 1	// added by peres to show valid current state
-			if(state == PM_SUSPEND_ON) {
-				if (ftm_sleep == 1) {
-					pr_info("%s: wake lock for FTM\n", __func__);
-					ftm_sleep = 0;
-					wake_lock_timeout(&ftm_wake_lock, 60 * HZ);
-					if (ftm_enable_usb_sw)
-						ftm_enable_usb_sw(1);
-				}
-				sprintf(b,"%s ", pm_states[PM_SUSPEND_ON]);
-				global_state = PM_SUSPEND_ON;
-			} else {
-				if (ftm_sleep == 1) { // when ftm sleep cmd 
-					if (ftm_enable_usb_sw)
-						ftm_enable_usb_sw(0);
-				}
-				sprintf(b,"%s ", pm_states[PM_SUSPEND_MEM]);
-				global_state = PM_SUSPEND_MEM;
-			}
-#endif
-			error = 0;
-			request_suspend_state(state);
-
-#ifdef FEATURE_FTM_SLEEP
-			if (ftm_sleep && global_state == PM_SUSPEND_MEM) {
-				wakelock_force_suspend();
-			}
-#endif /* FEATURE_FTM_SLEEP */
-		}
-#else
+	if (state < PM_SUSPEND_MAX && *s)
 		error = enter_state(state);
-#endif
-	}
 #endif
 
  Exit:
@@ -633,60 +539,6 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 }
 
 power_attr(state);
-
-#ifdef FEATURE_FTM_SLEEP /* for Factory Sleep cmd check */
-
-
-#define ftm_attr(_name) \
-static struct kobj_attribute _name##_attr = {	\
-	.attr	= {				\
-		.name = __stringify(_name),	\
-		.mode = 0777,			\
-	},					\
-	.show	= _name##_show,			\
-	.store	= _name##_store,		\
-}
-
-
-static ssize_t ftm_sleep_show(struct kobject *kobj, struct kobj_attribute *attr,
-			  char *buf)
-{
-	char *s = buf;
-#ifdef CONFIG_SUSPEND
-	switch(ftm_sleep) {
-		case 0 :
-			s += sprintf(s,"%d ", 0);
-			break;
-		case 1 :
-			s += sprintf(s,"%d ", 1);
-			break;
-	}
-#endif
-
-	if (s != buf)
-		/* convert the last space to a newline */
-		*(s-1) = '\n';
-
-	return (s - buf);
-}
-
-
-static ssize_t ftm_sleep_store(struct kobject *kobj, struct kobj_attribute *attr,
-			   const char *buf, size_t n)
-{
-	ssize_t ret = -EINVAL;
-	char *after;
-	unsigned char state = (unsigned char) simple_strtoul(buf, &after, 10);
-
-	ftm_sleep = state;
-        
-	return ret;
-
-}
-
-ftm_attr(ftm_sleep);
-#endif /* FEATURE_FTM_SLEEP */
-
 
 #ifdef CONFIG_PM_TRACE
 int pm_trace_enabled;
@@ -713,11 +565,6 @@ pm_trace_store(struct kobject *kobj, struct kobj_attribute *attr,
 power_attr(pm_trace);
 #endif /* CONFIG_PM_TRACE */
 
-#ifdef CONFIG_USER_WAKELOCK
-power_attr(wake_lock);
-power_attr(wake_unlock);
-#endif
-
 static struct attribute * g[] = {
 	&state_attr.attr,
 #ifdef CONFIG_PM_TRACE
@@ -726,11 +573,6 @@ static struct attribute * g[] = {
 #if defined(CONFIG_PM_SLEEP) && defined(CONFIG_PM_DEBUG)
 	&pm_test_attr.attr,
 #endif
-#ifdef CONFIG_USER_WAKELOCK
-	&wake_lock_attr.attr,
-	&wake_unlock_attr.attr,
-#endif
-	&ftm_sleep_attr.attr,
 	NULL,
 };
 
@@ -744,9 +586,6 @@ static int __init pm_init(void)
 	power_kobj = kobject_create_and_add("power", NULL);
 	if (!power_kobj)
 		return -ENOMEM;
-
-	wake_lock_init(&ftm_wake_lock, WAKE_LOCK_SUSPEND, "ftm_wake_lock");
-
 	return sysfs_create_group(power_kobj, &attr_group);
 }
 

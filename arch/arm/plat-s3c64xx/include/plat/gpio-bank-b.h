@@ -12,9 +12,6 @@
  * published by the Free Software Foundation.
 */
 
-#ifndef __ASM_PLAT_S3C64XX_GPIO_BANK_B_H
-#define __ASM_PLAT_S3C64XX_GPIO_BANK_B_H __FILE__
-
 #define S3C64XX_GPBCON			(S3C64XX_GPB_BASE + 0x00)
 #define S3C64XX_GPBDAT			(S3C64XX_GPB_BASE + 0x04)
 #define S3C64XX_GPBPUD			(S3C64XX_GPB_BASE + 0x08)
@@ -61,4 +58,3 @@
 #define S3C64XX_GPB6_I2C_SDA0		(0x02 << 24)
 #define S3C64XX_GPB6_EINT_G1_14		(0x07 << 24)
 
-#endif	/* __ASM_PLAT_S3C64XX_GPIO_BANK_B_H */

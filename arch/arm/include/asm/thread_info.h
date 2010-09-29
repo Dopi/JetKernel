@@ -113,8 +113,6 @@ extern void iwmmxt_task_restore(struct thread_info *, void *);
 extern void iwmmxt_task_release(struct thread_info *);
 extern void iwmmxt_task_switch(struct thread_info *);
 
-extern void vfp_sync_state(struct thread_info *thread);
-
 #endif
 
 /*

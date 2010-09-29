@@ -31,21 +31,6 @@
 
 #include "u_ether.h"
 
-/* for memory copying socket buffers, it enhances performance of data communication */
-#define	SKB_MEMCOPY 1
-
-#if SKB_MEMCOPY	
-
-#if defined(CONFIG_USB_GADGET_S3C_OTGD_HS_DMA_MODE) /* DMA Mode */
-	#define MEMCOPY_FOR_DMA
-	#undef 	MEMCOPY_FOR_SLAVE
-#else /* Slave Mode */
-	#define MEMCOPY_FOR_SLAVE
-	#undef	MEMCOPY_FOR_DMA
-#endif
-
-#endif //SKB_MEMCOPY
-
 
 /*
  * This component encapsulates the Ethernet link glue needed to provide
@@ -133,7 +118,6 @@ static inline int qlen(struct usb_gadget *gadget)
 #undef ERROR
 #undef INFO
 
-#if 0
 #define xprintk(d, level, fmt, args...) \
 	printk(level "%s: " fmt , (d)->net->name , ## args)
 
@@ -157,25 +141,7 @@ static inline int qlen(struct usb_gadget *gadget)
 	xprintk(dev , KERN_ERR , fmt , ## args)
 #define INFO(dev, fmt, args...) \
 	xprintk(dev , KERN_INFO , fmt , ## args)
-#else
 
-#define xprintk(d, level, fmt, args...) \
-	printk(fmt, ##args)
-
-#define DBG(dev, fmt, args...) \
-	printk(fmt, ##args)
-
-#define VDBG(dev, fmt, args...) \
-	printk(fmt, ##args)
-
-#define ERROR(dev, fmt, args...) \
-	printk(fmt, ##args)
-#define INFO(dev, fmt, args...) \
-	printk(fmt, ##args)
-
-
-
-#endif
 /*-------------------------------------------------------------------------*/
 
 /* NETWORK DRIVER HOOKUP (to the layer above this driver) */
@@ -209,12 +175,6 @@ static void eth_get_drvinfo(struct net_device *net, struct ethtool_drvinfo *p)
 	strlcpy(p->bus_info, dev_name(&dev->gadget->dev), sizeof p->bus_info);
 }
 
-static u32 eth_get_link(struct net_device *net)
-{
-	struct eth_dev	*dev = netdev_priv(net);
-	return dev->gadget->speed != USB_SPEED_UNKNOWN;
-}
-
 /* REVISIT can also support:
  *   - WOL (by tracking suspends and issuing remote wakeup)
  *   - msglevel (implies updated messaging)
@@ -223,7 +183,7 @@ static u32 eth_get_link(struct net_device *net)
 
 static struct ethtool_ops ops = {
 	.get_drvinfo = eth_get_drvinfo,
-	.get_link = eth_get_link
+	.get_link = ethtool_op_get_link,
 };
 
 static void defer_kevent(struct eth_dev *dev, int flag)
@@ -287,22 +247,7 @@ rx_submit(struct eth_dev *dev, struct usb_request *req, gfp_t gfp_flags)
 	 */
 	skb_reserve(skb, NET_IP_ALIGN);
 
-#if	SKB_MEMCOPY
-		
-#ifdef MEMCOPY_FOR_DMA
-		req->buf = kmalloc(size, GFP_ATOMIC| GFP_DMA);
-#endif
-#ifdef MEMCOPY_FOR_SLAVE
-		req->buf = kmalloc(size, GFP_ATOMIC);
-#endif	
-		if (!req->buf) {
 	req->buf = skb->data;
-			printk("%s: fail to kmalloc [req->buf = skb->data]\n", __FUNCTION__);
-		}	
-#else
-	req->buf = skb->data;
-#endif
-
 	req->length = size;
 	req->complete = rx_complete;
 	req->context = skb;
@@ -313,13 +258,8 @@ enomem:
 		defer_kevent(dev, WORK_RX_MEMORY);
 	if (retval) {
 		DBG(dev, "rx submit --> %d\n", retval);
-		if (skb) {
+		if (skb)
 			dev_kfree_skb_any(skb);
-#ifdef SKB_MEMCOPY
-			if(req->buf != skb->data)
-				kfree(req->buf);
-#endif	
-		}
 		spin_lock_irqsave(&dev->req_lock, flags);
 		list_add(&req->list, &dev->rx_reqs);
 		spin_unlock_irqrestore(&dev->req_lock, flags);
@@ -337,10 +277,6 @@ static void rx_complete(struct usb_ep *ep, struct usb_request *req)
 
 	/* normal completion */
 	case 0:
-#ifdef SKB_MEMCOPY
-		if(req->buf != skb->data)
-			memcpy(skb->data, req->buf, req->actual);
-#endif
 		skb_put(skb, req->actual);
 		if (dev->unwrap)
 			status = dev->unwrap(skb);
@@ -361,10 +297,6 @@ static void rx_complete(struct usb_ep *ep, struct usb_request *req)
 		 * use skb buffers.
 		 */
 		status = netif_rx(skb);
-#ifdef SKB_MEMCOPY
-		if(req->buf != skb->data)
-			kfree(req->buf);
-#endif
 		skb = NULL;
 		break;
 
@@ -380,10 +312,6 @@ static void rx_complete(struct usb_ep *ep, struct usb_request *req)
 		defer_kevent(dev, WORK_RX_MEMORY);
 quiesce:
 		dev_kfree_skb_any(skb);
-#ifdef SKB_MEMCOPY
-		if(req->buf != skb->data)
-			kfree(req->buf);
-#endif
 		goto clean;
 
 	/* data overrun */
@@ -397,13 +325,8 @@ quiesce:
 		break;
 	}
 
-	if (skb) {
+	if (skb)
 		dev_kfree_skb_any(skb);
-#ifdef SKB_MEMCOPY
-		if(req->buf != skb->data)
-			kfree(req->buf);
-#endif
-	}
 	if (!netif_running(dev->net)) {
 clean:
 		spin_lock(&dev->req_lock);
@@ -532,11 +455,6 @@ static void tx_complete(struct usb_ep *ep, struct usb_request *req)
 	spin_unlock(&dev->req_lock);
 	dev_kfree_skb_any(skb);
 
-#ifdef SKB_MEMCOPY
-	if(req->buf != skb->data)
-		kfree(req->buf);
-#endif
-
 	atomic_dec(&dev->tx_qlen);
 	if (netif_carrier_ok(dev->net))
 		netif_wake_queue(dev->net);
@@ -628,27 +546,7 @@ static int eth_start_xmit(struct sk_buff *skb, struct net_device *net)
 		skb = skb_new;
 		length = skb->len;
 	}
-	
-#if	SKB_MEMCOPY
-	
-#ifdef MEMCOPY_FOR_DMA
-	req->buf = kmalloc(skb->len +2, GFP_ATOMIC | GFP_DMA);
-#endif
-#ifdef MEMCOPY_FOR_SLAVE
-	req->buf = kmalloc(skb->len +2, GFP_ATOMIC);
-#endif
-
-	if (!req->buf) {
 	req->buf = skb->data;
-		printk("%s: fail to kmalloc [req->buf = skb->data]\n", __FUNCTION__);
-	}
-	else
-		memcpy((void *)req->buf, (void *)skb->data, skb->len);
-
-#else
-	req->buf = skb->data;
-#endif
-
 	req->context = skb;
 	req->complete = tx_complete;
 
@@ -682,11 +580,6 @@ static int eth_start_xmit(struct sk_buff *skb, struct net_device *net)
 drop:
 		dev->net->stats.tx_dropped++;
 		dev_kfree_skb_any(skb);
-#ifdef SKB_MEMCOPY
-		if(req->buf != skb->data)
-			kfree(req->buf);
-#endif
-
 		spin_lock_irqsave(&dev->req_lock, flags);
 		if (list_empty(&dev->tx_reqs))
 			netif_start_queue(net);

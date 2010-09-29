@@ -780,8 +780,6 @@ static const char *hwcap_str[] = {
 	"crunch",
 	"thumbee",
 	"neon",
-	"vfpv3",
-	"vfpv3d16",
 	NULL
 };
 

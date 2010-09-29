@@ -1904,17 +1904,6 @@ static int __devinit smc911x_probe(struct net_device *dev)
 
 	spin_lock_init(&lp->lock);
 
-#if defined(CONFIG_MACH_SMDK6410)||defined(CONFIG_MACH_SMDK2450)||defined(CONFIG_MACH_SMDKC100)
-	dev->dev_addr[0] = 0x00;
-	dev->dev_addr[1] = 0x09;
-	dev->dev_addr[2] = 0xc0;
-	dev->dev_addr[3] = 0xff;
-	dev->dev_addr[4] = 0xec;
-	dev->dev_addr[5] = 0x48;
-
-	SMC_SET_MAC_ADDR(lp, dev->dev_addr);
-#endif
-	
 	/* Get the MAC address */
 	SMC_GET_MAC_ADDR(lp, dev->dev_addr);
 
@@ -2059,7 +2048,6 @@ err_out:
  */
 static int __devinit smc911x_drv_probe(struct platform_device *pdev)
 {
-	struct smc911x_platdata *pd = pdev->dev.platform_data;
 	struct net_device *ndev;
 	struct resource *res;
 	struct smc911x_local *lp;

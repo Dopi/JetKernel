@@ -137,12 +137,6 @@ check_for_exception:
 	VFPFMXR	FPEXC, r1		@ restore FPEXC last
 	sub	r2, r2, #4
 	str	r2, [sp, #S_PC]		@ retry the instruction
-#ifdef CONFIG_PREEMPT
-	get_thread_info	r10
-	ldr	r4, [r10, #TI_PREEMPT]	@ get preempt count
-	sub	r11, r4, #1		@ decrement it
-	str	r11, [r10, #TI_PREEMPT]
-#endif
 	mov	pc, r9			@ we think we have handled things
 
 
@@ -161,12 +155,6 @@ look_for_VFP_exceptions:
 	@ not recognised by VFP
 
 	DBGSTR	"not VFP"
-#ifdef CONFIG_PREEMPT
-	get_thread_info	r10
-	ldr	r4, [r10, #TI_PREEMPT]	@ get preempt count
-	sub	r11, r4, #1		@ decrement it
-	str	r11, [r10, #TI_PREEMPT]
-#endif
 	mov	pc, lr
 
 process_exception:
@@ -184,6 +172,7 @@ process_exception:
 					@ retry the faulted instruction
 ENDPROC(vfp_support_entry)
 
+#if defined(CONFIG_SMP) || defined(CONFIG_PM)
 ENTRY(vfp_save_state)
 	@ Save the current VFP state
 	@ r0 - save location
@@ -201,6 +190,7 @@ ENTRY(vfp_save_state)
 	stmia	r0, {r1, r2, r3, r12}	@ save FPEXC, FPSCR, FPINST, FPINST2
 	mov	pc, lr
 ENDPROC(vfp_save_state)
+#endif
 
 last_VFP_context_address:
 	.word	last_VFP_context

@@ -197,59 +197,12 @@ config SPI_S3C24XX_GPIO
 	  the inbuilt hardware cannot provide the transfer mode, or
 	  where the board is using non hardware connected pins.
 
-config SPI_GPIO
-	tristate "GPIO-based bitbanging SPI"
-	depends on GENERIC_GPIO
-	select SPI_BITBANG
-	help
-	  SPI driver for Samsung S3C24XX series ARM SoCs using
-	  GPIO lines to provide the SPI bus. This can be used where
-	  the inbuilt hardware cannot provide the transfer mode, or
-	  where the board is using non hardware connected pins.
-
 config SPI_SH_SCI
 	tristate "SuperH SCI SPI controller"
 	depends on SUPERH
 	select SPI_BITBANG
 	help
 	  SPI driver for SuperH SCI blocks.
-
-config SPI_S3C6410
-	tristate "SPI Driver for S3C64XX"
-	depends on SPI && ARCH_S3C64XX && !SPI_GPIO
-	help
-	  Say Y here to include support for SPI controller in the
-	  Samsung S3C64XX based System-on-Chip devices.
-
-choice
-    prompt "SPI Clock Implementations"
-	depends on HS_SPI_S3C2450 || SPI_S3C6410 || HS_SPI_S3C2416
-
-config SPICLK_PCLK
-	bool "PCLK"
-	depends on HS_SPI_S3C2450 || SPI_S3C6410 || HS_SPI_S3C2416
-	help
-	  Say Y here to include support for pclk source.
-
-config SPICLK_EPLL
-	bool "EPLL"
-	depends on  HS_SPI_S3C2450 || SPI_S3C6410 || HS_SPI_S3C2416
-	help
-	  Say Y here to include support for EPLL source.
-
-config SPICLK_USBCLK
-	bool "USBCLK"
-	depends on HS_SPI_S3C6400 || HS_SPI_S3C6410
-	help
-	  Say Y here to include support for USB clock source.
-
-endchoice
-
-config WORD_TRANSIZE
-	bool "Tansfer size as Word"
-	depends on HS_SPI_S3C6400 || HS_SPI_S3C6410
-	help
-	  Say Y here to include support for word transfer size.
 
 config SPI_TXX9
 	tristate "Toshiba TXx9 SPI controller"

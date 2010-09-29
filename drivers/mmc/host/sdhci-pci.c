@@ -391,7 +391,6 @@ static int sdhci_pci_enable_dma(struct sdhci_host *host)
 
 static struct sdhci_ops sdhci_pci_ops = {
 	.enable_dma	= sdhci_pci_enable_dma,
-	.change_clock   = sdhci_change_clock,
 };
 
 /*****************************************************************************\

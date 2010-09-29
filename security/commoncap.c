@@ -28,10 +28,6 @@
 #include <linux/prctl.h>
 #include <linux/securebits.h>
 
-#ifdef CONFIG_ANDROID_PARANOID_NETWORK
-#include <linux/android_aid.h>
-#endif
-
 int cap_netlink_send(struct sock *sk, struct sk_buff *skb)
 {
 	NETLINK_CB(skb).eff_cap = current_cap();
@@ -64,12 +60,6 @@ EXPORT_SYMBOL(cap_netlink_recv);
 int cap_capable(struct task_struct *tsk, const struct cred *cred, int cap,
 		int audit)
 {
-#ifdef CONFIG_ANDROID_PARANOID_NETWORK
-	if (cap == CAP_NET_RAW && in_egroup_p(AID_NET_RAW))
-		return 0;
-	if (cap == CAP_NET_ADMIN && in_egroup_p(AID_NET_ADMIN))
-		return 0;
-#endif
 	return cap_raised(cred->cap_effective, cap) ? 0 : -EPERM;
 }
 
@@ -926,7 +916,6 @@ changed:
 	return commit_creds(new);
 
 no_change:
-	error = 0;
 error:
 	abort_creds(new);
 	return error;

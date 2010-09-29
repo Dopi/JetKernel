@@ -138,11 +138,11 @@ config KS8695_WATCHDOG
 	  Watchdog timer embedded into KS8695 processor. This will reboot your
 	  system when the timeout is reached.
 
-config S3C_WATCHDOG
-	tristate "S3C Watchdog"
-	depends on ARCH_S3C2410 || ARCH_S3C64XX
+config S3C2410_WATCHDOG
+	tristate "S3C2410 Watchdog"
+	depends on ARCH_S3C2410
 	help
-	  Watchdog timer block in the Samsung S3C chips. This will
+	  Watchdog timer block in the Samsung S3C2410 chips. This will
 	  reboot the system when the timer expires with the watchdog
 	  enabled.
 
@@ -152,7 +152,7 @@ config S3C_WATCHDOG
 	  unavailable.
 
 	  The driver can be built as a module by choosing M, and will
-	  be called s3c_wdt
+	  be called s3c2410_wdt
 
 config SA1100_WATCHDOG
 	tristate "SA1100/PXA2xx watchdog"

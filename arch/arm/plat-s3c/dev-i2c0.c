@@ -15,13 +15,13 @@
 #include <linux/string.h>
 #include <linux/platform_device.h>
 
+#include <mach/irqs.h>
 #include <mach/map.h>
 
 #include <plat/regs-iic.h>
 #include <plat/iic.h>
 #include <plat/devs.h>
 #include <plat/cpu.h>
-#include <plat/irqs.h>
 
 static struct resource s3c_i2c_resource[] = {
 	[0] = {
@@ -37,8 +37,8 @@ static struct resource s3c_i2c_resource[] = {
 };
 
 struct platform_device s3c_device_i2c0 = {
-	.name		  = "s3c-i2c",
-#if defined(CONFIG_S3C_DEV_I2C1) || defined(CONFIG_MACH_JET)
+	.name		  = "s3c2410-i2c",
+#ifdef CONFIG_S3C_DEV_I2C1
 	.id		  = 0,
 #else
 	.id		  = -1,
@@ -47,26 +47,22 @@ struct platform_device s3c_device_i2c0 = {
 	.resource	  = s3c_i2c_resource,
 };
 
-static struct s3c_platform_i2c default_i2c_data0 __initdata = {
+static struct s3c2410_platform_i2c default_i2c_data0 __initdata = {
 	.flags		= 0,
 	.slave_addr	= 0x10,
 	.bus_freq	= 100*1000,
-#if defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN)
-	.max_freq	= 150*1000,
-#else
 	.max_freq	= 400*1000,
-#endif	
-	.sda_delay	= S3C_IICLC_SDA_DELAY5 | S3C_IICLC_FILTER_ON,
+	.sda_delay	= S3C2410_IICLC_SDA_DELAY5 | S3C2410_IICLC_FILTER_ON,
 };
 
-void __init s3c_i2c0_set_platdata(struct s3c_platform_i2c *pd)
+void __init s3c_i2c0_set_platdata(struct s3c2410_platform_i2c *pd)
 {
-	struct s3c_platform_i2c *npd;
+	struct s3c2410_platform_i2c *npd;
 
 	if (!pd)
 		pd = &default_i2c_data0;
 
-	npd = kmemdup(pd, sizeof(struct s3c_platform_i2c), GFP_KERNEL);
+	npd = kmemdup(pd, sizeof(struct s3c2410_platform_i2c), GFP_KERNEL);
 	if (!npd)
 		printk(KERN_ERR "%s: no memory for platform data\n", __func__);
 	else if (!npd->cfg_gpio)

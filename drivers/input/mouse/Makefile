@@ -18,7 +18,6 @@ obj-$(CONFIG_MOUSE_SERIAL)		+= sermouse.o
 obj-$(CONFIG_MOUSE_HIL)			+= hil_ptr.o
 obj-$(CONFIG_MOUSE_VSXXXAA)		+= vsxxxaa.o
 obj-$(CONFIG_MOUSE_GPIO)		+= gpio_mouse.o
-obj-$(CONFIG_MOUSE_OPTJOY)		+= opt_joy.o
 
 psmouse-objs := psmouse-base.o synaptics.o
 

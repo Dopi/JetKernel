@@ -703,12 +703,11 @@ static long ppp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		i = err;
 		if (cmd == PPPIOCGNPMODE) {
 			err = -EFAULT;
-			npi.mode = NPMODE_PASS;// Anubis_CHECK ppp->npmode[i];
+			npi.mode = ppp->npmode[i];
 			if (copy_to_user(argp, &npi, sizeof(npi)))
 				break;
 		} else {
-			printk("[PPP_GENERIC] npi.mode = %d\n", npi.mode);
-			ppp->npmode[i] = NPMODE_PASS; // Anubis_CHECK npi.mode;
+			ppp->npmode[i] = npi.mode;
 			/* we may be able to transmit more packets now (??) */
 			netif_wake_queue(ppp->dev);
 		}
@@ -1666,7 +1665,6 @@ ppp_receive_nonmp_frame(struct ppp *ppp, struct sk_buff *skb)
 
 		if ((ppp->dev->flags & IFF_UP) == 0
 		    || ppp->npmode[npi] != NPMODE_PASS) {
-		       printk("[PPP_GENERIC] ppp->dev->flags & IFF_UP = %d   , ppp->npmode[%d] = %d \n", (ppp->dev->flags & IFF_UP), npi, (ppp->npmode[npi]));
 			kfree_skb(skb);
 		} else {
 			/* chop off protocol */

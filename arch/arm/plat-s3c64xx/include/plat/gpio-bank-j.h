@@ -12,9 +12,6 @@
  * published by the Free Software Foundation.
 */
 
-#ifndef __ASM_PLAT_S3C64XX_GPIO_BANK_J_H
-#define __ASM_PLAT_S3C64XX_GPIO_BANK_J_H __FILE__
-
 #define S3C64XX_GPJCON			(S3C64XX_GPJ_BASE + 0x00)
 #define S3C64XX_GPJDAT			(S3C64XX_GPJ_BASE + 0x04)
 #define S3C64XX_GPJPUD			(S3C64XX_GPJ_BASE + 0x08)
@@ -37,5 +34,3 @@
 #define S3C64XX_GPJ9_LCD_VSYNC		(0x02 << 18)
 #define S3C64XX_GPJ10_LCD_VDEN		(0x02 << 20)
 #define S3C64XX_GPJ11_LCD_VCLK		(0x02 << 22)
-
-#endif	/* __ASM_PLAT_S3C64XX_GPIO_BANK_J_H */

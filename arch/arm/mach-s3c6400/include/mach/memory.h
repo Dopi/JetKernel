@@ -1,4 +1,4 @@
-/* linux/arch/arm/mach-s3c6400/include/mach/memory.h
+/* arch/arm/mach-s3c6400/include/mach/memory.h
  *
  * Copyright 2008 Openmoko, Inc.
  * Copyright 2008 Simtec Electronics
@@ -13,10 +13,6 @@
 #ifndef __ASM_ARCH_MEMORY_H
 #define __ASM_ARCH_MEMORY_H
 
-#define PHYS_OFFSET     	UL(0x50000000)
-#define CONSISTENT_DMA_SIZE	(SZ_8M + SZ_4M + SZ_2M)
-
-#define __virt_to_bus(x) __virt_to_phys(x)
-#define __bus_to_virt(x) __phys_to_virt(x)
+#define PHYS_OFFSET     UL(0x50000000)
 
 #endif

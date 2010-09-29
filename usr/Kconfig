@@ -44,14 +44,3 @@ config INITRAMFS_ROOT_GID
 	  owned by group root in the initial ramdisk image.
 
 	  If you are not sure, leave it set to "0".
-
-config INITRAMFS_COMPRESS
-	bool "Compress initramfs image"
-	default y
-	help
-	  If you want a compressed initramfs image in your kernel say y
-	  If you do not want your initramfs image to be compressed say n. 
-	  A compressed initramfs is generally not useful if you also have a
-	  compressed kernel (vmlinuz, bzImage).
-
-	  If you are not sure, levae it to y.

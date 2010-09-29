@@ -12,9 +12,6 @@
  * published by the Free Software Foundation.
 */
 
-#ifndef __ASM_PLAT_S3C64XX_GPIO_BANK_I_H
-#define __ASM_PLAT_S3C64XX_GPIO_BANK_I_H __FILE__
-
 #define S3C64XX_GPICON			(S3C64XX_GPI_BASE + 0x00)
 #define S3C64XX_GPIDAT			(S3C64XX_GPI_BASE + 0x04)
 #define S3C64XX_GPIPUD			(S3C64XX_GPI_BASE + 0x08)
@@ -41,5 +38,3 @@
 #define S3C64XX_GPI13_VD13		(0x02 << 26)
 #define S3C64XX_GPI14_VD14		(0x02 << 28)
 #define S3C64XX_GPI15_VD15		(0x02 << 30)
-
-#endif	/* __ASM_PLAT_S3C64XX_GPIO_BANK_I_H */

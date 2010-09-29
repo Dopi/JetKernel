@@ -1,4 +1,4 @@
-/* linux/arch/arm/plat-s3c/include/plat/debug-macro.S
+/* linux/include/asm-arm/plat-s3c/debug-macro.S
  *
  * Copyright 2005, 2007 Simtec Electronics
  *	http://armlinux.simtec.co.uk/

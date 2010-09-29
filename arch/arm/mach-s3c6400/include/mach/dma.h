@@ -11,6 +11,6 @@
 #ifndef __ASM_ARCH_DMA_H
 #define __ASM_ARCH_DMA_H __FILE__
 
-#include <mach/s3c-dma.h>
+/* currently nothing here, placeholder */
 
 #endif /* __ASM_ARCH_IRQ_H */

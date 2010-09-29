@@ -88,19 +88,6 @@ config VT_HW_CONSOLE_BINDING
 	 information. For framebuffer console users, please refer to
 	 <file:Documentation/fb/fbcon.txt>.
 
-config DEVMEM
-	bool "Memory device driver"
-	default y
-	help
-	  The memory driver provides two character devices, mem and kmem, which
-	  provide access to the system's memory. The mem device is a view of
-	  physical memory, and each byte in the device corresponds to the
-	  matching physical address. The kmem device is the same as mem, but
-	  the addresses correspond to the kernel's virtual address space rather
-	  than physical memory. These devices are standard parts of a Linux
-	  system and most users should say Y here. You might say N if very
-	  security conscience or memory is tight.
-
 config DEVKMEM
 	bool "/dev/kmem virtual device support"
 	default y
@@ -893,14 +880,6 @@ config DS1302
 
 endif # RTC_LIB
 
-if S3C64XX_ADCTS=n
-config S3C_ADC
-	bool "S3C ADC Driver"
-	depends on PLAT_S3C
-	help
-	  ADC (A/D Conversion) driver for Samsung S3C2450/2416, S3C6400/6410.
-endif
-
 config DTLK
 	tristate "Double Talk PC internal speech card support"
 	depends on ISA
@@ -1120,20 +1099,7 @@ config DEVPORT
 	depends on ISA || PCI
 	default y
 
-config DCC_TTY
-	tristate "DCC tty driver"
-	depends on ARM
-
 source "drivers/s390/char/Kconfig"
-
-config S3C_MEM
-	bool "Support for /dev/s3c-mem"
-	default y
-	---help---
-	  If you do say Y here, you can allocate physically linear memories from system memory.
-	  And you can share the memory at the other process using re-allocation ioctl.
-
-	  If unsure, say Y.
 
 endmenu
 

@@ -8,7 +8,7 @@
 
 
   ld -m elf_i386  --format binary --oformat elf32-i386 -r \
-  -T initramfs_data.scr initramfs_data.img -o initramfs_data.o
+  -T initramfs_data.scr initramfs_data.cpio.gz -o initramfs_data.o
    ld -m elf_i386  -r -o built-in.o initramfs_data.o
 
   initramfs_data.scr looks like this:
@@ -26,5 +26,5 @@ SECTIONS
 */
 
 .section .init.ramfs,"a"
-.incbin "usr/initramfs_data.img"
+.incbin "usr/initramfs_data.cpio.gz"
 

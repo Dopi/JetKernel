@@ -12,15 +12,10 @@
  * published by the Free Software Foundation.
 */
 
-#ifndef __ASM_ARCH_GPIO_H
-#define __ASM_ARCH_GPIO_H __FILE__
-
 #define gpio_get_value	__gpio_get_value
 #define gpio_set_value	__gpio_set_value
 #define gpio_cansleep	__gpio_cansleep
-
-extern int gpio_to_irq(unsigned gpio);
-extern int irq_to_gpio(unsigned irq);
+#define gpio_to_irq	__gpio_to_irq
 
 /* GPIO bank sizes */
 #define S3C64XX_GPIO_A_NR	(8)
@@ -95,50 +90,7 @@ enum s3c_gpio_number {
 #define S3C64XX_GPIO_END	(S3C64XX_GPQ(S3C64XX_GPIO_Q_NR) + 1)
 #define S3C_GPIO_END		S3C64XX_GPIO_END
 
-#define S3C64XX_GPIO_OFF_PART_BASE		S3C64XX_GPA(0)
-#define S3C64XX_GPIO_ALIVE_PART_BASE		S3C64XX_GPK(0)
-#define S3C64XX_GPIO_MEM_PART_BASE		S3C64XX_GPO(0)
-
 /* define the number of gpios we need to the one after the GPQ() range */
 #define ARCH_NR_GPIOS	(S3C64XX_GPQ(S3C64XX_GPIO_Q_NR) + 1)
 
 #include <asm-generic/gpio.h>
-
-#define S3C_GPIO_LAVEL(x)	((x >= S3C64XX_GPIO_Q_START) ? "GPQ" : \
-								((x >= S3C64XX_GPIO_P_START) ? "GPP" : \
-								((x >= S3C64XX_GPIO_O_START) ? "GPO" : \
-								((x >= S3C64XX_GPIO_N_START) ? "GPN" : \
-								((x >= S3C64XX_GPIO_M_START) ? "GPM" : \
-								((x >= S3C64XX_GPIO_L_START) ? "GPL" : \
-								((x >= S3C64XX_GPIO_K_START) ? "GPK" : \
-								((x >= S3C64XX_GPIO_J_START) ? "GPJ" : \
-								((x >= S3C64XX_GPIO_I_START) ? "GPI" : \
-								((x >= S3C64XX_GPIO_H_START) ? "GPH" : \
-								((x >= S3C64XX_GPIO_G_START) ? "GPG" : \
-								((x >= S3C64XX_GPIO_F_START) ? "GPF" : \
-								((x >= S3C64XX_GPIO_E_START) ? "GPE" : \
-								((x >= S3C64XX_GPIO_D_START) ? "GPD" : \
-								((x >= S3C64XX_GPIO_C_START) ? "GPC" : \
-								((x >= S3C64XX_GPIO_B_START) ? "GPB" : \
-								((x >= S3C64XX_GPIO_A_START) ? "GPA" : NULL))))))))))))))))) \
-
-#include <plat/gpio-bank-a.h>
-#include <plat/gpio-bank-b.h>
-#include <plat/gpio-bank-c.h>
-#include <plat/gpio-bank-d.h>
-#include <plat/gpio-bank-e.h>
-#include <plat/gpio-bank-f.h>
-#include <plat/gpio-bank-g.h>
-#include <plat/gpio-bank-h.h>
-#include <plat/gpio-bank-i.h>
-#include <plat/gpio-bank-j.h>
-#include <plat/gpio-bank-k.h>
-#include <plat/gpio-bank-l.h>
-#include <plat/gpio-bank-m.h>
-#include <plat/gpio-bank-n.h>
-#include <plat/gpio-bank-o.h>
-#include <plat/gpio-bank-p.h>
-#include <plat/gpio-bank-q.h>
-
-
-#endif /* __ASM_ARCH_GPIO_H */

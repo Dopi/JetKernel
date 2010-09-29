@@ -9,7 +9,8 @@
 struct class *bt_class = NULL;
 EXPORT_SYMBOL_GPL(bt_class);
 
-static struct workqueue_struct *bluetooth;
+static struct workqueue_struct *btaddconn;
+static struct workqueue_struct *btdelconn;
 
 static inline char *link_typetostr(int type)
 {
@@ -87,10 +88,9 @@ static struct device_type bt_link = {
 
 static void add_conn(struct work_struct *work)
 {
-	struct hci_conn *conn = container_of(work, struct hci_conn, work_add);
+	struct hci_conn *conn = container_of(work, struct hci_conn, work);
 
-	/* ensure previous add/del is complete */
-	flush_workqueue(bluetooth);
+	flush_workqueue(btdelconn);
 
 	if (device_add(&conn->dev) < 0) {
 		BT_ERR("Failed to register connection device");
@@ -114,9 +114,9 @@ void hci_conn_add_sysfs(struct hci_conn *conn)
 
 	device_initialize(&conn->dev);
 
-	INIT_WORK(&conn->work_add, add_conn);
+	INIT_WORK(&conn->work, add_conn);
 
-	queue_work(bluetooth, &conn->work_add);
+	queue_work(btaddconn, &conn->work);
 }
 
 /*
@@ -131,11 +131,8 @@ static int __match_tty(struct device *dev, void *data)
 
 static void del_conn(struct work_struct *work)
 {
-	struct hci_conn *conn = container_of(work, struct hci_conn, work_del);
+	struct hci_conn *conn = container_of(work, struct hci_conn, work);
 	struct hci_dev *hdev = conn->hdev;
-
-	/* ensure previous add/del is complete */
-	flush_workqueue(bluetooth);
 
 	while (1) {
 		struct device *dev;
@@ -159,9 +156,9 @@ void hci_conn_del_sysfs(struct hci_conn *conn)
 	if (!device_is_registered(&conn->dev))
 		return;
 
-	INIT_WORK(&conn->work_del, del_conn);
+	INIT_WORK(&conn->work, del_conn);
 
-	queue_work(bluetooth, &conn->work_del);
+	queue_work(btdelconn, &conn->work);
 }
 
 static inline char *host_typetostr(int type)
@@ -438,13 +435,20 @@ void hci_unregister_sysfs(struct hci_dev *hdev)
 
 int __init bt_sysfs_init(void)
 {
-	bluetooth = create_singlethread_workqueue("bluetooth");
-	if (!bluetooth)
+	btaddconn = create_singlethread_workqueue("btaddconn");
+	if (!btaddconn)
 		return -ENOMEM;
+
+	btdelconn = create_singlethread_workqueue("btdelconn");
+	if (!btdelconn) {
+		destroy_workqueue(btaddconn);
+		return -ENOMEM;
+	}
 
 	bt_class = class_create(THIS_MODULE, "bluetooth");
 	if (IS_ERR(bt_class)) {
-		destroy_workqueue(bluetooth);
+		destroy_workqueue(btdelconn);
+		destroy_workqueue(btaddconn);
 		return PTR_ERR(bt_class);
 	}
 
@@ -453,7 +457,8 @@ int __init bt_sysfs_init(void)
 
 void bt_sysfs_cleanup(void)
 {
-	destroy_workqueue(bluetooth);
+	destroy_workqueue(btaddconn);
+	destroy_workqueue(btdelconn);
 
 	class_destroy(bt_class);
 }

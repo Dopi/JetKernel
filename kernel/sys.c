@@ -44,8 +44,6 @@
 #include <asm/io.h>
 #include <asm/unistd.h>
 
-#include <linux/suspend.h>
-
 #ifndef SET_UNALIGN_CTL
 # define SET_UNALIGN_CTL(a,b)	(-EINVAL)
 #endif
@@ -357,7 +355,6 @@ EXPORT_SYMBOL_GPL(kernel_power_off);
  *
  * reboot doesn't sync: do that yourself before calling this.
  */
-extern void request_suspend_state(suspend_state_t new_state);
 SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
 		void __user *, arg)
 {
@@ -402,9 +399,6 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
 		break;
 
 	case LINUX_REBOOT_CMD_POWER_OFF:
-		// to prevent entering sleep state during power off 
-		request_suspend_state(PM_SUSPEND_ON);
-
 		kernel_power_off();
 		unlock_kernel();
 		do_exit(0);

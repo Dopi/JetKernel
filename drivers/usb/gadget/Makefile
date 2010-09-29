@@ -21,7 +21,6 @@ obj-$(CONFIG_USB_FSL_USB2)	+= fsl_usb2_udc.o
 obj-$(CONFIG_USB_M66592)	+= m66592-udc.o
 obj-$(CONFIG_USB_FSL_QE)	+= fsl_qe_udc.o
 obj-$(CONFIG_USB_CI13XXX)	+= ci13xxx_udc.o
-obj-$(CONFIG_USB_GADGET_S3C_OTGD_HS)   += s3c-udc-otg-hs.o
 
 #
 # USB gadget drivers
@@ -32,20 +31,8 @@ g_serial-objs			:= serial.o
 g_midi-objs			:= gmidi.o
 gadgetfs-objs			:= inode.o
 g_file_storage-objs		:= file_storage.o
-g_printer-objs			:= printer.o 
+g_printer-objs			:= printer.o
 g_cdc-objs			:= cdc2.o
-g_android_adb_ums-objs	:= android.o f_adb.o f_mass_storage.o 
-g_android_adb_ums_acm-objs	:= adb_ums_acm.o f_adb.o f_mass_storage.o u_serial.o f_acm.o
-
-#ifeq ($(CONFIG_USB_ETH_RNDIS),y)
-#	g_ether-objs		+= f_rndis.o rndis.o
-#endif
-
-ifeq ($(CONFIG_USB_DUN_SUPPORT),y)
-	g_serial-objs		+= serial_acm.o	
-	g_cdc-objs		+= serial_acm.o
-	g_android_adb_ums_acm-objs	+= serial_acm.o
-endif
 
 obj-$(CONFIG_USB_ZERO)		+= g_zero.o
 obj-$(CONFIG_USB_ETH)		+= g_ether.o
@@ -55,5 +42,4 @@ obj-$(CONFIG_USB_G_SERIAL)	+= g_serial.o
 obj-$(CONFIG_USB_G_PRINTER)	+= g_printer.o
 obj-$(CONFIG_USB_MIDI_GADGET)	+= g_midi.o
 obj-$(CONFIG_USB_CDC_COMPOSITE) += g_cdc.o
-obj-$(CONFIG_USB_ANDROID_ADB_UMS)	+= g_android_adb_ums.o
-obj-$(CONFIG_USB_ANDROID_ADB_UMS_ACM)	+= g_android_adb_ums_acm.o
+

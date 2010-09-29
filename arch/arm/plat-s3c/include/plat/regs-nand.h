@@ -1,4 +1,4 @@
-/* linux/arch/arm/plat-s3c/include/plat/regs-nand.h
+/* arch/arm/mach-s3c2410/include/mach/regs-nand.h
  *
  * Copyright (c) 2004,2005 Simtec Electronics <linux@simtec.co.uk>
  *		      http://www.simtec.co.uk/products/SWLINUX/
@@ -117,56 +117,7 @@
 #define S3C2412_NFECCERR_MULTIBIT	(2)
 #define S3C2412_NFECCERR_ECCAREA	(3)
 
-/* for s3c_nand.c */
-#define S3C_NFCONF		S3C2410_NFREG(0x00)
-#define S3C_NFCONT		S3C2410_NFREG(0x04)
-#define S3C_NFCMMD		S3C2410_NFREG(0x08)
-#define S3C_NFADDR		S3C2410_NFREG(0x0c)
-#define S3C_NFDATA8		S3C2410_NFREG(0x10)
-#define S3C_NFDATA		S3C2410_NFREG(0x10)
-#define S3C_NFMECCDATA0		S3C2410_NFREG(0x14)
-#define S3C_NFMECCDATA1		S3C2410_NFREG(0x18)
-#define S3C_NFSECCDATA		S3C2410_NFREG(0x1c)
-#define S3C_NFSBLK		S3C2410_NFREG(0x20)
-#define S3C_NFEBLK		S3C2410_NFREG(0x24)
-#define S3C_NFSTAT		S3C2410_NFREG(0x28)
-#define S3C_NFMECCERR0		S3C2410_NFREG(0x2c)
-#define S3C_NFMECCERR1		S3C2410_NFREG(0x30)
-#define S3C_NFMECC0		S3C2410_NFREG(0x34)
-#define S3C_NFMECC1		S3C2410_NFREG(0x38)
-#define S3C_NFSECC		S3C2410_NFREG(0x3c)
-#define S3C_NFMLCBITPT		S3C2410_NFREG(0x40)
 
-#define S3C_NFCONF_NANDBOOT	(1<<31)
-#define S3C_NFCONF_ECCCLKCON	(1<<30)
-#define S3C_NFCONF_ECC_MLC	(1<<24)
-#define	S3C_NFCONF_ECC_1BIT	(0<<23)
-#define	S3C_NFCONF_ECC_4BIT	(2<<23)
-#define	S3C_NFCONF_ECC_8BIT	(1<<23)
-#define S3C_NFCONF_TACLS(x)	((x)<<12)
-#define S3C_NFCONF_TWRPH0(x)	((x)<<8)
-#define S3C_NFCONF_TWRPH1(x)	((x)<<4)
-#define S3C_NFCONF_ADVFLASH	(1<<3)
-#define S3C_NFCONF_PAGESIZE	(1<<2)
-#define S3C_NFCONF_ADDRCYCLE	(1<<1)
-#define S3C_NFCONF_BUSWIDTH	(1<<0)
-
-#define S3C_NFCONT_ECC_ENC	(1<<18)
-#define S3C_NFCONT_LOCKTGHT	(1<<17)
-#define S3C_NFCONT_LOCKSOFT	(1<<16)
-#define S3C_NFCONT_MECCLOCK	(1<<7)
-#define S3C_NFCONT_SECCLOCK	(1<<6)
-#define S3C_NFCONT_INITMECC	(1<<5)
-#define S3C_NFCONT_INITSECC	(1<<4)
-#define S3C_NFCONT_nFCE1	(1<<2)
-#define S3C_NFCONT_nFCE0	(1<<1)
-#define S3C_NFCONT_INITECC	(S3C_NFCONT_INITSECC | S3C_NFCONT_INITMECC)
-
-#define S3C_NFSTAT_ECCENCDONE	(1<<7)
-#define S3C_NFSTAT_ECCDECDONE	(1<<6)
-#define S3C_NFSTAT_BUSY		(1<<0)
-
-#define S3C_NFECCERR0_ECCBUSY	(1<<31)
 
 #endif /* __ASM_ARM_REGS_NAND */
 
