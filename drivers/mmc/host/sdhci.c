@@ -22,8 +22,18 @@
 #include <linux/leds.h>
 
 #include <linux/mmc/host.h>
+#include <linux/mmc/card.h>
+#include <linux/clk.h>
 
 #include "sdhci.h"
+
+#include <mach/hardware.h>
+#include <mach/gpio.h>
+#include <plat/regs-gpio.h>
+#include <plat/regs-sdhci.h>
+#include <linux/irq.h>
+
+#define S3C_ACMD_MODE
 
 #define DRIVER_NAME "sdhci"
 
@@ -36,12 +46,40 @@
 #endif
 
 static unsigned int debug_quirks = 0;
+static int card_detect = 0;
 
 static void sdhci_prepare_data(struct sdhci_host *, struct mmc_data *);
 static void sdhci_finish_data(struct sdhci_host *);
 
 static void sdhci_send_command(struct sdhci_host *, struct mmc_command *);
 static void sdhci_finish_command(struct sdhci_host *);
+
+// TODO-JJ From here
+struct mmc_card_pm dhdpm; 
+
+extern int g_rescan_retry;
+
+void register_mmc_card_pm(struct mmc_card_pm *cardpm)
+{
+	if((cardpm != NULL) && (cardpm->suspend !=NULL) && (cardpm->resume != NULL))
+	{
+	   dhdpm.suspend = cardpm->suspend;
+	   dhdpm.resume = cardpm->resume;
+	   printk("%s: [WIFI] Callbacks registered successfully. \n",__FUNCTION__);
+	}
+	else
+	   printk("%s: Error: Null pointer!! \n", __FUNCTION__);
+}
+EXPORT_SYMBOL(register_mmc_card_pm);
+
+void unregister_mmc_card_pm(void)
+{
+   printk("%s: [WIFI] Unregistering suspend/resume callbacks.  \n", __FUNCTION__);
+   dhdpm.suspend = NULL;
+   dhdpm.resume  = NULL;	
+}
+EXPORT_SYMBOL(unregister_mmc_card_pm);
+// TODO-JJ till here
 
 static void sdhci_dumpregs(struct sdhci_host *host)
 {
@@ -77,6 +115,11 @@ static void sdhci_dumpregs(struct sdhci_host *host)
 	printk(KERN_DEBUG DRIVER_NAME ": Caps:     0x%08x | Max curr: 0x%08x\n",
 		readl(host->ioaddr + SDHCI_CAPABILITIES),
 		readl(host->ioaddr + SDHCI_MAX_CURRENT));
+
+	if (host->flags & SDHCI_USE_ADMA)
+		printk(DRIVER_NAME ": ADMA Err: 0x%08x | ADMA Ptr: 0x%08x\n",
+		       readl(host->ioaddr + SDHCI_ADMA_ERROR),
+		       readl(host->ioaddr + SDHCI_ADMA_ADDRESS));
 
 	printk(KERN_DEBUG DRIVER_NAME ": ===========================================\n");
 }
@@ -120,14 +163,14 @@ static void sdhci_reset(struct sdhci_host *host, u8 mask)
 
 static void sdhci_init(struct sdhci_host *host)
 {
-	u32 intmask;
+	u32 intmask=0;
 
 	sdhci_reset(host, SDHCI_RESET_ALL);
 
 	intmask = SDHCI_INT_BUS_POWER | SDHCI_INT_DATA_END_BIT |
 		SDHCI_INT_DATA_CRC | SDHCI_INT_DATA_TIMEOUT | SDHCI_INT_INDEX |
 		SDHCI_INT_END_BIT | SDHCI_INT_CRC | SDHCI_INT_TIMEOUT |
-		SDHCI_INT_CARD_REMOVE | SDHCI_INT_CARD_INSERT |
+		//SDHCI_INT_CARD_REMOVE | SDHCI_INT_CARD_INSERT |
 		SDHCI_INT_DATA_AVAIL | SDHCI_INT_SPACE_AVAIL |
 		SDHCI_INT_DMA_END | SDHCI_INT_DATA_END | SDHCI_INT_RESPONSE |
 		SDHCI_INT_ADMA_ERROR;
@@ -544,7 +587,7 @@ static u8 sdhci_calc_timeout(struct sdhci_host *host, struct mmc_data *data)
 	 *     (1) / (2) > 2^6
 	 */
 	count = 0;
-	current_timeout = (1 << 13) * 1000 / host->timeout_clk;
+	current_timeout = (1 << 14) * 1000 / host->timeout_clk;
 	while (current_timeout < target_timeout) {
 		count++;
 		current_timeout <<= 1;
@@ -733,7 +776,29 @@ static void sdhci_set_transfer_mode(struct sdhci_host *host,
 	if (host->flags & SDHCI_REQ_USE_DMA)
 		mode |= SDHCI_TRNS_DMA;
 
+#if defined(S3C_ACMD_MODE)
+	if (data->stop)
+		mode |= SDHCI_TRNS_ACMD12;
+#endif
+
 	writew(mode, host->ioaddr + SDHCI_TRANSFER_MODE);
+}
+
+static void shdci_check_dma_overrun(struct sdhci_host *host, struct mmc_data *data)
+{
+	u32 dma_pos = readl(host->ioaddr + SDHCI_DMA_ADDRESS);
+	u32 dma_start = sg_dma_address(data->sg);
+	u32 dma_end = dma_start + data->sg->length;
+
+	/* Test whether we ended up moving more data than
+	 * was originally requested. */
+
+	if (dma_pos <= dma_end)
+		return;
+
+	printk(KERN_ERR "%s: dma overrun, dma %08x, req %08x..%08x\n",
+	       mmc_hostname(host->mmc), dma_pos,
+	       dma_start, dma_end);
 }
 
 static void sdhci_finish_data(struct sdhci_host *host)
@@ -749,6 +814,8 @@ static void sdhci_finish_data(struct sdhci_host *host)
 		if (host->flags & SDHCI_USE_ADMA)
 			sdhci_adma_table_post(host, data);
 		else {
+			shdci_check_dma_overrun(host, data);
+
 			dma_unmap_sg(mmc_dev(host->mmc), data->sg,
 				data->sg_len, (data->flags & MMC_DATA_READ) ?
 					DMA_FROM_DEVICE : DMA_TO_DEVICE);
@@ -767,6 +834,7 @@ static void sdhci_finish_data(struct sdhci_host *host)
 	else
 		data->bytes_xfered = data->blksz * data->blocks;
 
+#if !defined(S3C_ACMD_MODE)
 	if (data->stop) {
 		/*
 		 * The controller needs a reset of internal state machines
@@ -779,6 +847,7 @@ static void sdhci_finish_data(struct sdhci_host *host)
 
 		sdhci_send_command(host, data->stop);
 	} else
+#endif
 		tasklet_schedule(&host->finish_tasklet);
 }
 
@@ -888,6 +957,14 @@ static void sdhci_finish_command(struct sdhci_host *host)
 
 static void sdhci_set_clock(struct sdhci_host *host, unsigned int clock)
 {
+	if (clock == host->clock)
+		return;
+
+	host->ops->change_clock(host, clock);
+}
+
+void sdhci_change_clock(struct sdhci_host *host, unsigned int clock)
+{
 	int div;
 	u16 clk;
 	unsigned long timeout;
@@ -930,6 +1007,8 @@ static void sdhci_set_clock(struct sdhci_host *host, unsigned int clock)
 out:
 	host->clock = clock;
 }
+
+EXPORT_SYMBOL_GPL(sdhci_set_clock);
 
 static void sdhci_set_power(struct sdhci_host *host, unsigned short power)
 {
@@ -984,6 +1063,137 @@ out:
 
 /*****************************************************************************\
  *                                                                           *
+ * Tasklets                                                                  *
+ *                                                                           *
+\*****************************************************************************/
+
+static void sdhci_tasklet_card(unsigned long param)
+{
+	struct sdhci_host *host;
+	unsigned long flags;
+
+	host = (struct sdhci_host*)param;
+
+	spin_lock_irqsave(&host->lock, flags);
+
+	if (!(readl(host->ioaddr + SDHCI_PRESENT_STATE) & SDHCI_CARD_PRESENT)  || !card_detect) {
+		if (host->mrq) {
+			printk(KERN_ERR "%s: Card removed during transfer!\n",
+				mmc_hostname(host->mmc));
+			printk(KERN_ERR "%s: Resetting controller.\n",
+				mmc_hostname(host->mmc));
+
+			sdhci_reset(host, SDHCI_RESET_CMD);
+			sdhci_reset(host, SDHCI_RESET_DATA);
+
+			host->mrq->cmd->error = -ENOMEDIUM;
+			tasklet_schedule(&host->finish_tasklet);
+		}
+	}
+
+	spin_unlock_irqrestore(&host->lock, flags);
+
+	mmc_detect_change(host->mmc, msecs_to_jiffies(200));
+}
+
+static void sdhci_tasklet_finish(unsigned long param)
+{
+	struct sdhci_host *host;
+	unsigned long flags;
+	struct mmc_request *mrq;
+
+	host = (struct sdhci_host*)param;
+
+	spin_lock_irqsave(&host->lock, flags);
+
+	del_timer(&host->timer);
+
+	mrq = host->mrq;
+
+	/*
+	 * The controller needs a reset of internal state machines
+	 * upon error conditions.
+	 */
+	
+	if(host == NULL || mrq == NULL)
+	{
+		mmiowb();
+		spin_unlock_irqrestore(&host->lock, flags);
+		return;
+	}
+		
+	if (!(host->flags & SDHCI_DEVICE_DEAD) &&
+		(mrq->cmd->error ||
+		 (mrq->data && (mrq->data->error ||
+		  (mrq->data->stop && mrq->data->stop->error))) ||
+		   (host->quirks & SDHCI_QUIRK_RESET_AFTER_REQUEST))) {
+
+		/* Some controllers need this kick or reset won't work here */
+		if (host->quirks & SDHCI_QUIRK_CLOCK_BEFORE_RESET) {
+			unsigned int clock;
+
+			/* This is to force an update */
+			clock = host->clock;
+			host->clock = 0;
+			sdhci_set_clock(host, clock);
+		}
+
+		/* Spec says we should do both at the same time, but Ricoh
+		   controllers do not like that. */
+		sdhci_reset(host, SDHCI_RESET_CMD);
+		sdhci_reset(host, SDHCI_RESET_DATA);
+	}
+
+	host->mrq = NULL;
+	host->cmd = NULL;
+	host->data = NULL;
+
+#ifndef CONFIG_LEDS_CLASS
+	sdhci_deactivate_led(host);
+#endif
+	mmiowb();
+	spin_unlock_irqrestore(&host->lock, flags);
+
+	mmc_request_done(host->mmc, mrq);
+}
+
+static void sdhci_timeout_timer(unsigned long data)
+{
+	struct sdhci_host *host;
+	unsigned long flags;
+
+	host = (struct sdhci_host*)data;
+
+	spin_lock_irqsave(&host->lock, flags);
+
+	if (host->mrq) {
+		printk(KERN_ERR "%s: Timeout waiting for hardware "
+			"interrupt.\n", mmc_hostname(host->mmc));
+		sdhci_dumpregs(host);
+
+		if (host->data) {
+			host->data->error = -ETIMEDOUT;
+			sdhci_finish_data(host);
+		} else {
+			if (host->cmd)
+			{
+				host->cmd->error = -ETIMEDOUT;
+			}
+			else
+			{
+				host->mrq->cmd->error = -ETIMEDOUT;
+			}
+
+			tasklet_schedule(&host->finish_tasklet);
+		}
+	}
+
+	mmiowb();
+	spin_unlock_irqrestore(&host->lock, flags);
+}
+
+/*****************************************************************************\
+ *                                                                           *
  * MMC callbacks                                                             *
  *                                                                           *
 \*****************************************************************************/
@@ -992,6 +1202,8 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 {
 	struct sdhci_host *host;
 	unsigned long flags;
+	bool b_isWlan = 0;
+	unsigned int sd_detect = 0;
 
 	host = mmc_priv(mmc);
 
@@ -1005,12 +1217,35 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 
 	host->mrq = mrq;
 
-	if (!(readl(host->ioaddr + SDHCI_PRESENT_STATE) & SDHCI_CARD_PRESENT)
-		|| (host->flags & SDHCI_DEVICE_DEAD)) {
+	switch (host->hwport)
+	{
+		case 0:
+			b_isWlan = 0;
+			sd_detect = readl(S3C64XX_GPNDAT);
+			sd_detect &= 0x40;
+			
+			if(!card_detect && !sd_detect)
+				card_detect = 1;
+			break;
+		case 2:
+			b_isWlan = 1;
+			card_detect = 0;
+			break;
+		default :
+			card_detect = 0;
+			b_isWlan = 0;
+			break;
+	}
+
+	if ( card_detect | b_isWlan) 
+	{
+		sdhci_send_command(host, mrq->cmd);
+	}
+	else
+	{
 		host->mrq->cmd->error = -ENOMEDIUM;
 		tasklet_schedule(&host->finish_tasklet);
-	} else
-		sdhci_send_command(host, mrq->cmd);
+	}		
 
 	mmiowb();
 	spin_unlock_irqrestore(&host->lock, flags);
@@ -1038,6 +1273,9 @@ static void sdhci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		sdhci_init(host);
 	}
 
+	if (host->ops->set_ios)
+		host->ops->set_ios(host, ios);
+
 	sdhci_set_clock(host, ios->clock);
 
 	if (ios->power_mode == MMC_POWER_OFF)
@@ -1052,10 +1290,16 @@ static void sdhci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	else
 		ctrl &= ~SDHCI_CTRL_4BITBUS;
 
+	//kevin
+	//High Speed Enable bit of SDHCI_HOST_CONTROL Register is alwaya low (normal)
+	#if 0
 	if (ios->timing == MMC_TIMING_SD_HS)
 		ctrl |= SDHCI_CTRL_HISPD;
 	else
 		ctrl &= ~SDHCI_CTRL_HISPD;
+	#else
+	ctrl &= ~SDHCI_CTRL_HISPD;
+	#endif
 
 	writeb(ctrl, host->ioaddr + SDHCI_HOST_CONTROL);
 
@@ -1127,125 +1371,7 @@ static const struct mmc_host_ops sdhci_ops = {
 	.enable_sdio_irq = sdhci_enable_sdio_irq,
 };
 
-/*****************************************************************************\
- *                                                                           *
- * Tasklets                                                                  *
- *                                                                           *
-\*****************************************************************************/
 
-static void sdhci_tasklet_card(unsigned long param)
-{
-	struct sdhci_host *host;
-	unsigned long flags;
-
-	host = (struct sdhci_host*)param;
-
-	spin_lock_irqsave(&host->lock, flags);
-
-	if (!(readl(host->ioaddr + SDHCI_PRESENT_STATE) & SDHCI_CARD_PRESENT)) {
-		if (host->mrq) {
-			printk(KERN_ERR "%s: Card removed during transfer!\n",
-				mmc_hostname(host->mmc));
-			printk(KERN_ERR "%s: Resetting controller.\n",
-				mmc_hostname(host->mmc));
-
-			sdhci_reset(host, SDHCI_RESET_CMD);
-			sdhci_reset(host, SDHCI_RESET_DATA);
-
-			host->mrq->cmd->error = -ENOMEDIUM;
-			tasklet_schedule(&host->finish_tasklet);
-		}
-	}
-
-	spin_unlock_irqrestore(&host->lock, flags);
-
-	mmc_detect_change(host->mmc, msecs_to_jiffies(200));
-}
-
-static void sdhci_tasklet_finish(unsigned long param)
-{
-	struct sdhci_host *host;
-	unsigned long flags;
-	struct mmc_request *mrq;
-
-	host = (struct sdhci_host*)param;
-
-	spin_lock_irqsave(&host->lock, flags);
-
-	del_timer(&host->timer);
-
-	mrq = host->mrq;
-
-	/*
-	 * The controller needs a reset of internal state machines
-	 * upon error conditions.
-	 */
-	if (!(host->flags & SDHCI_DEVICE_DEAD) &&
-		(mrq->cmd->error ||
-		 (mrq->data && (mrq->data->error ||
-		  (mrq->data->stop && mrq->data->stop->error))) ||
-		   (host->quirks & SDHCI_QUIRK_RESET_AFTER_REQUEST))) {
-
-		/* Some controllers need this kick or reset won't work here */
-		if (host->quirks & SDHCI_QUIRK_CLOCK_BEFORE_RESET) {
-			unsigned int clock;
-
-			/* This is to force an update */
-			clock = host->clock;
-			host->clock = 0;
-			sdhci_set_clock(host, clock);
-		}
-
-		/* Spec says we should do both at the same time, but Ricoh
-		   controllers do not like that. */
-		sdhci_reset(host, SDHCI_RESET_CMD);
-		sdhci_reset(host, SDHCI_RESET_DATA);
-	}
-
-	host->mrq = NULL;
-	host->cmd = NULL;
-	host->data = NULL;
-
-#ifndef SDHCI_USE_LEDS_CLASS
-	sdhci_deactivate_led(host);
-#endif
-
-	mmiowb();
-	spin_unlock_irqrestore(&host->lock, flags);
-
-	mmc_request_done(host->mmc, mrq);
-}
-
-static void sdhci_timeout_timer(unsigned long data)
-{
-	struct sdhci_host *host;
-	unsigned long flags;
-
-	host = (struct sdhci_host*)data;
-
-	spin_lock_irqsave(&host->lock, flags);
-
-	if (host->mrq) {
-		printk(KERN_ERR "%s: Timeout waiting for hardware "
-			"interrupt.\n", mmc_hostname(host->mmc));
-		sdhci_dumpregs(host);
-
-		if (host->data) {
-			host->data->error = -ETIMEDOUT;
-			sdhci_finish_data(host);
-		} else {
-			if (host->cmd)
-				host->cmd->error = -ETIMEDOUT;
-			else
-				host->mrq->cmd->error = -ETIMEDOUT;
-
-			tasklet_schedule(&host->finish_tasklet);
-		}
-	}
-
-	mmiowb();
-	spin_unlock_irqrestore(&host->lock, flags);
-}
 
 /*****************************************************************************\
  *                                                                           *
@@ -1288,17 +1414,31 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask)
 	 *       controllers.
 	 */
 	if (host->cmd->flags & MMC_RSP_BUSY) {
+		u32 present;
+
 		if (host->cmd->data)
 			DBG("Cannot wait for busy signal when also "
 				"doing a data transfer");
-		else if (!(host->quirks & SDHCI_QUIRK_NO_BUSY_IRQ))
+		else if (!(host->quirks & SDHCI_QUIRK_NO_TCIRQ_ON_NOT_BUSY))
 			return;
 
-		/* The controller does not support the end-of-busy IRQ,
-		 * fall through and take the SDHCI_INT_RESPONSE */
+		/* The Samsung SDHCI does not seem to provide an INT_DATA_END
+		 * when the system goes non-busy, so check the state of the
+		 * transfer by reading SDHCI_PRESENT_STATE to see if the
+		 * controller is ready
+		 */
+
+		present = readl(host->ioaddr + SDHCI_PRESENT_STATE);
+		DBG("busy? present %08x, intstat %08x\n", present, intmask);
+
+		/* fall through and take the SDHCI_INT_RESPONSE */
 	}
 
-	if (intmask & SDHCI_INT_RESPONSE)
+	if (host->cmd->error) {
+		if(&host->finish_tasklet)
+		tasklet_schedule(&host->finish_tasklet);
+	}
+	else if (intmask & SDHCI_INT_RESPONSE)
 		sdhci_finish_command(host);
 }
 
@@ -1380,12 +1520,10 @@ static irqreturn_t sdhci_irq(int irq, void *dev_id)
 		goto out;
 	}
 
-	DBG("*** %s got interrupt: 0x%08x\n",
-		mmc_hostname(host->mmc), intmask);
-
-	if (intmask & (SDHCI_INT_CARD_INSERT | SDHCI_INT_CARD_REMOVE)) {
-		writel(intmask & (SDHCI_INT_CARD_INSERT | SDHCI_INT_CARD_REMOVE),
-			host->ioaddr + SDHCI_INT_STATUS);
+	if (intmask & (SDHCI_INT_CARD_INSERT | SDHCI_INT_CARD_REMOVE)) 
+	{
+		mdelay(10);
+		writel(intmask & (SDHCI_INT_CARD_INSERT | SDHCI_INT_CARD_REMOVE), host->ioaddr + SDHCI_INT_STATUS);
 		tasklet_schedule(&host->card_tasklet);
 	}
 
@@ -1437,10 +1575,51 @@ out:
 	/*
 	 * We have to delay this as it calls back into the driver.
 	 */
-	if (cardint)
+	if (cardint && host->hwport == 2)
+	{
+		if(host->mmc->sdio_irq_thread)
 		mmc_signal_sdio_irq(host->mmc);
+	}
 
 	return result;
+}
+
+static irqreturn_t sdhci_irq_cd(int irq, void *dev_id)
+{
+	struct sdhci_host* host = dev_id;
+	int ext_CD_int = 0;
+	int eint_num = 0;
+	unsigned int eint0msk;
+
+	spin_lock(&host->lock);
+
+	mdelay(1);
+	eint_num = irq - IRQ_EINT(0);
+	__raw_writel((1 << eint_num), S3C64XX_EINT0PEND);
+
+	ext_CD_int = readl(S3C64XX_GPNDAT);
+	ext_CD_int &= 0x40;	/* GPN6 */
+
+	if(ext_CD_int) 
+	{
+		card_detect = 0;
+
+		eint0msk = __raw_readl(S3C64XX_EINT0MASK);
+		eint0msk |= (1 << eint_num);
+		__raw_writel(eint0msk, S3C64XX_EINT0MASK);
+	}
+	else
+	{
+		card_detect = 1;
+		g_rescan_retry = 1;
+	}
+
+	tasklet_schedule(&host->card_tasklet);	
+	mmiowb();
+
+	spin_unlock(&host->lock);
+
+	return IRQ_HANDLED;
 }
 
 /*****************************************************************************\
@@ -1453,13 +1632,44 @@ out:
 
 int sdhci_suspend_host(struct sdhci_host *host, pm_message_t state)
 {
-	int ret;
+	int ret = 0;
 
+	if(host->mmc)
+	{
+		if(host->hwport != 2)
+		{
 	ret = mmc_suspend_host(host->mmc, state);
 	if (ret)
 		return ret;
+		}
+		else
+		{
+			if(dhdpm.suspend != NULL)
+			{
+			    dhdpm.suspend();
+			}
+			else
+			{
+			    printk("[WIFI] %s: dhdpm.suspend=NULL \n",__FUNCTION__);
+			}
+			
+			sdhci_dumpregs(host);
+			writel(0, host->ioaddr + SDHCI_INT_ENABLE);
 
+			clk_disable(host->clk_io);
+			clk_disable(host->clk_bus);	
+			
+		}
+		
+		if(host->irq)
+		{
 	free_irq(host->irq, host);
+		}
+		if(host->irq_cd)
+		{
+			free_irq(host->irq_cd, host);
+		}
+	}
 
 	return 0;
 }
@@ -1468,25 +1678,53 @@ EXPORT_SYMBOL_GPL(sdhci_suspend_host);
 
 int sdhci_resume_host(struct sdhci_host *host)
 {
-	int ret;
+	int ret = 0;
 
-	if (host->flags & SDHCI_USE_DMA) {
+	if (host->mmc) 
+	{
+		if (host->flags & SDHCI_USE_DMA) 
+		{
 		if (host->ops->enable_dma)
 			host->ops->enable_dma(host);
 	}
 
-	ret = request_irq(host->irq, sdhci_irq, IRQF_SHARED,
-			  mmc_hostname(host->mmc), host);
+		set_irq_type(host->irq_cd,IRQ_TYPE_EDGE_BOTH);	
+		ret = request_irq(host->irq_cd, sdhci_irq_cd, IRQF_DISABLED, mmc_hostname(host->mmc), host);
+		ret = request_irq(host->irq, sdhci_irq, IRQF_SHARED,mmc_hostname(host->mmc), host);
 	if (ret)
 		return ret;
 
 	sdhci_init(host);
 	mmiowb();
 
-	ret = mmc_resume_host(host->mmc);
-	if (ret)
-		return ret;
+		if (host->hwport !=2)
+		{
+			mmc_resume_host(host->mmc);
+		}
+		else
+		{
+			printk(KERN_INFO "%s: Enabling SDIO Interrupt \n", __FUNCTION__);
+			
+			host->ops->change_clock(host, host->clock);
+			clk_enable(host->clk_io);
+			clk_enable(host->clk_bus);
 
+			sdhci_set_ios(host->mmc, &host->mmc->ios);
+
+			writeb(0xe, host->ioaddr + SDHCI_POWER_CONTROL); 
+			
+			sdhci_enable_sdio_irq(host->mmc, 1);
+
+			if(dhdpm.resume != NULL)
+			{
+				dhdpm.resume();
+			}
+			else
+			{
+				printk("\n[Jithu] %s: dhdpm.suspend=NULL \n",__FUNCTION__);
+			}
+		}
+	} 
 	return 0;
 }
 
@@ -1612,15 +1850,21 @@ int sdhci_add_host(struct sdhci_host *host)
 		mmc_dev(host->mmc)->dma_mask = &host->dma_mask;
 	}
 
-	host->max_clk =
-		(caps & SDHCI_CLOCK_BASE_MASK) >> SDHCI_CLOCK_BASE_SHIFT;
+	if (host->ops->get_max_clock)
+		host->max_clk = host->ops->get_max_clock(host);
+	else {
+		host->max_clk =	(caps & SDHCI_CLOCK_BASE_MASK) >> SDHCI_CLOCK_BASE_SHIFT;
+		host->max_clk *= 1000000;
+	}
 	if (host->max_clk == 0) {
 		printk(KERN_ERR "%s: Hardware doesn't specify base clock "
 			"frequency.\n", mmc_hostname(mmc));
 		return -ENODEV;
 	}
-	host->max_clk *= 1000000;
 
+	if (host->ops->get_timeout_clock)
+		host->timeout_clk = host->ops->get_timeout_clock(host);
+	else
 	host->timeout_clk =
 		(caps & SDHCI_TIMEOUT_CLK_MASK) >> SDHCI_TIMEOUT_CLK_SHIFT;
 	if (host->timeout_clk == 0) {
@@ -1639,8 +1883,11 @@ int sdhci_add_host(struct sdhci_host *host)
 	mmc->f_max = host->max_clk;
 	mmc->caps = MMC_CAP_4_BIT_DATA | MMC_CAP_SDIO_IRQ;
 
-	if (caps & SDHCI_CAN_DO_HISPD)
-		mmc->caps |= MMC_CAP_SD_HIGHSPEED;
+	if ((caps & SDHCI_CAN_DO_HISPD) ||
+		(host->quirks & SDHCI_QUIRK_FORCE_HIGHSPEED))
+	{
+		mmc->caps |= (MMC_CAP_MMC_HIGHSPEED | MMC_CAP_SD_HIGHSPEED);
+	}
 
 	mmc->ocr_avail = 0;
 	if (caps & SDHCI_CAN_VDD_330)
@@ -1713,8 +1960,11 @@ int sdhci_add_host(struct sdhci_host *host)
 
 	setup_timer(&host->timer, sdhci_timeout_timer, (unsigned long)host);
 
-	ret = request_irq(host->irq, sdhci_irq, IRQF_SHARED,
-		mmc_hostname(mmc), host);
+	set_irq_type(host->irq_cd,IRQ_TYPE_EDGE_BOTH);	
+
+	ret = request_irq(host->irq_cd, sdhci_irq_cd, IRQF_DISABLED, mmc_hostname(mmc), host);
+	ret = request_irq(host->irq, sdhci_irq, IRQF_SHARED, mmc_hostname(mmc), host);
+ 
 	if (ret)
 		goto untasklet;
 
@@ -1752,6 +2002,7 @@ int sdhci_add_host(struct sdhci_host *host)
 reset:
 	sdhci_reset(host, SDHCI_RESET_ALL);
 	free_irq(host->irq, host);
+	free_irq(host->irq_cd, host);
 #endif
 untasklet:
 	tasklet_kill(&host->card_tasklet);
@@ -1792,6 +2043,7 @@ void sdhci_remove_host(struct sdhci_host *host, int dead)
 		sdhci_reset(host, SDHCI_RESET_ALL);
 
 	free_irq(host->irq, host);
+	free_irq(host->irq_cd, host);
 
 	del_timer_sync(&host->timer);
 
@@ -1823,9 +2075,7 @@ EXPORT_SYMBOL_GPL(sdhci_free_host);
 static int __init sdhci_drv_init(void)
 {
 	printk(KERN_INFO DRIVER_NAME
-		": Secure Digital Host Controller Interface driver\n");
-	printk(KERN_INFO DRIVER_NAME ": Copyright(c) Pierre Ossman\n");
-
+		": Samsung S3C6410 SD/MMC driver\n");
 	return 0;
 }
 

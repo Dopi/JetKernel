@@ -18,6 +18,7 @@
 #include <linux/ioport.h>
 #include <linux/serial_core.h>
 #include <linux/platform_device.h>
+#include <linux/delay.h>
 #include <linux/io.h>
 
 #include <mach/hardware.h>
@@ -27,6 +28,7 @@
 #include <asm/mach/map.h>
 
 #include <plat/regs-serial.h>
+#include <plat/regs-clock.h>
 
 #include <plat/cpu.h>
 #include <plat/devs.h>
@@ -109,6 +111,6 @@ void __init s3c64xx_init_io(struct map_desc *mach_desc, int size)
 	iotable_init(s3c_iodesc, ARRAY_SIZE(s3c_iodesc));
 	iotable_init(mach_desc, size);
 
-	idcode = __raw_readl(S3C_VA_SYS + 0x118);
+	idcode = __raw_readl(S3C_SYS_ID);
 	s3c_init_cpu(idcode, cpu_ids, ARRAY_SIZE(cpu_ids));
 }

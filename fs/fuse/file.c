@@ -1234,9 +1234,8 @@ static void fuse_vma_close(struct vm_area_struct *vma)
  * - sync(2)
  * - try_to_free_pages() with order > PAGE_ALLOC_COSTLY_ORDER
  */
-static int fuse_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
+static int fuse_page_mkwrite(struct vm_area_struct *vma, struct page *page)
 {
-	struct page *page = vmf->page;
 	/*
 	 * Don't use page->mapping as it may become NULL from a
 	 * concurrent truncate.
@@ -1466,7 +1465,7 @@ static loff_t fuse_file_llseek(struct file *file, loff_t offset, int origin)
 	case SEEK_END:
 		retval = fuse_update_attributes(inode, NULL, file, NULL);
 		if (retval)
-			goto exit;
+			return retval;
 		offset += i_size_read(inode);
 		break;
 	case SEEK_CUR:
@@ -1480,7 +1479,6 @@ static loff_t fuse_file_llseek(struct file *file, loff_t offset, int origin)
 		}
 		retval = offset;
 	}
-exit:
 	mutex_unlock(&inode->i_mutex);
 	return retval;
 }

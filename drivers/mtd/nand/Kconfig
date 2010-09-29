@@ -180,6 +180,34 @@ config MTD_NAND_S3C2410_CLKSTOP
 	  when the is NAND chip selected or released, but will save
 	  approximately 5mA of power when there is nothing happening.
 
+config MTD_NAND_S3C
+	tristate "NAND Flash support for S3C SoC"
+	depends on ARCH_S3C64XX && MTD_NAND
+	help
+	  This enables the NAND flash controller on the S3C.
+
+	  No board specfic support is done by this driver, each board
+	  must advertise a platform_device for the driver to attach.
+
+config MTD_NAND_S3C_DEBUG
+	bool "S3C NAND driver debug"
+	depends on MTD_NAND_S3C
+	help
+	  Enable debugging of the S3C NAND driver
+
+config MTD_NAND_S3C_HWECC
+	bool "S3C NAND Hardware ECC"
+	depends on MTD_NAND_S3C
+	help
+	  Enable the use of the S3C's internal ECC generator when
+	  using NAND. Early versions of the chip have had problems with
+	  incorrect ECC generation, and if using these, the default of
+	  software ECC is preferable.
+	
+	  If you lay down a device with the hardware ECC, then you will
+	  currently not be able to switch to software, as there is no
+	  implementation for ECC method used by the S3C
+
 config MTD_NAND_DISKONCHIP
 	tristate "DiskOnChip 2000, Millennium and Millennium Plus (NAND reimplementation) (EXPERIMENTAL)"
 	depends on EXPERIMENTAL

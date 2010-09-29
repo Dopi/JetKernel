@@ -258,7 +258,7 @@ int __generic_block_fiemap(struct inode *inode,
 	long long length = 0, map_len = 0;
 	u64 logical = 0, phys = 0, size = 0;
 	u32 flags = FIEMAP_EXTENT_MERGED;
-	int ret = 0, past_eof = 0, whole_file = 0;
+	int ret = 0;
 
 	if ((ret = fiemap_check_flags(fieinfo, FIEMAP_FLAG_SYNC)))
 		return ret;
@@ -266,9 +266,6 @@ int __generic_block_fiemap(struct inode *inode,
 	start_blk = logical_to_blk(inode, start);
 
 	length = (long long)min_t(u64, len, i_size_read(inode));
-	if (length < len)
-		whole_file = 1;
-
 	map_len = length;
 
 	do {
@@ -285,26 +282,11 @@ int __generic_block_fiemap(struct inode *inode,
 
 		/* HOLE */
 		if (!buffer_mapped(&tmp)) {
-			length -= blk_to_logical(inode, 1);
-			start_blk++;
-
-			/*
-			 * we want to handle the case where there is an
-			 * allocated block at the front of the file, and then
-			 * nothing but holes up to the end of the file properly,
-			 * to make sure that extent at the front gets properly
-			 * marked with FIEMAP_EXTENT_LAST
-			 */
-			if (!past_eof &&
-			    blk_to_logical(inode, start_blk) >=
-			    blk_to_logical(inode, 0)+i_size_read(inode))
-				past_eof = 1;
-
 			/*
 			 * first hole after going past the EOF, this is our
 			 * last extent
 			 */
-			if (past_eof && size) {
+			if (length <= 0) {
 				flags = FIEMAP_EXTENT_MERGED|FIEMAP_EXTENT_LAST;
 				ret = fiemap_fill_next_extent(fieinfo, logical,
 							      phys, size,
@@ -312,37 +294,15 @@ int __generic_block_fiemap(struct inode *inode,
 				break;
 			}
 
-			/* if we have holes up to/past EOF then we're done */
-			if (length <= 0 || past_eof)
-				break;
-		} else {
-			/*
-			 * we have gone over the length of what we wanted to
-			 * map, and it wasn't the entire file, so add the extent
-			 * we got last time and exit.
-			 *
-			 * This is for the case where say we want to map all the
-			 * way up to the second to the last block in a file, but
-			 * the last block is a hole, making the second to last
-			 * block FIEMAP_EXTENT_LAST.  In this case we want to
-			 * see if there is a hole after the second to last block
-			 * so we can mark it properly.  If we found data after
-			 * we exceeded the length we were requesting, then we
-			 * are good to go, just add the extent to the fieinfo
-			 * and break
-			 */
-			if (length <= 0 && !whole_file) {
-				ret = fiemap_fill_next_extent(fieinfo, logical,
-							      phys, size,
-							      flags);
-				break;
-			}
+			length -= blk_to_logical(inode, 1);
 
-			/*
-			 * if size != 0 then we know we already have an extent
-			 * to add, so add it.
-			 */
-			if (size) {
+			/* if we have holes up to/past EOF then we're done */
+			if (length <= 0)
+				break;
+
+			start_blk++;
+		} else {
+			if (length <= 0 && size) {
 				ret = fiemap_fill_next_extent(fieinfo, logical,
 							      phys, size,
 							      flags);
@@ -359,14 +319,19 @@ int __generic_block_fiemap(struct inode *inode,
 			start_blk += logical_to_blk(inode, size);
 
 			/*
-			 * If we are past the EOF, then we need to make sure as
-			 * soon as we find a hole that the last extent we found
-			 * is marked with FIEMAP_EXTENT_LAST
+			 * if we are past the EOF we need to loop again to see
+			 * if there is a hole so we can mark this extent as the
+			 * last one, and if not keep mapping things until we
+			 * find a hole, or we run out of slots in the extent
+			 * array
 			 */
-			if (!past_eof &&
-			    logical+size >=
-			    blk_to_logical(inode, 0)+i_size_read(inode))
-				past_eof = 1;
+			if (length <= 0)
+				continue;
+
+			ret = fiemap_fill_next_extent(fieinfo, logical, phys,
+						      size, flags);
+			if (ret)
+				break;
 		}
 		cond_resched();
 	} while (1);

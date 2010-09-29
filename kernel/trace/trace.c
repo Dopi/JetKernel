@@ -3886,8 +3886,7 @@ __init static int tracer_alloc_buffers(void)
 				       &trace_panic_notifier);
 
 	register_die_notifier(&trace_die_notifier);
-
-	return 0;
+	ret = 0;
 
 out_free_cpumask:
 	free_cpumask_var(tracing_cpumask);

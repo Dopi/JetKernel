@@ -29,6 +29,9 @@ struct fat_cache_id {
 	int dcluster;
 };
 
+
+int error_count=0;
+
 static inline int fat_max_cache(struct inode *inode)
 {
 	return FAT_MAX_CACHE;
@@ -241,7 +244,7 @@ int fat_get_cluster(struct inode *inode, int cluster, int *fclus, int *dclus)
 	while (*fclus < cluster) {
 		/* prevent the infinite loop of cluster chain */
 		if (*fclus > limit) {
-			fat_fs_panic(sb, "%s: detected the cluster chain loop"
+			fat_fs_error(sb, "%s: detected the cluster chain loop"
 				     " (i_pos %lld)", __func__,
 				     MSDOS_I(inode)->i_pos);
 			nr = -EIO;
@@ -252,7 +255,7 @@ int fat_get_cluster(struct inode *inode, int cluster, int *fclus, int *dclus)
 		if (nr < 0)
 			goto out;
 		else if (nr == FAT_ENT_FREE) {
-			fat_fs_panic(sb, "%s: invalid cluster chain"
+			fat_fs_error(sb, "%s: invalid cluster chain"
 				     " (i_pos %lld)", __func__,
 				     MSDOS_I(inode)->i_pos);
 			nr = -EIO;
@@ -285,8 +288,14 @@ static int fat_bmap_cluster(struct inode *inode, int cluster)
 	if (ret < 0)
 		return ret;
 	else if (ret == FAT_ENT_EOF) {
-		fat_fs_panic(sb, "%s: request beyond EOF (i_pos %lld)",
-			     __func__, MSDOS_I(inode)->i_pos);
+	
+		if(error_count%100==0)
+		{
+			fat_fs_error(sb, "%s: request beyond EOF (i_pos %lld)",
+					 __func__, MSDOS_I(inode)->i_pos);
+		}
+		error_count++;
+
 		return -EIO;
 	}
 	return dclus;

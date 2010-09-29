@@ -1719,8 +1719,7 @@ free_interfaces:
 	}
 	kfree(new_interfaces);
 
-	if (cp->string == NULL &&
-			!(dev->quirks & USB_QUIRK_CONFIG_INTF_STRINGS))
+	if (cp->string == NULL)
 		cp->string = usb_cache_string(dev, cp->desc.iConfiguration);
 
 	/* Now that all the interfaces are set up, register them

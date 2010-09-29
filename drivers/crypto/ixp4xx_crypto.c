@@ -101,7 +101,6 @@ struct buffer_desc {
 	u32 phys_addr;
 	u32 __reserved[4];
 	struct buffer_desc *next;
-	enum dma_data_direction dir;
 };
 
 struct crypt_ctl {
@@ -133,10 +132,14 @@ struct crypt_ctl {
 struct ablk_ctx {
 	struct buffer_desc *src;
 	struct buffer_desc *dst;
+	unsigned src_nents;
+	unsigned dst_nents;
 };
 
 struct aead_ctx {
 	struct buffer_desc *buffer;
+	unsigned short assoc_nents;
+	unsigned short src_nents;
 	struct scatterlist ivlist;
 	/* used when the hmac is not on one sg entry */
 	u8 *hmac_virt;
@@ -309,7 +312,7 @@ static struct crypt_ctl *get_crypt_desc_emerg(void)
 	}
 }
 
-static void free_buf_chain(struct device *dev, struct buffer_desc *buf,u32 phys)
+static void free_buf_chain(struct buffer_desc *buf, u32 phys)
 {
 	while (buf) {
 		struct buffer_desc *buf1;
@@ -317,7 +320,6 @@ static void free_buf_chain(struct device *dev, struct buffer_desc *buf,u32 phys)
 
 		buf1 = buf->next;
 		phys1 = buf->phys_next;
-		dma_unmap_single(dev, buf->phys_next, buf->buf_len, buf->dir);
 		dma_pool_free(buffer_pool, buf, phys);
 		buf = buf1;
 		phys = phys1;
@@ -346,6 +348,7 @@ static void one_packet(dma_addr_t phys)
 	struct crypt_ctl *crypt;
 	struct ixp_ctx *ctx;
 	int failed;
+	enum dma_data_direction src_direction = DMA_BIDIRECTIONAL;
 
 	failed = phys & 0x1 ? -EBADMSG : 0;
 	phys &= ~0x3;
@@ -355,8 +358,13 @@ static void one_packet(dma_addr_t phys)
 	case CTL_FLAG_PERFORM_AEAD: {
 		struct aead_request *req = crypt->data.aead_req;
 		struct aead_ctx *req_ctx = aead_request_ctx(req);
+		dma_unmap_sg(dev, req->assoc, req_ctx->assoc_nents,
+				DMA_TO_DEVICE);
+		dma_unmap_sg(dev, &req_ctx->ivlist, 1, DMA_BIDIRECTIONAL);
+		dma_unmap_sg(dev, req->src, req_ctx->src_nents,
+				DMA_BIDIRECTIONAL);
 
-		free_buf_chain(dev, req_ctx->buffer, crypt->src_buf);
+		free_buf_chain(req_ctx->buffer, crypt->src_buf);
 		if (req_ctx->hmac_virt) {
 			finish_scattered_hmac(crypt);
 		}
@@ -366,11 +374,16 @@ static void one_packet(dma_addr_t phys)
 	case CTL_FLAG_PERFORM_ABLK: {
 		struct ablkcipher_request *req = crypt->data.ablk_req;
 		struct ablk_ctx *req_ctx = ablkcipher_request_ctx(req);
-
+		int nents;
 		if (req_ctx->dst) {
-			free_buf_chain(dev, req_ctx->dst, crypt->dst_buf);
+			nents = req_ctx->dst_nents;
+			dma_unmap_sg(dev, req->dst, nents, DMA_FROM_DEVICE);
+			free_buf_chain(req_ctx->dst, crypt->dst_buf);
+			src_direction = DMA_TO_DEVICE;
 		}
-		free_buf_chain(dev, req_ctx->src, crypt->src_buf);
+		nents = req_ctx->src_nents;
+		dma_unmap_sg(dev, req->src, nents, src_direction);
+		free_buf_chain(req_ctx->src, crypt->src_buf);
 		req->base.complete(&req->base, failed);
 		break;
 	}
@@ -737,35 +750,56 @@ static int setup_cipher(struct crypto_tfm *tfm, int encrypt,
 	return 0;
 }
 
-static struct buffer_desc *chainup_buffers(struct device *dev,
-		struct scatterlist *sg,	unsigned nbytes,
-		struct buffer_desc *buf, gfp_t flags,
-		enum dma_data_direction dir)
+static int count_sg(struct scatterlist *sg, int nbytes)
 {
-	for (;nbytes > 0; sg = scatterwalk_sg_next(sg)) {
-		unsigned len = min(nbytes, sg->length);
+	int i;
+	for (i = 0; nbytes > 0; i++, sg = sg_next(sg))
+		nbytes -= sg->length;
+	return i;
+}
+
+static struct buffer_desc *chainup_buffers(struct scatterlist *sg,
+			unsigned nbytes, struct buffer_desc *buf, gfp_t flags)
+{
+	int nents = 0;
+
+	while (nbytes > 0) {
 		struct buffer_desc *next_buf;
 		u32 next_buf_phys;
-		void *ptr;
+		unsigned len = min(nbytes, sg_dma_len(sg));
 
+		nents++;
 		nbytes -= len;
-		ptr = page_address(sg_page(sg)) + sg->offset;
-		next_buf = dma_pool_alloc(buffer_pool, flags, &next_buf_phys);
-		if (!next_buf) {
-			buf = NULL;
-			break;
+		if (!buf->phys_addr) {
+			buf->phys_addr = sg_dma_address(sg);
+			buf->buf_len = len;
+			buf->next = NULL;
+			buf->phys_next = 0;
+			goto next;
 		}
-		sg_dma_address(sg) = dma_map_single(dev, ptr, len, dir);
+		/* Two consecutive chunks on one page may be handled by the old
+		 * buffer descriptor, increased by the length of the new one
+		 */
+		if (sg_dma_address(sg) == buf->phys_addr + buf->buf_len) {
+			buf->buf_len += len;
+			goto next;
+		}
+		next_buf = dma_pool_alloc(buffer_pool, flags, &next_buf_phys);
+		if (!next_buf)
+			return NULL;
 		buf->next = next_buf;
 		buf->phys_next = next_buf_phys;
-		buf = next_buf;
 
+		buf = next_buf;
+		buf->next = NULL;
+		buf->phys_next = 0;
 		buf->phys_addr = sg_dma_address(sg);
 		buf->buf_len = len;
-		buf->dir = dir;
+next:
+		if (nbytes > 0) {
+			sg = sg_next(sg);
+		}
 	}
-	buf->next = NULL;
-	buf->phys_next = 0;
 	return buf;
 }
 
@@ -826,12 +860,12 @@ static int ablk_perform(struct ablkcipher_request *req, int encrypt)
 	struct crypto_ablkcipher *tfm = crypto_ablkcipher_reqtfm(req);
 	struct ixp_ctx *ctx = crypto_ablkcipher_ctx(tfm);
 	unsigned ivsize = crypto_ablkcipher_ivsize(tfm);
+	int ret = -ENOMEM;
 	struct ix_sa_dir *dir;
 	struct crypt_ctl *crypt;
-	unsigned int nbytes = req->nbytes;
+	unsigned int nbytes = req->nbytes, nents;
 	enum dma_data_direction src_direction = DMA_BIDIRECTIONAL;
 	struct ablk_ctx *req_ctx = ablkcipher_request_ctx(req);
-	struct buffer_desc src_hook;
 	gfp_t flags = req->base.flags & CRYPTO_TFM_REQ_MAY_SLEEP ?
 				GFP_KERNEL : GFP_ATOMIC;
 
@@ -844,7 +878,7 @@ static int ablk_perform(struct ablkcipher_request *req, int encrypt)
 
 	crypt = get_crypt_desc();
 	if (!crypt)
-		return -ENOMEM;
+		return ret;
 
 	crypt->data.ablk_req = req;
 	crypt->crypto_ctx = dir->npe_ctx_phys;
@@ -857,41 +891,53 @@ static int ablk_perform(struct ablkcipher_request *req, int encrypt)
 	BUG_ON(ivsize && !req->info);
 	memcpy(crypt->iv, req->info, ivsize);
 	if (req->src != req->dst) {
-		struct buffer_desc dst_hook;
 		crypt->mode |= NPE_OP_NOT_IN_PLACE;
+		nents = count_sg(req->dst, nbytes);
 		/* This was never tested by Intel
 		 * for more than one dst buffer, I think. */
-		BUG_ON(req->dst->length < nbytes);
-		req_ctx->dst = NULL;
-		if (!chainup_buffers(dev, req->dst, nbytes, &dst_hook,
-					flags, DMA_FROM_DEVICE))
+		BUG_ON(nents != 1);
+		req_ctx->dst_nents = nents;
+		dma_map_sg(dev, req->dst, nents, DMA_FROM_DEVICE);
+		req_ctx->dst = dma_pool_alloc(buffer_pool, flags,&crypt->dst_buf);
+		if (!req_ctx->dst)
+			goto unmap_sg_dest;
+		req_ctx->dst->phys_addr = 0;
+		if (!chainup_buffers(req->dst, nbytes, req_ctx->dst, flags))
 			goto free_buf_dest;
 		src_direction = DMA_TO_DEVICE;
-		req_ctx->dst = dst_hook.next;
-		crypt->dst_buf = dst_hook.phys_next;
 	} else {
 		req_ctx->dst = NULL;
+		req_ctx->dst_nents = 0;
 	}
-	req_ctx->src = NULL;
-	if (!chainup_buffers(dev, req->src, nbytes, &src_hook,
-				flags, src_direction))
+	nents = count_sg(req->src, nbytes);
+	req_ctx->src_nents = nents;
+	dma_map_sg(dev, req->src, nents, src_direction);
+
+	req_ctx->src = dma_pool_alloc(buffer_pool, flags, &crypt->src_buf);
+	if (!req_ctx->src)
+		goto unmap_sg_src;
+	req_ctx->src->phys_addr = 0;
+	if (!chainup_buffers(req->src, nbytes, req_ctx->src, flags))
 		goto free_buf_src;
 
-	req_ctx->src = src_hook.next;
-	crypt->src_buf = src_hook.phys_next;
 	crypt->ctl_flags |= CTL_FLAG_PERFORM_ABLK;
 	qmgr_put_entry(SEND_QID, crypt_virt2phys(crypt));
 	BUG_ON(qmgr_stat_overflow(SEND_QID));
 	return -EINPROGRESS;
 
 free_buf_src:
-	free_buf_chain(dev, req_ctx->src, crypt->src_buf);
+	free_buf_chain(req_ctx->src, crypt->src_buf);
+unmap_sg_src:
+	dma_unmap_sg(dev, req->src, req_ctx->src_nents, src_direction);
 free_buf_dest:
 	if (req->src != req->dst) {
-		free_buf_chain(dev, req_ctx->dst, crypt->dst_buf);
+		free_buf_chain(req_ctx->dst, crypt->dst_buf);
+unmap_sg_dest:
+		dma_unmap_sg(dev, req->src, req_ctx->dst_nents,
+			DMA_FROM_DEVICE);
 	}
 	crypt->ctl_flags = CTL_FLAG_UNUSED;
-	return -ENOMEM;
+	return ret;
 }
 
 static int ablk_encrypt(struct ablkcipher_request *req)
@@ -939,7 +985,7 @@ static int hmac_inconsistent(struct scatterlist *sg, unsigned start,
 			break;
 
 		offset += sg->length;
-		sg = scatterwalk_sg_next(sg);
+		sg = sg_next(sg);
 	}
 	return (start + nbytes > offset + sg->length);
 }
@@ -951,10 +997,11 @@ static int aead_perform(struct aead_request *req, int encrypt,
 	struct ixp_ctx *ctx = crypto_aead_ctx(tfm);
 	unsigned ivsize = crypto_aead_ivsize(tfm);
 	unsigned authsize = crypto_aead_authsize(tfm);
+	int ret = -ENOMEM;
 	struct ix_sa_dir *dir;
 	struct crypt_ctl *crypt;
-	unsigned int cryptlen;
-	struct buffer_desc *buf, src_hook;
+	unsigned int cryptlen, nents;
+	struct buffer_desc *buf;
 	struct aead_ctx *req_ctx = aead_request_ctx(req);
 	gfp_t flags = req->base.flags & CRYPTO_TFM_REQ_MAY_SLEEP ?
 				GFP_KERNEL : GFP_ATOMIC;
@@ -975,7 +1022,7 @@ static int aead_perform(struct aead_request *req, int encrypt,
 	}
 	crypt = get_crypt_desc();
 	if (!crypt)
-		return -ENOMEM;
+		return ret;
 
 	crypt->data.aead_req = req;
 	crypt->crypto_ctx = dir->npe_ctx_phys;
@@ -994,27 +1041,31 @@ static int aead_perform(struct aead_request *req, int encrypt,
 		BUG(); /* -ENOTSUP because of my lazyness */
 	}
 
-	/* ASSOC data */
-	buf = chainup_buffers(dev, req->assoc, req->assoclen, &src_hook,
-		flags, DMA_TO_DEVICE);
-	req_ctx->buffer = src_hook.next;
-	crypt->src_buf = src_hook.phys_next;
-	if (!buf)
+	req_ctx->buffer = dma_pool_alloc(buffer_pool, flags, &crypt->src_buf);
+	if (!req_ctx->buffer)
 		goto out;
+	req_ctx->buffer->phys_addr = 0;
+	/* ASSOC data */
+	nents = count_sg(req->assoc, req->assoclen);
+	req_ctx->assoc_nents = nents;
+	dma_map_sg(dev, req->assoc, nents, DMA_TO_DEVICE);
+	buf = chainup_buffers(req->assoc, req->assoclen, req_ctx->buffer,flags);
+	if (!buf)
+		goto unmap_sg_assoc;
 	/* IV */
 	sg_init_table(&req_ctx->ivlist, 1);
 	sg_set_buf(&req_ctx->ivlist, iv, ivsize);
-	buf = chainup_buffers(dev, &req_ctx->ivlist, ivsize, buf, flags,
-			DMA_BIDIRECTIONAL);
+	dma_map_sg(dev, &req_ctx->ivlist, 1, DMA_BIDIRECTIONAL);
+	buf = chainup_buffers(&req_ctx->ivlist, ivsize, buf, flags);
 	if (!buf)
-		goto free_chain;
+		goto unmap_sg_iv;
 	if (unlikely(hmac_inconsistent(req->src, cryptlen, authsize))) {
 		/* The 12 hmac bytes are scattered,
 		 * we need to copy them into a safe buffer */
 		req_ctx->hmac_virt = dma_pool_alloc(buffer_pool, flags,
 				&crypt->icv_rev_aes);
 		if (unlikely(!req_ctx->hmac_virt))
-			goto free_chain;
+			goto unmap_sg_iv;
 		if (!encrypt) {
 			scatterwalk_map_and_copy(req_ctx->hmac_virt,
 				req->src, cryptlen, authsize, 0);
@@ -1024,28 +1075,33 @@ static int aead_perform(struct aead_request *req, int encrypt,
 		req_ctx->hmac_virt = NULL;
 	}
 	/* Crypt */
-	buf = chainup_buffers(dev, req->src, cryptlen + authsize, buf, flags,
-			DMA_BIDIRECTIONAL);
+	nents = count_sg(req->src, cryptlen + authsize);
+	req_ctx->src_nents = nents;
+	dma_map_sg(dev, req->src, nents, DMA_BIDIRECTIONAL);
+	buf = chainup_buffers(req->src, cryptlen + authsize, buf, flags);
 	if (!buf)
-		goto free_hmac_virt;
+		goto unmap_sg_src;
 	if (!req_ctx->hmac_virt) {
 		crypt->icv_rev_aes = buf->phys_addr + buf->buf_len - authsize;
 	}
-
 	crypt->ctl_flags |= CTL_FLAG_PERFORM_AEAD;
 	qmgr_put_entry(SEND_QID, crypt_virt2phys(crypt));
 	BUG_ON(qmgr_stat_overflow(SEND_QID));
 	return -EINPROGRESS;
-free_hmac_virt:
+unmap_sg_src:
+	dma_unmap_sg(dev, req->src, req_ctx->src_nents, DMA_BIDIRECTIONAL);
 	if (req_ctx->hmac_virt) {
 		dma_pool_free(buffer_pool, req_ctx->hmac_virt,
 				crypt->icv_rev_aes);
 	}
-free_chain:
-	free_buf_chain(dev, req_ctx->buffer, crypt->src_buf);
+unmap_sg_iv:
+	dma_unmap_sg(dev, &req_ctx->ivlist, 1, DMA_BIDIRECTIONAL);
+unmap_sg_assoc:
+	dma_unmap_sg(dev, req->assoc, req_ctx->assoc_nents, DMA_TO_DEVICE);
+	free_buf_chain(req_ctx->buffer, crypt->src_buf);
 out:
 	crypt->ctl_flags = CTL_FLAG_UNUSED;
-	return -ENOMEM;
+	return ret;
 }
 
 static int aead_setup(struct crypto_aead *tfm, unsigned int authsize)

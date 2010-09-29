@@ -26,16 +26,12 @@ static unsigned long page_table_shareable(struct vm_area_struct *svma,
 	unsigned long sbase = saddr & PUD_MASK;
 	unsigned long s_end = sbase + PUD_SIZE;
 
-	/* Allow segments to share if only one is marked locked */
-	unsigned long vm_flags = vma->vm_flags & ~VM_LOCKED;
-	unsigned long svm_flags = svma->vm_flags & ~VM_LOCKED;
-
 	/*
 	 * match the virtual addresses, permission and the alignment of the
 	 * page table page.
 	 */
 	if (pmd_index(addr) != pmd_index(saddr) ||
-	    vm_flags != svm_flags ||
+	    vma->vm_flags != svma->vm_flags ||
 	    sbase < svma->vm_start || svma->vm_end < s_end)
 		return 0;
 

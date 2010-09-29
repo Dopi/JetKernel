@@ -190,8 +190,7 @@ static int balloon(void *_vballoon)
 		try_to_freeze();
 		wait_event_interruptible(vb->config_change,
 					 (diff = towards_target(vb)) != 0
-					 || kthread_should_stop()
-					 || freezing(current));
+					 || kthread_should_stop());
 		if (diff > 0)
 			fill_balloon(vb, diff);
 		else if (diff < 0)

@@ -15,6 +15,7 @@ endif
 obj-$(CONFIG_POWER_SUPPLY)	+= power_supply.o
 
 obj-$(CONFIG_PDA_POWER)		+= pda_power.o
+obj-$(CONFIG_BATTERY_S3C6410)	+= s3c6410_battery.o
 obj-$(CONFIG_APM_POWER)		+= apm_power.o
 obj-$(CONFIG_WM8350_POWER)	+= wm8350_power.o
 

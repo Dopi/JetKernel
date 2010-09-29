@@ -1086,11 +1086,13 @@ static long do_fb_ioctl(struct fb_info *info, unsigned int cmd,
 			return -EINVAL;
 		con2fb.framebuffer = -1;
 		event.data = &con2fb;
+
 		if (!lock_fb_info(info))
 			return -ENODEV;
 		event.info = info;
 		fb_notifier_call_chain(FB_EVENT_GET_CONSOLE_MAP, &event);
 		unlock_fb_info(info);
+
 		ret = copy_to_user(argp, &con2fb, sizeof(con2fb)) ? -EFAULT : 0;
 		break;
 	case FBIOPUT_CON2FBMAP:
@@ -1110,7 +1112,8 @@ static long do_fb_ioctl(struct fb_info *info, unsigned int cmd,
 		if (!lock_fb_info(info))
 			return -ENODEV;
 		event.info = info;
-		ret = fb_notifier_call_chain(FB_EVENT_SET_CONSOLE_MAP, &event);
+		ret = fb_notifier_call_chain(FB_EVENT_SET_CONSOLE_MAP,
+					      &event);
 		unlock_fb_info(info);
 		break;
 	case FBIOBLANK:
@@ -1352,6 +1355,10 @@ __releases(&info->lock)
 	return 0;
 }
 
+#ifdef CONFIG_FB_S3C
+extern void s3cfb_stop_progress(void);
+#endif
+
 static int
 fb_open(struct inode *inode, struct file *file)
 __acquires(&info->lock)
@@ -1383,6 +1390,9 @@ __releases(&info->lock)
 #ifdef CONFIG_FB_DEFERRED_IO
 	if (info->fbdefio)
 		fb_deferred_io_open(info, inode, file);
+#endif
+#ifdef CONFIG_FB_S3C
+	s3cfb_stop_progress();
 #endif
 out:
 	mutex_unlock(&info->lock);
@@ -1516,10 +1526,7 @@ register_framebuffer(struct fb_info *fb_info)
 	registered_fb[i] = fb_info;
 
 	event.info = fb_info;
-	if (!lock_fb_info(fb_info))
-		return -ENODEV;
 	fb_notifier_call_chain(FB_EVENT_FB_REGISTERED, &event);
-	unlock_fb_info(fb_info);
 	return 0;
 }
 
@@ -1553,12 +1560,8 @@ unregister_framebuffer(struct fb_info *fb_info)
 		goto done;
 	}
 
-
-	if (!lock_fb_info(fb_info))
-		return -ENODEV;
 	event.info = fb_info;
 	ret = fb_notifier_call_chain(FB_EVENT_FB_UNBIND, &event);
-	unlock_fb_info(fb_info);
 
 	if (ret) {
 		ret = -EINVAL;
@@ -1592,8 +1595,6 @@ void fb_set_suspend(struct fb_info *info, int state)
 {
 	struct fb_event event;
 
-	if (!lock_fb_info(info))
-		return;
 	event.info = info;
 	if (state) {
 		fb_notifier_call_chain(FB_EVENT_SUSPEND, &event);
@@ -1602,7 +1603,6 @@ void fb_set_suspend(struct fb_info *info, int state)
 		info->state = FBINFO_STATE_RUNNING;
 		fb_notifier_call_chain(FB_EVENT_RESUME, &event);
 	}
-	unlock_fb_info(info);
 }
 
 /**
@@ -1672,11 +1672,8 @@ int fb_new_modelist(struct fb_info *info)
 	err = 1;
 
 	if (!list_empty(&info->modelist)) {
-		if (!lock_fb_info(info))
-			return -ENODEV;
 		event.info = info;
 		err = fb_notifier_call_chain(FB_EVENT_NEW_MODELIST, &event);
-		unlock_fb_info(info);
 	}
 
 	return err;

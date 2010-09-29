@@ -9,7 +9,6 @@
  */
 
 #include <linux/mm.h>
-#include <linux/swap.h> /* struct reclaim_state */
 #include <linux/module.h>
 #include <linux/bit_spinlock.h>
 #include <linux/interrupt.h>
@@ -1176,8 +1175,6 @@ static void __free_slab(struct kmem_cache *s, struct page *page)
 
 	__ClearPageSlab(page);
 	reset_page_mapcount(page);
-	if (current->reclaim_state)
-		current->reclaim_state->reclaimed_slab += pages;
 	__free_pages(page, order);
 }
 

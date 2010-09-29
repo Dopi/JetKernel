@@ -98,7 +98,7 @@ extern unsigned int kobjsize(const void *objp);
 #define VM_HUGETLB	0x00400000	/* Huge TLB Page VM */
 #define VM_NONLINEAR	0x00800000	/* Is non-linear (remap_file_pages) */
 #define VM_MAPPED_COPY	0x01000000	/* T if mapped copy of data (nommu mmap) */
-#define VM_INSERTPAGE	0x02000000	/* The vma has had "vm_insert_page()" done on it. Refer note in VM_PFNMAP_AT_MMAP below */
+#define VM_INSERTPAGE	0x02000000	/* The vma has had "vm_insert_page()" done on it */
 #define VM_ALWAYSDUMP	0x04000000	/* Always include in core dumps */
 
 #define VM_CAN_NONLINEAR 0x08000000	/* Has ->fault & does nonlinear pages */
@@ -127,17 +127,6 @@ extern unsigned int kobjsize(const void *objp);
 #define VM_SPECIAL (VM_IO | VM_DONTEXPAND | VM_RESERVED | VM_PFNMAP)
 
 /*
- * pfnmap vmas that are fully mapped at mmap time (not mapped on fault).
- * Used by x86 PAT to identify such PFNMAP mappings and optimize their handling.
- * Note VM_INSERTPAGE flag is overloaded here. i.e,
- * VM_INSERTPAGE && !VM_PFNMAP implies
- *     The vma has had "vm_insert_page()" done on it
- * VM_INSERTPAGE && VM_PFNMAP implies
- *     The vma is PFNMAP with full mapping at mmap time
- */
-#define VM_PFNMAP_AT_MMAP (VM_INSERTPAGE | VM_PFNMAP)
-
-/*
  * mapping from the currently active vm_flags protection bits (the
  * low four bits) to a page protection mask..
  */
@@ -145,7 +134,6 @@ extern pgprot_t protection_map[16];
 
 #define FAULT_FLAG_WRITE	0x01	/* Fault was a write access */
 #define FAULT_FLAG_NONLINEAR	0x02	/* Fault was via a nonlinear mapping */
-#define FAULT_FLAG_MKWRITE	0x04	/* Fault was mkwrite of existing pte */
 
 /*
  * This interface is used by x86 PAT code to identify a pfn mapping that is
@@ -157,7 +145,7 @@ extern pgprot_t protection_map[16];
  */
 static inline int is_linear_pfn_mapping(struct vm_area_struct *vma)
 {
-	return ((vma->vm_flags & VM_PFNMAP_AT_MMAP) == VM_PFNMAP_AT_MMAP);
+	return ((vma->vm_flags & VM_PFNMAP) && vma->vm_pgoff);
 }
 
 static inline int is_pfn_mapping(struct vm_area_struct *vma)
@@ -198,7 +186,7 @@ struct vm_operations_struct {
 
 	/* notification that a previously read-only page is about to become
 	 * writable, if an error is returned it will cause a SIGBUS */
-	int (*page_mkwrite)(struct vm_area_struct *vma, struct vm_fault *vmf);
+	int (*page_mkwrite)(struct vm_area_struct *vma, struct page *page);
 
 	/* called by access_process_vm when get_user_pages() fails, typically
 	 * for use by special VMAs that can switch between memory and hardware
@@ -590,12 +578,10 @@ static inline void set_page_links(struct page *page, enum zone_type zone,
  */
 static inline unsigned long round_hint_to_min(unsigned long hint)
 {
-#ifdef CONFIG_SECURITY
 	hint &= PAGE_MASK;
 	if (((void *)hint != NULL) &&
 	    (hint < mmap_min_addr))
 		return PAGE_ALIGN(mmap_min_addr);
-#endif
 	return hint;
 }
 
@@ -736,8 +722,9 @@ static inline int shmem_lock(struct file *file, int lock,
 	return 0;
 }
 #endif
-struct file *shmem_file_setup(char *name, loff_t size, unsigned long flags);
 
+struct file *shmem_file_setup(char *name, loff_t size, unsigned long flags);
+void shmem_set_file(struct vm_area_struct *vma, struct file *file);
 int shmem_zero_setup(struct vm_area_struct *);
 
 #ifndef CONFIG_MMU

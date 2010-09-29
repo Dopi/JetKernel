@@ -115,16 +115,6 @@ static void set_grace_period(void)
 	schedule_delayed_work(&grace_period_end, grace_period);
 }
 
-static void restart_grace(void)
-{
-	if (nlmsvc_ops) {
-		cancel_delayed_work_sync(&grace_period_end);
-		locks_end_grace(&lockd_manager);
-		nlmsvc_invalidate_all();
-		set_grace_period();
-	}
-}
-
 /*
  * This is the lockd kernel thread
  */
@@ -170,7 +160,10 @@ lockd(void *vrqstp)
 
 		if (signalled()) {
 			flush_signals(current);
-			restart_grace();
+			if (nlmsvc_ops) {
+				nlmsvc_invalidate_all();
+				set_grace_period();
+			}
 			continue;
 		}
 

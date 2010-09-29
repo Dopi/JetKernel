@@ -57,6 +57,7 @@
 #define  SDHCI_DATA_AVAILABLE	0x00000800
 #define  SDHCI_CARD_PRESENT	0x00010000
 #define  SDHCI_WRITE_PROTECT	0x00080000
+#define  SDHCI_DATA_BIT(x)	(1 << ((x) + 20))
 
 #define SDHCI_HOST_CONTROL 	0x28
 #define  SDHCI_CTRL_LED		0x01
@@ -208,10 +209,18 @@ struct sdhci_host {
 #define SDHCI_QUIRK_BROKEN_TIMEOUT_VAL			(1<<12)
 /* Controller has an issue with buffer bits for small transfers */
 #define SDHCI_QUIRK_BROKEN_SMALL_PIO			(1<<13)
+/* Controller supports high speed but doesn't have the caps bit set */
+#define SDHCI_QUIRK_FORCE_HIGHSPEED			(1<<14)
 /* Controller does not provide transfer-complete interrupt when not busy */
 #define SDHCI_QUIRK_NO_BUSY_IRQ				(1<<14)
-
+#define SDHCI_QUIRK_NO_TCIRQ_ON_NOT_BUSY		(1<<15)
 	int			irq;		/* Device IRQ */
+	int			irq_cd;		/* SD Card Detection IRQ */
+
+	unsigned int 		hwport;
+	struct clk		*clk_io;	/* clock for io bus */
+	struct clk		*clk_bus;
+	
 	void __iomem *		ioaddr;		/* Mapped address */
 
 	const struct sdhci_ops	*ops;		/* Low level hw interface */
@@ -263,17 +272,30 @@ struct sdhci_host {
 	struct timer_list	timer;		/* Timer for timeouts */
 
 	unsigned long		private[0] ____cacheline_aligned;
+#ifdef CONFIG_CPU_FREQ
+        struct notifier_block           freq_transition;
+#endif
 };
 
 
 struct sdhci_ops {
 	int		(*enable_dma)(struct sdhci_host *host);
+	unsigned int	(*get_max_clock)(struct sdhci_host *host);
+	unsigned int	(*get_timeout_clock)(struct sdhci_host *host);
+
+	void		(*change_clock)(struct sdhci_host *host,
+					unsigned int clock);
+
+	void		(*set_ios)(struct sdhci_host *host,
+				   struct mmc_ios *ios);
 };
 
 
 extern struct sdhci_host *sdhci_alloc_host(struct device *dev,
 	size_t priv_size);
 extern void sdhci_free_host(struct sdhci_host *host);
+
+extern void sdhci_change_clock(struct sdhci_host *host, unsigned int clock);
 
 static inline void *sdhci_priv(struct sdhci_host *host)
 {

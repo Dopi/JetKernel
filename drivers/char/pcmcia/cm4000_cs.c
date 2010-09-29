@@ -1575,8 +1575,7 @@ static long cmm_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		clear_bit(LOCK_IO, &dev->flags);
 		wake_up_interruptible(&dev->ioq);
 
-		rc = 0;
-		break;
+		return 0;
 	case CM_IOCSPTS:
 		{
 			struct ptsreq krnptsreq;

@@ -11,6 +11,8 @@
 #ifndef __ASM_ARCH_HARDWARE_H
 #define __ASM_ARCH_HARDWARE_H __FILE__
 
-/* currently nothing here, placeholder */
+#ifdef CONFIG_MACH_SPICA
+#include <mach/spica.h> 
+#endif
 
-#endif /* __ASM_ARCH_IRQ_H */
+#endif /* __ASM_ARCH_HARDWARE_H */

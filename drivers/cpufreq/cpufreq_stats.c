@@ -23,10 +23,11 @@
 
 static spinlock_t cpufreq_stats_lock;
 
-#define CPUFREQ_STATDEVICE_ATTR(_name,_mode,_show) \
+#define CPUFREQ_STATDEVICE_ATTR(_name,_mode,_show, _store) \
 static struct freq_attr _attr_##_name = {\
 	.attr = {.name = __stringify(_name), .mode = _mode, }, \
 	.show = _show,\
+	.store = _store,\
 };
 
 struct cpufreq_stats {
@@ -42,6 +43,8 @@ struct cpufreq_stats {
 	unsigned int *trans_table;
 #endif
 };
+
+static int ignore_idle;
 
 static DEFINE_PER_CPU(struct cpufreq_stats *, cpufreq_stats_table);
 
@@ -139,15 +142,33 @@ show_trans_table(struct cpufreq_policy *policy, char *buf)
 		return PAGE_SIZE;
 	return len;
 }
-CPUFREQ_STATDEVICE_ATTR(trans_table,0444,show_trans_table);
+CPUFREQ_STATDEVICE_ATTR(trans_table,0444,show_trans_table, NULL);
 #endif
 
-CPUFREQ_STATDEVICE_ATTR(total_trans,0444,show_total_trans);
-CPUFREQ_STATDEVICE_ATTR(time_in_state,0444,show_time_in_state);
+static ssize_t store_ignore_idle(struct cpufreq_policy *policy, char *buf)
+{
+	int input;
+	if (sscanf(buf, "%d", &input) != 1)
+		return -EINVAL;
+
+	ignore_idle = input;
+	return 1;
+}
+
+static ssize_t show_ignore_idle(struct cpufreq_policy *policy, char *buf)
+{
+	return sprintf(buf, "%d\n", ignore_idle);
+}
+
+CPUFREQ_STATDEVICE_ATTR(total_trans,0444,show_total_trans, NULL);
+CPUFREQ_STATDEVICE_ATTR(time_in_state,0444,show_time_in_state, NULL);
+CPUFREQ_STATDEVICE_ATTR(ignore_idle, 0664, show_ignore_idle, store_ignore_idle);
+
 
 static struct attribute *default_attrs[] = {
 	&_attr_total_trans.attr,
 	&_attr_time_in_state.attr,
+	&_attr_ignore_idle.attr,
 #ifdef CONFIG_CPU_FREQ_STAT_DETAILS
 	&_attr_trans_table.attr,
 #endif
@@ -306,6 +327,21 @@ cpufreq_stat_notifier_trans (struct notifier_block *nb, unsigned long val,
 	stat->total_trans++;
 	spin_unlock(&cpufreq_stats_lock);
 	return 0;
+}
+
+void cpufreq_exit_idle(int cpu, unsigned long ticks)
+{
+	struct cpufreq_stats *stat;
+	stat = per_cpu(cpufreq_stats_table, cpu);
+
+	/* Wait until cpu stats is initalized */
+	if (!ignore_idle || !stat || !stat->time_in_state)
+		return;
+
+	spin_lock(&cpufreq_stats_lock);
+	stat->time_in_state[stat->last_index] =
+		cputime_sub(stat->time_in_state[stat->last_index], ticks);
+	spin_unlock(&cpufreq_stats_lock);
 }
 
 static int __cpuinit cpufreq_stat_cpu_callback(struct notifier_block *nfb,

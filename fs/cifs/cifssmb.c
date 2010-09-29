@@ -91,22 +91,23 @@ static int
 cifs_strncpy_to_host(char **dst, const char *src, const int maxlen,
 		 const bool is_unicode, const struct nls_table *nls_codepage)
 {
-	int src_len, dst_len;
+	int plen;
 
 	if (is_unicode) {
-		src_len = UniStrnlen((wchar_t *)src, maxlen);
-		*dst = kmalloc((4 * src_len) + 2, GFP_KERNEL);
+		plen = UniStrnlen((wchar_t *)src, maxlen);
+		*dst = kmalloc(plen + 2, GFP_KERNEL);
 		if (!*dst)
 			goto cifs_strncpy_to_host_ErrExit;
-		dst_len = cifs_strfromUCS_le(*dst, (__le16 *)src, src_len, nls_codepage);
-		(*dst)[dst_len + 1] = 0;
+		cifs_strfromUCS_le(*dst, (__le16 *)src, plen, nls_codepage);
 	} else {
-		src_len = strnlen(src, maxlen);
-		*dst = kmalloc(src_len + 1, GFP_KERNEL);
+		plen = strnlen(src, maxlen);
+		*dst = kmalloc(plen + 2, GFP_KERNEL);
 		if (!*dst)
 			goto cifs_strncpy_to_host_ErrExit;
-		strlcpy(*dst, src, src_len + 1);
+		strncpy(*dst, src, plen);
 	}
+	(*dst)[plen] = 0;
+	(*dst)[plen+1] = 0; /* harmless for ASCII case, needed for Unicode */
 	return 0;
 
 cifs_strncpy_to_host_ErrExit:
@@ -2355,10 +2356,8 @@ winCreateHardLinkRetry:
 				     PATH_MAX, nls_codepage, remap);
 		name_len++;	/* trailing null */
 		name_len *= 2;
-
-		/* protocol specifies ASCII buffer format (0x04) for unicode */
-		pSMB->OldFileName[name_len] = 0x04;
-		pSMB->OldFileName[name_len + 1] = 0x00; /* pad */
+		pSMB->OldFileName[name_len] = 0;	/* pad */
+		pSMB->OldFileName[name_len + 1] = 0x04;
 		name_len2 =
 		    cifsConvertToUCS((__le16 *)&pSMB->OldFileName[name_len + 2],
 				     toName, PATH_MAX, nls_codepage, remap);

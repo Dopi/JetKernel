@@ -1,7 +1,10 @@
 #ifndef __ASM_ARM_DMA_H
 #define __ASM_ARM_DMA_H
 
+typedef unsigned int dmach_t;
+
 #include <asm/memory.h>
+#include <mach/dma.h>
 
 /*
  * This is the maximum virtual address which can be DMA'd from.
@@ -19,7 +22,6 @@
 #include <asm/system.h>
 #include <asm/scatterlist.h>
 
-typedef unsigned int dmach_t;
 
 #include <mach/isa-dma.h>
 

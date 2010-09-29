@@ -1434,9 +1434,8 @@ static int ubifs_releasepage(struct page *page, gfp_t unused_gfp_flags)
  * mmap()d file has taken write protection fault and is being made
  * writable. UBIFS must ensure page is budgeted for.
  */
-static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
+static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma, struct page *page)
 {
-	struct page *page = vmf->page;
 	struct inode *inode = vma->vm_file->f_path.dentry->d_inode;
 	struct ubifs_info *c = inode->i_sb->s_fs_info;
 	struct timespec now = ubifs_current_time(inode);
@@ -1448,7 +1447,7 @@ static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vm
 	ubifs_assert(!(inode->i_sb->s_flags & MS_RDONLY));
 
 	if (unlikely(c->ro_media))
-		return VM_FAULT_SIGBUS; /* -EROFS */
+		return -EROFS;
 
 	/*
 	 * We have not locked @page so far so we may budget for changing the
@@ -1481,7 +1480,7 @@ static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vm
 		if (err == -ENOSPC)
 			ubifs_warn("out of space for mmapped file "
 				   "(inode number %lu)", inode->i_ino);
-		return VM_FAULT_SIGBUS;
+		return err;
 	}
 
 	lock_page(page);
@@ -1521,8 +1520,6 @@ static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vm
 out_unlock:
 	unlock_page(page);
 	ubifs_release_budget(c, &req);
-	if (err)
-		err = VM_FAULT_SIGBUS;
 	return err;
 }
 

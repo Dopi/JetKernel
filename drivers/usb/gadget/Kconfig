@@ -112,6 +112,8 @@ config	USB_GADGET_SELECTED
 choice
 	prompt "USB Peripheral Controller"
 	depends on USB_GADGET
+	default USB_GADGET_S3C_OTGD_HS if (PLAT_S3C64XX || PLAT_S5P64XX || PLAT_S5PC1XX || PLAT_S5PC11X)
+	default USB_GADGET_S3C_HS if PLAT_S3C24XX
 	help
 	   A USB device uses a controller to talk to its host.
 	   Systems should have only one such upstream link.
@@ -460,6 +462,23 @@ config USB_GOKU
 	select USB_GADGET_SELECTED
 
 
+config USB_GADGET_S3C_OTGD_HS
+        boolean "S3C high speed(2.0, dual-speed) USB OTG device"
+        depends on (PLAT_S3C64XX || PLAT_S5P64XX || PLAT_S5PC1XX || PLAT_S5PC11X)
+        select USB_GADGET_SELECTED
+	select USB_GADGET_DUALSPEED
+        help
+           Say "y" to link the driver statically, or "m" to build a
+           dynamically linked module called "s3c_udc_hs" and force all
+           gadget drivers to also be dynamically linked.
+
+config USB_GADGET_S3C_OTGD_HS_DMA_MODE
+	bool "S3C OTG DMA MODE support"
+	depends on USB_GADGET_S3C_OTGD_HS
+	default y
+		help
+			Say "y" to make S3C_OTGD working as DMA mode, or it works as slave mode.
+
 #
 # LAST -- dummy/emulated controller
 #
@@ -670,6 +689,12 @@ config USB_G_SERIAL
 	  which includes instructions and a "driver info file" needed to
 	  make MS-Windows work with CDC ACM.
 
+config USB_DUN_SUPPORT
+	bool "ACM line state notification to support DUN"
+	depends on USB_G_SERIAL
+	default y
+	help
+
 config USB_MIDI_GADGET
 	tristate "MIDI Gadget (EXPERIMENTAL)"
 	depends on SND && EXPERIMENTAL
@@ -699,6 +724,28 @@ config USB_G_PRINTER
 	  For more information, see Documentation/usb/gadget_printer.txt
 	  which includes sample code for accessing the device file.
 
+config USB_ANDROID_ADB_UMS
+	bool "Android Composite(ADB + UMS) Gadget"
+	depends on SWITCH
+	help
+	  The Android gadget provides mass storage and adb transport.
+
+	  Say "y" to link the driver statically, not support dynamically linked module
+
+config USB_ANDROID_ADB_UMS_ACM
+	bool "Android Composite(ADB + UMS + ACM) Gadget"
+	depends on SWITCH
+	help
+	  The Android gadget provides mass storage and adb transport and acm.
+
+	  Say "y" to link the driver statically, not support dynamically linked module
+	  
+config USB_DUN_SUPPORT
+	bool "ACM line state notification to support DUN"
+	depends on USB_ANDROID_ADB_UMS_ACM
+	default y
+	help
+
 config USB_CDC_COMPOSITE
 	tristate "CDC Composite Device (Ethernet and ACM)"
 	depends on NET
@@ -713,6 +760,12 @@ config USB_CDC_COMPOSITE
 	  Say "y" to link the driver statically, or "m" to build a
 	  dynamically linked module.
 
+config USB_DUN_SUPPORT
+	bool "ACM line state notification to support DUN"
+	depends on USB_CDC_COMPOSITE
+	default y
+	help
+	
 # put drivers that need isochronous transfer support (for audio
 # or video class gadget drivers), or specific hardware, here.
 

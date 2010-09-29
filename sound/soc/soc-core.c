@@ -966,6 +966,17 @@ static int soc_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static int soc_shutdown(struct platform_device *pdev)
+{
+	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
+	struct snd_soc_codec_device *codec_dev = socdev->codec_dev;
+
+	if (codec_dev->shutdown)
+		codec_dev->shutdown(pdev);
+
+	return 0;
+}
+
 /* ASoC platform driver */
 static struct platform_driver soc_driver = {
 	.driver		= {

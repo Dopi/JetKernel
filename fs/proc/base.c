@@ -127,6 +127,12 @@ struct pid_entry {
 		NULL, &proc_single_file_operations,	\
 		{ .proc_show = show } )
 
+/* ANDROID is for special files in /proc. */
+#define ANDROID(NAME, MODE, OTYPE)			\
+	NOD(NAME, (S_IFREG|(MODE)),			\
+		&proc_##OTYPE##_inode_operations,	\
+		&proc_##OTYPE##_operations, {})
+
 /*
  * Count the number of hardlinks for the pid_entry table, excluding the .
  * and .. links.
@@ -146,22 +152,15 @@ static unsigned int pid_entry_count_dirs(const struct pid_entry *entries,
 	return count;
 }
 
-static int get_fs_path(struct task_struct *task, struct path *path, bool root)
+static struct fs_struct *get_fs_struct(struct task_struct *task)
 {
 	struct fs_struct *fs;
-	int result = -ENOENT;
-
 	task_lock(task);
 	fs = task->fs;
-	if (fs) {
-		read_lock(&fs->lock);
-		*path = root ? fs->root : fs->pwd;
-		path_get(path);
-		read_unlock(&fs->lock);
-		result = 0;
-	}
+	if(fs)
+		atomic_inc(&fs->count);
 	task_unlock(task);
-	return result;
+	return fs;
 }
 
 static int get_nr_threads(struct task_struct *tsk)
@@ -179,11 +178,20 @@ static int get_nr_threads(struct task_struct *tsk)
 static int proc_cwd_link(struct inode *inode, struct path *path)
 {
 	struct task_struct *task = get_proc_task(inode);
+	struct fs_struct *fs = NULL;
 	int result = -ENOENT;
 
 	if (task) {
-		result = get_fs_path(task, path, 0);
+		fs = get_fs_struct(task);
 		put_task_struct(task);
+	}
+	if (fs) {
+		read_lock(&fs->lock);
+		*path = fs->pwd;
+		path_get(&fs->pwd);
+		read_unlock(&fs->lock);
+		result = 0;
+		put_fs_struct(fs);
 	}
 	return result;
 }
@@ -191,11 +199,20 @@ static int proc_cwd_link(struct inode *inode, struct path *path)
 static int proc_root_link(struct inode *inode, struct path *path)
 {
 	struct task_struct *task = get_proc_task(inode);
+	struct fs_struct *fs = NULL;
 	int result = -ENOENT;
 
 	if (task) {
-		result = get_fs_path(task, path, 1);
+		fs = get_fs_struct(task);
 		put_task_struct(task);
+	}
+	if (fs) {
+		read_lock(&fs->lock);
+		*path = fs->root;
+		path_get(&fs->root);
+		read_unlock(&fs->lock);
+		result = 0;
+		put_fs_struct(fs);
 	}
 	return result;
 }
@@ -241,7 +258,8 @@ struct mm_struct *mm_for_maps(struct task_struct *task)
 	if (task->mm != mm)
 		goto out;
 	if (task->mm != current->mm &&
-	    __ptrace_may_access(task, PTRACE_MODE_READ) < 0)
+	    __ptrace_may_access(task, PTRACE_MODE_READ) < 0 &&
+	    !capable(CAP_SYS_RESOURCE))
 		goto out;
 	task_unlock(task);
 	return mm;
@@ -321,10 +339,7 @@ static int proc_pid_wchan(struct task_struct *task, char *buffer)
 	wchan = get_wchan(task);
 
 	if (lookup_symbol_name(wchan, symname) < 0)
-		if (!ptrace_may_access(task, PTRACE_MODE_READ))
-			return 0;
-		else
-			return sprintf(buffer, "%lu", wchan);
+		return sprintf(buffer, "%lu", wchan);
 	else
 		return sprintf(buffer, "%s", symname);
 }
@@ -588,6 +603,7 @@ static int mounts_open_common(struct inode *inode, struct file *file,
 	struct task_struct *task = get_proc_task(inode);
 	struct nsproxy *nsp;
 	struct mnt_namespace *ns = NULL;
+	struct fs_struct *fs = NULL;
 	struct path root;
 	struct proc_mounts *p;
 	int ret = -EINVAL;
@@ -601,15 +617,21 @@ static int mounts_open_common(struct inode *inode, struct file *file,
 				get_mnt_ns(ns);
 		}
 		rcu_read_unlock();
-		if (ns && get_fs_path(task, &root, 1) == 0)
-			ret = 0;
+		if (ns)
+			fs = get_fs_struct(task);
 		put_task_struct(task);
 	}
 
 	if (!ns)
 		goto err;
-	if (ret)
+	if (!fs)
 		goto err_put_ns;
+
+	read_lock(&fs->lock);
+	root = fs->root;
+	path_get(&root);
+	read_unlock(&fs->lock);
+	put_fs_struct(fs);
 
 	ret = -ENOMEM;
 	p = kmalloc(sizeof(struct proc_mounts), GFP_KERNEL);
@@ -1044,6 +1066,33 @@ static ssize_t oom_adjust_write(struct file *file, const char __user *buf,
 		return -EIO;
 	return end - buffer;
 }
+
+static int oom_adjust_permission(struct inode *inode, int mask)
+{
+	uid_t uid;
+	struct task_struct *p = get_proc_task(inode);
+	if(p) {
+		uid = task_uid(p);
+		put_task_struct(p);
+	}
+
+	/*
+	 * System Server (uid == 1000) is granted access to oom_adj of all 
+	 * android applications (uid > 10000) as and services (uid >= 1000)
+	 */
+	if (p && (current_fsuid() == 1000) && (uid >= 1000)) {
+		if (inode->i_mode >> 6 & mask) {
+			return 0;
+		}
+	}
+
+	/* Fall back to default. */
+	return generic_permission(inode, mask, NULL);
+}
+
+static const struct inode_operations proc_oom_adjust_inode_operations = {
+	.permission	= oom_adjust_permission,
+};
 
 static const struct file_operations proc_oom_adjust_operations = {
 	.read		= oom_adjust_read,
@@ -2527,7 +2576,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("cgroup",  S_IRUGO, proc_cgroup_operations),
 #endif
 	INF("oom_score",  S_IRUGO, proc_oom_score),
-	REG("oom_adj",    S_IRUGO|S_IWUSR, proc_oom_adjust_operations),
+	ANDROID("oom_adj",S_IRUGO|S_IWUSR, oom_adjust),
 #ifdef CONFIG_AUDITSYSCALL
 	REG("loginuid",   S_IWUSR|S_IRUGO, proc_loginuid_operations),
 	REG("sessionid",  S_IRUGO, proc_sessionid_operations),

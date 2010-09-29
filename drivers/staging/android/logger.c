@@ -27,6 +27,11 @@
 
 #include <asm/ioctls.h>
 
+#if 1
+/* [LINUSYS] added by khoonk for calculating boot-time on 20070508 */
+	unsigned char klog_buf[256];
+/* [LINUSYS] added by khoonk for calculating boot-time on 20070508 */
+#endif
 /*
  * struct logger_log - represents a specific log, such as 'main' or 'radio'
  *
@@ -279,6 +284,19 @@ static void do_write_log(struct logger_log *log, const void *buf, size_t count)
 	size_t len;
 
 	len = min(count, log->size - log->w_off);
+
+#if 1 //LOGGER_PATCH_MMS_LOCKUP
+	if (count >= LOGGER_ENTRY_MAX_PAYLOAD) {
+		printk("\n");
+		printk("*****************************************************************\n");
+		printk("* LOGGER - ERROR  ( %s )\n", __FUNCTION__);
+		printk("* log:%s log->buffer:%x  log->w_off:%x  count:%x len:%x \n",
+		       log->misc.name, log->buffer, log->w_off, count, len);
+		printk("*****************************************************************\n");
+		return;
+	}
+#endif
+
 	memcpy(log->buffer + log->w_off, buf, len);
 
 	if (count != len)
@@ -308,6 +326,19 @@ static ssize_t do_write_log_from_user(struct logger_log *log,
 	if (count != len)
 		if (copy_from_user(log->buffer, buf + len, count - len))
 			return -EFAULT;
+#if 1
+/* [LINUSYS] added by khoonk for calculating boot-time on 20070508 */
+	memset(klog_buf,0,255);
+    if(strncmp(log->buffer + log->w_off, "!@", 2) == 0) {
+		if (count < 255) 
+			memcpy(klog_buf,log->buffer + log->w_off, count);	
+		else
+			memcpy(klog_buf,log->buffer + log->w_off, 255);	
+			
+		klog_buf[255]=0;
+	}
+/* [LINUSYS] added by khoonk for calculating boot-time on 20070508 */
+#endif
 
 	log->w_off = logger_offset(log->w_off + count);
 
@@ -371,6 +402,13 @@ ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 		ret += nr;
 	}
 
+#if 1
+/* [LINUSYS] added by khoonk for calculating boot-time on 20070508 */
+    if(strncmp(klog_buf, "!@", 2) == 0) {
+		printk("%s\n",klog_buf);
+	}
+/* [LINUSYS] added by khoonk for calculating boot-time on 20070508 */
+#endif
 	mutex_unlock(&log->mutex);
 
 	/* wake up any blocked readers */
@@ -553,9 +591,9 @@ static struct logger_log VAR = { \
 	.size = SIZE, \
 };
 
-DEFINE_LOGGER_DEVICE(log_main, LOGGER_LOG_MAIN, 64*1024)
+DEFINE_LOGGER_DEVICE(log_main, LOGGER_LOG_MAIN, 256*1024)
 DEFINE_LOGGER_DEVICE(log_events, LOGGER_LOG_EVENTS, 256*1024)
-DEFINE_LOGGER_DEVICE(log_radio, LOGGER_LOG_RADIO, 64*1024)
+DEFINE_LOGGER_DEVICE(log_radio, LOGGER_LOG_RADIO, 256*1024)
 
 static struct logger_log * get_log_from_minor(int minor)
 {
@@ -585,9 +623,28 @@ static int __init init_log(struct logger_log *log)
 	return 0;
 }
 
+/* RAM Dump Info */
+
+#include <linux/sec_log.h>
+
+static struct struct_plat_log_mark plat_log_mark = {
+	.special_mark_1 = (('*' << 24) | ('^' << 16) | ('^' << 8) | ('*' << 0)),
+	.special_mark_2 = (('I' << 24) | ('n' << 16) | ('f' << 8) | ('o' << 0)),
+	.special_mark_3 = (('H' << 24) | ('e' << 16) | ('r' << 8) | ('e' << 0)),
+	.special_mark_4 = (('p' << 24) | ('l' << 16) | ('o' << 8) | ('g' << 0)),
+	.p_main = 0, 
+	.p_radio = 0,
+	.p_events = 0, 
+};
+
 static int __init logger_init(void)
 {
 	int ret;
+
+	/* RAM Dump Info */
+	plat_log_mark.p_main = _buf_log_main; 
+	plat_log_mark.p_radio = _buf_log_radio;
+	plat_log_mark.p_events = _buf_log_events;
 
 	ret = init_log(&log_main);
 	if (unlikely(ret))
@@ -605,3 +662,4 @@ out:
 	return ret;
 }
 device_initcall(logger_init);
+

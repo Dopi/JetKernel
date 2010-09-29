@@ -454,12 +454,13 @@ config I2C_PXA_SLAVE
 	  is necessary for systems where the PXA may be a target on the
 	  I2C bus.
 
-config I2C_S3C2410
-	tristate "S3C2410 I2C Driver"
-	depends on ARCH_S3C2410
+config I2C_S3C
+	tristate "Samsung SoC I2C Driver (S3C24XX and S3C64XX series)"
+	depends on ARCH_S3C2410 || ARCH_S3C64XX
 	help
 	  Say Y here to include support for I2C controller in the
-	  Samsung S3C2410 based System-on-Chip devices.
+	  Samsung S3C based System-on-Chip devices such as the S3C2410,
+	  S3C2440, S3C2442, S3C2443 and S3C6410.
 
 config I2C_SH7760
 	tristate "Renesas SH7760 I2C Controller"

@@ -525,6 +525,7 @@ config ARCH_S3C64XX
 	bool "Samsung S3C64XX"
 	select GENERIC_GPIO
 	select HAVE_CLK
+	select ZONE_DMA
 	help
 	  Samsung S3C64XX series based systems
 
@@ -854,7 +855,7 @@ config PREEMPT
 config HZ
 	int
 	default 128 if ARCH_L7200
-	default 200 if ARCH_EBSA110 || ARCH_S3C2410
+	default 200 if ARCH_EBSA110 || ARCH_S3C2410 || ARCH_S3C64XX
 	default OMAP_32K_TIMER_HZ if ARCH_OMAP && OMAP_32K_TIMER
 	default AT91_TIMER_HZ if ARCH_AT91
 	default 100
@@ -1086,7 +1087,7 @@ endmenu
 
 menu "CPU Power Management"
 
-if (ARCH_SA1100 || ARCH_INTEGRATOR || ARCH_OMAP || ARCH_IMX || ARCH_PXA)
+if (ARCH_SA1100 || ARCH_INTEGRATOR || ARCH_OMAP || ARCH_IMX || ARCH_PXA || CPU_S3C6410)
 
 source "drivers/cpufreq/Kconfig"
 
@@ -1313,6 +1314,8 @@ source "drivers/accessibility/Kconfig"
 
 source "drivers/leds/Kconfig"
 
+source "drivers/switch/Kconfig"
+
 source "drivers/rtc/Kconfig"
 
 source "drivers/dma/Kconfig"
@@ -1326,6 +1329,8 @@ source "drivers/regulator/Kconfig"
 source "drivers/uio/Kconfig"
 
 source "drivers/staging/Kconfig"
+
+source "drivers/sensor/Kconfig"
 
 endmenu
 

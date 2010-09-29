@@ -247,6 +247,7 @@
 #include <linux/string.h>
 #include <linux/freezer.h>
 #include <linux/utsname.h>
+#include <linux/switch.h>
 
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
@@ -365,9 +366,13 @@ static struct {
 	char		*protocol_name;
 
 } mod_data = {					// Default values
+//added by ss1.yang
+//	.file = "/lib/modules/gadgetdisk_dev_block_ram0",	
+	.file = "/dev/block/mmcblk0",	
 	.transport_parm		= "BBB",
 	.protocol_parm		= "SCSI",
-	.removable		= 0,
+//modified by ss1.yang
+	.removable		= 1, //0,
 	.can_stall		= 1,
 	.cdrom			= 0,
 	.vendor			= DRIVER_VENDOR_ID,
@@ -712,6 +717,7 @@ struct fsg_dev {
 	unsigned int		nluns;
 	struct lun		*luns;
 	struct lun		*curlun;
+	struct switch_dev	sdev;
 };
 
 typedef void (*fsg_routine_t)(struct fsg_dev *);
@@ -3362,6 +3368,7 @@ static int do_set_config(struct fsg_dev *fsg, u8 new_config)
 			INFO(fsg, "%s speed config #%d\n", speed, fsg->config);
 		}
 	}
+	switch_set_state (&fsg->sdev, new_config);
 	return rc;
 }
 
@@ -3865,6 +3872,7 @@ static void /* __init_or_exit */ fsg_unbind(struct usb_gadget *gadget)
 	}
 
 	set_gadget_data(gadget, NULL);
+	switch_dev_unregister(&the_fsg->sdev);
 }
 
 
@@ -3956,6 +3964,16 @@ static int __init check_parameters(struct fsg_dev *fsg)
 	return 0;
 }
 
+static ssize_t print_switch_name(struct switch_dev *sdev, char *buf)
+{
+        return sprintf(buf, "usb_mass_storage\n");
+}
+ 
+static ssize_t print_switch_state(struct switch_dev *sdev, char *buf)
+{
+        struct fsg_dev  *fsg = container_of(sdev, struct fsg_dev, sdev);
+        return sprintf(buf, "%s\n", (fsg->config ? "online" : "offline"));
+}
 
 static int __init fsg_bind(struct usb_gadget *gadget)
 {
@@ -4173,6 +4191,11 @@ static int __init fsg_bind(struct usb_gadget *gadget)
 	DBG(fsg, "I/O thread pid: %d\n", task_pid_nr(fsg->thread_task));
 
 	set_bit(REGISTERED, &fsg->atomic_bitflags);
+
+        the_fsg->sdev.name = "usb_mass_storage";
+        the_fsg->sdev.print_name = print_switch_name;
+        the_fsg->sdev.print_state = print_switch_state;
+        switch_dev_register(&the_fsg->sdev);
 
 	/* Tell the thread to start working */
 	wake_up_process(fsg->thread_task);

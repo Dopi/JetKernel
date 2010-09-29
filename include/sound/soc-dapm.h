@@ -249,6 +249,11 @@ int snd_soc_dapm_set_bias_level(struct snd_soc_device *socdev,
 /* dapm sys fs - used by the core */
 int snd_soc_dapm_sys_add(struct device *dev);
 
+/* dapm audio endpoint control */
+int snd_soc_dapm_set_endpoint(struct snd_soc_codec *codec,
+	char *pin, int status);
+int snd_soc_dapm_sync_endpoints(struct snd_soc_codec *codec);
+
 /* dapm audio pin control and status */
 int snd_soc_dapm_enable_pin(struct snd_soc_codec *codec, char *pin);
 int snd_soc_dapm_disable_pin(struct snd_soc_codec *codec, char *pin);

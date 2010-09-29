@@ -773,8 +773,7 @@ extern int i915_wait_ring(struct drm_device * dev, int n, const char *caller);
 		       (dev)->pci_device == 0x2A42 || \
 		       (dev)->pci_device == 0x2E02 || \
 		       (dev)->pci_device == 0x2E12 || \
-		       (dev)->pci_device == 0x2E22 || \
-		       (dev)->pci_device == 0x2E32)
+		       (dev)->pci_device == 0x2E22)
 
 #define IS_I965GM(dev) ((dev)->pci_device == 0x2A02)
 
@@ -783,7 +782,6 @@ extern int i915_wait_ring(struct drm_device * dev, int n, const char *caller);
 #define IS_G4X(dev) ((dev)->pci_device == 0x2E02 || \
 		     (dev)->pci_device == 0x2E12 || \
 		     (dev)->pci_device == 0x2E22 || \
-		     (dev)->pci_device == 0x2E32 || \
 		     IS_GM45(dev))
 
 #define IS_G33(dev)    ((dev)->pci_device == 0x29C2 ||	\

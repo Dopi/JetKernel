@@ -30,6 +30,9 @@
 #include <linux/mm.h>
 #include <linux/bitops.h>
 
+/* For Android */
+#define ANDROID_BUF_NUM 32
+
 #define snd_pcm_substream_chip(substream) ((substream)->private_data)
 #define snd_pcm_chip(pcm) ((pcm)->private_data)
 
@@ -657,7 +660,9 @@ static inline size_t snd_pcm_lib_period_bytes(struct snd_pcm_substream *substrea
  */
 static inline snd_pcm_uframes_t snd_pcm_playback_avail(struct snd_pcm_runtime *runtime)
 {
-	snd_pcm_sframes_t avail = runtime->status->hw_ptr + runtime->buffer_size - runtime->control->appl_ptr;
+	/* For Android Audio */
+    snd_pcm_sframes_t avail = runtime->status->hw_ptr + (runtime->buffer_size * ANDROID_BUF_NUM) 
+							  - runtime->control->appl_ptr;
 	if (avail < 0)
 		avail += runtime->boundary;
 	else if ((snd_pcm_uframes_t) avail >= runtime->boundary)
@@ -678,7 +683,7 @@ static inline snd_pcm_uframes_t snd_pcm_capture_avail(struct snd_pcm_runtime *ru
 
 static inline snd_pcm_sframes_t snd_pcm_playback_hw_avail(struct snd_pcm_runtime *runtime)
 {
-	return runtime->buffer_size - snd_pcm_playback_avail(runtime);
+	return (runtime->buffer_size * ANDROID_BUF_NUM) - snd_pcm_playback_avail(runtime);
 }
 
 static inline snd_pcm_sframes_t snd_pcm_capture_hw_avail(struct snd_pcm_runtime *runtime)
@@ -729,7 +734,7 @@ static inline int snd_pcm_playback_data(struct snd_pcm_substream *substream)
 	
 	if (runtime->stop_threshold >= runtime->boundary)
 		return 1;
-	return snd_pcm_playback_avail(runtime) < runtime->buffer_size;
+	return snd_pcm_playback_avail(runtime) < runtime->buffer_size * ANDROID_BUF_NUM;
 }
 
 /**
@@ -743,7 +748,7 @@ static inline int snd_pcm_playback_data(struct snd_pcm_substream *substream)
 static inline int snd_pcm_playback_empty(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
-	return snd_pcm_playback_avail(runtime) >= runtime->buffer_size;
+	return snd_pcm_playback_avail(runtime) >= (runtime->buffer_size * ANDROID_BUF_NUM);
 }
 
 /**

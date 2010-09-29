@@ -34,8 +34,15 @@
  * It helps to keep variable names smaller, simpler
  */
 
-#define DEF_FREQUENCY_UP_THRESHOLD		(80)
-#define DEF_FREQUENCY_DOWN_THRESHOLD		(20)
+#define DEF_FREQUENCY_UP_THRESHOLD		(70)
+#define DEF_FREQUENCY_DOWN_THRESHOLD		(40)
+#ifdef CONFIG_CPU_S3C6410
+#define DEF_SAMPLING_FREQ_STEP	20
+extern int dvfs_change_quick;
+extern unsigned int s3c64xx_target_frq(unsigned int pred_freq, int flag);
+#else
+#define DEF_SAMPLING_FREQ_STEP 5
+#endif /* CONFIG_CPU_S3C6410 */
 
 /*
  * The polling frequency of this governor depends on the capability of
@@ -51,11 +58,10 @@ static unsigned int def_sampling_rate;
 #define MIN_SAMPLING_RATE_RATIO			(2)
 /* for correct statistics, we need at least 10 ticks between each measure */
 #define MIN_STAT_SAMPLING_RATE			\
-			(MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(10))
+	(MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(CONFIG_CPU_FREQ_MIN_TICKS))
 #define MIN_SAMPLING_RATE			\
 			(def_sampling_rate / MIN_SAMPLING_RATE_RATIO)
 #define MAX_SAMPLING_RATE			(500 * def_sampling_rate)
-#define DEF_SAMPLING_RATE_LATENCY_MULTIPLIER	(1000)
 #define DEF_SAMPLING_DOWN_FACTOR		(1)
 #define MAX_SAMPLING_DOWN_FACTOR		(10)
 #define TRANSITION_LATENCY_LIMIT		(10 * 1000 * 1000)
@@ -99,7 +105,11 @@ static struct dbs_tuners dbs_tuners_ins = {
 	.down_threshold = DEF_FREQUENCY_DOWN_THRESHOLD,
 	.sampling_down_factor = DEF_SAMPLING_DOWN_FACTOR,
 	.ignore_nice = 0,
+#ifdef CONFIG_CPU_S3C6410
+	.freq_step = DEF_SAMPLING_FREQ_STEP,
+#else
 	.freq_step = 5,
+#endif /* CONFIG_CPU_S3C6410 */
 };
 
 static inline unsigned int get_cpu_idle_time(unsigned int cpu)
@@ -328,12 +338,13 @@ static struct attribute_group dbs_attr_group = {
 };
 
 /************************** sysfs end ************************/
-
 static void dbs_check_cpu(int cpu)
 {
 	unsigned int idle_ticks, up_idle_ticks, down_idle_ticks;
 	unsigned int tmp_idle_ticks, total_idle_ticks;
+#ifndef CONFIG_CPU_S3C6410
 	unsigned int freq_target;
+#endif /* CONFIG_CPU_S3C6410 */
 	unsigned int freq_down_sampling_rate;
 	struct cpu_dbs_info_s *this_dbs_info = &per_cpu(cpu_dbs_info, cpu);
 	struct cpufreq_policy *policy;
@@ -374,7 +385,12 @@ static void dbs_check_cpu(int cpu)
 	up_idle_ticks = (100 - dbs_tuners_ins.up_threshold) *
 			usecs_to_jiffies(dbs_tuners_ins.sampling_rate);
 
+#ifdef CONFIG_CPU_S3C6410
+	if ((idle_ticks < up_idle_ticks) || (dvfs_change_quick)) {
+		dvfs_change_quick = 0;
+#else
 	if (idle_ticks < up_idle_ticks) {
+#endif /* CONFIG_CPU_S3C6410 */
 		this_dbs_info->down_skip = 0;
 		this_dbs_info->prev_cpu_idle_down =
 			this_dbs_info->prev_cpu_idle_up;
@@ -382,7 +398,9 @@ static void dbs_check_cpu(int cpu)
 		/* if we are already at full speed then break out early */
 		if (this_dbs_info->requested_freq == policy->max)
 			return;
-
+#ifdef CONFIG_CPU_S3C6410
+		this_dbs_info->requested_freq = s3c64xx_target_frq(this_dbs_info->requested_freq, 1);
+#else
 		freq_target = (dbs_tuners_ins.freq_step * policy->max) / 100;
 
 		/* max freq cannot be less than 100. But who knows.... */
@@ -390,6 +408,8 @@ static void dbs_check_cpu(int cpu)
 			freq_target = 5;
 
 		this_dbs_info->requested_freq += freq_target;
+#endif /* CONFIG_CPU_S3C6410 */
+
 		if (this_dbs_info->requested_freq > policy->max)
 			this_dbs_info->requested_freq = policy->max;
 
@@ -431,6 +451,9 @@ static void dbs_check_cpu(int cpu)
 				|| dbs_tuners_ins.freq_step == 0)
 			return;
 
+#ifdef CONFIG_CPU_S3C6410
+		this_dbs_info->requested_freq = s3c64xx_target_frq(this_dbs_info->requested_freq, -1);
+#else
 		freq_target = (dbs_tuners_ins.freq_step * policy->max) / 100;
 
 		/* max freq cannot be less than 100. But who knows.... */
@@ -438,6 +461,7 @@ static void dbs_check_cpu(int cpu)
 			freq_target = 5;
 
 		this_dbs_info->requested_freq -= freq_target;
+#endif /* CONFIG_CPU_S3C6410 */
 		if (this_dbs_info->requested_freq < policy->min)
 			this_dbs_info->requested_freq = policy->min;
 
@@ -458,11 +482,19 @@ static void do_dbs_timer(struct work_struct *work)
 	mutex_unlock(&dbs_mutex);
 }
 
+static int dbs_timer_count = 0;
 static inline void dbs_timer_init(void)
 {
 	init_timer_deferrable(&dbs_work.timer);
+
+	if (dbs_timer_count == 0) {
+		schedule_delayed_work(&dbs_work, 100 * HZ);
+		dbs_timer_count++;
+	}
+	else {
 	schedule_delayed_work(&dbs_work,
 			usecs_to_jiffies(dbs_tuners_ins.sampling_rate));
+	}
 	return;
 }
 
@@ -524,7 +556,7 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 				latency = 1;
 
 			def_sampling_rate = 10 * latency *
-					DEF_SAMPLING_RATE_LATENCY_MULTIPLIER;
+				CONFIG_CPU_FREQ_SAMPLING_LATENCY_MULTIPLIER;
 
 			if (def_sampling_rate < MIN_STAT_SAMPLING_RATE)
 				def_sampling_rate = MIN_STAT_SAMPLING_RATE;

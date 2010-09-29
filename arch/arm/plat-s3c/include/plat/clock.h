@@ -41,13 +41,21 @@ extern struct clk clk_usb_bus;
 /* core clock support */
 
 extern struct clk clk_f;
+extern struct clk clk_hx2;
 extern struct clk clk_h;
+extern struct clk clk_s;
 extern struct clk clk_p;
 extern struct clk clk_mpll;
 extern struct clk clk_upll;
 extern struct clk clk_epll;
 extern struct clk clk_xtal;
 extern struct clk clk_ext;
+extern struct clk clk_dout_mpll;
+
+#ifdef CONFIG_CPU_S5PC100
+extern struct clk clk_hd0;
+extern struct clk clk_pd0;
+#endif
 
 /* S3C64XX specific clocks */
 extern struct clk clk_27m;
@@ -62,12 +70,13 @@ extern spinlock_t clocks_lock;
 
 extern int s3c2410_clkcon_enable(struct clk *clk, int enable);
 
-extern int s3c24xx_register_clock(struct clk *clk);
-extern int s3c24xx_register_clocks(struct clk **clk, int nr_clks);
+extern int s3c_register_clock(struct clk *clk);
+extern int s3c_register_clocks(struct clk **clk, int nr_clks);
 
-extern int s3c24xx_register_baseclocks(unsigned long xtal);
+extern int s3c_register_baseclocks(unsigned long xtal);
 
 extern void s3c64xx_register_clocks(void);
+extern void s5pc1xx_register_clocks(void);
 
 extern void s3c24xx_setup_clocks(unsigned long fclk,
 				 unsigned long hclk,
@@ -81,8 +90,3 @@ extern void s3c2443_setup_clocks(void);
 /* S3C64XX specific functions and clocks */
 
 extern int s3c64xx_sclk_ctrl(struct clk *clk, int enable);
-
-/* Init for pwm clock code */
-
-extern void s3c_pwmclk_init(void);
-

@@ -687,7 +687,8 @@ struct rt2x00_dev {
 	 */
 #ifdef CONFIG_RT2X00_LIB_RFKILL
 	unsigned long rfkill_state;
-#define RFKILL_STATE_REGISTERED		1
+#define RFKILL_STATE_ALLOCATED		1
+#define RFKILL_STATE_REGISTERED		2
 	struct rfkill *rfkill;
 	struct delayed_work rfkill_work;
 #endif /* CONFIG_RT2X00_LIB_RFKILL */

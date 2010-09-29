@@ -75,7 +75,8 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 	if ((skb = skb_share_check(skb, GFP_ATOMIC)) == NULL ||
 	    !idev || unlikely(idev->cnf.disable_ipv6)) {
 		IP6_INC_STATS_BH(net, idev, IPSTATS_MIB_INDISCARDS);
-		goto drop;
+		rcu_read_unlock();
+		goto out;
 	}
 
 	memset(IP6CB(skb), 0, sizeof(struct inet6_skb_parm));
@@ -146,6 +147,7 @@ err:
 drop:
 	rcu_read_unlock();
 	kfree_skb(skb);
+out:
 	return 0;
 }
 

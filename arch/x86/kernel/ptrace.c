@@ -690,8 +690,9 @@ static int ptrace_bts_config(struct task_struct *child,
 		if (!cfg.signal)
 			return -EINVAL;
 
-		child->thread.bts_ovfl_signal = cfg.signal;
 		return -EOPNOTSUPP;
+
+		child->thread.bts_ovfl_signal = cfg.signal;
 	}
 
 	if ((cfg.flags & PTRACE_BTS_O_ALLOC) &&

@@ -1,0 +1,22 @@
+#
+# Optical Sensor Configuration
+#
+
+
+
+config OPTICAL                                                              
+	bool "Optical Sensor"
+	default n
+	help
+	This option enables proximity & light sensors  
+	   
+
+config OPTICAL_GP2A
+	depends on OPTICAL
+	tristate "GP2A driver for s3c6410"
+	default y
+	help
+	  This option enables proximity & light sensors using gp2a driver.
+	  It is optimized for s3c6410.
+	  
+

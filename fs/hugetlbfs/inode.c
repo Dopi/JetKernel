@@ -26,6 +26,7 @@
 #include <linux/pagevec.h>
 #include <linux/parser.h>
 #include <linux/mman.h>
+#include <linux/quotaops.h>
 #include <linux/slab.h>
 #include <linux/dnotify.h>
 #include <linux/statfs.h>
@@ -841,7 +842,7 @@ hugetlbfs_parse_options(char *options, struct hugetlbfs_config *pconfig)
 bad_val:
  	printk(KERN_ERR "hugetlbfs: Bad value '%s' for mount option '%s'\n",
 	       args[0].from, p);
- 	return -EINVAL;
+ 	return 1;
 }
 
 static int

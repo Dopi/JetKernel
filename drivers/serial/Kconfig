@@ -457,9 +457,9 @@ config SERIAL_SAMSUNG
 
 config SERIAL_SAMSUNG_UARTS
 	int
-	depends on ARM && PLAT_S3C
+	depends on SERIAL_SAMSUNG
 	default 2 if ARCH_S3C2400
-	default 4 if ARCH_S3C64XX || CPU_S3C2443
+	default 4 if ARCH_S3C64XX || CPU_S3C2443 || ARCH_S5PC1XX
 	default 3
 	help
 	  Select the number of available UART ports for the Samsung S3C
@@ -525,13 +525,20 @@ config SERIAL_S3C24A0
 	help
 	  Serial port support for the Samsung S3C24A0 SoC
 
-config SERIAL_S3C6400
+config SERIAL_S3C64XX
 	tristate "Samsung S3C6400/S3C6410 Serial port support"
 	depends on SERIAL_SAMSUNG && (CPU_S3C600 || CPU_S3C6410)
 	default y
 	help
 	  Serial port support for the Samsung S3C6400 and S3C6410
 	  SoCs
+
+config SERIAL_S5PC100
+	tristate "Samsung S5PC100 Serial port support"
+	depends on SERIAL_SAMSUNG && CPU_S5PC100
+	default y
+	help
+	  Serial port support for the Samsung S5PC100 SoCs
 
 config SERIAL_DZ
 	bool "DECstation DZ serial driver"

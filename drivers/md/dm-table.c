@@ -399,30 +399,28 @@ static int check_device_area(struct dm_dev_internal *dd, sector_t start,
 }
 
 /*
- * This upgrades the mode on an already open dm_dev, being
+ * This upgrades the mode on an already open dm_dev.  Being
  * careful to leave things as they were if we fail to reopen the
- * device and not to touch the existing bdev field in case
- * it is accessed concurrently inside dm_table_any_congested().
+ * device.
  */
 static int upgrade_mode(struct dm_dev_internal *dd, fmode_t new_mode,
 			struct mapped_device *md)
 {
 	int r;
-	struct dm_dev_internal dd_new, dd_old;
+	struct dm_dev_internal dd_copy;
+	dev_t dev = dd->dm_dev.bdev->bd_dev;
 
-	dd_new = dd_old = *dd;
-
-	dd_new.dm_dev.mode |= new_mode;
-	dd_new.dm_dev.bdev = NULL;
-
-	r = open_dev(&dd_new, dd->dm_dev.bdev->bd_dev, md);
-	if (r)
-		return r;
+	dd_copy = *dd;
 
 	dd->dm_dev.mode |= new_mode;
-	close_dev(&dd_old, md);
+	dd->dm_dev.bdev = NULL;
+	r = open_dev(dd, dev, md);
+	if (!r)
+		close_dev(&dd_copy, md);
+	else
+		*dd = dd_copy;
 
-	return 0;
+	return r;
 }
 
 /*

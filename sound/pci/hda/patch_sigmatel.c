@@ -4007,12 +4007,7 @@ static int stac92xx_init(struct hda_codec *codec)
 				pinctl = snd_hda_codec_read(codec, nid, 0,
 					AC_VERB_GET_PIN_WIDGET_CONTROL, 0);
 				/* if PINCTL already set then skip */
-				/* Also, if both INPUT and OUTPUT are set,
-				 * it must be a BIOS bug; need to override, too
-				 */
-				if (!(pinctl & AC_PINCTL_IN_EN) ||
-				    (pinctl & AC_PINCTL_OUT_EN)) {
-					pinctl &= ~AC_PINCTL_OUT_EN;
+				if (!(pinctl & AC_PINCTL_IN_EN)) {
 					pinctl |= AC_PINCTL_IN_EN;
 					stac92xx_auto_set_pinctl(codec, nid,
 								 pinctl);

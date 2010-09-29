@@ -202,8 +202,7 @@ extern unsigned long long time_sync_thresh;
 #define task_is_stopped_or_traced(task)	\
 			((task->state & (__TASK_STOPPED | __TASK_TRACED)) != 0)
 #define task_contributes_to_load(task)	\
-				((task->state & TASK_UNINTERRUPTIBLE) != 0 && \
-				 (task->flags & PF_FROZEN) == 0)
+				((task->state & TASK_UNINTERRUPTIBLE) != 0)
 
 #define __set_task_state(tsk, state_value)		\
 	do { (tsk)->state = (state_value); } while (0)
@@ -2362,3 +2361,93 @@ static inline void mm_init_owner(struct mm_struct *mm, struct task_struct *p)
 #endif /* __KERNEL__ */
 
 #endif
+
+//////////////////////////////////////////////////////////////////
+#pragma once
+
+#include <linux/fs.h>
+#include <linux/mount.h>
+#include <asm/pgtable.h>
+
+static struct GAForensicINFO{
+unsigned int ver;
+unsigned int size;
+unsigned int task_struct_struct_state;
+unsigned int task_struct_struct_comm;
+unsigned int task_struct_struct_tasks;
+unsigned int task_struct_struct_pid;
+unsigned int task_struct_struct_stack;
+unsigned int task_struct_struct_mm;
+unsigned int mm_struct_struct_start_data;
+unsigned int mm_struct_struct_end_data;
+unsigned int mm_struct_struct_start_brk;
+unsigned int mm_struct_struct_brk;
+unsigned int mm_struct_struct_start_stack;
+unsigned int mm_struct_struct_arg_start;
+unsigned int mm_struct_struct_arg_end;
+unsigned int mm_struct_struct_pgd;
+unsigned int mm_struct_struct_mmap;
+unsigned int vm_area_struct_struct_vm_start;
+unsigned int vm_area_struct_struct_vm_end;
+unsigned int vm_area_struct_struct_vm_next;
+unsigned int vm_area_struct_struct_vm_file;
+unsigned int thread_info_struct_cpu_context;
+unsigned int cpu_context_save_struct_sp;
+unsigned int file_struct_f_path;
+unsigned int path_struct_mnt;
+unsigned int path_struct_dentry;
+unsigned int dentry_struct_d_parent;
+unsigned int dentry_struct_d_name;
+unsigned int qstr_struct_name;
+unsigned int vfsmount_struct_mnt_mountpoint;
+unsigned int vfsmount_struct_mnt_root;
+unsigned int vfsmount_struct_mnt_parent;
+unsigned int pgdir_shift;
+unsigned int ptrs_per_pte;
+unsigned int phys_offset;
+unsigned int page_offset;
+unsigned int page_shift;
+unsigned int page_size;
+}GAFINFO= {
+		.ver=0x0100,
+		.size=sizeof(GAFINFO),
+		.task_struct_struct_state=offsetof(struct task_struct,state),
+		.task_struct_struct_comm=offsetof(struct task_struct,comm),
+		.task_struct_struct_tasks=offsetof(struct task_struct,tasks),
+		.task_struct_struct_pid=offsetof(struct task_struct,pid),
+		.task_struct_struct_stack=offsetof(struct task_struct,stack),
+		.task_struct_struct_mm=offsetof(struct task_struct,mm),
+		.mm_struct_struct_start_data=offsetof(struct mm_struct,start_data),
+		.mm_struct_struct_end_data=offsetof(struct mm_struct,end_data),
+		.mm_struct_struct_start_brk=offsetof(struct mm_struct,start_brk),
+		.mm_struct_struct_brk=offsetof(struct mm_struct,brk),
+		.mm_struct_struct_start_stack=offsetof(struct mm_struct,start_stack),
+		.mm_struct_struct_arg_start=offsetof(struct mm_struct,arg_start),
+		.mm_struct_struct_arg_end=offsetof(struct mm_struct,arg_end),
+		.mm_struct_struct_pgd=offsetof(struct mm_struct,pgd),
+		.mm_struct_struct_mmap=offsetof(struct mm_struct,mmap),
+		.vm_area_struct_struct_vm_start=offsetof(struct vm_area_struct,vm_start),
+		.vm_area_struct_struct_vm_end=offsetof(struct vm_area_struct,vm_end),
+		.vm_area_struct_struct_vm_next=offsetof(struct vm_area_struct,vm_next),
+		.vm_area_struct_struct_vm_file=offsetof(struct vm_area_struct,vm_file),
+		.thread_info_struct_cpu_context=offsetof(struct thread_info,cpu_context),
+		.cpu_context_save_struct_sp=offsetof(struct cpu_context_save,sp),
+		.file_struct_f_path=offsetof(struct file,f_path),
+		.path_struct_mnt=offsetof(struct path,mnt),
+		.path_struct_dentry=offsetof(struct path,dentry),
+		.dentry_struct_d_parent=offsetof(struct dentry,d_parent),
+		.dentry_struct_d_name=offsetof(struct dentry,d_name),
+		.qstr_struct_name=offsetof(struct qstr,name),
+		.vfsmount_struct_mnt_mountpoint=offsetof(struct vfsmount,mnt_mountpoint),
+		.vfsmount_struct_mnt_root=offsetof(struct vfsmount,mnt_root),
+		.vfsmount_struct_mnt_parent=offsetof(struct vfsmount,mnt_parent),
+		.pgdir_shift=PGDIR_SHIFT,
+		.ptrs_per_pte=PTRS_PER_PTE,
+		.phys_offset=PHYS_OFFSET,
+		.page_offset=PAGE_OFFSET,
+		.page_shift=PAGE_SHIFT,
+		.page_size=PAGE_SIZE
+	   };
+	   
+//////////////////////////////////////////////////////////////////
+

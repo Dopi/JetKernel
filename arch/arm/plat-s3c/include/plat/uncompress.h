@@ -1,4 +1,4 @@
-/* linux/include/asm-arm/plat-s3c/uncompress.h
+/* linux/arch/arm/plat-s3c/include/plat/uncompress.h
  *
  * Copyright 2003, 2007 Simtec Electronics
  *	http://armlinux.simtec.co.uk/
@@ -31,8 +31,8 @@ static void arch_detect_cpu(void);
 #include <plat/regs-watchdog.h>
 
 /* working in physical space... */
-#undef S3C2410_WDOGREG
-#define S3C2410_WDOGREG(x) ((S3C24XX_PA_WATCHDOG + (x)))
+#undef S3C_WDOGREG
+#define S3C_WDOGREG(x) ((S3C24XX_PA_WATCHDOG + (x)))
 
 /* how many bytes we allow into the FIFO at a time in FIFO mode */
 #define FIFO_MAX	 (14)
@@ -64,11 +64,11 @@ uart_rd(unsigned int reg)
 
 static void putc(int ch)
 {
-	if (uart_rd(S3C2410_UFCON) & S3C2410_UFCON_FIFOMODE) {
+	if (uart_rd(S3C_UFCON) & S3C_UFCON_FIFOMODE) {
 		int level;
 
 		while (1) {
-			level = uart_rd(S3C2410_UFSTAT);
+			level = uart_rd(S3C_UFSTAT);
 			level &= fifo_mask;
 
 			if (level < fifo_max)
@@ -78,12 +78,12 @@ static void putc(int ch)
 	} else {
 		/* not using fifos */
 
-		while ((uart_rd(S3C2410_UTRSTAT) & S3C2410_UTRSTAT_TXE) != S3C2410_UTRSTAT_TXE)
+		while ((uart_rd(S3C_UTRSTAT) & S3C_UTRSTAT_TXE) != S3C_UTRSTAT_TXE)
 			barrier();
 	}
 
 	/* write byte to transmission register */
-	uart_wr(S3C2410_UTXH, ch);
+	uart_wr(S3C_UTXH, ch);
 }
 
 static inline void flush(void)
@@ -104,14 +104,14 @@ static inline void flush(void)
 
 static inline void arch_decomp_wdog(void)
 {
-	__raw_writel(WDOG_COUNT, S3C2410_WTCNT);
+	__raw_writel(WDOG_COUNT, S3C_WTCNT);
 }
 
 static void arch_decomp_wdog_start(void)
 {
-	__raw_writel(WDOG_COUNT, S3C2410_WTDAT);
-	__raw_writel(WDOG_COUNT, S3C2410_WTCNT);
-	__raw_writel(S3C2410_WTCON_ENABLE | S3C2410_WTCON_DIV128 | S3C2410_WTCON_RSTEN | S3C2410_WTCON_PRESCALE(0x80), S3C2410_WTCON);
+	__raw_writel(WDOG_COUNT, S3C_WTDAT);
+	__raw_writel(WDOG_COUNT, S3C_WTCNT);
+	__raw_writel(S3C_WTCON_ENABLE | S3C_WTCON_DIV128 | S3C_WTCON_RSTEN | S3C_WTCON_PRESCALE(0x80), S3C_WTCON);
 }
 
 #else
@@ -127,9 +127,9 @@ static void arch_decomp_error(const char *x)
 	putstr(x);
 	putstr("\n\n -- System resetting\n");
 
-	__raw_writel(0x4000, S3C2410_WTDAT);
-	__raw_writel(0x4000, S3C2410_WTCNT);
-	__raw_writel(S3C2410_WTCON_ENABLE | S3C2410_WTCON_DIV128 | S3C2410_WTCON_RSTEN | S3C2410_WTCON_PRESCALE(0x40), S3C2410_WTCON);
+	__raw_writel(0x4000, S3C_WTDAT);
+	__raw_writel(0x4000, S3C_WTCNT);
+	__raw_writel(S3C_WTCON_ENABLE | S3C_WTCON_DIV128 | S3C_WTCON_RSTEN | S3C_WTCON_PRESCALE(0x40), S3C_WTCON);
 
 	while(1);
 }
@@ -142,16 +142,16 @@ static void error(char *err);
 #ifdef CONFIG_S3C_BOOT_UART_FORCE_FIFO
 static inline void arch_enable_uart_fifo(void)
 {
-	u32 fifocon = uart_rd(S3C2410_UFCON);
+	u32 fifocon = uart_rd(S3C_UFCON);
 
-	if (!(fifocon & S3C2410_UFCON_FIFOMODE)) {
-		fifocon |= S3C2410_UFCON_RESETBOTH;
-		uart_wr(S3C2410_UFCON, fifocon);
+	if (!(fifocon & S3C_UFCON_FIFOMODE)) {
+		fifocon |= S3C_UFCON_RESETBOTH;
+		uart_wr(S3C_UFCON, fifocon);
 
 		/* wait for fifo reset to complete */
 		while (1) {
-			fifocon = uart_rd(S3C2410_UFCON);
-			if (!(fifocon & S3C2410_UFCON_RESETBOTH))
+			fifocon = uart_rd(S3C_UFCON);
+			if (!(fifocon & S3C_UFCON_RESETBOTH))
 				break;
 		}
 	}

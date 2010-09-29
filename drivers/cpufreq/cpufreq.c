@@ -1631,6 +1631,61 @@ int cpufreq_get_policy(struct cpufreq_policy *policy, unsigned int cpu)
 }
 EXPORT_SYMBOL(cpufreq_get_policy);
 
+/**
+ * cpufreq_set_policy - get the current cpufreq_policy
+ * @policy: struct cpufreq_policy into which the current cpufreq_policy is written
+ *
+ * Writes appropriate cpufreq policy per request.
+ * by hskang
+ */
+int cpufreq_set_policy(unsigned int cpu, const char *buf)
+{
+	unsigned int ret = -EINVAL;
+	char	str_governor[16];
+	struct cpufreq_policy new_policy;
+	struct cpufreq_policy *data = cpufreq_cpu_get(cpu);
+
+	ret = cpufreq_get_policy(&new_policy, cpu);
+	if (ret)
+		return ret;
+
+	ret = sscanf (buf, "%15s", str_governor);
+	if (ret != 1)
+		return -EINVAL;
+
+	if (cpufreq_parse_governor(str_governor, &new_policy.policy,
+						&new_policy.governor))
+		return -EINVAL;
+
+	/* Do not use cpufreq_set_policy here or the user_policy.max
+	   will be wrongly overridden */
+	ret = __cpufreq_set_policy(data, &new_policy);
+
+	data->user_policy.policy = data->policy;
+	data->user_policy.governor = data->governor;
+
+	if (ret)
+		return ret;
+	else
+		return 0;
+}
+EXPORT_SYMBOL(cpufreq_set_policy);
+
+/**
+ * cpufreq_get_policy_name - get the current cpufreq_policy name
+ * &policy : struct cpufreq_policy into which the current cpufreq_policy is written
+ *
+ * Writes appropriate cpufreq policy per request.
+ * by hskang
+ */
+char cpufreq_governor_name[CPUFREQ_NAME_LEN];
+void cpufreq_get_cpufreq_name(unsigned int cpu)
+{
+	struct cpufreq_policy *data = cpufreq_cpu_get(cpu);
+
+	strcpy (cpufreq_governor_name, data->governor->name);
+}
+EXPORT_SYMBOL(cpufreq_get_cpufreq_name);
 
 /*
  * data   : current policy.

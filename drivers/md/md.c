@@ -2844,8 +2844,11 @@ array_state_store(mddev_t *mddev, const char *buf, size_t len)
 			} else
 				err = -EBUSY;
 			spin_unlock_irq(&mddev->write_lock);
-		} else
-			err = -EINVAL;
+		} else {
+			mddev->ro = 0;
+			mddev->recovery_cp = MaxSector;
+			err = do_md_run(mddev);
+		}
 		break;
 	case active:
 		if (mddev->pers) {

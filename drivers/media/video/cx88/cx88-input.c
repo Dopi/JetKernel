@@ -48,7 +48,8 @@ struct cx88_IR {
 
 	/* poll external decoder */
 	int polling;
-	struct delayed_work work;
+	struct work_struct work;
+	struct timer_list timer;
 	u32 gpio_addr;
 	u32 last_gpio;
 	u32 mask_keycode;
@@ -142,19 +143,27 @@ static void cx88_ir_handle_key(struct cx88_IR *ir)
 	}
 }
 
+static void ir_timer(unsigned long data)
+{
+	struct cx88_IR *ir = (struct cx88_IR *)data;
+
+	schedule_work(&ir->work);
+}
+
 static void cx88_ir_work(struct work_struct *work)
 {
-	struct cx88_IR *ir = container_of(work, struct cx88_IR, work.work);
+	struct cx88_IR *ir = container_of(work, struct cx88_IR, work);
 
 	cx88_ir_handle_key(ir);
-	schedule_delayed_work(&ir->work, msecs_to_jiffies(ir->polling));
+	mod_timer(&ir->timer, jiffies + msecs_to_jiffies(ir->polling));
 }
 
 void cx88_ir_start(struct cx88_core *core, struct cx88_IR *ir)
 {
 	if (ir->polling) {
-		INIT_DELAYED_WORK(&ir->work, cx88_ir_work);
-		schedule_delayed_work(&ir->work, 0);
+		setup_timer(&ir->timer, ir_timer, (unsigned long)ir);
+		INIT_WORK(&ir->work, cx88_ir_work);
+		schedule_work(&ir->work);
 	}
 	if (ir->sampling) {
 		core->pci_irqmask |= PCI_INT_IR_SMPINT;
@@ -170,8 +179,10 @@ void cx88_ir_stop(struct cx88_core *core, struct cx88_IR *ir)
 		core->pci_irqmask &= ~PCI_INT_IR_SMPINT;
 	}
 
-	if (ir->polling)
-		cancel_delayed_work_sync(&ir->work);
+	if (ir->polling) {
+		del_timer_sync(&ir->timer);
+		flush_scheduled_work();
+	}
 }
 
 /* ---------------------------------------------------------------------- */

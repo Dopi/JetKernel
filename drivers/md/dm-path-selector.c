@@ -17,7 +17,9 @@
 
 struct ps_internal {
 	struct path_selector_type pst;
+
 	struct list_head list;
+	long use;
 };
 
 #define pst_to_psi(__pst) container_of((__pst), struct ps_internal, pst)
@@ -43,8 +45,12 @@ static struct ps_internal *get_path_selector(const char *name)
 
 	down_read(&_ps_lock);
 	psi = __find_path_selector_type(name);
-	if (psi && !try_module_get(psi->pst.module))
-		psi = NULL;
+	if (psi) {
+		if ((psi->use == 0) && !try_module_get(psi->pst.module))
+			psi = NULL;
+		else
+			psi->use++;
+	}
 	up_read(&_ps_lock);
 
 	return psi;
@@ -78,7 +84,11 @@ void dm_put_path_selector(struct path_selector_type *pst)
 	if (!psi)
 		goto out;
 
-	module_put(psi->pst.module);
+	if (--psi->use == 0)
+		module_put(psi->pst.module);
+
+	BUG_ON(psi->use < 0);
+
 out:
 	up_read(&_ps_lock);
 }
@@ -124,6 +134,11 @@ int dm_unregister_path_selector(struct path_selector_type *pst)
 	if (!psi) {
 		up_write(&_ps_lock);
 		return -EINVAL;
+	}
+
+	if (psi->use) {
+		up_write(&_ps_lock);
+		return -ETXTBSY;
 	}
 
 	list_del(&psi->list);

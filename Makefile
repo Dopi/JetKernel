@@ -1,7 +1,7 @@
 VERSION = 2
 PATCHLEVEL = 6
 SUBLEVEL = 29
-EXTRAVERSION = .6
+EXTRAVERSION =
 NAME = Temporary Tasmanian Devil
 
 # *DOCUMENTATION*
@@ -190,8 +190,12 @@ SUBARCH := $(shell uname -m | sed -e s/i.86/i386/ -e s/sun4u/sparc64/ \
 # Default value for CROSS_COMPILE is not to prefix executables
 # Note: Some architectures assign CROSS_COMPILE in their arch/*/Makefile
 export KBUILD_BUILDHOST := $(SUBARCH)
-ARCH		?= $(SUBARCH)
-CROSS_COMPILE	?=
+ARCH			:= arm
+CROSS_COMPILE	:= /usr/local/arm/4.3.1-eabi-armv6/usr/bin/arm-linux-
+#CROSS_COMPILE	:= $(shell if [ -f .cross_compile ]; then \
+					cat .cross_compile; \
+					fi)
+
 
 # Architecture as present in compile.h
 UTS_MACHINE 	:= $(ARCH)
@@ -536,6 +540,9 @@ endif
 # Arch Makefiles may override this setting
 KBUILD_CFLAGS += $(call cc-option, -fno-stack-protector)
 
+# 20081219 Linux_LDK
+KBUILD_CFLAGS      += -I$(PRJROOT)/modules/include
+
 ifdef CONFIG_FRAME_POINTER
 KBUILD_CFLAGS	+= -fno-omit-frame-pointer -fno-optimize-sibling-calls
 else
@@ -591,10 +598,10 @@ ifneq ($(KCFLAGS),)
 endif
 
 # Use --build-id when available.
-LDFLAGS_BUILD_ID = $(patsubst -Wl$(comma)%,%,\
-			      $(call ld-option, -Wl$(comma)--build-id,))
-LDFLAGS_MODULE += $(LDFLAGS_BUILD_ID)
-LDFLAGS_vmlinux += $(LDFLAGS_BUILD_ID)
+#LDFLAGS_BUILD_ID = $(patsubst -Wl$(comma)%,%,\
+#			      $(call ld-option, -Wl$(comma)--build-id,))
+#LDFLAGS_MODULE += $(LDFLAGS_BUILD_ID)
+#LDFLAGS_vmlinux += $(LDFLAGS_BUILD_ID)
 
 # Default kernel image to build when no specific target is given.
 # KBUILD_IMAGE may be overruled on the command line or
@@ -614,8 +621,15 @@ export	INSTALL_PATH ?= /boot
 # makefile but the argument can be passed to make if needed.
 #
 
+# 20081219 Linux_LDK
+INSTALL_MOD_PATH := $(PRJROOT)/root
+MODINST    := $(INSTALL_MOD_PATH)/lib/modules
+
 MODLIB	= $(INSTALL_MOD_PATH)/lib/modules/$(KERNELRELEASE)
 export MODLIB
+
+# 20081219 Linux_LDK
+export MODINST
 
 #
 #  INSTALL_MOD_STRIP, if defined, will cause modules to be

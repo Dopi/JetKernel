@@ -691,10 +691,9 @@ static int ixgbe_set_ringparam(struct net_device *netdev,
                                struct ethtool_ringparam *ring)
 {
 	struct ixgbe_adapter *adapter = netdev_priv(netdev);
-	struct ixgbe_ring *temp_tx_ring, *temp_rx_ring;
+	struct ixgbe_ring *temp_ring;
 	int i, err;
 	u32 new_rx_count, new_tx_count;
-	bool need_update = false;
 
 	if ((ring->rx_mini_pending) || (ring->rx_jumbo_pending))
 		return -EINVAL;
@@ -713,94 +712,80 @@ static int ixgbe_set_ringparam(struct net_device *netdev,
 		return 0;
 	}
 
+	temp_ring = kcalloc(adapter->num_tx_queues,
+	                    sizeof(struct ixgbe_ring), GFP_KERNEL);
+	if (!temp_ring)
+		return -ENOMEM;
+
 	while (test_and_set_bit(__IXGBE_RESETTING, &adapter->state))
 		msleep(1);
 
-	temp_tx_ring = kcalloc(adapter->num_tx_queues,
-	                       sizeof(struct ixgbe_ring), GFP_KERNEL);
-	if (!temp_tx_ring) {
-		err = -ENOMEM;
-		goto err_setup;
-	}
-
-	if (new_tx_count != adapter->tx_ring_count) {
-		memcpy(temp_tx_ring, adapter->tx_ring,
-		       adapter->num_tx_queues * sizeof(struct ixgbe_ring));
+	if (new_tx_count != adapter->tx_ring->count) {
 		for (i = 0; i < adapter->num_tx_queues; i++) {
-			temp_tx_ring[i].count = new_tx_count;
-			err = ixgbe_setup_tx_resources(adapter,
-			                               &temp_tx_ring[i]);
+			temp_ring[i].count = new_tx_count;
+			err = ixgbe_setup_tx_resources(adapter, &temp_ring[i]);
 			if (err) {
 				while (i) {
 					i--;
 					ixgbe_free_tx_resources(adapter,
-					                        &temp_tx_ring[i]);
+					                        &temp_ring[i]);
 				}
 				goto err_setup;
 			}
-			temp_tx_ring[i].v_idx = adapter->tx_ring[i].v_idx;
+			temp_ring[i].v_idx = adapter->tx_ring[i].v_idx;
 		}
-		need_update = true;
+		if (netif_running(netdev))
+			netdev->netdev_ops->ndo_stop(netdev);
+		ixgbe_reset_interrupt_capability(adapter);
+		ixgbe_napi_del_all(adapter);
+		INIT_LIST_HEAD(&netdev->napi_list);
+		kfree(adapter->tx_ring);
+		adapter->tx_ring = temp_ring;
+		temp_ring = NULL;
+		adapter->tx_ring_count = new_tx_count;
 	}
 
-	temp_rx_ring = kcalloc(adapter->num_rx_queues,
-	                       sizeof(struct ixgbe_ring), GFP_KERNEL);
-	if ((!temp_rx_ring) && (need_update)) {
-		for (i = 0; i < adapter->num_tx_queues; i++)
-			ixgbe_free_tx_resources(adapter, &temp_tx_ring[i]);
-		kfree(temp_tx_ring);
-		err = -ENOMEM;
-		goto err_setup;
+	temp_ring = kcalloc(adapter->num_rx_queues,
+	                    sizeof(struct ixgbe_ring), GFP_KERNEL);
+	if (!temp_ring) {
+		if (netif_running(netdev))
+			netdev->netdev_ops->ndo_open(netdev);
+		return -ENOMEM;
 	}
 
-	if (new_rx_count != adapter->rx_ring_count) {
-		memcpy(temp_rx_ring, adapter->rx_ring,
-		       adapter->num_rx_queues * sizeof(struct ixgbe_ring));
+	if (new_rx_count != adapter->rx_ring->count) {
 		for (i = 0; i < adapter->num_rx_queues; i++) {
-			temp_rx_ring[i].count = new_rx_count;
-			err = ixgbe_setup_rx_resources(adapter,
-			                               &temp_rx_ring[i]);
+			temp_ring[i].count = new_rx_count;
+			err = ixgbe_setup_rx_resources(adapter, &temp_ring[i]);
 			if (err) {
 				while (i) {
 					i--;
 					ixgbe_free_rx_resources(adapter,
-					                      &temp_rx_ring[i]);
+					                        &temp_ring[i]);
 				}
 				goto err_setup;
 			}
-			temp_rx_ring[i].v_idx = adapter->rx_ring[i].v_idx;
+			temp_ring[i].v_idx = adapter->rx_ring[i].v_idx;
 		}
-		need_update = true;
-	}
-
-	/* if rings need to be updated, here's the place to do it in one shot */
-	if (need_update) {
 		if (netif_running(netdev))
-			ixgbe_down(adapter);
+			netdev->netdev_ops->ndo_stop(netdev);
+		ixgbe_reset_interrupt_capability(adapter);
+		ixgbe_napi_del_all(adapter);
+		INIT_LIST_HEAD(&netdev->napi_list);
+		kfree(adapter->rx_ring);
+		adapter->rx_ring = temp_ring;
+		temp_ring = NULL;
 
-		/* tx */
-		if (new_tx_count != adapter->tx_ring_count) {
-			kfree(adapter->tx_ring);
-			adapter->tx_ring = temp_tx_ring;
-			temp_tx_ring = NULL;
-			adapter->tx_ring_count = new_tx_count;
-		}
-
-		/* rx */
-		if (new_rx_count != adapter->rx_ring_count) {
-			kfree(adapter->rx_ring);
-			adapter->rx_ring = temp_rx_ring;
-			temp_rx_ring = NULL;
-			adapter->rx_ring_count = new_rx_count;
-		}
+		adapter->rx_ring_count = new_rx_count;
 	}
 
 	/* success! */
 	err = 0;
-	if (netif_running(netdev))
-		ixgbe_up(adapter);
-
 err_setup:
+	ixgbe_init_interrupt_scheme(adapter);
+	if (netif_running(netdev))
+		netdev->netdev_ops->ndo_open(netdev);
+
 	clear_bit(__IXGBE_RESETTING, &adapter->state);
 	return err;
 }

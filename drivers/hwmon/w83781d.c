@@ -1462,8 +1462,7 @@ static struct w83781d_data *w83781d_update_device(struct device *dev)
 				data->pwm[i] =
 				    w83781d_read_value(data,
 						       W83781D_REG_PWM[i]);
-				/* Only W83782D on SMBus has PWM3 and PWM4 */
-				if ((data->type != w83782d || !client)
+				if ((data->type != w83782d || !client->driver)
 				    && i == 1)
 					break;
 			}

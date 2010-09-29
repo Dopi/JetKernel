@@ -161,6 +161,6 @@ _GLOBAL(_tlbil_va)
 	isync
 1:	wrtee	r10
 	blr
-#else
+#elif
 #error Unsupported processor type !
 #endif

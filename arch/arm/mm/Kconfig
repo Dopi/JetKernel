@@ -362,7 +362,8 @@ config CPU_FEROCEON_OLD_ID
 
 # ARMv6
 config CPU_V6
-	bool "Support ARM V6 processor" if ARCH_INTEGRATOR || MACH_REALVIEW_EB
+	bool "Support ARM V6 processor" if ARCH_INTEGRATOR || MACH_REALVIEW_EB || ARCH_OMAP2 || ARCH_MX3 || ARCH_MSM7X00A || MACH_REALVIEW_PB11MP || MACH_REALVIEW_PB1176 || ARCH_S3C64XX
+	default y if ARCH_S3C64XX
 	select CPU_32v6
 	select CPU_ABRT_EV6
 	select CPU_PABRT_NOIFAR
@@ -717,3 +718,8 @@ config CACHE_XSC3L2
 	select OUTER_CACHE
 	help
 	  This option enables the L2 cache on XScale3.
+
+config ARM_L1_CACHE_SHIFT
+	int
+	default 6 if ARCH_OMAP3
+	default 5

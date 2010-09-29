@@ -45,12 +45,15 @@ typedef struct user_fp elf_fpregset_t;
 #define EF_ARM_HASENTRY		0x00000002	/* All */
 #define EF_ARM_RELEXEC		0x00000001	/* All */
 
-#define R_ARM_NONE	0
-#define R_ARM_PC24	1
-#define R_ARM_ABS32	2
-#define R_ARM_CALL	28
-#define R_ARM_JUMP24	29
-#define R_ARM_V4BX	40
+#define R_ARM_NONE		0
+#define R_ARM_PC24		1
+#define R_ARM_ABS32		2
+#define R_ARM_CALL		28
+#define R_ARM_JUMP24		29
+#define R_ARM_V4BX		40
+#define R_ARM_PREL31		42
+#define R_ARM_MOVW_ABS_NC	43
+#define R_ARM_MOVT_ABS		44
 
 /*
  * These are used to set parameters in the core dumps.
@@ -83,6 +86,10 @@ extern char elf_platform[];
 
 struct elf32_hdr;
 
+struct task_struct;
+
+extern int dump_task_regs (struct task_struct *, elf_gregset_t *);
+
 /*
  * This is used to ensure we don't load something for the wrong architecture.
  */
@@ -109,5 +116,7 @@ extern int arm_elf_read_implies_exec(const struct elf32_hdr *, int);
 
 extern void elf_set_personality(const struct elf32_hdr *);
 #define SET_PERSONALITY(ex)	elf_set_personality(&(ex))
+
+#define ELF_CORE_COPY_TASK_REGS(tsk, elf_regs) dump_task_regs(tsk, elf_regs)
 
 #endif

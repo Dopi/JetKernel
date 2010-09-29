@@ -691,15 +691,14 @@ cifs_convertUCSpath(char *target, const __le16 *source, int maxlen,
 						NLS_MAX_CHARSET_SIZE);
 				if (len > 0) {
 					j += len;
-					goto overrun_chk;
+					continue;
 				} else {
 					target[j] = '?';
 				}
 		}
 		j++;
 		/* make sure we do not overrun callers allocated temp buffer */
-overrun_chk:
-		if (j >= UNICODE_NAME_MAX)
+		if (j >= (2 * NAME_MAX))
 			break;
 	}
 cUCS_out:

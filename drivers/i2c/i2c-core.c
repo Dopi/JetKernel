@@ -1129,7 +1129,11 @@ static int i2c_probe_address(struct i2c_adapter *adapter, int addr, int kind,
 	int err;
 
 	/* Make sure the address is valid */
+#if 0	/* Modified by jhmin to support special chips */	
 	if (addr < 0x03 || addr > 0x77) {
+#else	
+	if (addr < 0x01 || addr > 0x7F) {
+#endif	
 		dev_warn(&adapter->dev, "Invalid probe address 0x%02x\n",
 			 addr);
 		return -EINVAL;
@@ -1270,7 +1274,8 @@ static int i2c_detect_address(struct i2c_client *temp_client, int kind,
 	int err;
 
 	/* Make sure the address is valid */
-	if (addr < 0x03 || addr > 0x77) {
+	//if (addr < 0x03 || addr > 0x77) {
+	if (addr < 0x01 || addr > 0x7F) {
 		dev_warn(&adapter->dev, "Invalid probe address 0x%02x\n",
 			 addr);
 		return -EINVAL;
