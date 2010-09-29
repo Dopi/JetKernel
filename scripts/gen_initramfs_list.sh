@@ -225,6 +225,7 @@ cpio_list=
 output="/dev/stdout"
 output_file=""
 is_cpio_compressed=
+compress=0
 
 arg="$1"
 case "$arg" in
@@ -257,6 +258,9 @@ while [ $# -gt 0 ]; do
 			default_list="$arg"
 			${dep_list}default_initramfs
 			;;
+		"-c") # compress
+			compress=1
+			;;
 		"-h")
 			usage
 			exit 0
@@ -287,7 +291,11 @@ if [ ! -z ${output_file} ]; then
 	if [ "${is_cpio_compressed}" = "compressed" ]; then
 		cat ${cpio_tfile} > ${output_file}
 	else
+		if [ ${compress} -eq 1 ]; then
 		cat ${cpio_tfile} | gzip -f -9 - > ${output_file}
+		else
+		    cat ${cpio_tfile} > ${output_file}
+		fi
 	fi
 	[ -z ${cpio_file} ] && rm ${cpio_tfile}
 fi

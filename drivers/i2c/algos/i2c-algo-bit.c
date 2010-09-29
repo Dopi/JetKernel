@@ -556,7 +556,6 @@ static int bit_xfer(struct i2c_adapter *i2c_adap,
 			}
 		} else {
 			/* write bytes from buffer */
-
 			ret = sendbytes(i2c_adap, pmsg);
 			if (ret >= 1)
 				bit_dbg(2, &i2c_adap->dev, "wrote %d byte%s\n",

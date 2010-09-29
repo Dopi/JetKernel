@@ -2,6 +2,9 @@
  * Gadget Driver for Android, with ADB and UMS and ACM support
  *
  * Copyright (C) 2009 Samsung Electronics, Seung-Soo Yang
+ * Author: SeungSoo Yang <ss1.yang@samsung.com>
+ * Copyright (C) 2008 Google, Inc.
+ * Author: Mike Lockwood <lockwood@android.com>
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -98,8 +101,8 @@ static struct android_dev *_android_dev;
 /* String Table */
 static struct usb_string strings_dev[] = {
 	/* These dummy values should be overridden by platform data */
-	[STRING_MANUFACTURER_IDX].s = "Samsung Electronics",
-	[STRING_PRODUCT_IDX].s = "GT-I5700",
+	[STRING_MANUFACTURER_IDX].s = "SAMSUNG",
+	[STRING_PRODUCT_IDX].s = "SAMSUNG_Android",
 	[STRING_SERIAL_IDX].s = "S3C6410_Android",
 	{  }			/* end of list */
 };
@@ -123,7 +126,7 @@ static struct usb_device_descriptor device_desc = {
 	.bDeviceProtocol	  = 0x50,//US_PR_BULK,
 	.idVendor             = __constant_cpu_to_le16(VENDOR_ID),
 	.idProduct            = __constant_cpu_to_le16(PRODUCT_ID),
-	.bcdDevice            = __constant_cpu_to_le16(0x0400),
+	.bcdDevice            = __constant_cpu_to_le16(0xffff),
 	.bNumConfigurations   = 1,
 };
 

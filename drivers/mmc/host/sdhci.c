@@ -1223,9 +1223,20 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 			b_isWlan = 0;
 			sd_detect = readl(S3C64XX_GPNDAT);
 			sd_detect &= 0x40;
+			if( system_rev >= 0x20 )
+				sd_detect = !sd_detect;
 			
-			if(!card_detect && !sd_detect)
+			if( ( system_rev == 0x10 )||( system_rev == 0x1a ) )
+			{
 				card_detect = 1;
+			}
+			else
+			{
+			if(!card_detect && !sd_detect)
+				{
+				card_detect = 1;
+				}
+			}
 			break;
 		case 2:
 			b_isWlan = 1;
@@ -1392,7 +1403,10 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask)
 	}
 
 	if (intmask & SDHCI_INT_TIMEOUT)
+	{
 		host->cmd->error = -ETIMEDOUT;
+		printk("%s SDHCI_INT_TIMEOUT %08x\n", __func__, intmask);
+	}
 	else if (intmask & (SDHCI_INT_CRC | SDHCI_INT_END_BIT |
 			SDHCI_INT_INDEX))
 		host->cmd->error = -EILSEQ;
@@ -1468,7 +1482,10 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
 	}
 
 	if (intmask & SDHCI_INT_DATA_TIMEOUT)
+	{
 		host->data->error = -ETIMEDOUT;
+		printk("%s SDHCI_INT_TIMEOUT %08x\n", __func__, intmask);
+	}
 	else if (intmask & (SDHCI_INT_DATA_CRC | SDHCI_INT_DATA_END_BIT))
 		host->data->error = -EILSEQ;
 	else if (intmask & SDHCI_INT_ADMA_ERROR)
@@ -1599,11 +1616,17 @@ static irqreturn_t sdhci_irq_cd(int irq, void *dev_id)
 
 	ext_CD_int = readl(S3C64XX_GPNDAT);
 	ext_CD_int &= 0x40;	/* GPN6 */
+	if( system_rev >= 0x20 )
+		ext_CD_int = !ext_CD_int;
 
 	if(ext_CD_int) 
 	{
 		card_detect = 0;
-
+		if( system_rev >= 0x40 )
+		{
+			gpio_set_value(GPIO_TFLASH_EN, 0);
+			printk(KERN_INFO DRIVER_NAME ": TFLASH_EN OFF\n");
+		}
 		eint0msk = __raw_readl(S3C64XX_EINT0MASK);
 		eint0msk |= (1 << eint_num);
 		__raw_writel(eint0msk, S3C64XX_EINT0MASK);
@@ -1612,6 +1635,11 @@ static irqreturn_t sdhci_irq_cd(int irq, void *dev_id)
 	{
 		card_detect = 1;
 		g_rescan_retry = 1;
+		if( system_rev >= 0x40 )
+		{
+			gpio_set_value(GPIO_TFLASH_EN, 1);
+			printk(KERN_INFO DRIVER_NAME ": TFLASH_EN ON\n");
+		}
 	}
 
 	tasklet_schedule(&host->card_tasklet);	
@@ -2074,8 +2102,22 @@ EXPORT_SYMBOL_GPL(sdhci_free_host);
 
 static int __init sdhci_drv_init(void)
 {
+	int ext_CD_int = 0;
 	printk(KERN_INFO DRIVER_NAME
 		": Samsung S3C6410 SD/MMC driver\n");
+	if ( system_rev >= 0x40 )
+	{
+		ext_CD_int = readl(S3C64XX_GPNDAT);
+		ext_CD_int &= 0x40;	/* GPN6 */
+		if( system_rev >= 0x20 )
+			ext_CD_int = !ext_CD_int;
+
+		if(gpio_get_value(GPIO_TFLASH_EN) && ext_CD_int)
+		{
+			gpio_set_value(GPIO_TFLASH_EN, 0);
+			printk(KERN_INFO DRIVER_NAME ": TFLASH_EN OFF\n");
+		}
+	}
 	return 0;
 }
 

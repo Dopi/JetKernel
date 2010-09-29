@@ -4,7 +4,6 @@
 
 bma020_t *p_bma020;				/**< pointer to BMA020 device structure  */
 
-bma020acc_t cal_data;
 
 int bma020_init(bma020_t *bma020) 
 {
@@ -712,28 +711,21 @@ int bma020_read_accel_xyz(bma020acc_t * acc)
 	
 	comres = p_bma020->BMA020_BUS_READ_FUNC(p_bma020->dev_addr, ACC_X_LSB__REG, &data[0],6);
 	
-	acc->x = BMA020_GET_BITSLICE(data[0],ACC_X_LSB) | (BMA020_GET_BITSLICE(data[1],ACC_X_MSB)<<ACC_X_LSB__LEN);
-	acc->x = acc->x << (sizeof(short)*8-(ACC_X_LSB__LEN+ACC_X_MSB__LEN));
-	acc->x = acc->x >> (sizeof(short)*8-(ACC_X_LSB__LEN+ACC_X_MSB__LEN));
+	acc->y = BMA020_GET_BITSLICE(data[0],ACC_X_LSB) | (BMA020_GET_BITSLICE(data[1],ACC_X_MSB)<<ACC_X_LSB__LEN);
+	acc->y = acc->y << (sizeof(short)*8-(ACC_X_LSB__LEN+ACC_X_MSB__LEN));
+	acc->y = acc->y >> (sizeof(short)*8-(ACC_X_LSB__LEN+ACC_X_MSB__LEN));
 
-	acc->y = BMA020_GET_BITSLICE(data[2],ACC_Y_LSB) | (BMA020_GET_BITSLICE(data[3],ACC_Y_MSB)<<ACC_Y_LSB__LEN);
-	acc->y = acc->y << (sizeof(short)*8-(ACC_Y_LSB__LEN + ACC_Y_MSB__LEN));
-	acc->y = acc->y >> (sizeof(short)*8-(ACC_Y_LSB__LEN + ACC_Y_MSB__LEN));
-	
-/*	
-	acc->z = BMA020_GET_BITSLICE(data[4],ACC_Z_LSB); 
-	acc->z |= (BMA020_GET_BITSLICE(data[5],ACC_Z_MSB)<<ACC_Z_LSB__LEN);
-	acc->z = acc->z << (sizeof(short)*8-(ACC_Z_LSB__LEN+ACC_Z_MSB__LEN));
-	acc->z = acc->z >> (sizeof(short)*8-(ACC_Z_LSB__LEN+ACC_Z_MSB__LEN));
-*/	
+	acc->x = BMA020_GET_BITSLICE(data[2],ACC_Y_LSB) | (BMA020_GET_BITSLICE(data[3],ACC_Y_MSB)<<ACC_Y_LSB__LEN);
+	acc->x = acc->x << (sizeof(short)*8-(ACC_Y_LSB__LEN + ACC_Y_MSB__LEN));
+	acc->x = acc->x >> (sizeof(short)*8-(ACC_Y_LSB__LEN + ACC_Y_MSB__LEN));
+
 	acc->z = BMA020_GET_BITSLICE(data[4],ACC_Z_LSB) | (BMA020_GET_BITSLICE(data[5],ACC_Z_MSB)<<ACC_Z_LSB__LEN);
 	acc->z = acc->z << (sizeof(short)*8-(ACC_Z_LSB__LEN + ACC_Z_MSB__LEN));
 	acc->z = acc->z >> (sizeof(short)*8-(ACC_Z_LSB__LEN + ACC_Z_MSB__LEN));
 
-	acc->x -= cal_data.x;
-	acc->y -= cal_data.y;
-	acc->z -= cal_data.z;
-	
+	acc->x = (-1)*(acc->x);
+	acc->y = (-1)*(acc->y);
+	acc->z = (-1)*(acc->z);
 	return comres;
 }
 
@@ -908,29 +900,3 @@ int bma020_write_reg(unsigned char addr, unsigned char *data, unsigned char len)
 
 	return comres;
 }
-
-bma020acc_t bma020_calibrate()
-{
-	int sum_x = 0;
-	int sum_y = 0;
-	int sum_z = 0;
-	bma020acc_t cur_val;
- 	int i = 0;
-
-	cal_data.x = cal_data.y = cal_data.z = 0;
-		
-	for(i = 0; i < 20; i++)
-		{
-		bma020_read_accel_xyz(&cur_val);
-		sum_x += cur_val.x;
-		sum_y += cur_val.y;
-		sum_z += cur_val.z;
-		}
-
-	cal_data.x = (sum_x / 20) - 0;
-	cal_data.y = (sum_y / 20) - 0;
-	cal_data.z = (sum_z / 20) - 256;
-
-	return cal_data;
-}
-

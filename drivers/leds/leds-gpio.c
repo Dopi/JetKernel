@@ -14,8 +14,12 @@
 #include <linux/platform_device.h>
 #include <linux/leds.h>
 #include <linux/workqueue.h>
-
+#if 0
+#include <linux/earlysuspend.h>
+#endif
 #include <asm/gpio.h>
+#include <plat/gpio-cfg.h>
+#include <mach/hardware.h>
 
 struct gpio_led_data {
 	struct led_classdev cdev;
@@ -24,32 +28,37 @@ struct gpio_led_data {
 	u8 new_level;
 	u8 can_sleep;
 	u8 active_low;
-	int (*platform_gpio_blink_set)(unsigned gpio,
-			unsigned long *delay_on, unsigned long *delay_off);
+#if 0
+	struct early_suspend early_suspend;
+#endif
 };
+#if 0
+//#ifdef CONFIG_HAS_EARLYSUSPEND
+static int gpio_led_early_suspend(struct early_suspend *handler);
+static int gpio_led_early_resume(struct early_suspend *handler);
+//#endif	/* CONFIG_HAS_EARLYSUSPEND */
+#endif
 
 static void gpio_led_work(struct work_struct *work)
 {
-	struct gpio_led_data	*led_dat =
-		container_of(work, struct gpio_led_data, work);
+	struct gpio_led_data *led_dat = container_of(work, struct gpio_led_data, work);
 
 	gpio_set_value_cansleep(led_dat->gpio, led_dat->new_level);
 }
 
-static void gpio_led_set(struct led_classdev *led_cdev,
-	enum led_brightness value)
+static void gpio_led_set(struct led_classdev *led_cdev, enum led_brightness value)
 {
-	struct gpio_led_data *led_dat =
-		container_of(led_cdev, struct gpio_led_data, cdev);
+	struct gpio_led_data *led_dat = container_of(led_cdev, struct gpio_led_data, cdev);
 	int level;
 
-	if (value == LED_OFF)
-		level = 0;
-	else
-		level = 1;
-
+#if 1  // FOR_ANDROID
 	if (led_dat->active_low)
-		level = !level;
+		level = (value == LED_OFF)?1:0;
+	else
+		level = (value == LED_OFF)?0:1;	
+#else
+level = 0;
+#endif
 
 	/* Setting GPIOs with I2C/etc requires a task context, and we don't
 	 * seem to have a reliable way to know if we're already in one; so
@@ -58,17 +67,19 @@ static void gpio_led_set(struct led_classdev *led_cdev,
 	if (led_dat->can_sleep) {
 		led_dat->new_level = level;
 		schedule_work(&led_dat->work);
-	} else
+	} else {
 		gpio_set_value(led_dat->gpio, level);
+		printk("[*****] gpio_led_set: gpio_set_value(%d, %d)\n", led_dat->gpio, level);
+	}
 }
 
-static int gpio_blink_set(struct led_classdev *led_cdev,
-	unsigned long *delay_on, unsigned long *delay_off)
+static void gpio_led_cfgpin(void)
 {
-	struct gpio_led_data *led_dat =
-		container_of(led_cdev, struct gpio_led_data, cdev);
+	s3c_gpio_cfgpin(GPIO_MAIN_KEY_LED_EN, S3C_GPIO_SFN(GPIO_MAIN_KEY_LED_EN_AF));
+	s3c_gpio_setpull(GPIO_MAIN_KEY_LED_EN, S3C_GPIO_PULL_NONE); 
 
-	return led_dat->platform_gpio_blink_set(led_dat->gpio, delay_on, delay_off);
+	s3c_gpio_cfgpin(GPIO_SUB_KEY_LED_EN, S3C_GPIO_SFN(GPIO_SUB_KEY_LED_EN_AF));
+	s3c_gpio_setpull(GPIO_SUB_KEY_LED_EN, S3C_GPIO_PULL_NONE); 
 }
 
 static int gpio_led_probe(struct platform_device *pdev)
@@ -86,6 +97,8 @@ static int gpio_led_probe(struct platform_device *pdev)
 	if (!leds_data)
 		return -ENOMEM;
 
+	gpio_led_cfgpin();
+
 	for (i = 0; i < pdata->num_leds; i++) {
 		cur_led = &pdata->leds[i];
 		led_dat = &leds_data[i];
@@ -99,16 +112,12 @@ static int gpio_led_probe(struct platform_device *pdev)
 		led_dat->gpio = cur_led->gpio;
 		led_dat->can_sleep = gpio_cansleep(cur_led->gpio);
 		led_dat->active_low = cur_led->active_low;
-		if (pdata->gpio_blink_set) {
-			led_dat->platform_gpio_blink_set = pdata->gpio_blink_set;
-			led_dat->cdev.blink_set = gpio_blink_set;
-		}
 		led_dat->cdev.brightness_set = gpio_led_set;
 		led_dat->cdev.brightness = LED_OFF;
-		led_dat->cdev.flags |= LED_CORE_SUSPENDRESUME;
 
+#if 1  // Android Platform
 		gpio_direction_output(led_dat->gpio, led_dat->active_low);
-
+#endif
 		INIT_WORK(&led_dat->work, gpio_led_work);
 
 		ret = led_classdev_register(&pdev->dev, &led_dat->cdev);
@@ -119,6 +128,15 @@ static int gpio_led_probe(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, leds_data);
+
+#if 0
+//#ifdef CONFIG_HAS_EARLYSUSPEND
+	leds_data->early_suspend.suspend = gpio_led_early_suspend;
+	leds_data->early_suspend.resume = gpio_led_early_resume;
+
+	register_early_suspend(&leds_data->early_suspend);
+//#endif	/* CONFIG_HAS_EARLYSUSPEND */
+#endif
 
 	return 0;
 
@@ -139,6 +157,7 @@ err:
 static int __devexit gpio_led_remove(struct platform_device *pdev)
 {
 	int i;
+
 	struct gpio_led_platform_data *pdata = pdev->dev.platform_data;
 	struct gpio_led_data *leds_data;
 
@@ -155,9 +174,64 @@ static int __devexit gpio_led_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#if 0
+//#ifdef CONFIG_HAS_EARLYSUSPEND
+static int gpio_led_early_suspend(struct early_suspend *handler)
+{
+	struct gpio_led_data *leds_data = container_of(handler, struct gpio_led_data, early_suspend);
+
+	//TODO: handle suspend process
+
+	return 0;
+}
+
+static int gpio_led_early_resume(struct early_suspend *handler)
+{
+	struct gpio_led_data *leds_data = container_of(handler, struct gpio_led_data, early_suspend);
+
+	//TODO: handle resume process
+
+	return 0;
+}
+#else  // CONFIG_PM
+static int gpio_led_suspend(struct platform_device *pdev, pm_message_t state)
+{
+	struct gpio_led_platform_data *pdata = pdev->dev.platform_data;
+	struct gpio_led_data *leds_data;
+	int i;
+
+	leds_data = platform_get_drvdata(pdev);
+
+	for (i = 0; i < pdata->num_leds; i++)
+		led_classdev_suspend(&leds_data[i].cdev);
+
+	return 0;
+}
+
+static int gpio_led_resume(struct platform_device *pdev)
+{
+	struct gpio_led_platform_data *pdata = pdev->dev.platform_data;
+	struct gpio_led_data *leds_data;
+	int i;
+
+	leds_data = platform_get_drvdata(pdev);
+
+	for (i = 0; i < pdata->num_leds; i++)
+		led_classdev_resume(&leds_data[i].cdev);
+
+	return 0;
+}
+//#endif	/* CONFIG_HAS_EARLYSUSPEND */
+#endif
+
 static struct platform_driver gpio_led_driver = {
 	.probe		= gpio_led_probe,
 	.remove		= __devexit_p(gpio_led_remove),
+#if 1
+//#ifndef CONFIG_HAS_EARLYSUSPEND
+	.suspend	= gpio_led_suspend,
+	.resume		= gpio_led_resume,
+#endif
 	.driver		= {
 		.name	= "leds-gpio",
 		.owner	= THIS_MODULE,

@@ -490,7 +490,7 @@ static int s3c_i2c_set_master(struct s3c_i2c *i2c)
 static int s3c_i2c_doxfer(struct s3c_i2c *i2c,
 			      struct i2c_msg *msgs, int num)
 {
-#if !(defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN)|| defined(CONFIG_MACH_SPICA))
+#if !(defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN))
 	struct s3c_platform_i2c *pdata = i2c->dev->platform_data;
 #endif
 	unsigned long timeout;
@@ -559,7 +559,7 @@ static int s3c_i2c_doxfer(struct s3c_i2c *i2c,
 		dev_dbg(i2c->dev, "incomplete xfer (%d)\n", ret);
 
 	/* ensure the stop has been through the bus */
-#if !(defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN)|| defined(CONFIG_MACH_SPICA))
+#if !(defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN))
 	if (pdata->bus_num == 0)
 		msleep(1);
 #endif
@@ -1063,4 +1063,3 @@ MODULE_DESCRIPTION("S3C I2C Bus driver");
 MODULE_AUTHOR("Ben Dooks, <ben@simtec.co.uk>");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:s3c-i2c");
-

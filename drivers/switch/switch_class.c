@@ -22,16 +22,9 @@
 #include <linux/fs.h>
 #include <linux/err.h>
 #include <linux/switch.h>
-#include <linux/input.h>
-
-#include <linux/wakelock.h>	//<<yamaia><system><JKCha>
-
 
 struct class *switch_class;
 static atomic_t device_count;
-
-static struct wake_lock switch_class_wake_lock;	//<<yamaia><system><JKCha>
-static int switch_class_wake_lock_inited = 0; //<<yamaia><system><jswoo>
 
 static ssize_t state_show(struct device *dev, struct device_attribute *attr,
 		char *buf)
@@ -61,62 +54,7 @@ static ssize_t name_show(struct device *dev, struct device_attribute *attr,
 	return sprintf(buf, "%s\n", sdev->name);
 }
 
-//kvpz: support added for earjack & send end key simulation from sysfs state store command
-extern void sec_headset_sendend_report_key(void);
-
-//kvpz added
-static size_t state_store(struct device *dev,
-        struct device_attribute *attr, const char *buf, size_t size)
-{
-		int val;	
-		printk("kvpz %s\n",__func__);
-      	struct switch_dev *sdev = (struct switch_dev *)
-		dev_get_drvdata(dev);
-		
-		sscanf(buf,"%d",&val);
-		printk("val = %d\n",val);
-		
-		
-		if(strcmp(sdev->name,"h2w") == 0)
-		{
-			printk("kvpz h2w\n");
-			printk("kvpz: h2w event to be simulated\n");
-			if(val == 0)
-				{
-				printk("kvpz: set switch state to 0\n");
-				switch_set_state(sdev,0);
-				}
-			if(val == 1)
-				{
-				printk("kvpz: set switch state to 1\n");
-				switch_set_state(sdev,1);	
-				}
-				
-		}
-		
-		else if(strcmp(sdev->name,"send_end") == 0)
-		{
-			printk("kvpz send_end\n");
-			if(val == 0)
-				{
-				printk("kvpz: simulate send_end release\n");
-				switch_set_state(sdev, 0);
-				}
-			if(val == 1)
-				{
-				printk("kvpz: simulate send_end press\n");
-				switch_set_state(sdev, 1);
-				//input_report_key(hi->input, KEYCODE_SENDEND, 1);
-				//input_sync(hi->input);
-				sec_headset_sendend_report_key();
-				}	
-		
-		}
-
-}
-//kvpz added
-
-static DEVICE_ATTR(state, S_IRUGO | S_IWUSR, state_show, state_store);
+static DEVICE_ATTR(state, S_IRUGO | S_IWUSR, state_show, NULL);
 static DEVICE_ATTR(name, S_IRUGO | S_IWUSR, name_show, NULL);
 
 void switch_set_state(struct switch_dev *sdev, int state)
@@ -129,10 +67,6 @@ void switch_set_state(struct switch_dev *sdev, int state)
 	int length;
 
 	if (sdev->state != state) {
-
-		if( switch_class_wake_lock_inited != 0)					//<<yamaia><system><jswoo>
-		wake_lock_timeout(&switch_class_wake_lock, 2 * HZ);	//<<yamaia><system><JKCha>
-		
 		sdev->state = state;
 
 		prop_buf = (char *)get_zeroed_page(GFP_KERNEL);
@@ -222,14 +156,8 @@ void switch_dev_unregister(struct switch_dev *sdev)
 }
 EXPORT_SYMBOL_GPL(switch_dev_unregister);
 
-
-
 static int __init switch_class_init(void)
 {
-	//<<yamaia><system><JKCha>
-	wake_lock_init(&switch_class_wake_lock, WAKE_LOCK_SUSPEND,"sec_switch");
-	//<<yamaia><system><jswoo>
-	switch_class_wake_lock_inited =1;
 	return create_switch_class();
 }
 

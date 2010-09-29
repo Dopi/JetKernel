@@ -1874,7 +1874,7 @@ static unsigned int s3c_bat_check_v_f(void)
 		/* s3c_set_bat_health(POWER_SUPPLY_HEALTH_GOOD); */
 		rc = 1;
 	} else {
-		dev_info(dev, "%s: Unauthorized battery!\n", __func__);
+		dev_info(dev, "%s: Unauthorized battery!(%d)\n", __func__, adc);
 		s3c_set_bat_health(POWER_SUPPLY_HEALTH_UNSPEC_FAILURE);
 		s3c_set_chg_en(DISABLE);
 		force_update = 1;

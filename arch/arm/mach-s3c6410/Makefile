@@ -19,11 +19,10 @@ obj-$(CONFIG_CPU_S3C6410)	+= irq.o
 # Helper and device support
 
 obj-$(CONFIG_S3C6410_SETUP_SDHCI)	+= setup-sdhci.o
-
 obj-$(CONFIG_PM)    += pm.o
 
-# Machine support
+# machine support
 
-obj-$(CONFIG_MACH_SMDK6410)		+= mach-smdk6410.o
-obj-$(CONFIG_MACH_SPICA)	+= mach-spica.o board-rfkill.o
+obj-$(CONFIG_MACH_SMDK6410)	+= mach-smdk6410.o
+obj-$(CONFIG_MACH_INSTINCTQ)	+= mach-instinctq.o board-rfkill.o
 obj-$(CONFIG_SEC_HEADSET)	+= sec_headset.o

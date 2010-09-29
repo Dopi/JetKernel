@@ -621,8 +621,8 @@ void clock_was_set(void)
  */
 void hres_timers_resume(void)
 {
-//	WARN_ONCE(!irqs_disabled(),
-//		  KERN_INFO "hres_timers_resume() called with IRQs enabled!");
+	WARN_ONCE(!irqs_disabled(),
+		  KERN_INFO "hres_timers_resume() called with IRQs enabled!");
 
 	retrigger_next_event(NULL);
 }

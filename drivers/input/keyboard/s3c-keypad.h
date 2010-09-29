@@ -16,7 +16,7 @@
 
 static void __iomem *key_base;
 
-#define GET_KEYCODE(x)                  (x+201)
+#define GET_KEYCODE(x)                  (x+1)
 
 #define KEYCODE_DUMPKEY	247
 #define KEYCODE_SENDEND	248

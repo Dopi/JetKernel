@@ -93,9 +93,7 @@ static int fat12_ent_bread(struct super_block *sb, struct fat_entry *fatent,
 err_brelse:
 	brelse(bhs[0]);
 err:
-	/* Change from KERN_ERR to KERN_DEBUG to eliminate SD card notification sound crach. */
-	printk(KERN_DEBUG "FAT: FAT read failed (blocknr %llu)\n",
-	       (unsigned long long)blocknr);
+	printk(KERN_ERR "FAT: FAT read failed (blocknr %llu)\n", (llu)blocknr);
 	return -EIO;
 }
 
@@ -107,9 +105,8 @@ static int fat_ent_bread(struct super_block *sb, struct fat_entry *fatent,
 	WARN_ON(blocknr < MSDOS_SB(sb)->fat_start);
 	fatent->bhs[0] = sb_bread(sb, blocknr);
 	if (!fatent->bhs[0]) {
-		/* Change from KERN_ERR to KERN_DEBUG to eliminate SD card notification sound crach. */
-		printk(KERN_DEBUG "FAT: FAT read failed (blocknr %llu)\n",
-		       (unsigned long long)blocknr);
+		printk(KERN_ERR "FAT: FAT read failed (blocknr %llu)\n",
+		       (llu)blocknr);
 		return -EIO;
 	}
 	fatent->nr_bhs = 1;
@@ -562,7 +559,6 @@ int fat_free_clusters(struct inode *inode, int cluster)
 		} else if (cluster == FAT_ENT_FREE) {
 			fat_fs_error(sb, "%s: deleting FAT entry beyond EOF",
 				     __func__);
-			printk("inode = %lu\n", inode->i_ino);
 			err = -EIO;
 			goto error;
 		}

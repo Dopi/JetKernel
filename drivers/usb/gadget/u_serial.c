@@ -126,7 +126,7 @@ static unsigned	n_ports;
 
 #define GS_CLOSE_TIMEOUT		15		/* seconds */
 
-#define ACM_ZLP		0
+#define ACM_ZLP		1
 
 #if ACM_ZLP
 static int s3c_multiple = 0;

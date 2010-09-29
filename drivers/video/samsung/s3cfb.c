@@ -90,7 +90,7 @@ static struct struct_frame_buf_mark frame_buf_mark = {
 	.p_fb = 0,
 	.resX = 320,
 	.resY = 480,
-	.bpp = 24,
+	.bpp = 16,
 	.frames =5,
 };
 
@@ -128,7 +128,8 @@ static int __init s3cfb_map_video_memory(s3c_fb_info_t *fbi)
 	}
 
 	/* RAM Dump Info */
-	if ((fbi->win_id == 1) && fbi->map_cpu_f1)
+	//if ((fbi->win_id == 1) && fbi->map_cpu_f1)
+	if ((fbi->win_id == 0) && fbi->map_cpu_f1)
 		frame_buf_mark.p_fb = (void *)fbi->map_dma_f1;	
 
 	if (!fbi->map_cpu_f1)
@@ -231,7 +232,7 @@ static int s3cfb_set_par(struct fb_info *info)
 	else
 		fbi->fb.fix.visual = FB_VISUAL_PSEUDOCOLOR;
 
-	fbi->fb.fix.line_length = var->width * s3c_fimd.bytes_per_pixel;
+	fbi->fb.fix.line_length = var->xres * s3c_fimd.bytes_per_pixel; //etinum.display width->xres. fix for window's buffer end address miss calculation
 
 	/* activate this new configuration */
 	s3cfb_activate_var(fbi, var);

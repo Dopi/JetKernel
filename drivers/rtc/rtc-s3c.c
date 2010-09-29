@@ -41,7 +41,8 @@
 
 
 #ifdef SET_RTC_DEFAULT_RESET_TIME
-#define DEFAULT_RESET_TIME_YEAR 	(2000)
+#define DEFAULT_RESET_TIME_YEAR 			(2001) //factory sequence
+#define DEFAULT_RESET_TIME_YEAR_MAX 	(2037)
 #define DEFAULT_RESET_TIME_MON	 	(1)
 #define DEFAULT_RESET_TIME_DATE	 	(1)
 #define DEFAULT_RESET_TIME_HOUR 	(0)
@@ -313,10 +314,6 @@ static int s3c_rtc_gettime(struct device *dev, struct rtc_time *rtc_tm)
 		goto retry_get_time;
 	}
 
-	pr_debug("read time %02x.%02x.%02x %02x/%02x/%02x\n",
-		 rtc_tm->tm_year, rtc_tm->tm_mon, rtc_tm->tm_mday,
-		 rtc_tm->tm_hour, rtc_tm->tm_min, rtc_tm->tm_sec);
-
 	rtc_tm->tm_sec = bcd2bin(rtc_tm->tm_sec);
 	rtc_tm->tm_min = bcd2bin(rtc_tm->tm_min);
 	rtc_tm->tm_hour = bcd2bin(rtc_tm->tm_hour);
@@ -327,6 +324,21 @@ static int s3c_rtc_gettime(struct device *dev, struct rtc_time *rtc_tm)
 	rtc_tm->tm_year += 100;
 	rtc_tm->tm_mon -= 1;
 
+	//factory sequence
+	if((rtc_tm->tm_year < (DEFAULT_RESET_TIME_YEAR - 1900)) || (rtc_tm->tm_year > (DEFAULT_RESET_TIME_YEAR_MAX - 1900)))
+	{
+		rtc_tm->tm_sec = DEFAULT_RESET_TIME_SEC;
+		rtc_tm->tm_min = DEFAULT_RESET_TIME_MIN;
+		rtc_tm->tm_hour = DEFAULT_RESET_TIME_HOUR;
+		rtc_tm->tm_mday = DEFAULT_RESET_TIME_DATE;
+		rtc_tm->tm_mon = DEFAULT_RESET_TIME_MON - 1;
+		rtc_tm->tm_year = DEFAULT_RESET_TIME_YEAR - 1900;
+	}
+
+	pr_debug("read time %02d/%02d/%02d %02d.%02d.%02d\n",
+		 rtc_tm->tm_year, rtc_tm->tm_mon, rtc_tm->tm_mday,
+		 rtc_tm->tm_hour, rtc_tm->tm_min, rtc_tm->tm_sec);
+  
 	return 0;
 }
 
@@ -335,7 +347,7 @@ static int s3c_rtc_settime(struct device *dev, struct rtc_time *tm)
 	void __iomem *base = s3c_rtc_base;
 	int year = tm->tm_year - 100;
 
-	pr_debug("set time %02d.%02d.%02d %02d/%02d/%02d\n",
+	pr_debug("set time %02d/%02d/%02d %02d.%02d.%02d\n",
 		 tm->tm_year, tm->tm_mon, tm->tm_mday,
 		 tm->tm_hour, tm->tm_min, tm->tm_sec);
 
@@ -696,6 +708,7 @@ static int s3c_rtc_probe(struct platform_device *pdev)
 		struct rtc_time tm;
 
 		s3c_rtc_gettime (pdev, &tm);
+
 		if (rtc_valid_tm (&tm) != 0)
 		{
 			struct rtc_time reset_tm = {
@@ -705,7 +718,7 @@ static int s3c_rtc_probe(struct platform_device *pdev)
 				.tm_mday = DEFAULT_RESET_TIME_DATE,
 				.tm_mon = DEFAULT_RESET_TIME_MON - 1,
 				.tm_year = DEFAULT_RESET_TIME_YEAR - 1900,
-				};
+			};
 
 			s3c_rtc_settime (pdev, &reset_tm);
 		}

@@ -891,14 +891,6 @@ static int s3c_udc_pullup(struct usb_gadget *gadget, int is_on)
 	}
 	else
 	{
-		/*
-		 * Any transactions on the AHB Master are terminated. 
-		 * And all the transmit FIFOs are flushed.
-		 */
-		writel(CORE_SOFT_RESET, S3C_UDC_OTG_GRSTCTL);
-		udelay(10);
-		if (!(readl(S3C_UDC_OTG_GRSTCTL) & AHB_MASTER_IDLE))
-			printk("OTG Core Reset is not done.\n");
 	
 		spin_lock_irqsave(&dev->lock, flags);
 		s3c_udc_stop_activity(dev, dev->driver);

@@ -42,6 +42,7 @@
 
 #include <mach/map.h>
 #include <linux/i2c/pmic.h>
+#include <linux/i2c/maximi2c.h>
 
 #ifdef CONFIG_S3C64XX_DOMAIN_GATING
 #define USE_LCD_DOMAIN_GATING
@@ -2021,26 +2022,46 @@ void s3cfb_enable_clock_power(void)
 	lcd_clock_status = 1;
 	lcd_pm_status = 1;
 }
-
+extern void lcd_power_ctrl(s32 value);
 void s3cfb_early_suspend(struct early_suspend *h)
-{
+{	
+	lcd_late_resume = 0;
+	lcd_power_ctrl(0);
 	s3c_fb_info_t *info = container_of(h, s3c_fb_info_t, early_suspend);
 	
 	printk("#%s\n", __func__);
 	
-	lcd_late_resume = 0;
-
+	
 	s3cfb_suspend_sub(info);
 
 	lcd_clock_status = 0; 
 	lcd_pm_status = 0;
 }
 
+#define MAX8698_ID		0xCC
+
+#define ONOFF2			0x01
+
+#define ONOFF2_ELDO6	(0x01 << 7)
+#define ONOFF2_ELDO7	(0x03 << 6)
 void s3cfb_late_resume(struct early_suspend *h)
 {
 	s3c_fb_info_t *info = container_of(h, s3c_fb_info_t, early_suspend);
+	u8 data;
 
 	printk("#%s\n", __func__);
+	/* Power Enable ...this code has been moved to lcd_power_ctrl.....*//*
+	if(pmic_read(MAX8698_ID, ONOFF2, &data, 1) != PMIC_PASS) {
+		printk(KERN_ERR "LCD POWER CONTROL can't read the status from PMIC\n");
+		return -1;
+	}
+	data |= (ONOFF2_ELDO6 | ONOFF2_ELDO7);
+		
+	if(pmic_write(MAX8698_ID, ONOFF2, &data, 1) != PMIC_PASS) {
+		printk(KERN_ERR "LCD POWER CONTROL can't write the command to PMIC\n");
+		return -1;
+		}*/
+		
 
 	if (lcd_pm_status == 0) {
 		s3cfb_resume_sub(info);
@@ -2048,6 +2069,7 @@ void s3cfb_late_resume(struct early_suspend *h)
 
 	lcd_clock_status = 1;
 	lcd_late_resume = 1;
+	lcd_power_ctrl(1);
 }
 /*
  *  Suspend
@@ -2089,7 +2111,7 @@ int s3cfb_resume(struct platform_device *dev)
 /*
  * shutdown
  */
-extern void lcd_power_ctrl(s32 value);
+
 int s3cfb_shutdown(struct platform_device *dev)
 {
 	lcd_power_ctrl(0);

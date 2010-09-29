@@ -102,6 +102,12 @@ config SENSORS_TSL2550
 	  This driver can also be built as a module.  If so, the module
 	  will be called tsl2550.
 
+config SENSORS_AKM8976
+	tristate "AKM8976 Compass Driver"
+	depends on I2C
+	help
+	 AKM8976 Compass Driver implemented by HTC.
+
 config SENSORS_PCA963X
 	tristate "Philips PCA963X 4-bit I2C-bus LED"
 	depends on I2C && EXPERIMENTAL
@@ -129,7 +135,11 @@ config PMIC_MAX8698
 	  If you say yes here you get support fot the Maxim MAX8698
 	  Power Management chip.
 
-	  This provides Applocations Processor Power Management,
+	  This provides Applocations and Baseband Processor Power Management,
 	  ADC/TSC, RTC, and Audio Subsystem for Mobile Applications.
 
+config AMP_MAX9877
+    tristate "Maxim MAX9877 SubSystem Amplifier"
+	depends on I2C
+	default y
 endmenu
