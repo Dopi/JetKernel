@@ -11,7 +11,7 @@
 #ifndef __ASM_ARCH_TS_H
 #define __ASM_ARCH_TS_H __FILE__
 
-
+#ifdef CONFIG_S3C64XX_ADC
 enum s3c_adc_type {
 	ADC_TYPE_0,
 	ADC_TYPE_1,	/* S3C2416, S3C2450 */
@@ -37,6 +37,24 @@ struct s3c_ts_info {
 	enum s3c_adc_type	s3c_adc_con;
 };
 
-extern void __init s3c_ts_set_platdata(struct s3c_ts_mach_info *pd);
+#endif 
 
+#ifdef CONFIG_S3C64XX_ADCTS
+
+#include <plat/adcts.h>
+
+struct s3c_ts_mach_info {
+	struct s3c_adcts_channel_info adcts;
+	int             	sampling_time;
+	int			remove_max_min_sampling;
+	int			sampling_interval_ms;
+	int			screen_size_x;
+	int			screen_size_y;
+	int			use_tscal;
+	int			tscal[7];
+};
+#endif 
+
+extern void __init s3c_ts_set_platdata(struct s3c_ts_mach_info *pd);
 #endif /* __ASM_ARCH_TS_H */
+

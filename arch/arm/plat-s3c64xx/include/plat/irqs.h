@@ -1,4 +1,4 @@
-/* linux/arch/arm/plat-s3c64xx/include/mach/irqs.h
+/* linux/arch/arm/plat-s3c64xx/include/plat/irqs.h
  *
  * Copyright 2008 Openmoko, Inc.
  * Copyright 2008 Simtec Electronics
@@ -123,7 +123,7 @@
 #define IRQ_IIC			S3C64XX_IRQ_VIC1(18)
 #define IRQ_HSItx		S3C64XX_IRQ_VIC1(19)
 #define IRQ_HSIrx		S3C64XX_IRQ_VIC1(20)
-#define IRQ_RESERVED		S3C64XX_IRQ_VIC1(21)
+#define IRQ_EINT_GROUPS		S3C64XX_IRQ_VIC1(21)
 #define IRQ_MSM			S3C64XX_IRQ_VIC1(22)
 #define IRQ_HOSTIF		S3C64XX_IRQ_VIC1(23)
 #define IRQ_HSMMC0		S3C64XX_IRQ_VIC1(24)

@@ -47,11 +47,6 @@ config FB_S3C_A070VW04
 	---help---
 	TBA
 
-config FB_S3C_AMS320FS01
-	bool "AMS320FS01"
-	---help---
-	TBA
-
 endchoice
 
 config FB_S3C_BPP

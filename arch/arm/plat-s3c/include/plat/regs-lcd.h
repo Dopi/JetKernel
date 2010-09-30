@@ -57,9 +57,8 @@
 #define S3C_SIFCCON2		S3C_LCDREG(0x144)  	/* LCD CONTROL 1 */
 #define S3C_CPUTRIGCON2		S3C_LCDREG(0x160)  	/* LCD CONTROL 1 */
 
-#elif defined(CONFIG_CPU_S3C6400) || defined(CONFIG_CPU_S3C6410) || defined(CONFIG_CPU_S5P6440) || defined(CONFIG_CPU_S5PC100)
+#elif defined(CONFIG_CPU_S3C6400) || defined(CONFIG_CPU_S3C6410) || defined(CONFIG_CPU_S5P6440) || defined(CONFIG_CPU_S5PC100) || defined(CONFIG_CPU_S5PC110)
 #define S3C_VIDCON2		S3C_LCDREG(0x08)  	/* Video control 2 register */
-#define S3C_PRTCON		S3C_LCDREG(0x0C)	/* Protection control register */
 #define S3C_VIDTCON0		S3C_LCDREG(0x10)  	/* Video time control 0 register */
 #define S3C_VIDTCON1		S3C_LCDREG(0x14)  	/* Video time control 1 register */
 #define S3C_VIDTCON2		S3C_LCDREG(0x18)  	/* Video time control 2 register */
@@ -303,6 +302,7 @@
 #define S3C_WINCONx_BURSTLEN_16WORD			(0<<9)
 #define S3C_WINCONx_BURSTLEN_8WORD			(1<<9)
 #define S3C_WINCONx_BURSTLEN_4WORD			(2<<9)
+#define S3C_WINCONx_BURSTLEN_MASK			(3<<9)
 #define S3C_WINCONx_BLD_PIX_PLANE			(0<<6)
 #define S3C_WINCONx_BLD_PIX_PIXEL			(1<<6)
 #define S3C_WINCONx_BLD_PIX_MASK			(1<<6)

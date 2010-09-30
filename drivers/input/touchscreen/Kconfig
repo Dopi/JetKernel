@@ -120,6 +120,32 @@ config TOUCHSCREEN_EETI
 	  To compile this driver as a module, choose M here: the
 	  module will be called eeti_ts.
 
+config TOUCHSCREEN_QT602240
+	tristate "quantum touchscreen driver"
+	depends on ARCH_S3C2410 || ARCH_S3C64XX
+	default y
+	help
+	  Say Y here to enable the driver for the touchscreen on the
+	  S3C saturn board.
+	  
+	  If unsure, say N.
+ 
+	  To compile this driver as a module, choose M here: the
+	  module will be called melfas_ts.
+
+config TOUCHSCREEN_M_S3C
+        tristate "Marc S3C touchscreen driver"
+        depends on ARCH_S3C2410 || ARCH_S3C64XX || ARCH_S5P64XX || ARCH_S5PC1XX
+        default y
+        help
+          Say Y here to enable the driver for the touchscreen on the
+          S3C SMDK board.
+
+          If unsure, say N.
+
+          To compile this driver as a module, choose M here: the
+          module will be called s3c_ts.
+
 config TOUCHSCREEN_S3C
         tristate "S3C touchscreen driver"
         depends on ARCH_S3C2410 || ARCH_S3C64XX || ARCH_S5P64XX || ARCH_S5PC1XX

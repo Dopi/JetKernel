@@ -31,7 +31,8 @@
 #include <linux/bitops.h>
 
 /* For Android */
-#define ANDROID_BUF_NUM 16
+//#define ANDROID_BUF_NUM 16
+#define ANDROID_BUF_NUM 1
 
 #define snd_pcm_substream_chip(substream) ((substream)->private_data)
 #define snd_pcm_chip(pcm) ((pcm)->private_data)

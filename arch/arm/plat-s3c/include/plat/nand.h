@@ -55,8 +55,3 @@ struct s3c2410_platform_nand {
 					       int chip);
 };
 
-struct s3c_nand_mtd_info {
-	uint chip_nr;
-	uint mtd_part_nr;
-	struct mtd_partition *partition;
-};

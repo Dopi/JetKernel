@@ -179,28 +179,49 @@ EXPORT_SYMBOL(s3c_adc_conv);
 
 int s3c_adc_get(struct s3c_adc_request *req)
 {
+	unsigned adc_channel = req->channel;
 	int adc_value_ret = 0;
-	int old_port = adc_port;
-	
-#ifdef ADC_WITH_TOUCHSCREEN
-	mutex_lock(&adc_mutex);
-	s3c_adc_save_SFR_on_ADC();
-#endif
-	
-	adc_port = req->channel;
+
 	adc_value_ret = s3c_adc_convert();
-	adc_port = old_port;
-	
-#ifdef ADC_WITH_TOUCHSCREEN
-	s3c_adc_restore_SFR_on_ADC();
-	mutex_unlock(&adc_mutex);
-#endif
-	req->callback(req->channel, req->param, adc_value_ret);
+
+	req->callback(adc_channel,req->param, adc_value_ret);
 
 	return 0;
 }
 EXPORT_SYMBOL(s3c_adc_get);
 
+//bss
+int s3c_adc_get_adc_data(int channel)
+{	
+	int adc_value = 0;
+	int cur_adc_port = 0;
+
+#ifdef ADC_WITH_TOUCHSCREEN
+        mutex_lock(&adc_mutex);
+	s3c_adc_save_SFR_on_ADC();
+#else
+        mutex_lock(&adc_mutex);
+#endif
+
+	cur_adc_port = adc_port;
+	adc_port = channel;
+
+	adc_value = s3c_adc_convert();
+
+	adc_port = cur_adc_port;
+
+#ifdef ADC_WITH_TOUCHSCREEN
+	s3c_adc_restore_SFR_on_ADC();
+	mutex_unlock(&adc_mutex);
+#else
+	mutex_unlock(&adc_mutex);
+#endif
+
+	pr_debug("%s : Converted Value: %03d\n", __FUNCTION__, adc_value);
+
+	return adc_value;
+}
+EXPORT_SYMBOL(s3c_adc_get_adc_data);
 
 static ssize_t
 s3c_adc_read(struct file *file, char __user * buffer,
@@ -310,6 +331,7 @@ static int __init s3c_adc_probe(struct platform_device *pdev)
 		ret = -ENOENT;
 		goto err_map;
 	}
+	s3c_adc_base_addr = base_addr;
 
 	adc_clock = clk_get(&pdev->dev, "adc");
 
@@ -343,7 +365,7 @@ static int __init s3c_adc_probe(struct platform_device *pdev)
 		goto err_clk;
 	}
 
-	printk(KERN_INFO "S5P64XX ADC driver successfully probed\n");
+	printk(KERN_INFO "S3C64XX ADC driver successfully probed\n");
 
 	return 0;
 
@@ -394,6 +416,18 @@ static int s3c_adc_resume(struct platform_device *pdev)
 
 	return 0;
 }
+
+#define CONFIG_MACH_VOLANS 1
+#ifdef CONFIG_MACH_VOLANS
+void s3c_adc_slp_control(int enable)
+{
+	if (enable)
+		s3c_adc_resume(NULL);
+	else
+		clk_disable(adc_clock);
+}
+EXPORT_SYMBOL(s3c_adc_slp_control);
+#endif	/* CONFIG_MACH_VOLANS */
 #else
 #define s3c_adc_suspend NULL
 #define s3c_adc_resume  NULL

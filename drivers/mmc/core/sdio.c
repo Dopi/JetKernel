@@ -317,7 +317,6 @@ int mmc_attach_sdio(struct mmc_host *host, u32 ocr)
 	 * the ocr.
 	 */
 	funcs = (ocr & 0x70000000) >> 28;
-
 #ifdef CONFIG_MMC_EMBEDDED_SDIO
 	if (host->embedded_sdio_data.funcs)
 		funcs = host->embedded_sdio_data.num_funcs;
@@ -360,7 +359,6 @@ int mmc_attach_sdio(struct mmc_host *host, u32 ocr)
 	/*
 	 * Read the common registers.
 	 */
-
 #ifdef CONFIG_MMC_EMBEDDED_SDIO
 	if (host->embedded_sdio_data.cccr)
 		memcpy(&card->cccr, host->embedded_sdio_data.cccr, sizeof(struct sdio_cccr));
@@ -372,7 +370,7 @@ int mmc_attach_sdio(struct mmc_host *host, u32 ocr)
 #ifdef CONFIG_MMC_EMBEDDED_SDIO
 	}
 #endif
-
+ 
 #ifdef CONFIG_MMC_EMBEDDED_SDIO
 	if (host->embedded_sdio_data.cis)
 		memcpy(&card->cis, host->embedded_sdio_data.cis, sizeof(struct sdio_cis));
@@ -385,8 +383,9 @@ int mmc_attach_sdio(struct mmc_host *host, u32 ocr)
 		if (err)
 			goto remove;
 #ifdef CONFIG_MMC_EMBEDDED_SDIO
-	}
+}
 #endif
+
 	/*
 	 * Switch to high-speed (if supported).
 	 */
@@ -540,3 +539,4 @@ err:
 	return err;
 }
 EXPORT_SYMBOL(sdio_reset_comm);
+

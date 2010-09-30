@@ -21,10 +21,10 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/input.h>
+#include <linux/gpio.h>
 
 #include <plat/egpio.h>
 #include <plat/gpio-cfg.h>
-#include <linux/gpio.h>
 #include <plat/regs-gpio.h>
 #include <mach/hardware.h>
 
@@ -33,10 +33,8 @@
 #include "ak4671.h"
 #include "max9877_def.h"
 
-//#define AUDIO_SPECIFIC_DEBUG	1
-//#define MAX9877_SPECIFIC_DEBUG  1
-
-#define GPIO_MIC_SEL_N	S3C64XX_GPL(9)//added by almar, have to check it though
+#define AUDIO_SPECIFIC_DEBUG	0
+#define MAX9877_SPECIFIC_DEBUG 0
 
 #if AUDIO_SPECIFIC_DEBUG
 #define SUBJECT "ak4671_saturn.c"
@@ -59,7 +57,7 @@ static unsigned short reg_pll_mode = 0xf0 | AK4671_PLL; // Default setting : 44.
 static unsigned int sub_mic_path;
 static unsigned int cur_amp_path;
 
-static unsigned short max9877_normal_i2c[] = { I2C_CLIENT_END };
+static unsigned short max9877_normal_i2c[] = {I2C_CLIENT_END };
 static unsigned short max9877_ignore[] = { I2C_CLIENT_END };
 static unsigned short max9877_i2c_probe[] = { 5, MAX9877_ADDRESS >> 1, I2C_CLIENT_END };
 
@@ -210,12 +208,12 @@ int audio_init(void)
 	s3c_gpio_setpull(GPIO_MICBIAS_EN, S3C_GPIO_PULL_NONE);
 
 	/* MIC_SEL */
-	if (gpio_is_valid(GPIO_MIC_SEL_N)) {
-		if (gpio_request(GPIO_MIC_SEL_N, S3C_GPIO_LAVEL(GPIO_MIC_SEL_N))) 
-			printk(KERN_ERR "Failed to request GPIO_MIC_SEL_N! \n");
-		gpio_direction_output(GPIO_MIC_SEL_N, 0);
+	if (gpio_is_valid(GPIO_MIC_SEL)) {
+		if (gpio_request(GPIO_MIC_SEL, S3C_GPIO_LAVEL(GPIO_MIC_SEL))) 
+			printk(KERN_ERR "Failed to request GPIO_MIC_SEL! \n");
+		gpio_direction_output(GPIO_MIC_SEL, 0);
 	}
-	s3c_gpio_setpull(GPIO_MIC_SEL_N, S3C_GPIO_PULL_NONE);
+	s3c_gpio_setpull(GPIO_MIC_SEL, S3C_GPIO_PULL_NONE);
 
 	return 0;
 }
@@ -398,7 +396,6 @@ static void set_amp_gain(int mode)
 int amp_set_path(int path)
 {
 	int i; 
-
 #if MAX9877_SPECIFIC_DEBUG
 	u8 pData;
 	/* real all */
@@ -633,15 +630,15 @@ static void set_bias (struct snd_soc_codec *codec, int mode)
 		if( mode== MM_AUDIO_VOICECALL_RCV || mode == MM_AUDIO_VOICEMEMO_MAIN || mode == MM_AUDIO_VOICEMEMO_SUB)
 		{
                    P("Main Mic");
-			gpio_set_value(GPIO_MIC_SEL_N, 1); // 1 : Main-Mic  0 : Sub-Mic
+			gpio_set_value(GPIO_MIC_SEL, 1); // 1 : Main-Mic  0 : Sub-Mic
 	        }
 		else if ( mode== MM_AUDIO_VOICECALL_SPK )
 		{
                    P("Sub Mic");
-			gpio_set_value(GPIO_MIC_SEL_N, 0); 
+			gpio_set_value(GPIO_MIC_SEL, 0); 
 		}
 
-                P("MIC_SEL = %d",gpio_get_value(GPIO_MIC_SEL_N));
+                P("MIC_SEL = %d",gpio_get_value(GPIO_MIC_SEL));
              
 		if( (mode & 0xf0) == MM_AUDIO_VOICECALL 
                 || (mode & 0xf0) == MM_AUDIO_VOICEMEMO 

@@ -46,4 +46,4 @@ struct platform_device s3c_device_iis = {
 		.coherent_dma_mask = 0xffffffffUL
 	}
 };
-
+EXPORT_SYMBOL(s3c_device_iis);

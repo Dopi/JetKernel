@@ -53,6 +53,81 @@
 #define S3C_FB_PIXEL_CLOCK	(S3C_FB_VFRAME_FREQ * (S3C_FB_HFP + S3C_FB_HSW + S3C_FB_HBP + S3C_FB_HRES) * (S3C_FB_VFP + S3C_FB_VSW + S3C_FB_VBP + S3C_FB_VRES))
 
 
+static void set_lcd_power (int val)
+{
+	if(val > 0) {
+        		s3cfb_start_lcd();
+//		gpio_direction_output(S3C64XX_GPM(3), 1);
+
+    	} else {
+//		gpio_direction_output(S3C64XX_GPM(3), 0);
+		s3cfb_stop_lcd();
+    	}
+}
+
+#define WAITTIME    (10 * HZ / 1000) 
+static int old_display_brightness = 20;
+
+static void __set_brightness(int val)
+{
+#if defined(CONFIG_S3C6410_PWM) 
+    	int channel = 1;  
+    	int usec = 0;
+    	unsigned long tcnt=1001;
+    	unsigned long tcmp=0;
+	tcmp = val * 10;
+
+	s3c6410_timer_setup (channel, usec, tcnt, tcmp);
+#elif defined(CONFIG_S3C_HAVE_PWM)
+	/* New PWM API */
+
+#else
+    	if (val > 0) {
+		gpio_direction_output(S3C64XX_GPF(15), 1);
+    	} else {
+		gpio_direction_output(S3C64XX_GPF(15), 0);
+    	}
+#endif
+}
+
+static void set_brightness(int val)
+{
+	int old_val = old_display_brightness;
+
+	if(val < S3CFB_MIN_BRIGHTNESS) 
+		val = S3CFB_MIN_BRIGHTNESS;
+	if(val > S3CFB_MAX_BRIGHTNESS) 
+		val = S3CFB_MAX_BRIGHTNESS;
+
+	if(val >= old_val) {
+	    while(old_val <= val) {
+		__set_brightness(old_val);
+		set_current_state(TASK_INTERRUPTIBLE);
+		schedule_timeout(WAITTIME);
+		old_val++;
+	    }
+	} else {
+	    while((--old_val) >= val) {
+		__set_brightness(old_val);
+		set_current_state(TASK_INTERRUPTIBLE);
+		schedule_timeout(WAITTIME);
+	    }
+	}
+
+	__set_brightness(val);
+	old_display_brightness = val;
+}
+
+static void set_backlight_power(int val)
+{
+
+    if(val > 0)
+	__set_brightness(old_display_brightness);
+    else
+	__set_brightness(S3CFB_MIN_BRIGHTNESS);
+
+}
+
 static void s3cfb_set_fimd_info(void)
 {
 	s3cfb_fimd.vidcon1 = S3C_VIDCON1_IHSYNC_INVERT | S3C_VIDCON1_IVSYNC_INVERT |S3C_VIDCON1_IVDEN_INVERT | S3C_VIDCON1_IVCLK_RISE_EDGE ;
@@ -96,37 +171,122 @@ static void s3cfb_set_fimd_info(void)
 	s3cfb_fimd.right_margin = S3C_FB_HBP;
 	s3cfb_fimd.lower_margin = S3C_FB_VBP;
 
-	//s3cfb_fimd.set_lcd_power = set_lcd_power;
-	//s3cfb_fimd.set_backlight_power = set_backlight_power;
-	//s3cfb_fimd.set_brightness = set_brightness;
+	s3cfb_fimd.set_lcd_power = set_lcd_power;
+	s3cfb_fimd.set_backlight_power = set_backlight_power;
+	s3cfb_fimd.set_brightness = set_brightness;
 	s3cfb_fimd.backlight_min = S3CFB_MIN_BRIGHTNESS;
 	s3cfb_fimd.backlight_max = S3CFB_MAX_BRIGHTNESS;
 
 }
-
-
+/*
+#define LCD_SCEN 		S3C64XX_GPM(3)
+#define LCD_SCL 			S3C64XX_GPM(4)
+#define LCD_SDA 			S3C64XX_GPM(5)
+//#define LCD_SCEN 		S3C64XX_GPM(0)
+//#define LCD_SCL 			S3C64XX_GPM(1)
+//#define LCD_SDA 			S3C64XX_GPM(2)
 #define S3C_GPIO_OUTP 	S3C_GPIO_SFN(1)
 #define S3C_GPIO_INP  		S3C_GPIO_SFN(0)
 
 
+static int lcd_write(unsigned char addr, unsigned char data)
+{
+	unsigned char myaddr, mydata, i;
+	myaddr = (addr & 0x3f) << 1 ;
+	myaddr <<= 1;
+	myaddr |= 0x1;
+
+	gpio_direction_output(LCD_SCEN, 1);
+	gpio_direction_output(LCD_SCL, 0);
+	gpio_direction_output(LCD_SDA, 0);
+	udelay(3);
+	gpio_direction_output(LCD_SCEN,0);
+	for (i = 0; i < 8; i++) {
+	    gpio_direction_output(LCD_SCL, 0);
+	    udelay(1);
+	    gpio_direction_output(LCD_SDA, (myaddr & 0x80) >> 7);
+	    myaddr <<= 1 ;
+	    udelay(1);
+	    gpio_direction_output(LCD_SCL, 1);
+	    udelay(1);
+	} 
+	
+	mydata = data;
+	for (i = 0; i < 8; i++) {
+	    gpio_direction_output(LCD_SCL, 0);
+	    udelay(1);
+	    gpio_direction_output(LCD_SDA, (mydata & 0x80) >> 7);
+	    mydata <<= 1;
+	    udelay(1);
+	    gpio_direction_output(LCD_SCL, 1);
+	    udelay(1);
+	}
+
+	gpio_direction_output(LCD_SCEN, 1);
+
+	return 0;
+}
 
 
+void lcd_init_hw(void)
+{
 
+	lcd_write(0x02,0x07);
+	lcd_write(0x03,0x5f);
+	lcd_write(0x04,0x17);
+
+	lcd_write(0x05,0x20);
+	lcd_write(0x06,0x08);
+
+	lcd_write(0x07,0x20);
+	lcd_write(0x08,0x20);
+	lcd_write(0x09,0x20);
+	lcd_write(0x0a,0x20);
+
+	lcd_write(0x0b,0x20);
+	lcd_write(0x0c,0x20);
+	lcd_write(0x0d,0x22);
+
+	lcd_write(0x0e,0x10);
+	lcd_write(0x0f,0x10);
+	lcd_write(0x10,0x10);
+
+	lcd_write(0x11,0x15);
+	lcd_write(0x12,0xaa);
+	lcd_write(0x13,0xff);
+	lcd_write(0x14,0x86);
+	lcd_write(0x15,0x89);
+	lcd_write(0x16,0xc6);
+	lcd_write(0x17,0xea);
+	lcd_write(0x18,0x0c);
+	lcd_write(0x19,0x33);
+	lcd_write(0x1a,0x5e);
+	lcd_write(0x1b,0xd0);
+	lcd_write(0x1c,0x33);
+	lcd_write(0x1d,0x7e);
+	lcd_write(0x1e,0xb3);
+	lcd_write(0x1f,0xff);
+	lcd_write(0x20,0xf0);
+	lcd_write(0x21,0xf0);
+	lcd_write(0x22,0x08);
+
+}
+*/
 void s3cfb_init_hw(void)
 {
-	printk(KERN_INFO "LCD TYPE :: AMOLED OMNIA II will be initialized\n");
+	printk(KERN_INFO "LCD TYPE :: TD043MTEX will be initialized\n");
 
 
 	s3cfb_set_fimd_info();
+	s3cfb_set_gpio();
+	//lcd_init_hw();
 
-
-
-
+	set_backlight_power(1);
 
 	mdelay(5);
+//	gpio_direction_output(S3C64XX_GPM(3), 1);
 
-
-
+	set_brightness(S3CFB_DEFAULT_BRIGHTNESS);
 	
 }
 

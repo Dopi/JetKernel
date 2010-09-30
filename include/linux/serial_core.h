@@ -41,8 +41,7 @@
 #define PORT_XSCALE	15
 #define PORT_RM9000	16	/* PMC-Sierra RM9xxx internal UART */
 #define PORT_OCTEON	17	/* Cavium OCTEON internal UART */
-#define PORT_AR7	18	/* Texas Instruments AR7 internal UART */
-#define PORT_MAX_8250	18	/* max port ID */
+#define PORT_MAX_8250	17	/* max port ID */
 
 /*
  * ARM specific type numbers.  These are not currently guaranteed
@@ -80,8 +79,8 @@
 #define PORT_SCIF	53
 #define PORT_IRDA	54
 
-/* Samsung S3C2410 SoC and derivatives thereof */
-#define PORT_S3C2410    55
+/* Samsung S3C SoC and derivatives thereof */
+#define PORT_S3C	55
 
 /* SGI IP22 aka Indy / Challenge S / Indigo 2 */
 #define PORT_IP22ZILOG	56
@@ -160,19 +159,10 @@
 /* SH-SCI */
 #define PORT_SCIFA	83
 
-#define PORT_S3C6400	84
+#define PORT_S3C64XX	84
 
 /* NWPSERIAL */
 #define PORT_NWPSERIAL	85
-
-/* MAX3100 */
-#define PORT_MAX3100    86
-
-/* Timberdale UART */
-#define PORT_TIMBUART	87
-
-/* Qualcomm MSM SoCs */
-#define PORT_MSM	88
 
 #ifdef __KERNEL__
 
@@ -213,6 +203,7 @@ struct uart_ops {
 	void		(*pm)(struct uart_port *, unsigned int state,
 			      unsigned int oldstate);
 	int		(*set_wake)(struct uart_port *, unsigned int state);
+	void		(*wake_peer)(struct uart_port *);
 
 	/*
 	 * Return a string describing the type of the port
@@ -287,7 +278,7 @@ struct uart_port {
 	struct uart_icount	icount;			/* statistics */
 
 	struct console		*cons;			/* struct console, if any */
-#if defined(CONFIG_SERIAL_CORE_CONSOLE) || defined(SUPPORT_SYSRQ)
+#ifdef CONFIG_SERIAL_CORE_CONSOLE
 	unsigned long		sysrq;			/* sysrq timeout */
 #endif
 

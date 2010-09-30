@@ -20,18 +20,14 @@ obj-y				+= clock.o
 obj-y				+= gpiolib.o
 obj-y				+= bootmem.o
 
+
 # CPU support
 
-obj-$(CONFIG_CPU_S3C6400_INIT)	+= s3c6400-init.o
-#obj-$(CONFIG_CPU_S3C6400_CLOCK)	+= s3c6400-clock.o
-obj-$(CONFIG_CPU_S3C6400_CLOCK)	+= s3c64xx-clock.o
-#obj-$(CONFIG_CPU_FREQ_S3C64XX)  += cpufreq.o
-
-# PM support
-
-obj-$(CONFIG_PM)		+= pm.o
-obj-$(CONFIG_PM)		+= sleep.o
-obj-$(CONFIG_PM)		+= irq-pm.o
+obj-$(CONFIG_CPU_S3C64XX_INIT)	+= s3c64xx-init.o
+obj-$(CONFIG_CPU_S3C64XX_CLOCK)	+= s3c64xx-clock.o
+obj-$(CONFIG_CPU_FREQ)		+= s3c64xx-dvfs.o changefreq.o
+obj-$(CONFIG_PM)                += pm.o
+obj-$(CONFIG_PM)                += sleep.o
 
 # DMA support
 
@@ -42,14 +38,14 @@ obj-$(CONFIG_S3C64XX_DMA)	+= dma.o
 obj-$(CONFIG_S3C64XX_SETUP_I2C0) += setup-i2c0.o
 obj-$(CONFIG_S3C64XX_SETUP_I2C1) += setup-i2c1.o
 obj-$(CONFIG_S3C64XX_SETUP_FB_24BPP) += setup-fb-24bpp.o
-obj-$(CONFIG_CPU_FREQ_S3C64XX)		+= s3c64xx-dvfs.o changefreq.o
-#obj-$(CONFIG_S3C64XX_SETUP_SDHCI_GPIO) += setup-sdhci-gpio.o ADDED ALMAR
+obj-$(CONFIG_S3C64XX_SETUP_SDHCI_GPIO) += setup-sdhci-gpio.o
 
 
 
-obj-$(CONFIG_S3C64XX_ADC) 	 			+= adc.o
+obj-$(CONFIG_S3C64XX_ADC) 	 	+= adc.o
+obj-$(CONFIG_S3C64XX_ADCTS) 		+= s3c64xx-adcts.o
 
-obj-$(CONFIG_SPI_S3C6410)   			+= dev-spi.o
+obj-$(CONFIG_SPI_S3C6410)   		+= dev-spi.o
 
 # Device setup - FIMC
 obj-$(CONFIG_S3C64XX_DEV_FIMC0)   += dev-fimc0.o

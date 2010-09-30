@@ -857,7 +857,7 @@ static void s3c_fb_clear_win(struct s3c_fb *sfb, int win)
 	writel(0, regs + VIDOSD_B(win));
 	writel(0, regs + VIDOSD_C(win));
 }
-
+#if 0
 /* added by riversky start */
 //#define LCD_SCEN 		S3C64XX_GPM(0)
 //#define LCD_SCL 			S3C64XX_GPM(1)
@@ -950,7 +950,7 @@ void lcd_init_hw(void)
 
 }
 /* added by riversky end */
-
+#endif
 
 static int __devinit s3c_fb_probe(struct platform_device *pdev)
 {
@@ -1037,18 +1037,19 @@ static int __devinit s3c_fb_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, sfb);
 
 	/* added by riversky start */
+#if 0
 	
 	/* GPM4 is the backlight status 1:off, 0:on*/
 	s3c_gpio_cfgpin(S3C64XX_GPM(4), S3C_GPIO_SFN(0));
 	/* backlignt power off , then on */
 	gpio_direction_output(S3C64XX_GPM(3), 0);
-	lcd_init_hw();
+	//lcd_init_hw();
 	msleep(5);
 	gpio_direction_output(S3C64XX_GPM(3), 1);
 	gpio_direction_output(S3C64XX_GPF(15), 1);
 	
 	/* added by riversky end */
-	
+#endif	
 	return 0;
 
 err_ioremap:

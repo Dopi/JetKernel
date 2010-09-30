@@ -161,30 +161,40 @@ config S3C_GPIO_CFG_S3C64XX
 
 # DMA
 
-config S3C_DMA
-	bool
-	help
-	  Internal configuration for S3C DMA core
+#config S3C_DMA
+#	bool
+#	help
+#	  Internal configuration for S3C DMA core
+#
+#config S3C_DMA_PL080
+#	bool "Use PL080 DMA Controler for S3C64XX"
+#	depends on ARCH_S3C64XX
+#	help
+#	  PL080 DMA supported
+###
 
-config S3C_DMA_PL080
-	bool "Use PL080 DMA Controler for S3C64XX"
-	depends on ARCH_S3C64XX
+comment "Select DMA Controller"
+choice 
+	prompt"Samsung S3C6410 DMA Controller"
+	default S3C_DMA_PL080_SOL
+
+	config S3C_DMA_PL080_SOL
+	bool "DMA PL080 Sol"
+	depends on PLAT_S3C
+	help
+	  PL080 DMA supported 
+
+	config S3C_DMA_PL080
+	bool "DMA PL080 AP"
+	depends on PLAT_S3C
 	help
 	  PL080 DMA supported
 
-#option for OS tick timer (fixed/dynamic)
-choice
-	prompt "OS Timer support "
-	default DYNAMIC_TIMER
-
-	config FIXED_TIMER
-	bool "Fixed Tick timer"
-
-	config DYNAMIC_TIMER
-	bool "Tickless and HR Timer"
-	select GENERIC_TIME
-	select GENERIC_CLOCKEVENTS
-
+	config S3C_DMA_PL330
+	bool "DMA PL330"
+	depends on PLAT_S3C
+	help
+	  PL330 DMA supported
 endchoice
 	  
 # device definitions to compile in

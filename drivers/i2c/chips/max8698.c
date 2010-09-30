@@ -23,9 +23,6 @@
 #endif
 #define PREFIX "MAX8698: "
 
-
-
-
 max8698_register_type max8698reg[ENDOFREG] =
 {
 	/* Slave addr 		  Reg addr */

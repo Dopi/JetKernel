@@ -36,7 +36,8 @@
 #include <asm/mach-types.h>
 #include <mach/sec_headset.h>
 
-extern int call_state;
+//extern int call_state;
+int call_state = 0;
 
 // #define CONFIG_DEBUG_SEC_HEADSET
 
@@ -58,8 +59,7 @@ extern int call_state;
 //#define SEND_END_CHECK_TIME get_jiffies_64() + (HZ/50) //1000ms / 50 = 20ms
 //#define SEND_END_CHECK_TIME get_jiffies_64() + (HZ/100) //1000ms / 100 = 10ms 
 
-extern int s3c_adc_get(int channel);
-
+extern int s3c_adc_get_adc_data(int channel);
 struct sec_headset_info {
 	struct sec_headset_port port;
 	struct input_dev *input;
@@ -114,7 +114,7 @@ static void ear_adc_caculrator(unsigned long arg)
 		gpio_set_value(GPIO_MICBIAS_EN, 1); 
 		SEC_HEADSET_DBG("MICBIAS enable before adc check  \n");
 		msleep(200); 
-		adc = s3c_adc_get(3);
+		adc = s3c_adc_get_adc_data(3);
 		SEC_HEADSET_DBG("MICBIAS disable after adc check  \n");
 		gpio_set_value(GPIO_MICBIAS_EN, 0); 
              

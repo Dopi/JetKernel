@@ -1,0 +1,25 @@
+#
+#
+#
+
+
+menuconfig NEW_SENSORS
+	bool "Sensors Support"
+	help
+	  Say Y to enable Sensors support.  This allows control of supported
+	  Sensors.
+
+	  
+	  
+
+if NEW_SENSORS
+
+source "drivers/sensor/accel/Kconfig"
+
+source "drivers/sensor/compass/Kconfig"
+
+source "drivers/sensor/optical/Kconfig"
+
+
+
+endif # NEW_SENSORS

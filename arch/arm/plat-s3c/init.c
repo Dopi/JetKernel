@@ -64,7 +64,7 @@ void __init s3c_init_cpu(unsigned long idcode,
 	cpu->map_io();
 }
 
-/* s3c24xx_init_clocks
+/* s3c_init_clocks
  *
  * Initialise the clock subsystem and associated information from the
  * given master crystal value.
@@ -73,21 +73,7 @@ void __init s3c_init_cpu(unsigned long idcode,
  *      != 0 -> PLL crystal value in Hz
 */
 
-void __init s3c24xx_init_clocks(int xtal)
-{
-	if (xtal == 0)
-		xtal = 12*1000*1000;
-
-	if (cpu == NULL)
-		panic("s3c24xx_init_clocks: no cpu setup?\n");
-
-	if (cpu->init_clocks == NULL)
-		panic("s3c24xx_init_clocks: cpu has no clock init\n");
-	else
-		(cpu->init_clocks)(xtal);
-}
-
-void __init s3c_init_clocks(int xtal) //ALMAR OK
+void __init s3c_init_clocks(int xtal)
 {
 	if (xtal == 0)
 		xtal = 12*1000*1000;
@@ -105,11 +91,9 @@ void __init s3c_init_clocks(int xtal) //ALMAR OK
 
 static int nr_uarts __initdata = 0;
 
+static struct s3c_uartcfg uart_cfgs[CONFIG_SERIAL_SAMSUNG_UARTS];
 
-static struct s3c2410_uartcfg uart_cfgs[CONFIG_SERIAL_SAMSUNG_UARTS];
-//static struct s3c_uartcfg uart_cfgs[CONFIG_SERIAL_SAMSUNG_UARTS];
-
-/* s3c24xx_init_uartdevs
+/* s3c_init_uartdevs
  *
  * copy the specified platform data and configuration into our central
  * set of devices, before the data is thrown away after the init process.
@@ -118,23 +102,23 @@ static struct s3c2410_uartcfg uart_cfgs[CONFIG_SERIAL_SAMSUNG_UARTS];
  * early initialisation of the console.
 */
 
-void __init s3c24xx_init_uartdevs(char *name,
-				  struct s3c24xx_uart_resources *res,
-				  struct s3c2410_uartcfg *cfg, int no)
+void __init s3c_init_uartdevs(char *name,
+				  struct s3c_uart_resources *res,
+				  struct s3c_uartcfg *cfg, int no)
 {
 	struct platform_device *platdev;
-	struct s3c2410_uartcfg *cfgptr = uart_cfgs;
-	struct s3c24xx_uart_resources *resp;
+	struct s3c_uartcfg *cfgptr = uart_cfgs;
+	struct s3c_uart_resources *resp;
 	int uart;
 
-	memcpy(cfgptr, cfg, sizeof(struct s3c2410_uartcfg) * no);
+	memcpy(cfgptr, cfg, sizeof(struct s3c_uartcfg) * no);
 
 	for (uart = 0; uart < no; uart++, cfg++, cfgptr++) {
-		platdev = s3c24xx_uart_src[cfgptr->hwport];
+		platdev = s3c_uart_src[cfgptr->hwport];
 
 		resp = res + cfgptr->hwport;
 
-		s3c24xx_uart_devs[uart] = platdev;
+		s3c_uart_devs[uart] = platdev;
 
 		platdev->name = name;
 		platdev->resource = resp->resources;
@@ -144,25 +128,6 @@ void __init s3c24xx_init_uartdevs(char *name,
 	}
 
 	nr_uarts = no;
-}
-
-void __init s3c_init_uartdevs(char *name,
-				  struct s3c_uart_resources *res,
-				  struct s3c_uartcfg *cfg, int no)
-{
-	s3c24xx_init_uartdevs(name, s3c64xx_uart_resources, cfg, no);
-}
-
-
-void __init s3c24xx_init_uarts(struct s3c2410_uartcfg *cfg, int no)
-{
-	if (cpu == NULL)
-		return;
-
-	if (cpu->init_uarts == NULL) {
-		printk(KERN_ERR "s3c24xx_init_uarts: cpu has no uart init\n");
-	} else
-		(cpu->init_uarts)(cfg, no);
 }
 
 void __init s3c_init_uarts(struct s3c_uartcfg *cfg, int no)
@@ -189,7 +154,7 @@ static int __init s3c_arch_init(void)
 	if (ret != 0)
 		return ret;
 
-	ret = platform_add_devices(s3c24xx_uart_devs, nr_uarts);
+	ret = platform_add_devices(s3c_uart_devs, nr_uarts);
 	return ret;
 }
 

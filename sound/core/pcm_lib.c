@@ -173,7 +173,7 @@ void snd_pcm_playback_silence(struct snd_pcm_substream *substream, snd_pcm_ufram
 
 static void xrun(struct snd_pcm_substream *substream)
 {
-	printk("%s: [%d]occured XRUN!\n", __func__, substream->stream);
+//	printk("%s: [%d]occured XRUN!\n", __func__, substream->stream);
 	snd_pcm_stop(substream, SNDRV_PCM_STATE_XRUN);
 #ifdef CONFIG_SND_PCM_XRUN_DEBUG
 	if (substream->pstr->xrun_debug) {

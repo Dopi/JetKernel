@@ -41,7 +41,7 @@ extern void sec_log_buf_init(void);
 #define RESERVED_PMEM_JPEG		(3 * 1024 * 1024)
 #define RESERVED_PMEM_PREVIEW		(2 * 1024 * 1024)
 #define RESERVED_PMEM_RENDER	  	(2 * 1024 * 1024)
-#define RESERVED_PMEM_STREAM	  	(2 * 1024 * 1024)
+#define RESERVED_PMEM_STREAM	  	(4 * 1024 * 1024)
 #define RESERVED_G3D			(32 * 1024 * 1024) 	/* G3D is shared with uppper memory areas */
 #define RESERVED_PMEM_GPU1		(0)
 #define RESERVED_PMEM			(8 * 1024 * 1024)

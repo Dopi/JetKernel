@@ -41,6 +41,11 @@
 #include <plat/regs-iic.h>
 #include <plat/iic.h>
 
+#define CONFIG_MACH_VOLANS 1
+#ifdef CONFIG_MACH_VOLANS
+static struct platform_device *i2c_pdev_ch0;
+#endif	/* CONFIG_MACH_VOLANS */
+
 /* i2c controller state */
 
 enum s3c24xx_i2c_state {
@@ -840,6 +845,11 @@ static int s3c24xx_i2c_probe(struct platform_device *pdev)
 		goto err_ioarea;
 	}
 
+#ifdef CONFIG_MACH_VOLANS
+	if (pdev->id == 0)
+		i2c_pdev_ch0 = pdev;
+#endif	/* CONFIG_MACH_VOLANS */
+
 	dev_dbg(&pdev->dev, "registers %p (%p, %p)\n",
 		i2c->regs, i2c->ioarea, res);
 
@@ -964,6 +974,18 @@ static int s3c24xx_i2c_resume(struct platform_device *dev)
 	return 0;
 }
 
+#ifdef CONFIG_MACH_VOLANS
+void s3c_i2c_slp_control(int enable)
+{
+	if (enable)
+		s3c24xx_i2c_resume(i2c_pdev_ch0);
+	else {
+		struct s3c24xx_i2c *i2c = platform_get_drvdata(i2c_pdev_ch0);
+		i2c->suspended = 1;
+	}
+}
+EXPORT_SYMBOL(s3c_i2c_slp_control);
+#endif	/* CONFIG_MACH_VOLANS */
 #else
 #define s3c24xx_i2c_suspend_late NULL
 #define s3c24xx_i2c_resume NULL

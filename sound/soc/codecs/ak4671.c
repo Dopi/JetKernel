@@ -17,7 +17,7 @@
 #include <linux/delay.h>
 #include <linux/pm.h>
 #include <linux/i2c.h>
-#include <linux/i2c/maximi2c.h>
+//#include <linux/i2c/maximi2c.h>
 #include <linux/platform_device.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -193,11 +193,11 @@ static int ak4671_set_idle_mode(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 
-	P(" idle_mode_value : %d", (int)ucontrol->value.integer.value[0]);
+	//P(" idle_mode_value : %d", (int)ucontrol->value.integer.value[0]);
 
 	if(ucontrol->value.integer.value[0] == 2) // force shutdown
 	{
-	P(" Force shutdown mode");
+	//P(" Force shutdown mode");
 		if(ak4671_power)
 		{
 			idle_mode_disable(codec, ak4671_path);
@@ -212,7 +212,7 @@ static int ak4671_set_idle_mode(struct snd_kcontrol *kcontrol,
 
 	if(ak4671_power == 0 && ak4671_idle_mode == IDLE_POWER_DOWN_MODE_ON)
 	{
-		P("audio power up");
+		//P("audio power up");
 		set_registers(codec, ak4671_path);
 		return 1;
 	}
@@ -361,7 +361,6 @@ static int ak4671_set_path(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 	int i = 0, new_path;
-	P("");
 
 	while(audio_path[i] != NULL) {
 		new_path = (i << 4) | ucontrol->value.integer.value[0];
@@ -373,6 +372,7 @@ static int ak4671_set_path(struct snd_kcontrol *kcontrol,
 		}
 		i++;
 	}
+	P("New Path: %x\n", new_path);
 	return 1;
 }
 
@@ -602,11 +602,12 @@ static int ak4671_set_dai_fmt(struct snd_soc_dai *codec_dai,
 
 static int ak4671_mute(struct snd_soc_dai *dai, int mute)
 {
-#if 0
-	P("mute %d", mute);
+#if 1
 	struct snd_soc_codec *codec = dai->codec;
+	u16 mute_reg;
+//	P("mute %d", mute);
 
-	u16 mute_reg = ak4671_read_reg_cache(codec, AK4671_MODE_CONTROL2) & 0xfffb;
+	mute_reg = ak4671_read_reg_cache(codec, AK4671_MODE_CONTROL2) & 0xfffb;
 	if (!mute)
 		ak4671_write(codec, AK4671_MODE_CONTROL2, mute_reg | 1);
 	else
@@ -764,7 +765,7 @@ pcm_err:
 
 #define I2C_DRIVERID_AK4671 0xfefe /* liam -  need a proper id */
 
-static unsigned short normal_i2c[] = { 0, I2C_CLIENT_END }; //orginal 0
+static unsigned short normal_i2c[] = { I2C_CLIENT_END };
 
 /* Magic definition of all other variables and things */
 I2C_CLIENT_INSMOD;
@@ -772,12 +773,9 @@ I2C_CLIENT_INSMOD;
 static struct i2c_driver ak4671_i2c_driver;
 static struct i2c_client ak4671_client;
 
-static unsigned short ak4671_normal_i2c[] = { 0x24 >> 1, I2C_CLIENT_END };
-static unsigned short ak4671_ignore[] = { 1, 0x24 >> 1, I2C_CLIENT_END };
-//static unsigned short ak4671_i2c_probe[] = { 5, 0x24 >> 1, I2C_CLIENT_END };
-
-static unsigned short ak4671_i2c_probe[] = { I2C_CLIENT_END };
-
+static unsigned short ak4671_normal_i2c[] = { I2C_CLIENT_END };
+static unsigned short ak4671_ignore[] = { I2C_CLIENT_END };
+static unsigned short ak4671_i2c_probe[] = {5, 0x24 >>1,  I2C_CLIENT_END };
 
 static struct i2c_client_address_data ak4671_addr_data = {
 	.normal_i2c = ak4671_normal_i2c,
@@ -892,9 +890,9 @@ static ssize_t ak4671_control_store(
 	printk("echo [REGISTER NUMBER(HEX)][VALUE(HEX)] > ak4671_control\n");
 	printk("ex) echo 030f > ak4671_control\n");
 
-	P("buf = %s", buf);
-	P("buf size = %d", sizeof(buf));
-	P("buf size = %d", strlen(buf));
+	////P("buf = %s", buf);
+	//P("buf size = %d", sizeof(buf));
+	//P("buf size = %d", strlen(buf));
 
 	if(sizeof(buf) != 4) {
 		printk("input error\n");
@@ -958,7 +956,7 @@ static int ak4671_codec_probe(struct i2c_adapter *adap, int addr, int kind)
 		return -ENODEV;
 	ak4671_client.adapter = adap;
 	ak4671_client.addr = addr;
-	printk("probing ak4671 codec at adapter:%x \n", ak4671_client.adapter); 
+
 	i2c = kmemdup(&ak4671_client, sizeof(ak4671_client), GFP_KERNEL);
 	if (i2c == NULL)
 		return -ENOMEM;
@@ -1076,8 +1074,7 @@ static int ak4671_probe(struct platform_device *pdev)
 
 #if defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE)
 	if (setup->i2c_address) {
-		normal_i2c[0] = setup->i2c_address; //TODO ALMAR CHECK
-		printk("I2C hardware send\n");
+		normal_i2c[0] = setup->i2c_address;
 		codec->hw_write = (hw_write_t)i2c_master_send;
 		codec->hw_read = (hw_read_t)i2c_master_recv;
 		ret = i2c_add_driver(&ak4671_i2c_driver);

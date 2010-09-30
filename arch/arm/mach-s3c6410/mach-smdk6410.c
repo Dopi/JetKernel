@@ -9,7 +9,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  *
-*/
+ */
 
 #include <linux/kernel.h>
 #include <linux/types.h>
@@ -32,6 +32,7 @@
 #include <linux/reboot.h>
 #include <linux/pwm_backlight.h>
 #include <linux/android_pmem.h>
+#include <linux/i2c/pmic.h>
 
 #ifdef CONFIG_SMDK6410_WM1190_EV1
 #include <linux/mfd/wm8350/core.h>
@@ -50,7 +51,6 @@
 #include <mach/regs-mem.h>
 
 #include <asm/irq.h>
-#include <asm/setup.h>
 #include <asm/mach-types.h>
 
 #include <plat/regs-serial.h>
@@ -61,7 +61,7 @@
 #include <plat/fb.h>
 #include <plat/regs-rtc.h>
 
-#include <plat/s3c6410.h> //hier zit het probleem
+#include <plat/s3c6410.h>
 #include <plat/clock.h>
 #include <plat/devs.h>
 #include <plat/cpu.h>
@@ -73,12 +73,10 @@
 #include <plat/regs-modem.h>
 #include <plat/regs-gpio.h>
 #include <plat/gpio-cfg.h>
-
-#ifdef CONFIG_JET_OPTION
-#include <mach/jet_gpio_table.h>
-#else
+#include <mach/param.h>
 #include <mach/volans_gpio_table.h>
-#endif
+
+#include <mach/sec_headset.h>
 
 //#ifdef CONFIG_USB_SUPPORT
 #include <plat/regs-otg.h>
@@ -106,12 +104,151 @@
 //#endif
 //#endif
 
+void (*sec_set_param_value)(int idx, void *value);
+EXPORT_SYMBOL(sec_set_param_value);
 
+void (*sec_get_param_value)(int idx, void *value);
+EXPORT_SYMBOL(sec_get_param_value);
 
-#define UCON S3C2410_UCON_DEFAULT | S3C2410_UCON_UCLK
-#define ULCON S3C2410_LCON_CS8 | S3C2410_LCON_PNONE | S3C2410_LCON_STOPB
-#define UFCON S3C2410_UFCON_RXTRIG8 | S3C2410_UFCON_FIFOMODE
+#define UCON S3C_UCON_DEFAULT
+#define ULCON S3C_LCON_CS8 | S3C_LCON_PNONE
+#define UFCON S3C_UFCON_RXTRIG8 | S3C_UFCON_FIFOMODE
 
+struct class *sec_class;
+EXPORT_SYMBOL(sec_class);
+
+struct device *switch_dev;
+EXPORT_SYMBOL(switch_dev);
+
+static struct sec_headset_port sec_headset_port[] = {
+        {
+		{ // HEADSET detect info
+			.eint		= IRQ_EINT(10), 
+			.gpio		= GPIO_DET_35,   
+			.gpio_af	= GPIO_DET_35_AF  , 
+			.low_active 	= 0
+		},{ // SEND/END info
+			.eint		= IRQ_EINT(11), 
+			.gpio		= GPIO_EAR_SEND_END, 
+			.gpio_af	= GPIO_EAR_SEND_END_AF, 
+			.low_active	= 1
+		}
+        }
+};
+ 
+static struct sec_headset_platform_data sec_headset_data = {
+        .port           = sec_headset_port,
+        .nheadsets      = ARRAY_SIZE(sec_headset_port),
+};
+
+static struct platform_device sec_device_headset = {
+        .name           = "sec_headset",
+        .id             = -1,
+        .dev            = {
+                .platform_data  = &sec_headset_data,
+        },
+};
+
+#ifdef CONFIG_S3C64XX_ADCTS
+static struct s3c_adcts_plat_info s3c_adcts_cfgs __initdata = {
+	.channel = {
+		{ /* 0 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},{ /* 1 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},{ /* 2 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},{ /* 3 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},{ /* 4 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},{ /* 5 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},{ /* 6 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},{ /* 7 */
+			.delay = 0xFF,
+			.presc = 49,
+			.resol = S3C_ADCCON_RESSEL_12BIT,
+		},
+	},
+};
+#endif
+
+static int uart_current_owner = 0;
+
+static ssize_t uart_switch_show(struct device *dev, struct device_attribute *attr, char *buf)
+{	
+	if ( uart_current_owner )		
+		return sprintf(buf, "%s[UART Switch] Current UART owner = PDA \n", buf);	
+	else			
+		return sprintf(buf, "%s[UART Switch] Current UART owner = MODEM \n", buf);
+}
+
+static ssize_t uart_switch_store(struct device *dev, struct device_attribute *attr,	const char *buf, size_t size)
+{	
+	int switch_sel = 1;
+
+	if (sec_get_param_value)
+		sec_get_param_value(__SWITCH_SEL, &switch_sel);
+
+	if (strncmp(buf, "PDA", 3) == 0 || strncmp(buf, "pda", 3) == 0)	{		
+		gpio_set_value(GPIO_UART_SEL, GPIO_LEVEL_HIGH);		
+		uart_current_owner = 1;		
+		switch_sel |= UART_SEL_MASK;
+		printk("[UART Switch] Path : PDA\n");	
+	}	
+
+	if (strncmp(buf, "MODEM", 5) == 0 || strncmp(buf, "modem", 5) == 0) {		
+		gpio_set_value(GPIO_UART_SEL, GPIO_LEVEL_LOW);		
+		uart_current_owner = 0;		
+		switch_sel &= ~UART_SEL_MASK;
+		printk("[UART Switch] Path : MODEM\n");	
+	}	
+
+	if (sec_set_param_value)
+		sec_set_param_value(__SWITCH_SEL, &switch_sel);
+
+	return size;
+}
+
+static DEVICE_ATTR(uart_sel, S_IRUGO |S_IWUGO | S_IRUSR | S_IWUSR, uart_switch_show, uart_switch_store);
+
+static void saturn_switch_init(void)
+{
+	sec_class = class_create(THIS_MODULE, "sec");
+	if (IS_ERR(sec_class))
+		pr_err("Failed to create class(sec)!\n");
+
+	switch_dev = device_create(sec_class, NULL, 0, NULL, "switch");
+	if (IS_ERR(switch_dev))
+		pr_err("Failed to create device(switch)!\n");
+
+        if (gpio_is_valid(GPIO_UART_SEL)) {
+                if (gpio_request(GPIO_UART_SEL, S3C_GPIO_LAVEL(GPIO_UART_SEL)))
+                        printk(KERN_ERR "Failed to request GPIO_UART_SEL!\n");
+                gpio_direction_output(GPIO_UART_SEL, gpio_get_value(GPIO_UART_SEL));
+        }
+        s3c_gpio_setpull(GPIO_UART_SEL, S3C_GPIO_PULL_NONE);
+
+        if (device_create_file(switch_dev, &dev_attr_uart_sel) < 0)
+                pr_err("Failed to create device file(%s)!\n", dev_attr_uart_sel.attr.name);
+
+};
 
 static void volans_init_gpio(void)
 {
@@ -150,12 +287,6 @@ static void volans_init_gpio(void)
 	}
 }
 
-#ifndef CONFIG_HIGH_RES_TIMERS
-extern struct sys_timer s3c64xx_timer;
-#else
-extern struct sys_timer sec_timer;
-#endif /* CONFIG_HIGH_RES_TIMERS */
-/*
 static struct i2c_gpio_platform_data i2c_pmic_platdata = {
 	.sda_pin	= GPIO_PWR_I2C_SDA,
 	.scl_pin	= GPIO_PWR_I2C_SCL,
@@ -170,20 +301,27 @@ static struct platform_device sec_device_i2c_pmic = {
 	.id		= 2,
 	.dev.platform_data	= &i2c_pmic_platdata,
 };
-*/
-/*
-static struct i2c_board_info i2c_devs0[] __initdata = {
-	{ I2C_BOARD_INFO("KXSD9", 0x18), },	//  accelerator 
-	{ I2C_BOARD_INFO("USBIC", 0x25), },	//  uUSB ic 
-	{ I2C_BOARD_INFO("max17040", 0x36), },	//  max17040 fuel gauge 
+
+static struct i2c_gpio_platform_data i2c_touch_platdata = {
+	.sda_pin	= GPIO_TOUCH_SDA,
+	.scl_pin	= GPIO_TOUCH_SCL,
+	.udelay		= 2,
+	.sda_is_open_drain	= 0,
+	.scl_is_open_drain	= 0,
+	.scl_is_output_only	= 1
 };
-*/
+
+static struct platform_device sec_device_i2c_touch = {
+	.name	= "i2c-gpio",
+	.id		= 3,
+	.dev.platform_data	= &i2c_touch_platdata,
+};
+
 
 static struct i2c_gpio_platform_data i2c_common_platdata = {
 	.sda_pin	= GPIO_FM_SDA,
 	.scl_pin	= GPIO_FM_SCL,
-//	.udelay		= 2,
-	.udelay		= 3,
+	.udelay		= 2,
 	.sda_is_open_drain	= 0,
 	.scl_is_open_drain	= 0,
 	.scl_is_output_only	= 1
@@ -195,42 +333,32 @@ static struct platform_device sec_device_i2c_common = {
 	.dev.platform_data	= &i2c_common_platdata,
 };
 
-
 static struct i2c_board_info i2c_devs0[] __initdata = {
-//	{ I2C_BOARD_INFO("AK4671", 0x24), },
-//	{ I2C_BOARD_INFO("Si4709", 0x10), },	
+//	{ I2C_BOARD_INFO("KXSD9", 0x18), },             /* accelerator */
+//        { I2C_BOARD_INFO("USBIC", 0x25), },             /* uUSB ic */
+//        { I2C_BOARD_INFO("max17040", 0x36), },  /* max17040 fuel gauge */
+};
+
+static struct i2c_board_info i2c_devs1[] __initdata = {
+//        { I2C_BOARD_INFO("24c128", 0x57), },    /* Samsung S524AD0XD1 */
 };
 
 
 static struct i2c_board_info i2c_devs2[] __initdata = {
-//	{ I2C_BOARD_INFO("max8698", 0x66), },  	// Max8698 PMIC 
+	{ I2C_BOARD_INFO("max8698", 0x66), },  	
 };
 
 static struct i2c_board_info i2c_devs3[] __initdata = {
-//	{ I2C_BOARD_INFO("Si4709", 0x10), },  
+//	{ I2C_BOARD_INFO("Si4709", 0x10), },
 };
 
-/* 
-static struct i2c_board_info i2c_devs0[] __initdata = {
-//	 { I2C_BOARD_INFO("24c08", 0x50), }, 
-	 { I2C_BOARD_INFO("wm8987", 0x1a), }, 
-
-#ifdef CONFIG_SMDK6410_WM1190_EV1
-	{ I2C_BOARD_INFO("wm8350", 0x1a),
-	  .platform_data = &smdk6410_wm8350_pdata,
-	  .irq = S3C_EINT(12),
-	},
-#endif
-};
-*/
-static struct i2c_board_info i2c_devs1[] __initdata = {
-//	{ I2C_BOARD_INFO("24c08", 0x50), }, 
-//	{ I2C_BOARD_INFO("24c128", 0x57), },	
+struct platform_device sec_device_opt = {
+        .name   = "gp2a-opt",
+        .id             = -1,
 };
 
-
-static struct s3c2410_uartcfg smdk6410_uartcfgs[] __initdata = {
-	[0] = {	// Phone 
+static struct s3c_uartcfg saturn_uartcfgs[] __initdata = {
+	[0] = {	/* Phone */
 		.hwport	     = 0,
 		.flags	     = 0,
 		.ucon	     = UCON,
@@ -252,6 +380,62 @@ static struct s3c2410_uartcfg smdk6410_uartcfgs[] __initdata = {
 		.ufcon	     = UFCON,
 	},
 };
+
+void s3c_setup_uart_cfg_gpio(unsigned char port)
+{
+	if (port == 0) {
+		s3c_gpio_cfgpin(GPIO_AP_FLM_RXD, S3C_GPIO_SFN(GPIO_AP_FLM_RXD_AF));
+		s3c_gpio_setpull(GPIO_AP_FLM_RXD, S3C_GPIO_PULL_NONE);
+		s3c_gpio_cfgpin(GPIO_AP_FLM_TXD, S3C_GPIO_SFN(GPIO_AP_FLM_TXD_AF));
+		s3c_gpio_setpull(GPIO_AP_FLM_TXD, S3C_GPIO_PULL_NONE);
+	}
+	else if (port == 1) {
+		s3c_gpio_cfgpin(GPIO_AP_BT_RXD, S3C_GPIO_SFN(GPIO_AP_BT_RXD_AF));
+		s3c_gpio_setpull(GPIO_AP_BT_RXD, S3C_GPIO_PULL_NONE);
+		s3c_gpio_cfgpin(GPIO_AP_BT_TXD, S3C_GPIO_SFN(GPIO_AP_BT_TXD_AF));
+		s3c_gpio_setpull(GPIO_AP_BT_TXD, S3C_GPIO_PULL_NONE);
+		s3c_gpio_cfgpin(GPIO_AP_BT_CTS, S3C_GPIO_SFN(GPIO_AP_BT_CTS_AF));
+		s3c_gpio_setpull(GPIO_AP_BT_CTS, S3C_GPIO_PULL_NONE);
+		s3c_gpio_cfgpin(GPIO_AP_BT_RTS, S3C_GPIO_SFN(GPIO_AP_BT_RTS_AF));
+		s3c_gpio_setpull(GPIO_AP_BT_RTS, S3C_GPIO_PULL_NONE);
+	}
+	else if (port == 2) {
+		s3c_gpio_cfgpin(GPIO_AP_RXD, S3C_GPIO_SFN(GPIO_AP_RXD_AF));
+		s3c_gpio_setpull(GPIO_AP_RXD, S3C_GPIO_PULL_NONE);
+		s3c_gpio_cfgpin(GPIO_AP_TXD, S3C_GPIO_SFN(GPIO_AP_TXD_AF));
+		s3c_gpio_setpull(GPIO_AP_TXD, S3C_GPIO_PULL_NONE);
+	}
+}
+EXPORT_SYMBOL(s3c_setup_uart_cfg_gpio);
+
+void s3c_reset_uart_cfg_gpio(unsigned char port)
+{
+#if 0  // dgahn.temp
+	if (port == 0) {
+		s3c_gpio_cfgpin(GPIO_AP_FLM_RXD, S3C_GPIO_SFN(GPIO_AP_FLM_RXD_AF));
+		s3c_gpio_setpull(GPIO_AP_FLM_RXD, S3C_GPIO_PULL_NONE);
+		s3c_gpio_cfgpin(GPIO_AP_FLM_TXD, S3C_GPIO_SFN(GPIO_AP_FLM_TXD_AF));
+		s3c_gpio_setpull(GPIO_AP_FLM_TXD, S3C_GPIO_PULL_NONE);
+	}
+#endif
+	if (port == 1) {
+		s3c_gpio_cfgpin(GPIO_AP_BT_RXD, 0);
+		s3c_gpio_setpull(GPIO_AP_BT_RXD, S3C_GPIO_PULL_DOWN);
+		s3c_gpio_cfgpin(GPIO_AP_BT_TXD, 0);
+		s3c_gpio_setpull(GPIO_AP_BT_TXD, S3C_GPIO_PULL_DOWN);
+		s3c_gpio_cfgpin(GPIO_AP_BT_CTS, 0);
+		s3c_gpio_setpull(GPIO_AP_BT_CTS, S3C_GPIO_PULL_DOWN);
+		s3c_gpio_cfgpin(GPIO_AP_BT_RTS, 0);
+		s3c_gpio_setpull(GPIO_AP_BT_RTS, S3C_GPIO_PULL_DOWN);
+	}
+	else if (port == 2) {
+		s3c_gpio_cfgpin(GPIO_AP_RXD, S3C_GPIO_SFN(GPIO_AP_RXD_AF));
+		s3c_gpio_setpull(GPIO_AP_RXD, S3C_GPIO_PULL_NONE);
+		s3c_gpio_cfgpin(GPIO_AP_TXD, S3C_GPIO_SFN(GPIO_AP_TXD_AF));
+		s3c_gpio_setpull(GPIO_AP_TXD, S3C_GPIO_PULL_NONE);
+	}
+}
+EXPORT_SYMBOL(s3c_reset_uart_cfg_gpio);
 
 #ifdef CONFIG_FB_S3C_ORG
 //TO DO: onderstaande dingen daadwerkelijk toevoegen!
@@ -335,40 +519,6 @@ static struct s3c_fb_platdata smdk6410_lcd_pdata __initdata = {
 
 #endif
 
-#if 0
-
-static struct resource smdk6410_smsc911x_resources[] = {
-	[0] = {
-		.start = 0x18000000,
-		.end   = 0x18000000 + SZ_64K - 1,
-		.flags = IORESOURCE_MEM,
-	},
-	[1] = {
-		.start = S3C_EINT(10),
-		.end   = S3C_EINT(10),
-		.flags = IORESOURCE_IRQ | IRQ_TYPE_LEVEL_LOW,
-	},
-};
-
-static struct smsc911x_platform_config smdk6410_smsc911x_pdata = {
-	.irq_polarity  = SMSC911X_IRQ_POLARITY_ACTIVE_LOW,
-	.irq_type      = SMSC911X_IRQ_TYPE_OPEN_DRAIN,
-	.flags         = SMSC911X_USE_32BIT | SMSC911X_FORCE_INTERNAL_PHY,
-	.phy_interface = PHY_INTERFACE_MODE_MII,
-};
-
-
-static struct platform_device smdk6410_smsc911x = {
-	.name          = "smsc911x",
-	.id            = -1,
-	.num_resources = ARRAY_SIZE(smdk6410_smsc911x_resources),
-	.resource      = &smdk6410_smsc911x_resources[0],
-	.dev = {
-		.platform_data = &smdk6410_smsc911x_pdata,
-	},
-};
-#endif
-
 
 static struct map_desc smdk6410_iodesc[] = {
 	{
@@ -399,21 +549,26 @@ static struct map_desc smdk6410_iodesc[] = {
 	},
 };
 
+/*
+ * GPIO Buttons
+ */
 
 
-
-struct platform_device sec_device_battery = {
-	.name   = "saturn-battery",
-	.id		= -1,
+struct platform_device smartq_gpio = {
+	.name			= "smartq_gpio",
+	.id				= -1,
+	.num_resources	= 0,
 };
 
-struct platform_device sec_device_fuelgauge = {
-	.name = "max17040_driver",
-	.id = -1,
+
+static struct platform_device smartq_battery_device  = {
+        .name           = "smartq-battery",
+        .id             = -1,
+        .num_resources  = 0,
 };
 
-#ifdef CONFIG_ANDROID_PMEM	
-
+//#ifdef CONFIG_ANDROID_PMEM	
+#if 0
 struct android_pmem_platform_data android_pmem_data = {
 	.name 	= "pmem",
 	.no_allocator = 0,
@@ -468,25 +623,30 @@ static struct platform_device s3c_device_dpram = {
 	.id		= -1,
 };
 
+struct platform_device sec_device_ts = {
+        .name   = "qt602240-ts",
+        .id             = -1,
+};
+
+
 static struct platform_device *smdk6410_devices[] __initdata = {
-//#if defined(CONFIG_KEYBOARD_GPIO) || defined(CONFIG_KEYBOARD_GPIO_MODULE)
-//	&smartq_button_device,
-//#endif
-//	&smartq_gpio,
-//#ifdef CONFIG_SMARTQ_BT_RFKILL
-//	&smartq_rfkill_device,
-//#endif
+#if defined(CONFIG_S3C_DMA_PL080_SOL)
+        &s3c_device_dma0,
+        &s3c_device_dma1,
+        &s3c_device_dma2,
+        &s3c_device_dma3,
+#endif
 #ifdef CONFIG_SMDK6410_SD_CH1
-//	&s3c_device_hsmmc1,
+	&s3c_device_hsmmc1,
 #endif
 #ifdef CONFIG_SMDK6410_SD_CH0
-	&s3c_device_hsmmc0,
+//	&s3c_device_hsmmc0,
 #endif
 #ifdef CONFIG_SMDK6410_SD_CH2
-	&s3c_device_hsmmc2,
+//	&s3c_device_hsmmc2,
 #endif
 	&s3c_device_i2c0,
-	&s3c_device_i2c1,
+//	&s3c_device_i2c1,
 #ifdef CONFIG_FB_S3C_ORG
 	&smdk6410_lcd_powerdev,
 	&s3c_device_fb,
@@ -496,18 +656,11 @@ static struct platform_device *smdk6410_devices[] __initdata = {
 	&s3c_device_ts,
 	&s3c_device_vpp,
 	&s3c_device_mfc,
-	&s3c_device_tvenc,
-	&s3c_device_tvscaler,
 	&s3c_device_rotator,
 	&s3c_device_jpeg,
-	&s3c_device_fimc0,
-	&s3c_device_fimc1,
-	&s3c_device_g2d,
 	&s3c_device_g3d,
 	&s3c_device_dpram,
-	&s3c_device_rp,
-//	&sec_device_battery,
-//	&sec_device_fuelgauge, 
+	&smartq_battery_device,
 #ifdef CONFIG_S3C64XX_ADC
 	&s3c_device_adc,
 #endif
@@ -515,22 +668,28 @@ static struct platform_device *smdk6410_devices[] __initdata = {
 	&s3c_device_timer[0],
 	&s3c_device_timer[1],
 #endif
-	&s3c_device_aes,
 	&s3c_device_wdt,
 	&s3c_device_rtc,
 #ifdef CONFIG_SND_S3C64XX_SOC_I2S
 	&s3c64xx_device_iis0,
 #endif
+//	&s3c_device_iis,
 	&s3c_device_usb,
-	&s3c_device_usb_hsotg,
-	&s3c_device_usb_otghcd,
 	&s3c_device_usbgadget,
-#ifdef CONFIG_ANDROID_PMEM	
+//#ifdef CONFIG_ANDROID_PMEM	
+#if 0
 	&android_pmem_device,
 #endif
 	&android_usb_device,
-//bss	&sec_device_i2c_pmic,			/* pmic(max8698) i2c. */
+	&sec_device_i2c_pmic,			/* pmic(max8698) i2c. */
+	&sec_device_i2c_touch,
 	&sec_device_i2c_common,			/* radio, sound, .. i2c. */
+	&sec_device_headset,
+	&sec_device_opt,
+	&sec_device_ts,
+#ifdef CONFIG_S3C64XX_ADCTS
+	&s3c_device_adcts,
+#endif
 //	&smdk6410_smsc911x,
 };
 
@@ -667,6 +826,8 @@ static struct wm8350_platform_data __initdata smdk6410_wm8350_pdata = {
 };
 #endif
 #endif
+
+#ifdef CONFIG_S3C64XX_ADC
 static struct s3c_ts_mach_info s3c_ts_platform __initdata = {
 	.delay 			= 10000, //41237
 	.presc 			= 49,
@@ -681,6 +842,7 @@ static struct s3c_adc_mach_info s3c_adc_platform = {
 	.presc 	= 	99,
 	.resolution = 	12,
 };
+#endif
 
 #if defined(CONFIG_HAVE_PWM)
 static struct platform_pwm_backlight_data smdk_backlight_data = {
@@ -689,8 +851,6 @@ static struct platform_pwm_backlight_data smdk_backlight_data = {
 	.dft_brightness		= 255,
 	.pwm_period_ns	= 78770,
 };
-
-
 
 static struct platform_device smdk_backlight_device = {
 	.name = "pwm-backlight",
@@ -710,21 +870,6 @@ static void __init smdk_backlight_register(void)
 #else
 #define smdk_backlight_register()	do { } while (0)
 #endif
-
-static void __init volans_fixup(struct machine_desc *desc,
-        struct tag *tags, char **cmdline, struct meminfo *mi)
-{
-	 unsigned long unreserved_size = 0;
-
- 	 mi->nr_banks = 2;
-			 
-	 mi->bank[0].start = 0x50000000;
-	 mi->bank[0].size = (128 * 1024 * 1024);
-	 mi->bank[0].node = 0;
-	 mi->bank[1].start = 0x60000000;
-	 mi->bank[1].size = (96 * 1024 * 1024);
-	 mi->bank[1].node = 1;
-}
 
 
 static void s3c6410_power_off(void)
@@ -746,14 +891,16 @@ static void s3c6410_power_off(void)
 EXPORT_SYMBOL_GPL(s3c6410_power_off);
 
 extern void s3c64xx_reserve_bootmem(void);
+
 static void __init smdk6410_map_io(void)
 {
 	pm_power_off = s3c6410_power_off;
 	s3c64xx_init_io(smdk6410_iodesc, ARRAY_SIZE(smdk6410_iodesc));
-	s3c_init_clocks(12000000);//24xx_init_clocks(12000000);
-	s3c_init_uarts(smdk6410_uartcfgs, ARRAY_SIZE(smdk6410_uartcfgs));//24xx_init_uarts(smdk6410_uartcfgs, ARRAY_SIZE(smdk6410_uartcfgs));
+	s3c_init_clocks(12000000);
+        s3c_init_uarts(saturn_uartcfgs, ARRAY_SIZE(saturn_uartcfgs));
 	s3c64xx_reserve_bootmem();
-#ifdef CONFIG_ANDROID_PMEM	
+//#ifdef CONFIG_ANDROID_PMEM	
+#if 0
 	/* map the s3c camera phy_mem to pmem */
 	setup_platform_device_pem(&android_pmem_device, 
 				(unsigned long)s3c_get_media_memory(S3C_MDEV_PMEM), 
@@ -776,70 +923,22 @@ static void __init smdk6410_map_io(void)
 
 static void smdk6410_gpio_init (void)
 {
-#if !defined(CONFIG_S3C6410_PWM) && !defined(CONFIG_S3C_HAVE_PWM)
-	gpio_request(S3C64XX_GPF(15), "BLT_LEV");
-#endif
-	gpio_request(S3C64XX_GPK(0),   "SD_WP");
-	gpio_request(S3C64XX_GPK(1),   "WIFI_EN");
-	gpio_request(S3C64XX_GPK(2),   "WIFI_RST");
-	gpio_request(S3C64XX_GPK(4),   "CHARG_S1");
-	gpio_request(S3C64XX_GPK(5),   "CHARG_S2");
-	gpio_request(S3C64XX_GPK(6),   "CHARG_EN");
-	gpio_request(S3C64XX_GPK(12), "SPEAKER_EN");
-	gpio_request(S3C64XX_GPK(13), "VIDEOAMP_EN");
-	gpio_request(S3C64XX_GPK(15), "PWR_EN");
-
-	gpio_request(S3C64XX_GPL(0), 	"USB_EN");
-	gpio_request(S3C64XX_GPL(1), 	"USB_HOST_PWR_EN");
-	gpio_request(S3C64XX_GPL(10), "USB_HOST_STATUS");
-	gpio_request(S3C64XX_GPL(3), "USB_OTG_STATUS"); //11 changed to 3?
-	gpio_request(S3C64XX_GPL(8), 	 "USB_OTG_DRV_EN");
-	gpio_request(S3C64XX_GPL(12), "HEADPHONE_DETE");
-	gpio_request(S3C64XX_GPL(13), "DC_DETE");
-	/* request in gpio-keys.c */
-	//gpio_request(S3C64XX_GPL(14), "PWR_HOLD");
-
-//	gpio_request(S3C64XX_GPM(0),  "LCD_SPI0");
-//	gpio_request(S3C64XX_GPM(1),  "LCD_SPI1");
-//	gpio_request(S3C64XX_GPM(2),  "LCD_SPI2");
-	gpio_request(S3C64XX_GPM(3),  "LCD_PWR");
-	gpio_request(S3C64XX_GPM(4),  "BLT_STA");
 	gpio_request(S3C64XX_GPN(5), 	"LCD_RST");
-
-	gpio_request(S3C64XX_GPN(8),   "LED_1");
-	gpio_request(S3C64XX_GPN(9),   "LED_2");
-	
-#if 0
-	/* CHARG_S1 */
-	gpio_direction_input(S3C64XX_GPK(4));			
-	s3c_gpio_setpull(S3C64XX_GPK(4), S3C_GPIO_PULL_NONE);
-	/* CHARG_S2 */
-	gpio_direction_input(S3C64XX_GPK(5));			
-	s3c_gpio_setpull(S3C64XX_GPK(5), S3C_GPIO_PULL_NONE);
-	/* HEADPHONE_DETE */
-	gpio_direction_input(S3C64XX_GPL(12));			
-	s3c_gpio_setpull(S3C64XX_GPL(12), S3C_GPIO_PULL_NONE);
-	/* PWR_EN */
-	s3c_gpio_setpull(S3C64XX_GPK(15), S3C_GPIO_PULL_NONE);
-	/* SPEAKER_EN */
-	s3c_gpio_setpull(S3C64XX_GPK(12), S3C_GPIO_PULL_NONE);
-	
-	gpio_direction_output(S3C64XX_GPK(6), 0);		/* charge en 1-800ma, 0-200ma */   
-	gpio_direction_output(S3C64XX_GPK(15), 0);		/* open normal it's low */
-	gpio_direction_output(S3C64XX_GPK(13), 0);		/* close ,I don't know... */
-	gpio_direction_output(S3C64XX_GPK(12), 0);		/* speaker en  1-on, 0-off */
-	mdelay(5);
-	gpio_direction_output(S3C64XX_GPK(12), 1);		/* speaker en  1-on, 0-off */
-#endif
 }
 
 static void __init smdk6410_machine_init(void)
 {
 	s3c_i2c0_set_platdata(NULL);
 	s3c_i2c1_set_platdata(NULL);
-	
+
+#ifdef CONFIG_S3C64XX_ADC
 	s3c_ts_set_platdata(&s3c_ts_platform);
 	s3c_adc_set_platdata(&s3c_adc_platform);
+#endif
+
+#ifdef CONFIG_S3C64XX_ADCTS
+	s3c_adcts_set_platdata (&s3c_adcts_cfgs);
+#endif
 	
 #ifdef CONFIG_FB_S3C_ORG
 	s3c_fb_set_platdata(&smdk6410_lcd_pdata);
@@ -847,34 +946,19 @@ static void __init smdk6410_machine_init(void)
 	s3c_fimc0_set_platdata(NULL);
 	s3c_fimc1_set_platdata(NULL);
 
-	//volans_init_gpio();
+	volans_init_gpio();
 	smdk6410_gpio_init();
+	writel(readl(S3C_PCLK_GATE)|S3C_CLKCON_PCLK_GPIO, S3C_PCLK_GATE);
 
-	//writel(readl(S3C_PCLK_GATE)|S3C_CLKCON_PCLK_GPIO, S3C_PCLK_GATE);
-   //    __raw_writel(0x088698ee, S3C_PCLK_GATE);
 	i2c_register_board_info(0, i2c_devs0, ARRAY_SIZE(i2c_devs0));
 	i2c_register_board_info(1, i2c_devs1, ARRAY_SIZE(i2c_devs1));
 	i2c_register_board_info(2, i2c_devs2, ARRAY_SIZE(i2c_devs2));
 	i2c_register_board_info(3, i2c_devs3, ARRAY_SIZE(i2c_devs3));
 
 	platform_add_devices(smdk6410_devices, ARRAY_SIZE(smdk6410_devices));
-	s3c_pm_init();
-        printk("GPGCON = %#x\n", __raw_readl(S3C64XX_GPG_BASE));
-        printk("GPGDAT = %#x\n", __raw_readl(S3C64XX_GPG_BASE + 4));
-        printk("GPGPUD = %#x\n", __raw_readl(S3C64XX_GPG_BASE + 8));
-        printk("GPMCON = %#x\n", __raw_readl(S3C64XX_GPM_BASE));
-        printk("GPMDAT = %#x\n", __raw_readl(S3C64XX_GPM_BASE + 4));
-        printk("GPMPUD = %#x\n", __raw_readl(S3C64XX_GPM_BASE + 8));
-
-//	u32 reg;
-
-//	reg = readl(GPGCON) & 0xf0000000;
-//	writel(reg | 0x02222222, GPGCON);
-
-//	reg = readl((S3C64XX_GPG_BASE + 8)) & 0xfffff000;
-//	writel(reg, (S3C64XX_GPG_BASE + 8));
-//	hsmmc_reset();
-        
+	s3c6410_pm_init();
+	saturn_switch_init();
+	//s3c_pm_init();
 
 }
 
@@ -883,24 +967,13 @@ MACHINE_START(SMDK6410, "OMNIA II")
 	.phys_io		= S3C_PA_UART & 0xfff00000,
 	.io_pg_offst	= (((u32)S3C_VA_UART) >> 18) & 0xfffc,
 	.boot_params	= S3C64XX_PA_SDRAM + 0x100,
-//	.fixup		= volans_fixup,
-	.init_irq		= s3c6410_init_irq,
+
+	.init_irq	= s3c6410_init_irq,
 	.map_io		= smdk6410_map_io,
 	.init_machine	= smdk6410_machine_init,
-#ifndef CONFIG_HIGH_RES_TIMERS
-	.timer			= &s3c64xx_timer,
-#else
-	.timer			= &sec_timer,
-#endif
+	.timer		= &s3c64xx_timer,
 MACHINE_END
 
-//void s3c_setup_hsmmc_clock(void)
-//{
-//	struct clk *clk;
-//
-//	clk = clk_get(NULL, "mmc_bus");
-//}
-//EXPORT_SYMBOL(s3c_setup_hsmmc_clock);
 
 void s3c_setup_keypad_cfg_gpio(int rows, int columns)
 {
@@ -1075,6 +1148,136 @@ void usb_host_clk_en(int id)
 }
 
 EXPORT_SYMBOL(usb_host_clk_en);
+
+static void check_pmic(void)
+{	
+	unsigned char reg_buff = 0;
+	if (Get_MAX8698_PM_REG(EN1, &reg_buff)) {
+		pr_info("%s: BUCK1 (%d)\n", __func__, reg_buff);
+		if (reg_buff)
+			Set_MAX8698_PM_REG(EN1, 0);
+	}
+	if (Get_MAX8698_PM_REG(EN2, &reg_buff)) {
+		pr_info("%s: BUCK2 (%d)\n", __func__, reg_buff);
+		if (reg_buff)
+			Set_MAX8698_PM_REG(EN2, 0);
+	}
+	if (Get_MAX8698_PM_REG(ELDO3, &reg_buff)) {
+		pr_info("%s: OTGI 1.2V (%d)\n", __func__, reg_buff);
+	}
+	if (Get_MAX8698_PM_REG(ELDO4, &reg_buff)) {
+		pr_info("%s: VLED 3.3V (%d)\n", __func__, reg_buff);
+	}
+	if (Get_MAX8698_PM_REG(ELDO5, &reg_buff)) {
+		pr_info("%s: VTF 3.0V (%d)\n", __func__, reg_buff);
+		if (reg_buff)
+			Set_MAX8698_PM_REG(ELDO5, 0);
+	}
+	if (Get_MAX8698_PM_REG(ELDO6, &reg_buff)) {
+		pr_info("%s: VLCD 1.8V (%d)\n", __func__, reg_buff);
+	}
+	if (Get_MAX8698_PM_REG(ELDO7, &reg_buff)) {
+		pr_info("%s: VLCD 3.0V (%d)\n", __func__, reg_buff);
+	}
+	if (Get_MAX8698_PM_REG(ELDO8, &reg_buff)) {
+		pr_info("%s: OTG 3.3V (%d)\n", __func__, reg_buff);
+	}
+}
+
+static void volans_pmic_halt(void)
+{
+	gpio_set_value(GPIO_PS_HOLD_PDA, 1);
+	s3c_gpio_cfgpin(GPIO_PS_HOLD_PDA, S3C_GPIO_OUTPUT);
+	gpio_set_value(GPIO_PS_HOLD_PDA, 0);
+}
+
+extern void machine_restart(char * __unused);
+void volans_machine_halt(char mode)
+{
+	if (mode == 'r') {
+		if (gpio_get_value(GPIO_VREG_MSMP_26V)) {
+			machine_restart(NULL);
+		} else if (!gpio_get_value(GPIO_TA_nCONNECTED)) {
+			unsigned int *inf = (unsigned int *)__va(VOLANS_PA_BM);
+			*inf = VOLANS_BM_MAGIC;
+
+			machine_restart(NULL);
+		} else {
+			volans_pmic_halt();
+		}
+	} else if (mode == 'h') {
+		volans_pmic_halt();
+	}
+}
+EXPORT_SYMBOL(volans_machine_halt);
+
+unsigned int CURRENT_REV(void)
+{
+	return 1;
+}
+EXPORT_SYMBOL(CURRENT_REV);
+
+int (*connected_device_status)(void) = NULL;
+EXPORT_SYMBOL(connected_device_status);
+
+void s3c_config_sleep_gpio(void)
+{	
+	int spcon_val;
+
+	check_pmic();
+	//bss s3c_config_gpio_table(ARRAY_SIZE(saturn_sleep_gpio_table),
+	//bss		saturn_sleep_gpio_table);
+
+	spcon_val = __raw_readl(S3C64XX_SPCON);
+	spcon_val = spcon_val & (~0xFFEC0000);
+	__raw_writel(spcon_val, S3C64XX_SPCON);
+	__raw_writel(0x20, S3C64XX_SPCONSLP);
+
+	/* mem interface reg config in sleep mode */
+	__raw_writel(0x00005000, S3C64XX_MEM0CONSLP0);
+	__raw_writel(0x01041595, S3C64XX_MEM0CONSLP1);
+	__raw_writel(0x10055000, S3C64XX_MEM1CONSLP);
+
+}
+EXPORT_SYMBOL(s3c_config_sleep_gpio);
+
+void s3c_config_wakeup_gpio(void)
+{
+	unsigned char reg_buff = 0;
+	if (Get_MAX8698_PM_REG(ELDO5, &reg_buff)) {
+		pr_info("%s: VTF 3.0V (%d)\n", __func__, reg_buff);
+		if (!reg_buff)
+			Set_MAX8698_PM_REG(ELDO5, 1);
+	}
+}
+EXPORT_SYMBOL(s3c_config_wakeup_gpio);
+
+void s3c_config_wakeup_source(void)
+{
+	unsigned int eint0pend_val;
+
+	/* Wake-up source 
+	 * ONEDRAM_INT(EINT0), WLAN_HOST_WAKE(EINT1),  
+	 * Power key(EINT5), T_FLASH_DETECT(EINT6), INTB(EINT9)
+	 * DET_3.5(EINT10), EAR_SEND_END(EINT11),
+	 * Hold key(EINT17), TA_CONNECTED(EINT19),
+	 * BT_HOST_WAKE(EINT22), CHG_ING(EINT25)
+	 */
+	eint0pend_val= __raw_readl(S3C64XX_EINT0PEND);
+	eint0pend_val |= (0x1 << 25) | (0x1 << 22) | (0x1 << 19) |
+		(0x1 << 17) |(0x1 << 11) | (0x1 << 10) | (0x1 << 9)| (0x1 << 6) | (0x1 << 5) | (0x1 << 1) | 0x1;
+	__raw_writel(eint0pend_val, S3C64XX_EINT0PEND);
+
+	eint0pend_val = (0x1 << 25) | (0x1 << 22) | (0x1 << 19) |
+		(0x1 << 17)|(0x1 << 11) | (0x1 << 10) | (0x1 << 9)| (0x1 << 6) |(0x1 << 5) | (0x1 << 1) | 0x1;
+	__raw_writel(~eint0pend_val, S3C64XX_EINT0MASK);
+
+	__raw_writel((0x0FFFFFFF & ~eint0pend_val), S3C_EINT_MASK);	
+
+	/* Alarm Wakeup Enable */
+	__raw_writel((__raw_readl(S3C_PWR_CFG) & ~(0x1 << 10)), S3C_PWR_CFG);
+}
+EXPORT_SYMBOL(s3c_config_wakeup_source);
 
 
 

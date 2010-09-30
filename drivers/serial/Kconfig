@@ -457,9 +457,9 @@ config SERIAL_SAMSUNG
 
 config SERIAL_SAMSUNG_UARTS
 	int
-	depends on ARM && PLAT_S3C
+	depends on SERIAL_SAMSUNG
 	default 2 if ARCH_S3C2400
-	default 4 if ARCH_S3C64XX || CPU_S3C2443
+	default 4 if ARCH_S3C64XX || CPU_S3C2443 || ARCH_S5PC1XX
 	default 3
 	help
 	  Select the number of available UART ports for the Samsung S3C
@@ -525,20 +525,20 @@ config SERIAL_S3C24A0
 	help
 	  Serial port support for the Samsung S3C24A0 SoC
 
-config SERIAL_S3C6400
+config SERIAL_S3C64XX
 	tristate "Samsung S3C6400/S3C6410 Serial port support"
-	depends on SERIAL_SAMSUNG && (CPU_S3C6400 || CPU_S3C6410)
+	depends on SERIAL_SAMSUNG && (CPU_S3C600 || CPU_S3C6410)
 	default y
 	help
 	  Serial port support for the Samsung S3C6400 and S3C6410
 	  SoCs
 
-config SERIAL_MAX3100
-	tristate "MAX3100 support"
-	depends on SPI
-	select SERIAL_CORE
+config SERIAL_S5PC100
+	tristate "Samsung S5PC100 Serial port support"
+	depends on SERIAL_SAMSUNG && CPU_S5PC100
+	default y
 	help
-	  MAX3100 chip support
+	  Serial port support for the Samsung S5PC100 SoCs
 
 config SERIAL_DZ
 	bool "DECstation DZ serial driver"
@@ -635,7 +635,7 @@ config SERIAL_MPSC_CONSOLE
 
 config SERIAL_PXA
 	bool "PXA serial port support"
-	depends on ARCH_PXA || ARCH_MMP
+	depends on ARM && ARCH_PXA
 	select SERIAL_CORE
 	help
 	  If you have a machine based on an Intel XScale PXA2xx CPU you
@@ -707,7 +707,7 @@ choice
 
 config SERIAL_BFIN_DMA
 	bool "DMA mode"
-	depends on !DMA_UNCACHED_NONE && KGDB_SERIAL_CONSOLE=n
+	depends on !DMA_UNCACHED_NONE && !KGDB_UART
 	help
 	  This driver works under DMA mode. If this option is selected, the
 	  blackfin simple dma driver is also enabled.
@@ -734,19 +734,19 @@ config BFIN_UART0_CTSRTS
 
 config UART0_CTS_PIN
 	int "UART0 CTS pin"
-	depends on BFIN_UART0_CTSRTS && !BF548
+	depends on BFIN_UART0_CTSRTS
 	default 23
 	help
 	  The default pin is GPIO_GP7.
-	  Refer to arch/blackfin/mach-*/include/mach/gpio.h to see the GPIO map.
+	  Refer to ./include/asm-blackfin/gpio.h to see the GPIO map.
 
 config UART0_RTS_PIN
 	int "UART0 RTS pin"
-	depends on BFIN_UART0_CTSRTS && !BF548
+	depends on BFIN_UART0_CTSRTS
 	default 22
 	help
 	  The default pin is GPIO_GP6.
-	  Refer to arch/blackfin/mach-*/include/mach/gpio.h to see the GPIO map.
+	  Refer to ./include/asm-blackfin/gpio.h to see the GPIO map.
 
 config SERIAL_BFIN_UART1
 	bool "Enable UART1"
@@ -763,21 +763,21 @@ config BFIN_UART1_CTSRTS
 
 config UART1_CTS_PIN
 	int "UART1 CTS pin"
-	depends on BFIN_UART1_CTSRTS && !BF548
+	depends on BFIN_UART1_CTSRTS && !BF54x
 	default -1
 	help
-	  Refer to arch/blackfin/mach-*/include/mach/gpio.h to see the GPIO map.
+	  Refer to ./include/asm-blackfin/gpio.h to see the GPIO map.
 
 config UART1_RTS_PIN
 	int "UART1 RTS pin"
-	depends on BFIN_UART1_CTSRTS && !BF548
+	depends on BFIN_UART1_CTSRTS && !BF54x
 	default -1
 	help
-	  Refer to arch/blackfin/mach-*/include/mach/gpio.h to see the GPIO map.
+	  Refer to ./include/asm-blackfin/gpio.h to see the GPIO map.
 
 config SERIAL_BFIN_UART2
 	bool "Enable UART2"
-	depends on SERIAL_BFIN && (BF54x || BF538 || BF539)
+	depends on SERIAL_BFIN && (BF54x)
 	help
 	  Enable UART2
 
@@ -790,17 +790,17 @@ config BFIN_UART2_CTSRTS
 
 config UART2_CTS_PIN
 	int "UART2 CTS pin"
-	depends on BFIN_UART2_CTSRTS && !BF548
+	depends on BFIN_UART2_CTSRTS
 	default -1
 	help
-	  Refer to arch/blackfin/mach-*/include/mach/gpio.h to see the GPIO map.
+	  Refer to ./include/asm-blackfin/gpio.h to see the GPIO map.
 
 config UART2_RTS_PIN
 	int "UART2 RTS pin"
-	depends on BFIN_UART2_CTSRTS && !BF548
+	depends on BFIN_UART2_CTSRTS
 	default -1
 	help
-	  Refer to arch/blackfin/mach-*/include/mach/gpio.h to see the GPIO map.
+	  Refer to ./include/asm-blackfin/gpio.h to see the GPIO map.
 
 config SERIAL_BFIN_UART3
 	bool "Enable UART3"
@@ -815,25 +815,10 @@ config BFIN_UART3_CTSRTS
 	  Enable hardware flow control in the driver. Using GPIO emulate the CTS/RTS
 	  signal.
 
-config UART3_CTS_PIN
-	int "UART3 CTS pin"
-	depends on BFIN_UART3_CTSRTS && !BF548
-	default -1
-	help
-	  Refer to arch/blackfin/mach-*/include/mach/gpio.h to see the GPIO map.
-
-config UART3_RTS_PIN
-	int "UART3 RTS pin"
-	depends on BFIN_UART3_CTSRTS && !BF548
-	default -1
-	help
-	  Refer to arch/blackfin/mach-*/include/mach/gpio.h to see the GPIO map.
-
 config SERIAL_IMX
 	bool "IMX serial port support"
 	depends on ARM && (ARCH_IMX || ARCH_MXC)
 	select SERIAL_CORE
-	select RATIONAL
 	help
 	  If you have a machine based on a Motorola IMX CPU you
 	  can enable its onboard serial port by enabling this option.
@@ -855,13 +840,13 @@ config SERIAL_IMX_CONSOLE
 
 config SERIAL_UARTLITE
 	tristate "Xilinx uartlite serial port support"
-	depends on PPC32 || MICROBLAZE
+	depends on PPC32
 	select SERIAL_CORE
 	help
 	  Say Y here if you want to use the Xilinx uartlite serial controller.
 
 	  To compile this driver as a module, choose M here: the
-	  module will be called uartlite.
+	  module will be called uartlite.ko.
 
 config SERIAL_UARTLITE_CONSOLE
 	bool "Support for console on Xilinx uartlite serial port"
@@ -1320,16 +1305,6 @@ config SERIAL_SGI_IOC3
 	  If you have an SGI Altix with an IOC3 serial card,
 	  say Y or M.  Otherwise, say N.
 
-config SERIAL_MSM
-	bool "MSM on-chip serial port support"
-	depends on ARM && ARCH_MSM
-	select SERIAL_CORE
-
-config SERIAL_MSM_CONSOLE
-	bool "MSM serial console support"
-	depends on SERIAL_MSM=y
-	select SERIAL_CORE_CONSOLE
-
 config SERIAL_NETX
 	tristate "NetX serial port support"
 	depends on ARM && ARCH_NETX
@@ -1351,7 +1326,7 @@ config SERIAL_NETX_CONSOLE
 
 config SERIAL_OF_PLATFORM
 	tristate "Serial port on Open Firmware platform bus"
-	depends on PPC_OF || MICROBLAZE
+	depends on PPC_OF
 	depends on SERIAL_8250 || SERIAL_OF_PLATFORM_NWPSERIAL
 	help
 	  If you have a PowerPC based system that has serial ports
@@ -1406,7 +1381,7 @@ config SERIAL_BFIN_SPORT
 	depends on BLACKFIN && EXPERIMENTAL
 	select SERIAL_CORE
 	help
-	  Enable SPORT emulate UART on Blackfin series.
+	  Enble support SPORT emulate UART on Blackfin series.
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called bfin_sport_uart.
@@ -1443,12 +1418,5 @@ config SPORT_BAUD_RATE
 	default 38400 if (SERIAL_SPORT_BAUD_RATE_38400)
 	default 19200 if (SERIAL_SPORT_BAUD_RATE_19200)
 	default 9600 if (SERIAL_SPORT_BAUD_RATE_9600)
-
-config SERIAL_TIMBERDALE
-	tristate "Support for timberdale UART"
-	depends on MFD_TIMBERDALE
-	select SERIAL_CORE
-	---help---
-	Add support for UART controller on timberdale.
 
 endmenu

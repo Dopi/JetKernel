@@ -118,8 +118,6 @@ struct mmc_host {
 #define MMC_CAP_SPI		(1 << 4)	/* Talks only SPI protocols */
 #define MMC_CAP_NEEDS_POLL	(1 << 5)	/* Needs polling for card-detection */
 #define MMC_CAP_8_BIT_DATA	(1 << 6)	/* Can the host do 8 bit transfers */
-#define MMC_CAP_ON_BOARD	(1 << 7)	/* Do not need to rescan after bootup */
-#define MMC_CAP_BOOT_ONTHEFLY	(1 << 8)	/* Can detect device at boot time */
 
 	/* host specific block data */
 	unsigned int		max_seg_size;	/* see blk_queue_max_segment_size */
@@ -155,7 +153,7 @@ struct mmc_host {
 
 	unsigned int		bus_resume_flags;
 #define MMC_BUSRESUME_MANUAL_RESUME	(1 << 0)
-#define MMC_BUSRESUME_NEEDS_RESUME	(1 << 1)
+#define MMC_BUSRESUME_NEEDS_RESUME (1 << 1)
 
 	unsigned int		sdio_irqs;
 	struct task_struct	*sdio_irq_thread;
@@ -169,10 +167,10 @@ struct mmc_host {
 
 #ifdef CONFIG_MMC_EMBEDDED_SDIO
 	struct {
-		struct sdio_cis			*cis;
+		struct sdio_cis 		*cis;
 		struct sdio_cccr		*cccr;
 		struct sdio_embedded_func	*funcs;
-		int				num_funcs;
+		int 			num_funcs;
 	} embedded_sdio_data;
 #endif
 
@@ -202,6 +200,7 @@ static inline void *mmc_priv(struct mmc_host *host)
 #define mmc_dev(x)	((x)->parent)
 #define mmc_classdev(x)	(&(x)->class_dev)
 #define mmc_hostname(x)	(dev_name(&(x)->class_dev))
+
 #define mmc_bus_needs_resume(host) ((host)->bus_resume_flags & MMC_BUSRESUME_NEEDS_RESUME)
 
 static inline void mmc_set_bus_resume_policy(struct mmc_host *host, int manual)
@@ -225,6 +224,11 @@ static inline void mmc_signal_sdio_irq(struct mmc_host *host)
 	host->ops->enable_sdio_irq(host, 0);
 	wake_up_process(host->sdio_irq_thread);
 }
+
+struct regulator;
+
+int mmc_regulator_get_ocrmask(struct regulator *supply);
+int mmc_regulator_set_ocr(struct regulator *supply, unsigned short vdd_bit);
 
 #endif
 

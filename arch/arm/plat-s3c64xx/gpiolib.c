@@ -407,19 +407,19 @@ static __init void s3c64xx_gpiolib_add_4bit(struct s3c_gpio_chip *chip)
 {
 	chip->chip.direction_input = s3c64xx_gpiolib_4bit_input;
 	chip->chip.direction_output = s3c64xx_gpiolib_4bit_output;
-	chip->pm = __gpio_pm(&s3c_gpio_pm_4bit);
+	//chip->pm = __gpio_pm(&s3c_gpio_pm_4bit);
 }
 
 static __init void s3c64xx_gpiolib_add_4bit2(struct s3c_gpio_chip *chip)
 {
 	chip->chip.direction_input = s3c64xx_gpiolib_4bit2_input;
 	chip->chip.direction_output = s3c64xx_gpiolib_4bit2_output;
-	chip->pm = __gpio_pm(&s3c_gpio_pm_4bit);
+	//chip->pm = __gpio_pm(&s3c_gpio_pm_4bit);
 }
 
 static __init void s3c64xx_gpiolib_add_2bit(struct s3c_gpio_chip *chip)
 {
-	chip->pm = __gpio_pm(&s3c_gpio_pm_2bit);
+//	chip->pm = __gpio_pm(&s3c_gpio_pm_2bit);
 }
 
 static __init void s3c64xx_gpiolib_add(struct s3c_gpio_chip *chips,
@@ -446,7 +446,6 @@ static __init int s3c64xx_gpiolib_init(void)
 
 	return 0;
 }
-EXPORT_SYMBOL(s3c64xx_gpiolib_init);
 
 int s3c_gpio_slp_cfgpin(unsigned int pin, unsigned int config)
 {

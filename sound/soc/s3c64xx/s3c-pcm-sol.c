@@ -19,6 +19,8 @@
  *    10th Nov 2006   Initial version.
  */
 
+#include <linux/delay.h>
+
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
@@ -51,7 +53,7 @@
 #define USE_LLI_INTERFACE	
 #undef USE_LLI_INTERFACE	
 
-//#define CONFIG_SND_DEBUG
+#define CONFIG_SND_DEBUG
 #ifdef CONFIG_SND_DEBUG
 #define s3cdbg(x...) printk(x)
 #else
@@ -259,7 +261,7 @@ static int s3c24xx_pcm_hw_params(struct snd_pcm_substream *substream, struct snd
 	struct dma_data		   		*dma_data = prtd->dma_param;
 	struct dmac_conn_info 		*dinfo	  = rtd->dai->cpu_dai->dma_data;
 
-	s3cdbg("Entered %s, params = %p \n", __FUNCTION__, prtd->params);
+	//bss s3cdbg("Entered %s, params = %p \n", __FUNCTION__, prtd->params);
 
 	if(substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		prtd->dma_totsize = params_buffer_bytes(params) * ANDROID_BUF_NUM;
@@ -346,23 +348,29 @@ static int s3c24xx_pcm_prepare(struct snd_pcm_substream *substream)
 {
 	struct s3c24xx_runtime_data *prtd = substream->runtime->private_data;
 	int ret = 0;
-
+	int i;
+	unsigned char *p;
 	s3cdbg("Entered %s\n", __FUNCTION__);
 
 	if(!prtd->dinfo)
 		return 0;
 	
 	/* Flush dma area */
+//printk("dma_area:  %x prtd->dma_totsize: %d\n",  substream->runtime->dma_area, prtd->dma_totsize);
+
+
 	memset(substream->runtime->dma_area, 0, prtd->dma_totsize);
 
 	if(substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		ring_buf_index 	 = 0;
 		period_index	 = 0;
 	}
-
 	prtd->dma_pos = prtd->dma_start;
 		
+//printk("dma_start:  %x \n", prtd->dma_pos);
+//msleep(10000);
 	s3c24xx_pcm_enqueue(substream);
+//msleep(1000);
 
 	return ret;
 }
@@ -544,6 +552,7 @@ static int s3c24xx_pcm_preallocate_dma_buffer(struct snd_pcm *pcm, int stream)
 	if (!buf->area)
 		return -ENOMEM;
 	buf->bytes = size;
+printk("size: %d buf->area: %x \n", size, buf->area);
 	return 0;
 }
 

@@ -24,8 +24,10 @@ struct platform_device; /* don't need the contents */
 
 void s3c_i2c1_cfg_gpio(struct platform_device *dev)
 {
+#if 0
 	s3c_gpio_cfgpin(S3C64XX_GPB(2), S3C64XX_GPB2_I2C_SCL1);
 	s3c_gpio_cfgpin(S3C64XX_GPB(3), S3C64XX_GPB3_I2C_SDA1);
 	s3c_gpio_setpull(S3C64XX_GPB(2), S3C_GPIO_PULL_UP);
 	s3c_gpio_setpull(S3C64XX_GPB(3), S3C_GPIO_PULL_UP);
+#endif
 }

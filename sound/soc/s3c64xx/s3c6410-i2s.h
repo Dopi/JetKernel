@@ -11,7 +11,7 @@
 #ifndef S3C_I2S_H_
 #define S3C_I2S_H_
 
-//#define USE_CLKAUDIO	0
+#define USE_CLKAUDIO	1
 #define USE_AP_MASTER   1 // 1: AP Master Mode, 0: Codec Master Mode
 
 /* Clock dividers */
@@ -189,6 +189,7 @@
 #endif
 
 u32 s3c_i2s_get_clockrate(void);
+
 extern struct snd_soc_dai s3c_i2s_dai;
 
 #endif /*S3C_I2S_H_*/

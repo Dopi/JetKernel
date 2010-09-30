@@ -15,10 +15,6 @@
 
 #include <mach/hardware.h>
 
-#define GPIO_LEVEL_LOW      0
-#define GPIO_LEVEL_HIGH     1
-#define GPIO_LEVEL_NONE     2
-
 static struct __gpio_config volans_gpio_table[] = {
 	/* GPA Group */
 	{
@@ -104,22 +100,22 @@ static struct __gpio_config volans_gpio_table[] = {
 		.pull = S3C_GPIO_PULL_NONE,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
 	},
 	/* GPD Group */
-//	{
-//		.gpio = GPIO_I2S_SCLK,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
-//		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
-//	},
-//	{
-//		.gpio = GPIO_I2S_SYNC,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
-//		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
-//	},
-//	{
-//		.gpio = GPIO_I2S_SDI,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
-//		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
-//	},
-//	{
-//		.gpio = GPIO_I2S_SDO,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
-//		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
-//	},
+	{
+		.gpio = GPIO_I2S_SCLK,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
+		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
+	},
+	{
+		.gpio = GPIO_I2S_SYNC,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
+		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
+	},
+	{
+		.gpio = GPIO_I2S_SDI,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
+		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
+	},
+	{
+		.gpio = GPIO_I2S_SDO,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
+		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
+	},
 	/* GPE Group */
 	{
 		.gpio = GPIO_BT_nRST,		.af = GPIO_BT_nRST_AF,			.level = GPIO_LEVEL_LOW,
@@ -396,7 +392,7 @@ static struct __gpio_config volans_gpio_table[] = {
 		.pull = S3C_GPIO_PULL_NONE,	.slp_con = S3C_GPIO_SLP_OUT0,	.slp_pull = S3C_GPIO_PULL_NONE
 	},
 	{
-		.gpio = GPIO_CP_RST,		.af = GPIO_CP_RST_AF,			.level = GPIO_LEVEL_HIGH,
+		.gpio = GPIO_PHONE_RST_N,		.af = GPIO_PHONE_RST_N_AF,			.level = GPIO_LEVEL_HIGH,
 		.pull = S3C_GPIO_PULL_NONE,	.slp_con = S3C_GPIO_SLP_OUT0,	.slp_pull = S3C_GPIO_PULL_NONE
 	},
 	{

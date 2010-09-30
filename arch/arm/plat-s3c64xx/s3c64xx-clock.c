@@ -635,8 +635,8 @@ static struct clksrc_clk clk_spi1 = {
 
 static struct clksrc_clk clk_audio0 = {
 	.clk	= {
-		.name		= "audio-bus",
-		.id		= 0,
+		.name		= "audio-bus0",
+		.id		= -1,
 		.ctrlbit        = S3C_CLKCON_SCLK_AUDIO0,
 		.enable		= s3c64xx_sclk_ctrl,
 		.set_parent	= s3c64xx_setparent_clksrc,
@@ -667,7 +667,7 @@ static struct clk_sources clkset_audio1 = {
 
 static struct clksrc_clk clk_audio1 = {
 	.clk	= {
-		.name		= "audio-bus",
+		.name		= "audio-bus1",
 		.id		= 1,
 		.ctrlbit        = S3C_CLKCON_SCLK_AUDIO1,
 		.enable		= s3c64xx_sclk_ctrl,

@@ -11,8 +11,7 @@ obj-$(CONFIG_FB_S3C_LTE480WV)	+= s3cfb_lte480wv.o
 obj-$(CONFIG_FB_S3C_LTV350QV)	+= s3cfb_ltv350qv.o
 obj-$(CONFIG_FB_S3C_LTS222QV)	+= s3cfb_lts222qv.o
 obj-$(CONFIG_FB_S3C_TD043MTEX)	+= s3cfb_td043mtex.o
-obj-$(CONFIG_FB_S3C_A070VW04) 	+= s3cfb_a070vw04.o
-obj-$(CONFIG_FB_S3C_AMS320FS01)	+= s3cfb_ams320fs01.o
+obj-$(CONFIG_FB_S3C_A070VW04) += s3cfb_a070vw04.o
 obj-$(CONFIG_FB_S3C_EARLY_SUSPEND) += fb_early_suspend.o
 endif
 

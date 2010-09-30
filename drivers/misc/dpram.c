@@ -29,117 +29,12 @@
 #include <plat/regs-gpio.h>
 #include <plat/gpio-cfg.h>
 #include <mach/hardware.h>
-//#include <mach/volans_gpio_table.h> //ss
 
 #ifdef CONFIG_PROC_FS
 #include <linux/proc_fs.h>
 #endif	/* CONFIG_PROC_FS */
 
-/*****************************************************************************/
-/*                             MULTIPDP FEATURE                              */
-/*****************************************************************************/
-#include <linux/miscdevice.h>
-#include <linux/netdevice.h>
-/* Device node name for application interface */
-#define APP_DEVNAME				"multipdp"
-/* number of PDP context */
-#define NUM_PDP_CONTEXT			4
-
-/* Device types */
-#define DEV_TYPE_NET			0 /* network device for IP data */
-#define DEV_TYPE_SERIAL			1 /* serial device for CSD */
-
-/* Device major & minor number */
-#define CSD_MAJOR_NUM			251
-#define CSD_MINOR_NUM			0
-
-/* Maximum number of PDP context */
-#define MAX_PDP_CONTEXT			10
-
-/* Maximum PDP data length */
-#define MAX_PDP_DATA_LEN		1500
-
-/* Device flags */
-#define DEV_FLAG_STICKY			0x1 /* Sticky */
-/* Maximum PDP packet length including header and start/stop bytes */
-#define MAX_PDP_PACKET_LEN		(MAX_PDP_DATA_LEN + 4 + 2)
-
-
-/* Multiple PDP */
-typedef struct pdp_arg {
-	unsigned char	id;
-	char		ifname[16];
-} __attribute__ ((packed)) pdp_arg_t;
-
-/* PDP data packet header format */
-struct pdp_hdr {
-	u16	len;		/* Data length */
-	u8	id;			/* Channel ID */
-	u8	control;	/* Control field */
-} __attribute__ ((packed));
-
-/* PDP information type */
-struct pdp_info {
-	/* PDP context ID */
-	u8		id;
-
-	/* Device type */
-	unsigned		type;
-
-	/* Device flags */
-	unsigned		flags;
-
-	/* Tx packet buffer */
-	u8		*tx_buf;
-
-	/* App device interface */
-	union {
-		/* Virtual network interface */
-		struct {
-			struct net_device	*net;
-			struct net_device_stats	stats;
-			struct work_struct	xmit_task;
-		} vnet_u;
-
-		/* Virtual serial interface */
-		struct {
-			struct tty_driver	tty_driver[NUM_PDP_CONTEXT];	// CSD, CDMA, TRFB, CIQ
-			int			refcount;
-			struct tty_struct	*tty_table[1];
-			struct ktermios		*termios[1];
-			struct ktermios		*termios_locked[1];
-			char			tty_name[16];
-			struct tty_struct	*tty;
-			struct semaphore	write_lock;
-		} vs_u;
-	} dev_u;
-#define vn_dev		dev_u.vnet_u
-#define vs_dev		dev_u.vs_u
-};
-
-
-
-static struct pdp_info *pdp_table[MAX_PDP_CONTEXT];
-static DEFINE_MUTEX(pdp_lock);
-
-static inline struct pdp_info * pdp_get_dev(u8 id);
-
-/*****************************************************************************/
-
 #include "dpram.h"
-//#include "instinctq_gpio.h"
-#define bss 1
-#ifdef bss
-#define GPIO_ONEDRAM_INT_N			S3C64XX_GPN(0)
-#define GPIO_ONEDRAM_INT_N_AF			2
-
-#define GPIO_PHONE_RST_N			S3C64XX_GPK(7)  // CP_RST
-#define GPIO_PHONE_RST_N_AF			1
-
-#define GPIO_LEVEL_LOW      		0
-#define GPIO_LEVEL_HIGH     		1
-#define GPIO_LEVEL_NONE     		2
-#endif
 
 #define DRIVER_NAME 		"DPRAM"
 #define DRIVER_PROC_ENTRY	"driver/dpram"
@@ -147,16 +42,14 @@ static inline struct pdp_info * pdp_get_dev(u8 id);
 
 #ifdef _DEBUG
 #define _ENABLE_ERROR_DEVICE
-//#define PRINT_WRITE
-//#define PRINT_READ
-//#define PRINT_WRITE_SHORT
-//#define PRINT_READ_SHORT
-//#define PRINT_SEND_IRQ
-//#define PRINT_RECV_IRQ
-//#define PRINT_HEAD_TAIL
+#define PRINT_WRITE
+#define PRINT_READ
+#define PRINT_WRITE_SHORT
+#define PRINT_READ_SHORT
+#define PRINT_SEND_IRQ
+#define PRINT_RECV_IRQ
+#define PRINT_HEAD_TAIL
 #endif
-
-//#define ENABLE_GPIO_PHONE_RST
 
 #ifdef _DEBUG
 #define dprintk(s, args...) pr_debug("[OneDRAM] %s:%d - " s, __func__, __LINE__,  ##args)
@@ -248,10 +141,9 @@ static struct ktermios *dpram_termios_locked[MAX_INDEX];
 
 static void res_ack_tasklet_handler(unsigned long data);
 static void fmt_rcv_tasklet_handler(unsigned long data);
-static void raw_rcv_tasklet_handler(unsigned long data);
 
 static DECLARE_TASKLET(fmt_send_tasklet, fmt_rcv_tasklet_handler, 0);
-static DECLARE_TASKLET(raw_send_tasklet, raw_rcv_tasklet_handler, 0);
+static DECLARE_TASKLET(raw_send_tasklet, fmt_rcv_tasklet_handler, 0);
 static DECLARE_TASKLET(fmt_res_ack_tasklet, res_ack_tasklet_handler,
 		(unsigned long)&dpram_table[FORMATTED_INDEX]);
 static DECLARE_TASKLET(raw_res_ack_tasklet, res_ack_tasklet_handler,
@@ -447,7 +339,7 @@ static int dpram_write(dpram_device_t *device,
 	READ_FROM_DPRAM_VERIFY(&head, device->out_head_addr, sizeof(head));
 	READ_FROM_DPRAM_VERIFY(&tail, device->out_tail_addr, sizeof(tail));
 
-//printk("%s, head: %d, tail: %d\n", __func__, head, tail);
+printk("%s, head: %d, tail: %d\n", __func__, head, tail);
 
 	// +++++++++ head ---------- tail ++++++++++ //
 	if (head < tail) {
@@ -560,7 +452,7 @@ static int dpram_read_fmt(dpram_device_t *device, const u16 non_cmd)
 	READ_FROM_DPRAM_VERIFY(&head, device->in_head_addr, sizeof(head));
 	READ_FROM_DPRAM_VERIFY(&tail, device->in_tail_addr, sizeof(tail));
 
-//	printk("=====> %s,  head: %d, tail: %d\n", __func__, head, tail);
+	printk("=====> %s,  head: %d, tail: %d\n", __func__, head, tail);
 
 	if (head != tail) {
 		u16 up_tail = 0;
@@ -627,171 +519,6 @@ static int dpram_read_fmt(dpram_device_t *device, const u16 non_cmd)
 	
 }
 
-static int dpram_read_raw(dpram_device_t *device, const u16 non_cmd)
-{
-	int retval = 0;
-	int retval_add = 0;
-	int size = 0;
-	u16 head, tail;
-	u16 up_tail = 0;
-	
-	int ret;
-	size_t len;
-	struct pdp_info *dev = NULL;
-	struct pdp_hdr hdr;
-	u16 read_offset;
-	u8 len_high, len_low, id, control;
-	u16 pre_hdr_size, pre_data_size;
-	u8 ch;
-
-	int i;
-
-	if(!*onedram_sem)
-		printk("!!!!! %s no sem\n", __func__);
-
-	if(onedram_lock_with_semaphore(__func__) < 0)
-		return -1;
-
-
-	READ_FROM_DPRAM_VERIFY(&head, device->in_head_addr, sizeof(head));
-	READ_FROM_DPRAM_VERIFY(&tail, device->in_tail_addr, sizeof(tail));
-
-//	printk("=====> %s,  head: %d, tail: %d\n", __func__, head, tail);
-
-	if(head != tail) {
-	
-		up_tail = 0;
-
-		if (head > tail) {
-			size = head - tail;									/* ----- (tail) 7f 00 00 7e (head) ----- */ 
-#if 0		
-		printk("READ\n");
-		for(i=0; i<size; i++)	
-			printk("%02x ", *((unsigned char *)(DPRAM_VBASE + (device->in_buff_addr + tail)) + i));
-		printk("\n");
-#endif
-		}
-		else
-			size = device->in_buff_size - tail + head;			/* 00 7e (head) ----------- (tail) 7f 00 */ 
-
-		read_offset = 0;
-//		printk("=====> %s,  head: %d, tail: %d, size: %d\n", __func__, head, tail, size);
-
-		while(size){			
-			READ_FROM_DPRAM(&ch, device->in_buff_addr +((u16)(tail + read_offset) % device->in_buff_size), sizeof(ch));
-
-			if(ch == 0x7f) {
-				read_offset ++;
-			}
-			else {
-				printk("[OneDram] %s failed.. First byte: %d, drop byte: %d\n", __func__, ch, size);
-				printk("buff addr: %x\n", (device->in_buff_addr));
-				printk("read addr: %x\n", (device->in_buff_addr + ((u16)(tail + read_offset) % device->in_buff_size)));
-
-				dpram_drop_data(device);
-				onedram_release_lock(__func__);
-				return -1;
-			}
-
-			len_high = len_low = id = control = 0;
-			READ_FROM_DPRAM(&len_low, device->in_buff_addr + ((u16)(tail + read_offset) % device->in_buff_size) ,sizeof(len_high));
-			read_offset ++;
-			READ_FROM_DPRAM(&len_high, device->in_buff_addr + ((u16)(tail + read_offset) % device->in_buff_size) ,sizeof(len_low));
-			read_offset ++;
-			READ_FROM_DPRAM(&id, device->in_buff_addr + ((u16)(tail + read_offset) % device->in_buff_size) ,sizeof(id));
-			read_offset ++;
-			READ_FROM_DPRAM(&control, device->in_buff_addr + ((u16)(tail + read_offset) % device->in_buff_size) ,sizeof(control));
-			read_offset ++;
-
-			hdr.len = len_high <<8 | len_low;
-			hdr.id = id;
-			hdr.control = control;
-	
-			len = hdr.len - sizeof(struct pdp_hdr);	
-			if(len <= 0) {
-				printk("[OneDram] %s uups..\n", __func__);
-				printk("%s, %d read_offset: %d, len: %d hdr.id: %d\n", __func__, __LINE__, read_offset, len, hdr.id);
-
-				dpram_drop_data(device);
-				onedram_release_lock(__func__);
-				return -1;
-
-
-			}
-			dev = pdp_get_dev(hdr.id);
-//			printk("%s, %d read_offset: %d, len: %d hdr.id: %d\n", __func__, __LINE__, read_offset, len, hdr.id);
-				
-			if (dev->vs_dev.tty != NULL && dev->vs_dev.refcount) {
-			
-				if((u16)(tail + read_offset) % device->in_buff_size + len < device->in_buff_size) {
-					ret = tty_insert_flip_string(dev->vs_dev.tty, (u8 *)(DPRAM_VBASE + (device->in_buff_addr + (u16)(tail + read_offset) % device->in_buff_size)), len);
-					tty_flip_buffer_push(dev->vs_dev.tty);
-				}else {
-					pre_data_size = device->in_buff_size - (tail + read_offset); 
-					ret = tty_insert_flip_string(dev->vs_dev.tty, (u8 *)(DPRAM_VBASE + (device->in_buff_addr + tail + read_offset)), pre_data_size);
-					ret += tty_insert_flip_string(dev->vs_dev.tty, (u8 *)(DPRAM_VBASE + (device->in_buff_addr)),len - pre_data_size);
-					tty_flip_buffer_push(dev->vs_dev.tty);
-//					printk("=====> pre_data_size: %d, len-pre_data_size: %d, ret: %d\n", pre_data_size, len- pre_data_size, ret);
-				}
-			}
-			else {
-				printk("[%s]failed.. tty channel(id:%d) is not opened.\n", __func__, dev->id);
-				ret = len;
-			}
-			
-			if(!ret) {
-				printk("[OneDram] %s failed.. (tty_insert_flip_string) drop byte: %d\n", __func__, size);
-				printk("buff addr: %x\n", (device->in_buff_addr));
-				printk("read addr: %x\n", (device->in_buff_addr + ((u16)(tail + read_offset) % device->in_buff_size)));
-				dpram_drop_data(device);
-				onedram_release_lock(__func__);
-				return -1;
-			}
-			
-			read_offset += ret;
-//			printk("%s,%d read_offset: %d ret= %d\n", __func__, __LINE__, read_offset, ret);
-
-			READ_FROM_DPRAM(&ch, (device->in_buff_addr + ((u16)(tail + read_offset) % device->in_buff_size)), sizeof(ch));
-			if(ch == 0x7e) 				
-				read_offset ++;
-			else {
-				printk("[OneDram] %s failed.. Last byte: %d, drop byte: %d\n", __func__, ch, size);
-				printk("buff addr: %x\n", (device->in_buff_addr));
-				printk("read addr: %x\n", (device->in_buff_addr + ((u16)(tail + read_offset) % device->in_buff_size)));
-				dpram_drop_data(device);
-				onedram_release_lock(__func__);
-				return -1;
-			}
-
-			size -= (ret + sizeof(struct pdp_hdr) + 2);
-			retval += (ret + sizeof(struct pdp_hdr) + 2);
-//			printk("%s, %d retval= %d, read_offset: %d, size: %d\n", __func__, __LINE__, retval, read_offset, size);
-
-			if(size < 0) {
-				printk("something wrong....\n");
-				break;
-			}
-
-		}
-		up_tail = (u16)((tail + read_offset) % device->in_buff_size);
-		WRITE_TO_DPRAM_VERIFY(device->in_tail_addr, &up_tail, sizeof(up_tail));
-	}
-#if 0
-	/* new tail */
-	up_tail = (u16)((tail + retval) % device->in_buff_size);
-	WRITE_TO_DPRAM_VERIFY(device->in_tail_addr, &up_tail, sizeof(up_tail));
-#endif	
-
-	device->in_head_saved = head;
-	device->in_tail_saved = tail;
-
-	onedram_release_lock(__func__);
-	if (non_cmd & device->mask_req_ack) 	
-		send_interrupt_to_phone_with_semaphore(INT_NON_COMMAND(device->mask_res_ack));
-
-	return retval;
-	
-}
 #ifdef _ENABLE_ERROR_DEVICE
 void request_phone_reset()
 {
@@ -950,6 +677,22 @@ static int dpram_shared_bank_remap(void)
 	onedram_mailboxBA = DPRAM_VBASE + DPRAM_MBX_BA;
 	onedram_mailboxAB = DPRAM_VBASE + DPRAM_MBX_AB;
 	atomic_set(&onedram_lock, 0);
+#if 1
+	printk("onedram semaphore value = 0x%x\n", *onedram_sem);
+	printk("onedram mailboxAB value = 0x%x\n", *onedram_mailboxAB);
+	printk("onedram mailboxBA value = 0x%x\n", *onedram_mailboxBA);
+	printk("onedram lock value = %d\n", atomic_read(&onedram_lock));
+	atomic_inc(&onedram_lock);
+	printk("onedram lock value after inc= %d\n", atomic_read(&onedram_lock));
+	atomic_dec(&onedram_lock);
+	printk("onedram lock value after dec= %d\n", atomic_read(&onedram_lock));
+	printk("onedram lock value inc & test = %d\n", atomic_inc_and_test(&onedram_lock));
+	printk("onedram lock value dec & test = %d\n", atomic_dec_and_test(&onedram_lock));
+	printk("onedram lock value inc & return = %d\n", atomic_inc_return(&onedram_lock));
+	printk("onedram lock value dec & return = %d\n", atomic_dec_return(&onedram_lock));
+	printk("[DPRAM] ioremap success. dpram base addr = 0x%08x\n", dpram_base);
+#endif
+
 
 	return 0;
 }
@@ -1029,12 +772,12 @@ static inline int dpram_get_read_available(dpram_device_t *device)
 
 		READ_FROM_DPRAM_VERIFY(&head, device->in_head_addr, sizeof(head));
 		READ_FROM_DPRAM_VERIFY(&tail, device->in_tail_addr, sizeof(tail));
-//		printk("H: %d, T: %d, H-T: %d\n",head, tail, head-tail);
+		printk("H: %d, T: %d, H-T: %d\n",head, tail, head-tail);
 
 		return head - tail;
 	}
 	else {
-//	 	printk("[OneDRAM] (%s) semaphore: %d\n", __func__, *onedram_sem);
+	 	printk("[OneDRAM] (%s) semaphore: %d\n", __func__, *onedram_sem);
 		return 0;
 	}
 }
@@ -1664,24 +1407,6 @@ static void fmt_rcv_tasklet_handler(unsigned long data)
 	}
 }
 
-static void raw_rcv_tasklet_handler(unsigned long data)
-{
-	dpram_tasklet_data_t *tasklet_data = (dpram_tasklet_data_t *)data;
-
-	dpram_device_t *device = tasklet_data->device;
-	u16 non_cmd = tasklet_data->non_cmd;
-
-	int ret = 0;
-	
-	while (dpram_get_read_available(device)) {
-		ret = dpram_read_raw(device, non_cmd);
-		if (ret < 0) {
-			printk("%s, dpram_read failed\n", __func__);
-			/* TODO: ... wrong.. */
-		}
-	}
-}
-
 static void cmd_req_active_handler(void)
 {
 #if 0
@@ -1896,7 +1621,7 @@ void check_int_pin_level(void)
 
 	while (cnt++ < 3) {
 		mask = *onedram_mailboxAB;
-		if (gpio_get_value(GPIO_ONEDRAM_INT_N))
+		if (gpio_get_value(GPIO_nONED_INT_AP))
 			break;
 	}
 }
@@ -2077,352 +1802,6 @@ static void unregister_dpram_driver(void)
 	tty_unregister_driver(dpram_tty_driver);
 }
 
-static int multipdp_ioctl(struct inode *inode, struct file *file, 
-			      unsigned int cmd, unsigned long arg)
-{
-	return -EINVAL;
-}
-
-static struct file_operations multipdp_fops = {
-	.owner =	THIS_MODULE,
-	.ioctl =	multipdp_ioctl,
-	.llseek =	no_llseek,
-};
-
-static struct miscdevice multipdp_dev = {
-	.minor =	132, //MISC_DYNAMIC_MINOR,
-	.name =		APP_DEVNAME,
-	.fops =		&multipdp_fops,
-};
-
-static inline struct pdp_info * pdp_get_serdev(const char *name)
-{
-	int slot;
-	struct pdp_info *dev;
-
-	for (slot = 0; slot < MAX_PDP_CONTEXT; slot++) {
-		dev = pdp_table[slot];
-		if (dev && dev->type == DEV_TYPE_SERIAL &&
-		    strcmp(name, dev->vs_dev.tty_name) == 0) {
-			return dev;
-		}
-	}
-	return NULL;
-}
-
-
-static inline struct pdp_info * pdp_remove_dev(u8 id)
-{
-	int slot;
-	struct pdp_info *dev;
-
-	for (slot = 0; slot < MAX_PDP_CONTEXT; slot++) {
-		if (pdp_table[slot] && pdp_table[slot]->id == id) {
-			dev = pdp_table[slot];
-			pdp_table[slot] = NULL;
-			return dev;
-		}
-	}
-	return NULL;
-}
-
-
-static int vs_open(struct tty_struct *tty, struct file *filp)
-{
-	struct pdp_info *dev;
-
-	dev = pdp_get_serdev(tty->driver->name); // 2.6 kernel porting
-
-	if (dev == NULL) {
-		return -ENODEV;
-	}
-
-	tty->driver_data = (void *)dev;
-	tty->low_latency = 1;
-	dev->vs_dev.tty = tty;
-	dev->vs_dev.refcount++;
-	printk("[%s] %s, refcount: %d \n", __func__, tty->driver->name, dev->vs_dev.refcount);
-
-	return 0;
-}
-
-static void vs_close(struct tty_struct *tty, struct file *filp)
-{
-	struct pdp_info *dev;
-
-	dev = pdp_get_serdev(tty->driver->name); 
-
-	if (!dev )
-		return;
-	dev->vs_dev.refcount--;
-	printk("[%s] %s, refcount: %d \n", __func__, tty->driver->name, dev->vs_dev.refcount);
-
-	// TODO..
-
-	return;
-}
-
-static int pdp_mux(struct pdp_info *dev, const void *data, size_t len   )
-{
-	int ret;
-	size_t nbytes;
-	u8 *tx_buf;
-	struct pdp_hdr *hdr;
-	const u8 *buf;
-
-	tx_buf = dev->tx_buf;
-	hdr = (struct pdp_hdr *)(tx_buf + 1);
-	buf = data;
-
-	hdr->id = dev->id;
-	hdr->control = 0;
-
-	while (len) {
-		if (len > MAX_PDP_DATA_LEN) {
-			nbytes = MAX_PDP_DATA_LEN;
-		} else {
-			nbytes = len;
-		}
-		hdr->len = nbytes + sizeof(struct pdp_hdr);
-
-		tx_buf[0] = 0x7f;
-		
-		memcpy(tx_buf + 1 + sizeof(struct pdp_hdr), buf,  nbytes);
-		
-		tx_buf[1 + hdr->len] = 0x7e;
-
-//		printk("hdr->id: %d, hdr->len: %d\n", hdr->id, hdr->len);
-		
-		ret = dpram_write(&dpram_table[RAW_INDEX], tx_buf, hdr->len + 2);
-
-		if (ret < 0) {
-			printk("write_to_dpram() failed: %d\n", ret);
-			return ret;
-		}
-		buf += nbytes;
-		len -= nbytes;
-	}
-	return 0;
-}
-
-
-static int vs_write(struct tty_struct *tty,
-		const unsigned char *buf, int count)
-{
-	int ret;
-	struct pdp_info *dev = (struct pdp_info *)tty->driver_data;
-
-	ret = pdp_mux(dev, buf, count);
-
-	if (ret == 0) {
-		ret = count;
-	}
-
-	return ret;
-}
-
-static int vs_write_room(struct tty_struct *tty) 
-{
-//	return TTY_FLIPBUF_SIZE;
-	return 8192*2;
-}
-
-static int vs_chars_in_buffer(struct tty_struct *tty) 
-{
-	return 0;
-}
-
-static int vs_ioctl(struct tty_struct *tty, struct file *file, 
-		    unsigned int cmd, unsigned long arg)
-{
-	return -ENOIOCTLCMD;
-}
-
-
-
-static struct tty_operations multipdp_tty_ops = {
-	.open 		= vs_open,
-	.close 		= vs_close,
-	.write 		= vs_write,
-	.write_room = vs_write_room,
-	.ioctl 		= vs_ioctl,
-	.chars_in_buffer = vs_chars_in_buffer,
-
-	/* TODO: add more operations */
-};
-
-static struct tty_driver* get_tty_driver_by_id(struct pdp_info *dev)
-{
-	int index = 0;
-
-	switch (dev->id) {
-		case 1:		index = 0;	break;
-		case 7:		index = 1;	break;
-		case 9:		index = 2;	break;
-		case 27:	index = 3;	break;
-		default:	index = 0;
-	}
-
-	return &dev->vs_dev.tty_driver[index];
-}
-
-static int get_minor_start_index(int id)
-{
-	int start = 0;
-
-	switch (id) {
-		case 1:		start = 0;	break;
-		case 7:		start = 1;	break;
-		case 9:		start = 2;	break;
-		case 27:	start = 3;	break;
-		default:	start = 0;
-	}
-
-	return start;
-}
-
-
-static int vs_add_dev(struct pdp_info *dev)
-{
-	struct tty_driver *tty_driver;
-
-	tty_driver = get_tty_driver_by_id(dev);
-
-	if (!tty_driver) {
-		printk("tty driver is NULL!\n");
-		return -1;
-	}
-
-	tty_driver->magic	= TTY_DRIVER_MAGIC;
-	tty_driver->driver_name	= "multipdp";
-	tty_driver->name	= dev->vs_dev.tty_name;
-	tty_driver->major	= CSD_MAJOR_NUM;
-	tty_driver->minor_start = get_minor_start_index(dev->id);
-	tty_driver->num		= 1;
-	tty_driver->type	= TTY_DRIVER_TYPE_SERIAL;
-	tty_driver->subtype	= SERIAL_TYPE_NORMAL;
-	tty_driver->flags	= TTY_DRIVER_REAL_RAW;
-	//tty_driver->refcount	= dev->vs_dev.refcount; Gave an error??? OMNIA
-	tty_driver->ttys	= dev->vs_dev.tty_table; // 2.6 kernel porting
-	tty_driver->termios	= dev->vs_dev.termios;
-	tty_driver->termios_locked	= dev->vs_dev.termios_locked;
-
-	tty_set_operations(tty_driver, &multipdp_tty_ops);
-	return tty_register_driver(tty_driver);
-}
-
-static void vs_del_dev(struct pdp_info *dev)
-{
-	struct tty_driver *tty_driver = NULL;
-
-	tty_driver = get_tty_driver_by_id(dev);
-	tty_unregister_driver(tty_driver);
-}
-
-static inline struct pdp_info * pdp_get_dev(u8 id)
-{
-	int slot;
-
-	for (slot = 0; slot < MAX_PDP_CONTEXT; slot++) {
-		if (pdp_table[slot] && pdp_table[slot]->id == id) {
-			return pdp_table[slot];
-		}
-	}
-	return NULL;
-}
-
-static inline int pdp_add_dev(struct pdp_info *dev)
-{
-	int slot;
-
-	if (pdp_get_dev(dev->id)) {
-		return -EBUSY;
-	}
-
-	for (slot = 0; slot < MAX_PDP_CONTEXT; slot++) {
-		if (pdp_table[slot] == NULL) {
-			pdp_table[slot] = dev;
-			return slot;
-		}
-	}
-	return -ENOSPC;
-}
-
-
-static int pdp_activate(pdp_arg_t *pdp_arg, unsigned type, unsigned flags)
-{
-	int ret;
-	struct pdp_info *dev;
-
-	printk("%s, id: %d\n", __func__, pdp_arg->id);
-
-	dev = kmalloc(sizeof(struct pdp_info) + MAX_PDP_PACKET_LEN, GFP_KERNEL);
-	if (dev == NULL) {
-		printk("out of memory\n");
-		return -ENOMEM;
-	}
-	memset(dev, 0, sizeof(struct pdp_info));
-
-	dev->id = pdp_arg->id;
-
-	dev->type = type;
-	dev->flags = flags;
-	dev->tx_buf = (u8 *)(dev + 1);
-
-	if (type == DEV_TYPE_SERIAL) {
-		init_MUTEX(&dev->vs_dev.write_lock);
-		strcpy(dev->vs_dev.tty_name, pdp_arg->ifname);
-
-		ret = vs_add_dev(dev);
-		if (ret < 0) {
-			kfree(dev);
-			return ret;
-		}
-
-		mutex_lock(&pdp_lock);
-		ret = pdp_add_dev(dev);
-		if (ret < 0) {
-			printk("pdp_add_dev() failed\n");
-			mutex_unlock(&pdp_lock);
-			vs_del_dev(dev);
-			kfree(dev);
-			return ret;
-		}
-		mutex_unlock(&pdp_lock);
-
-		{
-			struct tty_driver * tty_driver = get_tty_driver_by_id(dev);
-
-			printk("%s(id: %u) serial device is created.\n",
-					tty_driver->name, dev->id);
-		}
-	}
-
-	return 0;
-}
-
-static int multipdp_init(void)
-{
-	int i;
-
-	pdp_arg_t pdp_args[NUM_PDP_CONTEXT] = {
-		{ .id = 1, .ifname = "ttyCSD" },
-		{ .id = 7, .ifname = "ttyCDMA" },
-		{ .id = 9, .ifname = "ttyTRFB" },
-		{ .id = 27, .ifname = "ttyCIQ" },
-	};
-
-
-	/* create serial device for Circuit Switched Data */
-	for (i = 0; i < NUM_PDP_CONTEXT; i++) {
-		if (pdp_activate(&pdp_args[i], DEV_TYPE_SERIAL, DEV_FLAG_STICKY) < 0) {
-			printk("failed to create a serial device for %s\n", pdp_args[i].ifname);
-		}
-	}
-
-	return 0;
-}
-
 
 static void init_devices(void)
 {
@@ -2445,8 +1824,8 @@ static void init_hw_setting(void)
 	s3c_gpio_setpull(GPIO_PHONE_ACTIVE_AP, S3C_GPIO_PULL_NONE); 
 	set_irq_type(IRQ_PHONE_ACTIVE, IRQ_TYPE_EDGE_BOTH);
 
-	s3c_gpio_cfgpin(GPIO_ONEDRAM_INT_N, S3C_GPIO_SFN(GPIO_ONEDRAM_INT_N_AF));
-	s3c_gpio_setpull(GPIO_ONEDRAM_INT_N, S3C_GPIO_PULL_NONE); 
+	s3c_gpio_cfgpin(GPIO_nONED_INT_AP, S3C_GPIO_SFN(GPIO_nONED_INT_AP_AF));
+	s3c_gpio_setpull(GPIO_nONED_INT_AP, S3C_GPIO_PULL_NONE); 
 	set_irq_type(IRQ_ONEDRAM_INT_N, IRQ_TYPE_EDGE_FALLING);
 
 	if (gpio_is_valid(GPIO_PHONE_ON)) {
@@ -2457,6 +1836,7 @@ static void init_hw_setting(void)
 	s3c_gpio_setpull(GPIO_PHONE_ON, S3C_GPIO_PULL_UP); 
 	gpio_set_value(GPIO_PHONE_ON, GPIO_LEVEL_LOW);
 
+printk("Dpram: system_rev: %x\n", system_rev);
 	if(system_rev == 0x0020) {
 		if (gpio_is_valid(GPIO_RESOUT_N_AP)) {
 			if (gpio_request(GPIO_RESOUT_N_AP, S3C_GPIO_LAVEL(GPIO_RESOUT_N_AP)))
@@ -2530,7 +1910,7 @@ static void check_miss_interrupt(void)
 	unsigned long flags;
 
 	if (gpio_get_value(GPIO_PHONE_ACTIVE_AP) &&
-			(!gpio_get_value(GPIO_ONEDRAM_INT_N))) {
+			(!gpio_get_value(GPIO_nONED_INT_AP))) {
 		dprintk("there is a missed interrupt. try to read it!\n");
 
 		if (!(*onedram_sem)) {
@@ -2564,6 +1944,7 @@ static int dpram_resume(struct platform_device *dev)
 static int __devinit dpram_probe(struct platform_device *dev)
 {
 	int retval;
+//	system_rev = 0x20; //bss
 
 	/* @LDK@ register dpram (tty) driver */
 	retval = register_dpram_driver();
@@ -2585,14 +1966,6 @@ static int __devinit dpram_probe(struct platform_device *dev)
 	memset((void *)dpram_err_buf, '\0', sizeof dpram_err_buf);
 #endif /* _ENABLE_ERROR_DEVICE */
 
-	/* create app. interface device */
-	retval = misc_register(&multipdp_dev);
-	if (retval < 0) {
-		printk("misc_register() failed\n");
-		return -1;
-	}
-	multipdp_init();
-
 	/* @LDK@ H/W setting */
 	init_hw_setting();
 
@@ -2610,8 +1983,9 @@ static int __devinit dpram_probe(struct platform_device *dev)
 #endif	/* CONFIG_PROC_FS */
 
 	/* @LDK@ check out missing interrupt from the phone */
-	//check_miss_interrupt();
+	check_miss_interrupt();
 	
+	printk("DPRAM probe ok\n");
 	return 0;
 }
 
@@ -2624,9 +1998,6 @@ static int __devexit dpram_remove(struct platform_device *dev)
 #ifdef _ENABLE_ERROR_DEVICE
 	unregister_dpram_err_device();
 #endif
-	
-	/* remove app. interface device */
-	misc_deregister(&multipdp_dev);
 
 	/* @LDK@ unregister irq handler */
 	free_irq(IRQ_ONEDRAM_INT_N, NULL);

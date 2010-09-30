@@ -100,7 +100,7 @@ void arm_machine_restart(char mode, const char *cmd)
 	/*
 	 * Now call the architecture specific reboot code.
 	 */
-	arch_reset(mode, cmd);
+	arch_reset(mode);
 
 	/*
 	 * Whoops - the architecture was unable to reboot.

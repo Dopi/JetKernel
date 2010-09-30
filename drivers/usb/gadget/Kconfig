@@ -827,13 +827,7 @@ config USB_CDC_COMPOSITE
 # or video class gadget drivers), or specific hardware, here.
 
 # - none yet
- 
-endchoice
 
-config USB_GADGET_FSA9480
-	tristate "USB switching device"
-	depends on I2C
-	default n
-	help
+endchoice
 
 endif # USB_GADGET

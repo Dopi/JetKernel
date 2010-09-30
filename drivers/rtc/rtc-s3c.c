@@ -21,7 +21,6 @@
 #include <linux/bcd.h>
 #include <linux/clk.h>
 #include <linux/log2.h>
-#include <linux/gpio.h>
 
 #include <mach/hardware.h>
 #include <asm/uaccess.h>
@@ -52,6 +51,65 @@ extern unsigned int s3c_rtc_set_bit_byte(void __iomem *base, uint offset, uint v
 extern unsigned int s3c_rtc_read_alarm_status(void __iomem *base);
 /* IRQ Handlers */
 
+#define CONFIG_MACH_VOLANS 1
+#ifdef CONFIG_MACH_VOLANS
+#define RTC_SYNC_INTERVAL	(HZ*3600)
+
+static int s3c_rtc_gettime(struct device *dev, struct rtc_time *rtc_tm);
+
+/* EXPORTED FUNCTIONS. */
+void __iomem *get_rtc_base(void)
+{
+	return s3c_rtc_base;
+}
+
+unsigned long current_rtc_seconds(void)
+{
+	unsigned long sec = 0;
+	struct rtc_time tm;
+
+	s3c_rtc_gettime(NULL, &tm);
+	rtc_tm_to_time(&tm, &sec);
+
+	return sec;
+}
+
+EXPORT_SYMBOL(get_rtc_base);
+EXPORT_SYMBOL(current_rtc_seconds);
+
+/* INTERNAL FUNCTIONS. */
+static void rtc_sync_handler(struct work_struct * __unused);
+static DECLARE_DELAYED_WORK(rtc_sync_work, rtc_sync_handler);
+
+static void volans_update_system_time(void)
+{
+	struct rtc_time tm;
+
+	struct timespec time;
+	struct timeval sync_time;
+
+	time.tv_nsec = 0;
+
+	s3c_rtc_gettime(NULL, &tm);
+	rtc_tm_to_time(&tm, &time.tv_sec);
+
+	/* RTC and system time synchronization. */
+	do_settimeofday(&time);
+
+	/* Time verification. */
+	do_gettimeofday(&sync_time);
+
+	pr_info("%s- RTC: %ld / System Time: %ld\n", __func__,
+			time.tv_sec, sync_time.tv_sec);
+}
+
+static void rtc_sync_handler(struct work_struct * __unused)
+{
+	volans_update_system_time();
+	schedule_delayed_work(&rtc_sync_work, RTC_SYNC_INTERVAL);
+}
+#endif	/* CONFIG_MACH_VOLANS */
+
 static irqreturn_t s3c_rtc_alarmirq(int irq, void *id)
 {
 	struct rtc_device *rdev = id;
@@ -63,6 +121,7 @@ static irqreturn_t s3c_rtc_alarmirq(int irq, void *id)
 	return IRQ_HANDLED;
 }
 
+#if !defined(CONFIG_MACH_VOLANS)
 static irqreturn_t s3c_rtc_tickirq(int irq, void *id)
 {
 	struct rtc_device *rdev = id;
@@ -73,6 +132,7 @@ static irqreturn_t s3c_rtc_tickirq(int irq, void *id)
 
 	return IRQ_HANDLED;
 }
+#endif	/* CONFIG_MACH_VOLANS */
 
 /* Update control registers */
 static void s3c_rtc_setaie(int to)
@@ -94,11 +154,13 @@ static int s3c_rtc_setpie(struct device *dev, int enabled)
 {
 	pr_debug("%s: pie=%d\n", __func__, enabled);
 
+#if !defined(CONFIG_MACH_VOLANS)
 	spin_lock_irq(&s3c_rtc_pie_lock);
 
 	s3c_rtc_set_pie(s3c_rtc_base,enabled);
 
 	spin_unlock_irq(&s3c_rtc_pie_lock);
+#endif	/* CONFIG_MACH_VOLANS */
 
 	return 0;
 }
@@ -107,7 +169,7 @@ static int s3c_rtc_setfreq(struct device *dev, int freq)
 {
 	spin_lock_irq(&s3c_rtc_pie_lock);
 
-	s3c_rtc_set_freq_regs(s3c_rtc_base, freq, s3c_rtc_freq);
+	s3c_rtc_set_freq_regs(s3c_rtc_base,freq,s3c_rtc_freq);
 
 	spin_unlock_irq(&s3c_rtc_pie_lock);
 
@@ -250,7 +312,7 @@ static int s3c_rtc_setalarm(struct device *dev, struct rtc_wkalrm *alrm)
 
 	int year = tm->tm_year - 100;
 
-	pr_debug("s3c_rtc_setalarm: %d, %02x/%02x/%02x %02x.%02x.%02x\n",
+	pr_info("s3c_rtc_setalarm: %d, %02x/%02x/%02x %02x.%02x.%02x\n",
 		 alrm->enabled,
 		 tm->tm_mday & 0xff, tm->tm_mon & 0xff, tm->tm_year & 0xff,
 		 tm->tm_hour & 0xff, tm->tm_min & 0xff, tm->tm_sec);
@@ -288,7 +350,7 @@ static int s3c_rtc_setalarm(struct device *dev, struct rtc_wkalrm *alrm)
 		writeb(bin2bcd(year), base + S3C2410_ALMYEAR);
 	}
 
-	pr_debug("setting S3C2410_RTCALM to %08x\n", alrm_en);
+	pr_info("setting S3C2410_RTCALM to %08x\n", alrm_en);
 
 	writeb(alrm_en, base + S3C2410_RTCALM);
 
@@ -366,6 +428,9 @@ static int s3c_rtc_open(struct device *dev)
 		return ret;
 	}
 
+	return ret;
+
+#if !defined(CONFIG_MACH_VOLANS)
 	ret = request_irq(s3c_rtc_tickno, s3c_rtc_tickirq,
 			  IRQF_DISABLED,  "s3c2410-rtc tick", rtc_dev);
 
@@ -379,6 +444,7 @@ static int s3c_rtc_open(struct device *dev)
  tick_err:
 	free_irq(s3c_rtc_alarmno, rtc_dev);
 	return ret;
+#endif	/* CONFIG_MACH_VOLANS */
 }
 
 static void s3c_rtc_release(struct device *dev)
@@ -390,7 +456,9 @@ static void s3c_rtc_release(struct device *dev)
 
 	s3c_rtc_setpie(dev, 0);
 	free_irq(s3c_rtc_alarmno, rtc_dev);
+#if !defined(CONFIG_MACH_VOLANS)
 	free_irq(s3c_rtc_tickno, rtc_dev);
+#endif	/* CONFIG_MACH_VOLANS */
 }
 
 static const struct rtc_class_ops s3c_rtcops = {
@@ -429,6 +497,11 @@ static int s3c_rtc_remove(struct platform_device *dev)
 	iounmap(s3c_rtc_base);
 	release_resource(s3c_rtc_mem);
 	kfree(s3c_rtc_mem);
+
+#ifdef CONFIG_MACH_VOLANS
+	s3c_rtc_enable(dev, 0);
+	cancel_delayed_work(&rtc_sync_work);
+#endif	/* CONFIG_MACH_VOLANS */
 
 	return 0;
 }
@@ -518,6 +591,10 @@ static int s3c_rtc_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, rtc);
 
+#ifdef CONFIG_MACH_VOLANS
+	schedule_delayed_work(&rtc_sync_work, RTC_SYNC_INTERVAL);
+#endif	/* CONFIG_MACH_VOLANS */
+
 	return 0;
 
  err_nortc:
@@ -534,7 +611,6 @@ static int s3c_rtc_probe(struct platform_device *pdev)
 #ifdef CONFIG_PM
 
 /* RTC Power management control */
-
 static struct timespec s3c_rtc_delta;
 static int ticnt_save;
 
@@ -551,12 +627,19 @@ static int s3c_rtc_suspend(struct platform_device *pdev, pm_message_t state)
 	rtc_tm_to_time(&tm, &time.tv_sec);
 	save_time_delta(&s3c_rtc_delta, &time);
 
+#ifdef CONFIG_MACH_VOLANS
+	cancel_delayed_work(&rtc_sync_work);
+#else
 	s3c_rtc_enable(pdev, 0);
+#endif	/* CONFIG_MACH_VOLANS */
 	return 0;
 }
 
 static int s3c_rtc_resume(struct platform_device *pdev)
 {
+#ifdef CONFIG_MACH_VOLANS
+	schedule_delayed_work(&rtc_sync_work, HZ/10);
+#else
 	struct rtc_time tm;
 	struct timespec time;
 
@@ -567,6 +650,8 @@ static int s3c_rtc_resume(struct platform_device *pdev)
 	rtc_tm_to_time(&tm, &time.tv_sec);
 	restore_time_delta(&s3c_rtc_delta, &time);
 	writeb(ticnt_save, s3c_rtc_base + S3C2410_TICNT);
+#endif	/* CONFIG_MACH_VOLANS */
+
 	return 0;
 }
 #else

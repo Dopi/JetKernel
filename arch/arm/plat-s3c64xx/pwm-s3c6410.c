@@ -97,7 +97,7 @@ int s3c6410_timer_setup (int channel, int usec, unsigned long g_tcnt, unsigned l
 	unsigned long pclk;
 	struct clk *clk;
 
-	pr_debug("\nPWM channel %d set g_tcnt = %ld, g_tcmp = %ld \n", channel, g_tcnt, g_tcmp);
+	printk("\nPWM channel %d set g_tcnt = %ld, g_tcmp = %ld \n", channel, g_tcnt, g_tcmp);
 
 	tcnt = 0xffffffff;  /* default value for tcnt */
 
@@ -119,10 +119,10 @@ int s3c6410_timer_setup (int channel, int usec, unsigned long g_tcnt, unsigned l
 	{
 		case 0:
 			/* set gpio as PWM TIMER0 to signal output*/
-			s3c_gpio_cfgpin(S3C64XX_GPF(14), S3C_GPIO_SFN(2));			 
+			s3c_gpio_cfgpin(S3C64XX_GPF(14), S3C64XX_GPF14_PWM_TOUT0);
 
 			tcfg1 &= ~S3C_TCFG1_MUX0_MASK;
-			tcfg1 |= S3C_TCFG1_MUX1_DIV2;
+			tcfg1 |= S3C_TCFG1_MUX0_DIV2;
 
 			tcfg0 &= ~S3C_TCFG_PRESCALER0_MASK;
 			tcfg0 |= (PRESCALER) << S3C_TCFG_PRESCALER0_SHIFT;
@@ -132,7 +132,7 @@ int s3c6410_timer_setup (int channel, int usec, unsigned long g_tcnt, unsigned l
 
 		case 1:
 			/* set gpio as PWM TIMER1 to signal output*/
-			s3c_gpio_cfgpin(S3C64XX_GPF(15), S3C_GPIO_SFN(2));			 
+			s3c_gpio_cfgpin(S3C64XX_GPF(15), S3C64XX_GPF15_PWM_TOUT1);
 			
 			tcfg1 &= ~S3C_TCFG1_MUX1_MASK;
 			tcfg1 |= S3C_TCFG1_MUX1_DIV2;
@@ -216,6 +216,7 @@ int s3c6410_timer_setup (int channel, int usec, unsigned long g_tcnt, unsigned l
 	return 0;
 }
 
+EXPORT_SYMBOL(s3c6410_timer_setup);
 
 static irqreturn_t s3c6410_pwm_irq(int irq, void *devpw)
 {
@@ -259,7 +260,7 @@ int s3c6410_pwm_request(pwmch_t  channel, s3c_pwm_client_t *client, void *dev)
 	if (!chan->irq_claimed) {
 		pr_debug("pwm%d: %s : requesting irq %d\n",
 			 channel, __FUNCTION__, chan->irq);
-		 
+
 		err = request_irq(chan->irq, s3c6410_pwm_irq, IRQF_DISABLED,
 				  client->name, (void *)chan);
 
@@ -331,7 +332,7 @@ int s3c6410_pwm_set_buffdone_fn(pwmch_t channel, s3c_pwm_cbfn_t rtn)
 #define s3c6410_pwm_resume  NULL
 
 struct sysdev_class pwm_sysclass = {
-	.name           = "s3c-pwm",	
+	.name		= "s3c-pwm",
 	.suspend	= s3c6410_pwm_suspend,
 	.resume		= s3c6410_pwm_resume,
 };

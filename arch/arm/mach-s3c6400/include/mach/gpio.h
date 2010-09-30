@@ -12,18 +12,11 @@
  * published by the Free Software Foundation.
 */
 
-#ifndef __MACH_HARDWARE_H
-#define __MACH_HARDWARE_H __FILE__
 
 #define gpio_get_value	__gpio_get_value
 #define gpio_set_value	__gpio_set_value
 #define gpio_cansleep	__gpio_cansleep
 #define gpio_to_irq		__gpio_to_irq
-
-#define GPIO_LEVEL_LOW      0
-#define GPIO_LEVEL_HIGH     1
-#define GPIO_LEVEL_NONE     2
-
 
 /* GPIO bank sizes */
 #define S3C64XX_GPIO_A_NR	(8)
@@ -143,6 +136,5 @@ enum s3c_gpio_number {
 #include <plat/gpio-bank-p.h>
 #include <plat/gpio-bank-q.h>
 
-#endif
 
 
