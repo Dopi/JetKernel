@@ -35,6 +35,7 @@
 #include <linux/key.h>
 #include <linux/parser.h>
 #include <linux/fs_stack.h>
+#include <linux/ima.h>
 #include "ecryptfs_kernel.h"
 
 /**
@@ -118,6 +119,7 @@ int ecryptfs_init_persistent_file(struct dentry *ecryptfs_dentry)
 	const struct cred *cred = current_cred();
 	struct ecryptfs_inode_info *inode_info =
 		ecryptfs_inode_to_private(ecryptfs_dentry->d_inode);
+	int opened_lower_file = 0;
 	int rc = 0;
 
 	mutex_lock(&inode_info->lower_file_mutex);
@@ -129,15 +131,17 @@ int ecryptfs_init_persistent_file(struct dentry *ecryptfs_dentry)
 		lower_dentry = ecryptfs_dentry_to_lower(ecryptfs_dentry);
 		rc = ecryptfs_privileged_open(&inode_info->lower_file,
 					      lower_dentry, lower_mnt, cred);
-		if (rc || IS_ERR(inode_info->lower_file)) {
+		if (rc) {
 			printk(KERN_ERR "Error opening lower persistent file "
 			       "for lower_dentry [0x%p] and lower_mnt [0x%p]; "
 			       "rc = [%d]\n", lower_dentry, lower_mnt, rc);
-			rc = PTR_ERR(inode_info->lower_file);
 			inode_info->lower_file = NULL;
-		}
+		} else
+			opened_lower_file = 1;
 	}
 	mutex_unlock(&inode_info->lower_file_mutex);
+	if (opened_lower_file)
+		ima_counts_get(inode_info->lower_file);
 	return rc;
 }
 
@@ -190,14 +194,14 @@ int ecryptfs_interpose(struct dentry *lower_dentry, struct dentry *dentry,
 		init_special_inode(inode, lower_inode->i_mode,
 				   lower_inode->i_rdev);
 	dentry->d_op = &ecryptfs_dops;
-	if (flags & ECRYPTFS_INTERPOSE_FLAG_D_ADD)
-		d_add(dentry, inode);
-	else
-		d_instantiate(dentry, inode);
 	fsstack_copy_attr_all(inode, lower_inode, NULL);
 	/* This size will be overwritten for real files w/ headers and
 	 * other metadata */
 	fsstack_copy_inode_size(inode, lower_inode);
+	if (flags & ECRYPTFS_INTERPOSE_FLAG_D_ADD)
+		d_add(dentry, inode);
+	else
+		d_instantiate(dentry, inode);
 out:
 	return rc;
 }
@@ -208,7 +212,7 @@ enum { ecryptfs_opt_sig, ecryptfs_opt_ecryptfs_sig,
        ecryptfs_opt_passthrough, ecryptfs_opt_xattr_metadata,
        ecryptfs_opt_encrypted_view, ecryptfs_opt_fnek_sig,
        ecryptfs_opt_fn_cipher, ecryptfs_opt_fn_cipher_key_bytes,
-       ecryptfs_opt_err };
+       ecryptfs_opt_unlink_sigs, ecryptfs_opt_err };
 
 static const match_table_t tokens = {
 	{ecryptfs_opt_sig, "sig=%s"},
@@ -222,6 +226,7 @@ static const match_table_t tokens = {
 	{ecryptfs_opt_fnek_sig, "ecryptfs_fnek_sig=%s"},
 	{ecryptfs_opt_fn_cipher, "ecryptfs_fn_cipher=%s"},
 	{ecryptfs_opt_fn_cipher_key_bytes, "ecryptfs_fn_key_bytes=%u"},
+	{ecryptfs_opt_unlink_sigs, "ecryptfs_unlink_sigs"},
 	{ecryptfs_opt_err, NULL}
 };
 
@@ -401,6 +406,9 @@ static int ecryptfs_parse_options(struct super_block *sb, char *options)
 			mount_crypt_stat->global_default_fn_cipher_key_bytes =
 				fn_cipher_key_bytes;
 			fn_cipher_key_bytes_set = 1;
+			break;
+		case ecryptfs_opt_unlink_sigs:
+			mount_crypt_stat->flags |= ECRYPTFS_UNLINK_SIGS;
 			break;
 		case ecryptfs_opt_err:
 		default:
@@ -610,9 +618,8 @@ static int ecryptfs_get_sb(struct file_system_type *fs_type, int flags,
 	}
 	goto out;
 out_abort:
-	dput(sb->s_root);
-	up_write(&sb->s_umount);
-	deactivate_super(sb);
+	dput(sb->s_root); /* aka mnt->mnt_root, as set by get_sb_nodev() */
+	deactivate_locked_super(sb);
 out:
 	return rc;
 }

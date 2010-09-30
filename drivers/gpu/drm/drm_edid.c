@@ -125,10 +125,8 @@ static bool edid_is_valid(struct edid *edid)
 		DRM_ERROR("EDID has major version %d, instead of 1\n", edid->version);
 		goto bad;
 	}
-	if (edid->revision > 3) {
-		DRM_ERROR("EDID has minor version %d, which is not between 0-3\n", edid->revision);
-		goto bad;
-	}
+	if (edid->revision > 4)
+		DRM_DEBUG("EDID minor > 4, assuming backward compatibility\n");
 
 	for (i = 0; i < EDID_LENGTH; i++)
 		csum += raw_edid[i];
@@ -162,7 +160,7 @@ static bool edid_vendor(struct edid *edid, char *vendor)
 	edid_vendor[0] = ((edid->mfg_id[0] & 0x7c) >> 2) + '@';
 	edid_vendor[1] = (((edid->mfg_id[0] & 0x3) << 3) |
 			  ((edid->mfg_id[1] & 0xe0) >> 5)) + '@';
-	edid_vendor[2] = (edid->mfg_id[2] & 0x1f) + '@';
+	edid_vendor[2] = (edid->mfg_id[1] & 0x1f) + '@';
 
 	return !strncmp(edid_vendor, vendor, 3);
 }
@@ -254,16 +252,18 @@ struct drm_display_mode *drm_mode_std(struct drm_device *dev,
 {
 	struct drm_display_mode *mode;
 	int hsize = t->hsize * 8 + 248, vsize;
+	unsigned aspect_ratio = (t->vfreq_aspect & EDID_TIMING_ASPECT_MASK)
+		>> EDID_TIMING_ASPECT_SHIFT;
 
 	mode = drm_mode_create(dev);
 	if (!mode)
 		return NULL;
 
-	if (t->aspect_ratio == 0)
+	if (aspect_ratio == 0)
 		vsize = (hsize * 10) / 16;
-	else if (t->aspect_ratio == 1)
+	else if (aspect_ratio == 1)
 		vsize = (hsize * 3) / 4;
-	else if (t->aspect_ratio == 2)
+	else if (aspect_ratio == 2)
 		vsize = (hsize * 4) / 5;
 	else
 		vsize = (hsize * 9) / 16;
@@ -290,12 +290,24 @@ static struct drm_display_mode *drm_mode_detailed(struct drm_device *dev,
 {
 	struct drm_display_mode *mode;
 	struct detailed_pixel_timing *pt = &timing->data.pixel_data;
+	unsigned hactive = (pt->hactive_hblank_hi & 0xf0) << 4 | pt->hactive_lo;
+	unsigned vactive = (pt->vactive_vblank_hi & 0xf0) << 4 | pt->vactive_lo;
+	unsigned hblank = (pt->hactive_hblank_hi & 0xf) << 8 | pt->hblank_lo;
+	unsigned vblank = (pt->vactive_vblank_hi & 0xf) << 8 | pt->vblank_lo;
+	unsigned hsync_offset = (pt->hsync_vsync_offset_pulse_width_hi & 0xc0) << 2 | pt->hsync_offset_lo;
+	unsigned hsync_pulse_width = (pt->hsync_vsync_offset_pulse_width_hi & 0x30) << 4 | pt->hsync_pulse_width_lo;
+	unsigned vsync_offset = (pt->hsync_vsync_offset_pulse_width_hi & 0xc) >> 2 | pt->vsync_offset_pulse_width_lo >> 4;
+	unsigned vsync_pulse_width = (pt->hsync_vsync_offset_pulse_width_hi & 0x3) << 4 | (pt->vsync_offset_pulse_width_lo & 0xf);
 
-	if (pt->stereo) {
+	/* ignore tiny modes */
+	if (hactive < 64 || vactive < 64)
+		return NULL;
+
+	if (pt->misc & DRM_EDID_PT_STEREO) {
 		printk(KERN_WARNING "stereo mode not supported\n");
 		return NULL;
 	}
-	if (!pt->separate_sync) {
+	if (!(pt->misc & DRM_EDID_PT_SEPARATE_SYNC)) {
 		printk(KERN_WARNING "integrated sync not supported\n");
 		return NULL;
 	}
@@ -307,41 +319,42 @@ static struct drm_display_mode *drm_mode_detailed(struct drm_device *dev,
 	mode->type = DRM_MODE_TYPE_DRIVER;
 
 	if (quirks & EDID_QUIRK_135_CLOCK_TOO_HIGH)
-		timing->pixel_clock = 1088;
+		timing->pixel_clock = cpu_to_le16(1088);
 
-	mode->clock = timing->pixel_clock * 10;
+	mode->clock = le16_to_cpu(timing->pixel_clock) * 10;
 
-	mode->hdisplay = (pt->hactive_hi << 8) | pt->hactive_lo;
-	mode->hsync_start = mode->hdisplay + ((pt->hsync_offset_hi << 8) |
-					      pt->hsync_offset_lo);
-	mode->hsync_end = mode->hsync_start +
-		((pt->hsync_pulse_width_hi << 8) |
-		 pt->hsync_pulse_width_lo);
-	mode->htotal = mode->hdisplay + ((pt->hblank_hi << 8) | pt->hblank_lo);
+	mode->hdisplay = hactive;
+	mode->hsync_start = mode->hdisplay + hsync_offset;
+	mode->hsync_end = mode->hsync_start + hsync_pulse_width;
+	mode->htotal = mode->hdisplay + hblank;
 
-	mode->vdisplay = (pt->vactive_hi << 8) | pt->vactive_lo;
-	mode->vsync_start = mode->vdisplay + ((pt->vsync_offset_hi << 4) |
-					      pt->vsync_offset_lo);
-	mode->vsync_end = mode->vsync_start +
-		((pt->vsync_pulse_width_hi << 4) |
-		 pt->vsync_pulse_width_lo);
-	mode->vtotal = mode->vdisplay + ((pt->vblank_hi << 8) | pt->vblank_lo);
+	mode->vdisplay = vactive;
+	mode->vsync_start = mode->vdisplay + vsync_offset;
+	mode->vsync_end = mode->vsync_start + vsync_pulse_width;
+	mode->vtotal = mode->vdisplay + vblank;
+
+	/* Some EDIDs have bogus h/vtotal values */
+	if (mode->hsync_end > mode->htotal)
+		mode->htotal = mode->hsync_end + 1;
+	if (mode->vsync_end > mode->vtotal)
+		mode->vtotal = mode->vsync_end + 1;
 
 	drm_mode_set_name(mode);
 
-	if (pt->interlaced)
+	if (pt->misc & DRM_EDID_PT_INTERLACED)
 		mode->flags |= DRM_MODE_FLAG_INTERLACE;
 
 	if (quirks & EDID_QUIRK_DETAILED_SYNC_PP) {
-		pt->hsync_positive = 1;
-		pt->vsync_positive = 1;
+		pt->misc |= DRM_EDID_PT_HSYNC_POSITIVE | DRM_EDID_PT_VSYNC_POSITIVE;
 	}
 
-	mode->flags |= pt->hsync_positive ? DRM_MODE_FLAG_PHSYNC : DRM_MODE_FLAG_NHSYNC;
-	mode->flags |= pt->vsync_positive ? DRM_MODE_FLAG_PVSYNC : DRM_MODE_FLAG_NVSYNC;
+	mode->flags |= (pt->misc & DRM_EDID_PT_HSYNC_POSITIVE) ?
+		DRM_MODE_FLAG_PHSYNC : DRM_MODE_FLAG_NHSYNC;
+	mode->flags |= (pt->misc & DRM_EDID_PT_VSYNC_POSITIVE) ?
+		DRM_MODE_FLAG_PVSYNC : DRM_MODE_FLAG_NVSYNC;
 
-	mode->width_mm = pt->width_mm_lo | (pt->width_mm_hi << 8);
-	mode->height_mm = pt->height_mm_lo | (pt->height_mm_hi << 8);
+	mode->width_mm = pt->width_mm_lo | (pt->width_height_mm_hi & 0xf0) << 4;
+	mode->height_mm = pt->height_mm_lo | (pt->width_height_mm_hi & 0xf) << 8;
 
 	if (quirks & EDID_QUIRK_DETAILED_IN_CM) {
 		mode->width_mm *= 10;
@@ -462,7 +475,7 @@ static int add_standard_modes(struct drm_connector *connector, struct edid *edid
 		struct drm_display_mode *newmode;
 
 		/* If std timings bytes are 1, 1 it's empty */
-		if (t->hsize == 1 && (t->aspect_ratio | t->vfreq) == 1)
+		if (t->hsize == 1 && t->vfreq_aspect == 1)
 			continue;
 
 		newmode = drm_mode_std(dev, &edid->standard_timings[i]);
@@ -495,54 +508,50 @@ static int add_detailed_info(struct drm_connector *connector,
 		struct detailed_non_pixel *data = &timing->data.other_data;
 		struct drm_display_mode *newmode;
 
-		/* EDID up to and including 1.2 may put monitor info here */
-		if (edid->version == 1 && edid->revision < 3)
-			continue;
+		/* X server check is version 1.1 or higher */
+		if (edid->version == 1 && edid->revision >= 1 &&
+		    !timing->pixel_clock) {
+			/* Other timing or info */
+			switch (data->type) {
+			case EDID_DETAIL_MONITOR_SERIAL:
+				break;
+			case EDID_DETAIL_MONITOR_STRING:
+				break;
+			case EDID_DETAIL_MONITOR_RANGE:
+				/* Get monitor range data */
+				break;
+			case EDID_DETAIL_MONITOR_NAME:
+				break;
+			case EDID_DETAIL_MONITOR_CPDATA:
+				break;
+			case EDID_DETAIL_STD_MODES:
+				/* Five modes per detailed section */
+				for (j = 0; j < 5; i++) {
+					struct std_timing *std;
+					struct drm_display_mode *newmode;
 
-		/* Detailed mode timing */
-		if (timing->pixel_clock) {
+					std = &data->data.timings[j];
+					newmode = drm_mode_std(dev, std);
+					if (newmode) {
+						drm_mode_probed_add(connector, newmode);
+						modes++;
+					}
+				}
+				break;
+			default:
+				break;
+			}
+		} else {
 			newmode = drm_mode_detailed(dev, edid, timing, quirks);
 			if (!newmode)
 				continue;
 
 			/* First detailed mode is preferred */
-			if (i == 0 && edid->preferred_timing)
+			if (i == 0 && (edid->features & DRM_EDID_FEATURE_PREFERRED_TIMING))
 				newmode->type |= DRM_MODE_TYPE_PREFERRED;
 			drm_mode_probed_add(connector, newmode);
 
 			modes++;
-			continue;
-		}
-
-		/* Other timing or info */
-		switch (data->type) {
-		case EDID_DETAIL_MONITOR_SERIAL:
-			break;
-		case EDID_DETAIL_MONITOR_STRING:
-			break;
-		case EDID_DETAIL_MONITOR_RANGE:
-			/* Get monitor range data */
-			break;
-		case EDID_DETAIL_MONITOR_NAME:
-			break;
-		case EDID_DETAIL_MONITOR_CPDATA:
-			break;
-		case EDID_DETAIL_STD_MODES:
-			/* Five modes per detailed section */
-			for (j = 0; j < 5; i++) {
-				struct std_timing *std;
-				struct drm_display_mode *newmode;
-
-				std = &data->data.timings[j];
-				newmode = drm_mode_std(dev, std);
-				if (newmode) {
-					drm_mode_probed_add(connector, newmode);
-					modes++;
-				}
-			}
-			break;
-		default:
-			break;
 		}
 	}
 
@@ -550,11 +559,20 @@ static int add_detailed_info(struct drm_connector *connector,
 }
 
 #define DDC_ADDR 0x50
-
-unsigned char *drm_do_probe_ddc_edid(struct i2c_adapter *adapter)
+/**
+ * Get EDID information via I2C.
+ *
+ * \param adapter : i2c device adaptor
+ * \param buf     : EDID data buffer to be filled
+ * \param len     : EDID data buffer length
+ * \return 0 on success or -1 on failure.
+ *
+ * Try to fetch EDID information by calling i2c driver function.
+ */
+int drm_do_probe_ddc_edid(struct i2c_adapter *adapter,
+			  unsigned char *buf, int len)
 {
 	unsigned char start = 0x0;
-	unsigned char *buf = kmalloc(EDID_LENGTH, GFP_KERNEL);
 	struct i2c_msg msgs[] = {
 		{
 			.addr	= DDC_ADDR,
@@ -564,86 +582,41 @@ unsigned char *drm_do_probe_ddc_edid(struct i2c_adapter *adapter)
 		}, {
 			.addr	= DDC_ADDR,
 			.flags	= I2C_M_RD,
-			.len	= EDID_LENGTH,
+			.len	= len,
 			.buf	= buf,
 		}
 	};
 
-	if (!buf) {
-		dev_warn(&adapter->dev, "unable to allocate memory for EDID "
-			 "block.\n");
-		return NULL;
-	}
-
 	if (i2c_transfer(adapter, msgs, 2) == 2)
-		return buf;
+		return 0;
 
 	dev_info(&adapter->dev, "unable to read EDID block.\n");
-	kfree(buf);
-	return NULL;
+	return -1;
 }
 EXPORT_SYMBOL(drm_do_probe_ddc_edid);
 
-static unsigned char *drm_ddc_read(struct i2c_adapter *adapter)
+static int drm_ddc_read_edid(struct drm_connector *connector,
+			     struct i2c_adapter *adapter,
+			     char *buf, int len)
 {
-	struct i2c_algo_bit_data *algo_data = adapter->algo_data;
-	unsigned char *edid = NULL;
-	int i, j;
+	int ret;
 
-	algo_data->setscl(algo_data->data, 1);
-
-	for (i = 0; i < 1; i++) {
-		/* For some old monitors we need the
-		 * following process to initialize/stop DDC
-		 */
-		algo_data->setsda(algo_data->data, 1);
-		msleep(13);
-
-		algo_data->setscl(algo_data->data, 1);
-		for (j = 0; j < 5; j++) {
-			msleep(10);
-			if (algo_data->getscl(algo_data->data))
-				break;
-		}
-		if (j == 5)
-			continue;
-
-		algo_data->setsda(algo_data->data, 0);
-		msleep(15);
-		algo_data->setscl(algo_data->data, 0);
-		msleep(15);
-		algo_data->setsda(algo_data->data, 1);
-		msleep(15);
-
-		/* Do the real work */
-		edid = drm_do_probe_ddc_edid(adapter);
-		algo_data->setsda(algo_data->data, 0);
-		algo_data->setscl(algo_data->data, 0);
-		msleep(15);
-
-		algo_data->setscl(algo_data->data, 1);
-		for (j = 0; j < 10; j++) {
-			msleep(10);
-			if (algo_data->getscl(algo_data->data))
-				break;
-		}
-
-		algo_data->setsda(algo_data->data, 1);
-		msleep(15);
-		algo_data->setscl(algo_data->data, 0);
-		algo_data->setsda(algo_data->data, 0);
-		if (edid)
-			break;
+	ret = drm_do_probe_ddc_edid(adapter, buf, len);
+	if (ret != 0) {
+		dev_info(&connector->dev->pdev->dev, "%s: no EDID data\n",
+			 drm_get_connector_name(connector));
+		goto end;
 	}
-	/* Release the DDC lines when done or the Apple Cinema HD display
-	 * will switch off
-	 */
-	algo_data->setsda(algo_data->data, 1);
-	algo_data->setscl(algo_data->data, 1);
-
-	return edid;
+	if (!edid_is_valid((struct edid *)buf)) {
+		dev_warn(&connector->dev->pdev->dev, "%s: EDID invalid.\n",
+			 drm_get_connector_name(connector));
+		ret = -1;
+	}
+end:
+	return ret;
 }
 
+#define MAX_EDID_EXT_NUM 4
 /**
  * drm_get_edid - get EDID data, if available
  * @connector: connector we're probing
@@ -656,26 +629,117 @@ static unsigned char *drm_ddc_read(struct i2c_adapter *adapter)
 struct edid *drm_get_edid(struct drm_connector *connector,
 			  struct i2c_adapter *adapter)
 {
+	int ret;
 	struct edid *edid;
 
-	edid = (struct edid *)drm_ddc_read(adapter);
-	if (!edid) {
-		dev_info(&connector->dev->pdev->dev, "%s: no EDID data\n",
-			 drm_get_connector_name(connector));
-		return NULL;
+	edid = kmalloc(EDID_LENGTH * (MAX_EDID_EXT_NUM + 1),
+		       GFP_KERNEL);
+	if (edid == NULL) {
+		dev_warn(&connector->dev->pdev->dev,
+			 "Failed to allocate EDID\n");
+		goto end;
 	}
-	if (!edid_is_valid(edid)) {
-		dev_warn(&connector->dev->pdev->dev, "%s: EDID invalid.\n",
-			 drm_get_connector_name(connector));
-		kfree(edid);
-		return NULL;
+
+	/* Read first EDID block */
+	ret = drm_ddc_read_edid(connector, adapter,
+				(unsigned char *)edid, EDID_LENGTH);
+	if (ret != 0)
+		goto clean_up;
+
+	/* There are EDID extensions to be read */
+	if (edid->extensions != 0) {
+		int edid_ext_num = edid->extensions;
+
+		if (edid_ext_num > MAX_EDID_EXT_NUM) {
+			dev_warn(&connector->dev->pdev->dev,
+				 "The number of extension(%d) is "
+				 "over max (%d), actually read number (%d)\n",
+				 edid_ext_num, MAX_EDID_EXT_NUM,
+				 MAX_EDID_EXT_NUM);
+			/* Reset EDID extension number to be read */
+			edid_ext_num = MAX_EDID_EXT_NUM;
+		}
+		/* Read EDID including extensions too */
+		ret = drm_ddc_read_edid(connector, adapter, (char *)edid,
+					EDID_LENGTH * (edid_ext_num + 1));
+		if (ret != 0)
+			goto clean_up;
+
 	}
 
 	connector->display_info.raw_edid = (char *)edid;
+	goto end;
 
+clean_up:
+	kfree(edid);
+	edid = NULL;
+end:
 	return edid;
+
 }
 EXPORT_SYMBOL(drm_get_edid);
+
+#define HDMI_IDENTIFIER 0x000C03
+#define VENDOR_BLOCK    0x03
+/**
+ * drm_detect_hdmi_monitor - detect whether monitor is hdmi.
+ * @edid: monitor EDID information
+ *
+ * Parse the CEA extension according to CEA-861-B.
+ * Return true if HDMI, false if not or unknown.
+ */
+bool drm_detect_hdmi_monitor(struct edid *edid)
+{
+	char *edid_ext = NULL;
+	int i, hdmi_id, edid_ext_num;
+	int start_offset, end_offset;
+	bool is_hdmi = false;
+
+	/* No EDID or EDID extensions */
+	if (edid == NULL || edid->extensions == 0)
+		goto end;
+
+	/* Chose real EDID extension number */
+	edid_ext_num = edid->extensions > MAX_EDID_EXT_NUM ?
+		       MAX_EDID_EXT_NUM : edid->extensions;
+
+	/* Find CEA extension */
+	for (i = 0; i < edid_ext_num; i++) {
+		edid_ext = (char *)edid + EDID_LENGTH * (i + 1);
+		/* This block is CEA extension */
+		if (edid_ext[0] == 0x02)
+			break;
+	}
+
+	if (i == edid_ext_num)
+		goto end;
+
+	/* Data block offset in CEA extension block */
+	start_offset = 4;
+	end_offset = edid_ext[2];
+
+	/*
+	 * Because HDMI identifier is in Vendor Specific Block,
+	 * search it from all data blocks of CEA extension.
+	 */
+	for (i = start_offset; i < end_offset;
+		/* Increased by data block len */
+		i += ((edid_ext[i] & 0x1f) + 1)) {
+		/* Find vendor specific block */
+		if ((edid_ext[i] >> 5) == VENDOR_BLOCK) {
+			hdmi_id = edid_ext[i + 1] | (edid_ext[i + 2] << 8) |
+				  edid_ext[i + 3] << 16;
+			/* Find HDMI identifier */
+			if (hdmi_id == HDMI_IDENTIFIER)
+				is_hdmi = true;
+			break;
+		}
+	}
+
+end:
+	return is_hdmi;
+}
+EXPORT_SYMBOL(drm_detect_hdmi_monitor);
 
 /**
  * drm_add_edid_modes - add modes from EDID data, if available
@@ -709,22 +773,22 @@ int drm_add_edid_modes(struct drm_connector *connector, struct edid *edid)
 	if (quirks & (EDID_QUIRK_PREFER_LARGE_60 | EDID_QUIRK_PREFER_LARGE_75))
 		edid_fixup_preferred(connector, quirks);
 
-	connector->display_info.serration_vsync = edid->serration_vsync;
-	connector->display_info.sync_on_green = edid->sync_on_green;
-	connector->display_info.composite_sync = edid->composite_sync;
-	connector->display_info.separate_syncs = edid->separate_syncs;
-	connector->display_info.blank_to_black = edid->blank_to_black;
-	connector->display_info.video_level = edid->video_level;
-	connector->display_info.digital = edid->digital;
+	connector->display_info.serration_vsync = (edid->input & DRM_EDID_INPUT_SERRATION_VSYNC) ? 1 : 0;
+	connector->display_info.sync_on_green = (edid->input & DRM_EDID_INPUT_SYNC_ON_GREEN) ? 1 : 0;
+	connector->display_info.composite_sync = (edid->input & DRM_EDID_INPUT_COMPOSITE_SYNC) ? 1 : 0;
+	connector->display_info.separate_syncs = (edid->input & DRM_EDID_INPUT_SEPARATE_SYNCS) ? 1 : 0;
+	connector->display_info.blank_to_black = (edid->input & DRM_EDID_INPUT_BLANK_TO_BLACK) ? 1 : 0;
+	connector->display_info.video_level = (edid->input & DRM_EDID_INPUT_VIDEO_LEVEL) >> 5;
+	connector->display_info.digital = (edid->input & DRM_EDID_INPUT_DIGITAL) ? 1 : 0;
 	connector->display_info.width_mm = edid->width_cm * 10;
 	connector->display_info.height_mm = edid->height_cm * 10;
 	connector->display_info.gamma = edid->gamma;
-	connector->display_info.gtf_supported = edid->default_gtf;
-	connector->display_info.standard_color = edid->standard_color;
-	connector->display_info.display_type = edid->display_type;
-	connector->display_info.active_off_supported = edid->pm_active_off;
-	connector->display_info.suspend_supported = edid->pm_suspend;
-	connector->display_info.standby_supported = edid->pm_standby;
+	connector->display_info.gtf_supported = (edid->features & DRM_EDID_FEATURE_DEFAULT_GTF) ? 1 : 0;
+	connector->display_info.standard_color = (edid->features & DRM_EDID_FEATURE_STANDARD_COLOR) ? 1 : 0;
+	connector->display_info.display_type = (edid->features & DRM_EDID_FEATURE_DISPLAY_TYPE) >> 3;
+	connector->display_info.active_off_supported = (edid->features & DRM_EDID_FEATURE_PM_ACTIVE_OFF) ? 1 : 0;
+	connector->display_info.suspend_supported = (edid->features & DRM_EDID_FEATURE_PM_SUSPEND) ? 1 : 0;
+	connector->display_info.standby_supported = (edid->features & DRM_EDID_FEATURE_PM_STANDBY) ? 1 : 0;
 	connector->display_info.gamma = edid->gamma;
 
 	return num_modes;

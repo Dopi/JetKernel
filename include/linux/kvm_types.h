@@ -40,17 +40,31 @@ typedef unsigned long  hfn_t;
 
 typedef hfn_t pfn_t;
 
-struct kvm_pio_request {
-	unsigned long count;
-	int cur_count;
-	struct page *guest_pages[2];
-	unsigned guest_page_offset;
-	int in;
-	int port;
-	int size;
-	int string;
-	int down;
-	int rep;
+union kvm_ioapic_redirect_entry {
+	u64 bits;
+	struct {
+		u8 vector;
+		u8 delivery_mode:3;
+		u8 dest_mode:1;
+		u8 delivery_status:1;
+		u8 polarity:1;
+		u8 remote_irr:1;
+		u8 trig_mode:1;
+		u8 mask:1;
+		u8 reserve:7;
+		u8 reserved[4];
+		u8 dest_id;
+	} fields;
+};
+
+struct kvm_lapic_irq {
+	u32 vector;
+	u32 delivery_mode;
+	u32 dest_mode;
+	u32 level;
+	u32 trig_mode;
+	u32 shorthand;
+	u32 dest_id;
 };
 
 #endif /* __KVM_TYPES_H__ */

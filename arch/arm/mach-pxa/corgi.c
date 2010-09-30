@@ -23,6 +23,7 @@
 #include <linux/pm.h>
 #include <linux/gpio.h>
 #include <linux/backlight.h>
+#include <linux/i2c.h>
 #include <linux/io.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/ads7846.h>
@@ -41,10 +42,8 @@
 #include <asm/mach/map.h>
 #include <asm/mach/irq.h>
 
-#include <mach/pxa-regs.h>
-#include <mach/pxa2xx-regs.h>
-#include <mach/mfp-pxa25x.h>
-#include <mach/i2c.h>
+#include <mach/pxa25x.h>
+#include <plat/i2c.h>
 #include <mach/irda.h>
 #include <mach/mmc.h>
 #include <mach/udc.h>
@@ -429,21 +428,26 @@ static struct pxa2xx_spi_master corgi_spi_info = {
 	.num_chipselect	= 3,
 };
 
+static void corgi_wait_for_hsync(void)
+{
+	while (gpio_get_value(CORGI_GPIO_HSYNC))
+		cpu_relax();
+
+	while (!gpio_get_value(CORGI_GPIO_HSYNC))
+		cpu_relax();
+}
+
 static struct ads7846_platform_data corgi_ads7846_info = {
 	.model			= 7846,
 	.vref_delay_usecs	= 100,
 	.x_plate_ohms		= 419,
 	.y_plate_ohms		= 486,
 	.gpio_pendown		= CORGI_GPIO_TP_INT,
+	.wait_for_sync		= corgi_wait_for_hsync,
 };
 
-static void corgi_ads7846_cs(u32 command)
-{
-	gpio_set_value(CORGI_GPIO_ADS7846_CS, !(command == PXA2XX_CS_ASSERT));
-}
-
 static struct pxa2xx_spi_chip corgi_ads7846_chip = {
-	.cs_control	= corgi_ads7846_cs,
+	.gpio_cs	= CORGI_GPIO_ADS7846_CS,
 };
 
 static void corgi_bl_kick_battery(void)
@@ -467,22 +471,12 @@ static struct corgi_lcd_platform_data corgi_lcdcon_info = {
 	.kick_battery		= corgi_bl_kick_battery,
 };
 
-static void corgi_lcdcon_cs(u32 command)
-{
-	gpio_set_value(CORGI_GPIO_LCDCON_CS, !(command == PXA2XX_CS_ASSERT));
-}
-
 static struct pxa2xx_spi_chip corgi_lcdcon_chip = {
-	.cs_control	= corgi_lcdcon_cs,
+	.gpio_cs	= CORGI_GPIO_LCDCON_CS,
 };
 
-static void corgi_max1111_cs(u32 command)
-{
-	gpio_set_value(CORGI_GPIO_MAX1111_CS, !(command == PXA2XX_CS_ASSERT));
-}
-
 static struct pxa2xx_spi_chip corgi_max1111_chip = {
-	.cs_control	= corgi_max1111_cs,
+	.gpio_cs	= CORGI_GPIO_MAX1111_CS,
 };
 
 static struct spi_board_info corgi_spi_devices[] = {
@@ -512,32 +506,8 @@ static struct spi_board_info corgi_spi_devices[] = {
 
 static void __init corgi_init_spi(void)
 {
-	int err;
-
-	err = gpio_request(CORGI_GPIO_ADS7846_CS, "ADS7846_CS");
-	if (err)
-		return;
-
-	err = gpio_request(CORGI_GPIO_LCDCON_CS, "LCDCON_CS");
-	if (err)
-		goto err_free_1;
-
-	err = gpio_request(CORGI_GPIO_MAX1111_CS, "MAX1111_CS");
-	if (err)
-		goto err_free_2;
-
-	gpio_direction_output(CORGI_GPIO_ADS7846_CS, 1);
-	gpio_direction_output(CORGI_GPIO_LCDCON_CS, 1);
-	gpio_direction_output(CORGI_GPIO_MAX1111_CS, 1);
-
 	pxa2xx_set_spi_info(1, &corgi_spi_info);
 	spi_register_board_info(ARRAY_AND_SIZE(corgi_spi_devices));
-	return;
-
-err_free_2:
-	gpio_free(CORGI_GPIO_LCDCON_CS);
-err_free_1:
-	gpio_free(CORGI_GPIO_ADS7846_CS);
 }
 #else
 static inline void corgi_init_spi(void) {}
@@ -631,22 +601,26 @@ static struct platform_device *devices[] __initdata = {
 	&sharpsl_rom_device,
 };
 
+static struct i2c_board_info __initdata corgi_i2c_devices[] = {
+	{ I2C_BOARD_INFO("wm8731", 0x1b) },
+};
+
 static void corgi_poweroff(void)
 {
 	if (!machine_is_corgi())
 		/* Green LED off tells the bootloader to halt */
 		gpio_set_value(CORGI_GPIO_LED_GREEN, 0);
 
-	arm_machine_restart('h');
+	arm_machine_restart('h', NULL);
 }
 
-static void corgi_restart(char mode)
+static void corgi_restart(char mode, const char *cmd)
 {
 	if (!machine_is_corgi())
 		/* Green LED on tells the bootloader to reboot */
 		gpio_set_value(CORGI_GPIO_LED_GREEN, 1);
 
-	arm_machine_restart('h');
+	arm_machine_restart('h', cmd);
 }
 
 static void __init corgi_init(void)
@@ -665,6 +639,7 @@ static void __init corgi_init(void)
 	pxa_set_mci_info(&corgi_mci_platform_data);
 	pxa_set_ficp_info(&corgi_ficp_platform_data);
 	pxa_set_i2c_info(NULL);
+	i2c_register_board_info(0, ARRAY_AND_SIZE(corgi_i2c_devices));
 
 	platform_scoop_config = &corgi_pcmcia_config;
 

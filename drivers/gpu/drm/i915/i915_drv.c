@@ -35,12 +35,15 @@
 
 #include "drm_pciids.h"
 #include <linux/console.h>
+#include "drm_crtc_helper.h"
 
 static unsigned int i915_modeset = -1;
 module_param_named(modeset, i915_modeset, int, 0400);
 
 unsigned int i915_fbpercrtc = 0;
 module_param_named(fbpercrtc, i915_fbpercrtc, int, 0400);
+
+static struct drm_driver driver;
 
 static struct pci_device_id pciidlist[] = {
 	i915_PCI_IDS
@@ -55,8 +58,8 @@ static int i915_suspend(struct drm_device *dev, pm_message_t state)
 	struct drm_i915_private *dev_priv = dev->dev_private;
 
 	if (!dev || !dev_priv) {
-		printk(KERN_ERR "dev: %p, dev_priv: %p\n", dev, dev_priv);
-		printk(KERN_ERR "DRM not initialized, aborting suspend.\n");
+		DRM_ERROR("dev: %p, dev_priv: %p\n", dev, dev_priv);
+		DRM_ERROR("DRM not initialized, aborting suspend.\n");
 		return -ENODEV;
 	}
 
@@ -64,8 +67,6 @@ static int i915_suspend(struct drm_device *dev, pm_message_t state)
 		return 0;
 
 	pci_save_state(dev->pdev);
-
-	i915_save_state(dev);
 
 	/* If KMS is active, we do the leavevt stuff here */
 	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
@@ -75,7 +76,9 @@ static int i915_suspend(struct drm_device *dev, pm_message_t state)
 		drm_irq_uninstall(dev);
 	}
 
-	intel_opregion_free(dev);
+	i915_save_state(dev);
+
+	intel_opregion_free(dev, 1);
 
 	if (state.event == PM_EVENT_SUSPEND) {
 		/* Shut down the device */
@@ -91,15 +94,13 @@ static int i915_resume(struct drm_device *dev)
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	int ret = 0;
 
-	pci_set_power_state(dev->pdev, PCI_D0);
-	pci_restore_state(dev->pdev);
 	if (pci_enable_device(dev->pdev))
 		return -1;
 	pci_set_master(dev->pdev);
 
 	i915_restore_state(dev);
 
-	intel_opregion_init(dev);
+	intel_opregion_init(dev, 1);
 
 	/* KMS EnterVT equivalent */
 	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
@@ -113,8 +114,42 @@ static int i915_resume(struct drm_device *dev)
 
 		drm_irq_install(dev);
 	}
+	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
+		/* Resume the modeset for every activated CRTC */
+		drm_helper_resume_force_mode(dev);
+	}
 
 	return ret;
+}
+
+static int __devinit
+i915_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
+{
+	return drm_get_dev(pdev, ent, &driver);
+}
+
+static void
+i915_pci_remove(struct pci_dev *pdev)
+{
+	struct drm_device *dev = pci_get_drvdata(pdev);
+
+	drm_put_dev(dev);
+}
+
+static int
+i915_pci_suspend(struct pci_dev *pdev, pm_message_t state)
+{
+	struct drm_device *dev = pci_get_drvdata(pdev);
+
+	return i915_suspend(dev, state);
+}
+
+static int
+i915_pci_resume(struct pci_dev *pdev)
+{
+	struct drm_device *dev = pci_get_drvdata(pdev);
+
+	return i915_resume(dev);
 }
 
 static struct vm_operations_struct i915_gem_vm_ops = {
@@ -150,8 +185,10 @@ static struct drm_driver driver = {
 	.get_reg_ofs = drm_core_get_reg_ofs,
 	.master_create = i915_master_create,
 	.master_destroy = i915_master_destroy,
-	.proc_init = i915_gem_proc_init,
-	.proc_cleanup = i915_gem_proc_cleanup,
+#if defined(CONFIG_DEBUG_FS)
+	.debugfs_init = i915_gem_debugfs_init,
+	.debugfs_cleanup = i915_gem_debugfs_cleanup,
+#endif
 	.gem_init_object = i915_gem_init_object,
 	.gem_free_object = i915_gem_free_object,
 	.gem_vm_ops = &i915_gem_vm_ops,
@@ -172,6 +209,12 @@ static struct drm_driver driver = {
 	.pci_driver = {
 		 .name = DRIVER_NAME,
 		 .id_table = pciidlist,
+		 .probe = i915_pci_probe,
+		 .remove = i915_pci_remove,
+#ifdef CONFIG_PM
+		 .resume = i915_pci_resume,
+		 .suspend = i915_pci_suspend,
+#endif
 	},
 
 	.name = DRIVER_NAME,

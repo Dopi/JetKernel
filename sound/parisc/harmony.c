@@ -935,7 +935,7 @@ snd_harmony_create(struct snd_card *card,
 	h->iobase = ioremap_nocache(padev->hpa.start, HARMONY_SIZE);
 	if (h->iobase == NULL) {
 		printk(KERN_ERR PFX "unable to remap hpa 0x%lx\n",
-		       padev->hpa.start);
+		       (unsigned long)padev->hpa.start);
 		err = -EBUSY;
 		goto free_and_ret;
 	}
@@ -975,9 +975,9 @@ snd_harmony_probe(struct parisc_device *padev)
 	struct snd_card *card;
 	struct snd_harmony *h;
 
-	card = snd_card_new(index, id, THIS_MODULE, 0);
-	if (card == NULL)
-		return -ENOMEM;
+	err = snd_card_create(index, id, THIS_MODULE, 0, &card);
+	if (err < 0)
+		return err;
 
 	err = snd_harmony_create(card, padev, &h);
 	if (err < 0)
@@ -1020,7 +1020,7 @@ static struct parisc_driver snd_harmony_driver = {
 	.name = "harmony",
 	.id_table = snd_harmony_devtable,
 	.probe = snd_harmony_probe,
-	.remove = snd_harmony_remove,
+	.remove = __devexit_p(snd_harmony_remove),
 };
 
 static int __init 

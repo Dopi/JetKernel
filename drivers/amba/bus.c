@@ -207,10 +207,20 @@ int amba_device_register(struct amba_device *dev, struct resource *parent)
 	void __iomem *tmp;
 	int i, ret;
 
+	device_initialize(&dev->dev);
+
+	/*
+	 * Copy from device_add
+	 */
+	if (dev->dev.init_name) {
+		dev_set_name(&dev->dev, "%s", dev->dev.init_name);
+		dev->dev.init_name = NULL;
+	}
+
 	dev->dev.release = amba_device_release;
 	dev->dev.bus = &amba_bustype;
 	dev->dev.dma_mask = &dev->dma_mask;
-	dev->res.name = dev->dev.bus_id;
+	dev->res.name = dev_name(&dev->dev);
 
 	if (!dev->dev.coherent_dma_mask && dev->dma_mask)
 		dev_warn(&dev->dev, "coherent dma mask is unset\n");
@@ -240,7 +250,7 @@ int amba_device_register(struct amba_device *dev, struct resource *parent)
 		goto err_release;
 	}
 
-	ret = device_register(&dev->dev);
+	ret = device_add(&dev->dev);
 	if (ret)
 		goto err_release;
 
@@ -294,7 +304,7 @@ static int amba_find_match(struct device *dev, void *data)
 	if (d->parent)
 		r &= d->parent == dev->parent;
 	if (d->busid)
-		r &= strcmp(dev->bus_id, d->busid) == 0;
+		r &= strcmp(dev_name(dev), d->busid) == 0;
 
 	if (r) {
 		get_device(dev);

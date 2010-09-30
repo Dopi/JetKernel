@@ -80,12 +80,12 @@ static const struct avset_video_mode {
 	{     0, }, /* auto */
 	{YUV444, XRGB, PS3AV_CMD_VIDEO_VID_480I,       A_N,  720,  480},
 	{YUV444, XRGB, PS3AV_CMD_VIDEO_VID_480P,       A_N,  720,  480},
-	{YUV444, XRGB, PS3AV_CMD_VIDEO_VID_720P_60HZ,  A_N, 1280,  720},
+	{YUV444, XRGB, PS3AV_CMD_VIDEO_VID_720P_60HZ,  A_W, 1280,  720},
 	{YUV444, XRGB, PS3AV_CMD_VIDEO_VID_1080I_60HZ, A_W, 1920, 1080},
 	{YUV444, XRGB, PS3AV_CMD_VIDEO_VID_1080P_60HZ, A_W, 1920, 1080},
 	{YUV444, XRGB, PS3AV_CMD_VIDEO_VID_576I,       A_N,  720,  576},
 	{YUV444, XRGB, PS3AV_CMD_VIDEO_VID_576P,       A_N,  720,  576},
-	{YUV444, XRGB, PS3AV_CMD_VIDEO_VID_720P_50HZ,  A_N, 1280,  720},
+	{YUV444, XRGB, PS3AV_CMD_VIDEO_VID_720P_50HZ,  A_W, 1280,  720},
 	{YUV444, XRGB, PS3AV_CMD_VIDEO_VID_1080I_50HZ, A_W, 1920, 1080},
 	{YUV444, XRGB, PS3AV_CMD_VIDEO_VID_1080P_50HZ, A_W, 1920, 1080},
 	{  RGB8, XRGB, PS3AV_CMD_VIDEO_VID_WXGA,       A_W, 1280,  768},
@@ -838,7 +838,7 @@ static int ps3av_get_hw_conf(struct ps3av *ps3av)
 }
 
 /* set mode using id */
-int ps3av_set_video_mode(u32 id)
+int ps3av_set_video_mode(int id)
 {
 	int size;
 	u32 option;
@@ -937,10 +937,10 @@ int ps3av_audio_mute(int mute)
 
 EXPORT_SYMBOL_GPL(ps3av_audio_mute);
 
-static int ps3av_probe(struct ps3_system_bus_device *dev)
+static int __devinit ps3av_probe(struct ps3_system_bus_device *dev)
 {
 	int res;
-	u32 id;
+	int id;
 
 	dev_dbg(&dev->core, " -> %s:%d\n", __func__, __LINE__);
 	dev_dbg(&dev->core, "  timeout=%d\n", timeout);
@@ -962,8 +962,10 @@ static int ps3av_probe(struct ps3_system_bus_device *dev)
 	init_completion(&ps3av->done);
 	complete(&ps3av->done);
 	ps3av->wq = create_singlethread_workqueue("ps3avd");
-	if (!ps3av->wq)
+	if (!ps3av->wq) {
+		res = -ENOMEM;
 		goto fail;
+	}
 
 	switch (ps3_os_area_get_av_multi_out()) {
 	case PS3_PARAM_AV_MULTI_OUT_NTSC:
@@ -994,6 +996,12 @@ static int ps3av_probe(struct ps3_system_bus_device *dev)
 		safe_mode = 1;
 #endif /* CONFIG_FB */
 	id = ps3av_auto_videomode(&ps3av->av_hw_conf);
+	if (id < 0) {
+		printk(KERN_ERR "%s: invalid id :%d\n", __func__, id);
+		res = -EINVAL;
+		goto fail;
+	}
+
 	safe_mode = 0;
 
 	mutex_lock(&ps3av->mutex);
@@ -1007,7 +1015,7 @@ static int ps3av_probe(struct ps3_system_bus_device *dev)
 fail:
 	kfree(ps3av);
 	ps3av = NULL;
-	return -ENOMEM;
+	return res;
 }
 
 static int ps3av_remove(struct ps3_system_bus_device *dev)
@@ -1040,7 +1048,7 @@ static struct ps3_vuart_port_driver ps3av_driver = {
 	.shutdown = ps3av_shutdown,
 };
 
-static int ps3av_module_init(void)
+static int __init ps3av_module_init(void)
 {
 	int error;
 

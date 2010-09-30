@@ -159,7 +159,7 @@ static void eql_timer(unsigned long param)
 	add_timer(&eql->timer);
 }
 
-static char version[] __initdata =
+static const char version[] __initconst =
 	"Equalizer2002: Simon Janes (simon@ncm.com) and David S. Miller (davem@redhat.com)\n";
 
 static const struct net_device_ops eql_netdev_ops = {
@@ -194,6 +194,7 @@ static void __init eql_setup(struct net_device *dev)
 
 	dev->type       	= ARPHRD_SLIP;
 	dev->tx_queue_len 	= 5;		/* Hands them off fast */
+	dev->priv_flags	       &= ~IFF_XMIT_DST_RELEASE;
 }
 
 static int eql_open(struct net_device *dev)
@@ -541,6 +542,8 @@ static int eql_s_slave_cfg(struct net_device *dev, slave_config_t __user *scp)
 		}
 	}
 	spin_unlock_bh(&eql->queue.lock);
+
+	dev_put(slave_dev);
 
 	return ret;
 }

@@ -18,6 +18,7 @@
 #include <linux/types.h>
 #include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
+#include <linux/device.h>
 #include <linux/rio.h>
 #include <linux/rio_drv.h>
 #include <linux/of_platform.h>
@@ -159,6 +160,7 @@ struct rio_msg_rx_ring {
 };
 
 struct rio_priv {
+	struct device *dev;
 	void __iomem *regs_win;
 	struct rio_atmu_regs __iomem *atmu_regs;
 	struct rio_atmu_regs __iomem *maint_atmu_regs;
@@ -484,13 +486,13 @@ int rio_open_outb_mbox(struct rio_mport *mport, void *dev_id, int mbox, int entr
 
 	for (i = 0; i < priv->msg_tx_ring.size; i++) {
 		priv->msg_tx_ring.virt_buffer[i] =
-			dma_alloc_coherent(NULL, RIO_MSG_BUFFER_SIZE,
+			dma_alloc_coherent(priv->dev, RIO_MSG_BUFFER_SIZE,
 				&priv->msg_tx_ring.phys_buffer[i], GFP_KERNEL);
 		if (!priv->msg_tx_ring.virt_buffer[i]) {
 			rc = -ENOMEM;
 			for (j = 0; j < priv->msg_tx_ring.size; j++)
 				if (priv->msg_tx_ring.virt_buffer[j])
-					dma_free_coherent(NULL,
+					dma_free_coherent(priv->dev,
 							RIO_MSG_BUFFER_SIZE,
 							priv->msg_tx_ring.
 							virt_buffer[j],
@@ -501,7 +503,7 @@ int rio_open_outb_mbox(struct rio_mport *mport, void *dev_id, int mbox, int entr
 	}
 
 	/* Initialize outbound message descriptor ring */
-	priv->msg_tx_ring.virt = dma_alloc_coherent(NULL,
+	priv->msg_tx_ring.virt = dma_alloc_coherent(priv->dev,
 				priv->msg_tx_ring.size * RIO_MSG_DESC_SIZE,
 				&priv->msg_tx_ring.phys, GFP_KERNEL);
 	if (!priv->msg_tx_ring.virt) {
@@ -549,12 +551,13 @@ int rio_open_outb_mbox(struct rio_mport *mport, void *dev_id, int mbox, int entr
 	return rc;
 
       out_irq:
-	dma_free_coherent(NULL, priv->msg_tx_ring.size * RIO_MSG_DESC_SIZE,
+	dma_free_coherent(priv->dev,
+			  priv->msg_tx_ring.size * RIO_MSG_DESC_SIZE,
 			  priv->msg_tx_ring.virt, priv->msg_tx_ring.phys);
 
       out_dma:
 	for (i = 0; i < priv->msg_tx_ring.size; i++)
-		dma_free_coherent(NULL, RIO_MSG_BUFFER_SIZE,
+		dma_free_coherent(priv->dev, RIO_MSG_BUFFER_SIZE,
 				  priv->msg_tx_ring.virt_buffer[i],
 				  priv->msg_tx_ring.phys_buffer[i]);
 
@@ -576,7 +579,8 @@ void rio_close_outb_mbox(struct rio_mport *mport, int mbox)
 	out_be32(&priv->msg_regs->omr, 0);
 
 	/* Free ring */
-	dma_free_coherent(NULL, priv->msg_tx_ring.size * RIO_MSG_DESC_SIZE,
+	dma_free_coherent(priv->dev,
+			  priv->msg_tx_ring.size * RIO_MSG_DESC_SIZE,
 			  priv->msg_tx_ring.virt, priv->msg_tx_ring.phys);
 
 	/* Free interrupt */
@@ -654,7 +658,7 @@ int rio_open_inb_mbox(struct rio_mport *mport, void *dev_id, int mbox, int entri
 		priv->msg_rx_ring.virt_buffer[i] = NULL;
 
 	/* Initialize inbound message ring */
-	priv->msg_rx_ring.virt = dma_alloc_coherent(NULL,
+	priv->msg_rx_ring.virt = dma_alloc_coherent(priv->dev,
 				priv->msg_rx_ring.size * RIO_MAX_MSG_SIZE,
 				&priv->msg_rx_ring.phys, GFP_KERNEL);
 	if (!priv->msg_rx_ring.virt) {
@@ -673,7 +677,7 @@ int rio_open_inb_mbox(struct rio_mport *mport, void *dev_id, int mbox, int entri
 	rc = request_irq(IRQ_RIO_RX(mport), fsl_rio_rx_handler, 0,
 			 "msg_rx", (void *)mport);
 	if (rc < 0) {
-		dma_free_coherent(NULL, RIO_MSG_BUFFER_SIZE,
+		dma_free_coherent(priv->dev, RIO_MSG_BUFFER_SIZE,
 				  priv->msg_tx_ring.virt_buffer[i],
 				  priv->msg_tx_ring.phys_buffer[i]);
 		goto out;
@@ -713,7 +717,7 @@ void rio_close_inb_mbox(struct rio_mport *mport, int mbox)
 	out_be32(&priv->msg_regs->imr, 0);
 
 	/* Free ring */
-	dma_free_coherent(NULL, priv->msg_rx_ring.size * RIO_MAX_MSG_SIZE,
+	dma_free_coherent(priv->dev, priv->msg_rx_ring.size * RIO_MAX_MSG_SIZE,
 			  priv->msg_rx_ring.virt, priv->msg_rx_ring.phys);
 
 	/* Free interrupt */
@@ -890,7 +894,7 @@ static int fsl_rio_doorbell_init(struct rio_mport *mport)
 	}
 
 	/* Initialize inbound doorbells */
-	priv->dbell_ring.virt = dma_alloc_coherent(NULL, 512 *
+	priv->dbell_ring.virt = dma_alloc_coherent(priv->dev, 512 *
 		    DOORBELL_MESSAGE_SIZE, &priv->dbell_ring.phys, GFP_KERNEL);
 	if (!priv->dbell_ring.virt) {
 		printk(KERN_ERR "RIO: unable allocate inbound doorbell ring\n");
@@ -911,7 +915,7 @@ static int fsl_rio_doorbell_init(struct rio_mport *mport)
 			 "dbell_rx", (void *)mport);
 	if (rc < 0) {
 		iounmap(priv->dbell_win);
-		dma_free_coherent(NULL, 512 * DOORBELL_MESSAGE_SIZE,
+		dma_free_coherent(priv->dev, 512 * DOORBELL_MESSAGE_SIZE,
 				  priv->dbell_ring.virt, priv->dbell_ring.phys);
 		printk(KERN_ERR
 		       "MPC85xx RIO: unable to request inbound doorbell irq");
@@ -961,7 +965,7 @@ static inline void fsl_rio_info(struct device *dev, u32 ccsr)
 			break;
 		default:
 			str = "Unknown";
-			break;;
+			break;
 		}
 		dev_info(dev, "Hardware port width: %s\n", str);
 
@@ -1022,8 +1026,7 @@ int fsl_rio_setup(struct of_device *dev)
 		return -EFAULT;
 	}
 	dev_info(&dev->dev, "Of-device full name %s\n", dev->node->full_name);
-	dev_info(&dev->dev, "Regs start 0x%08x size 0x%08x\n",	regs.start,
-						regs.end - regs.start + 1);
+	dev_info(&dev->dev, "Regs: %pR\n", &regs);
 
 	dt_range = of_get_property(dev->node, "ranges", &rlen);
 	if (!dt_range) {
@@ -1073,8 +1076,9 @@ int fsl_rio_setup(struct of_device *dev)
 
 	INIT_LIST_HEAD(&port->dbells);
 	port->iores.start = law_start;
-	port->iores.end = law_start + law_size;
+	port->iores.end = law_start + law_size - 1;
 	port->iores.flags = IORESOURCE_MEM;
+	port->iores.name = "rio_io_win";
 
 	priv->bellirq = irq_of_parse_and_map(dev->node, 2);
 	priv->txirq = irq_of_parse_and_map(dev->node, 3);
@@ -1086,6 +1090,8 @@ int fsl_rio_setup(struct of_device *dev)
 	rio_init_mbox_res(&port->riores[RIO_INB_MBOX_RESOURCE], 0, 0);
 	rio_init_mbox_res(&port->riores[RIO_OUTB_MBOX_RESOURCE], 0, 0);
 	strcpy(port->name, "RIO0 mport");
+
+	priv->dev = &dev->dev;
 
 	port->ops = ops;
 	port->host_deviceid = fsl_rio_get_hdid(port->id);
@@ -1150,14 +1156,15 @@ int fsl_rio_setup(struct of_device *dev)
 		out_be32((priv->regs_win + RIO_ISR_AACR), RIO_ISR_AACR_AA);
 
 	/* Configure maintenance transaction window */
-	out_be32(&priv->maint_atmu_regs->rowbar, 0x000c0000);
-	out_be32(&priv->maint_atmu_regs->rowar, 0x80077015);
+	out_be32(&priv->maint_atmu_regs->rowbar, law_start >> 12);
+	out_be32(&priv->maint_atmu_regs->rowar, 0x80077015);	/* 4M */
 
 	priv->maint_win = ioremap(law_start, RIO_MAINT_WIN_SIZE);
 
 	/* Configure outbound doorbell window */
-	out_be32(&priv->dbell_atmu_regs->rowbar, 0x000c0400);
-	out_be32(&priv->dbell_atmu_regs->rowar, 0x8004200b);
+	out_be32(&priv->dbell_atmu_regs->rowbar,
+			(law_start + RIO_MAINT_WIN_SIZE) >> 12);
+	out_be32(&priv->dbell_atmu_regs->rowar, 0x8004200b);	/* 4k */
 	fsl_rio_doorbell_init(port);
 
 	return 0;

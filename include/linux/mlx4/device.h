@@ -155,8 +155,9 @@ enum mlx4_qp_region {
 };
 
 enum mlx4_port_type {
-	MLX4_PORT_TYPE_IB	= 1 << 0,
-	MLX4_PORT_TYPE_ETH	= 1 << 1,
+	MLX4_PORT_TYPE_IB	= 1,
+	MLX4_PORT_TYPE_ETH	= 2,
+	MLX4_PORT_TYPE_AUTO	= 3
 };
 
 enum mlx4_special_vlan_idx {
@@ -209,6 +210,7 @@ struct mlx4_caps {
 	int			num_comp_vectors;
 	int			num_mpts;
 	int			num_mtt_segs;
+	int			mtts_per_seg;
 	int			fmr_reserved_mtts;
 	int			reserved_mtts;
 	int			reserved_mrws;
@@ -237,6 +239,7 @@ struct mlx4_caps {
 	enum mlx4_port_type	port_type[MLX4_MAX_PORTS + 1];
 	u8			supported_type[MLX4_MAX_PORTS + 1];
 	u32			port_mask;
+	enum mlx4_port_type	possible_type[MLX4_MAX_PORTS + 1];
 };
 
 struct mlx4_buf_list {

@@ -17,8 +17,7 @@
     </authorgroup>
 
     <copyright>
-      <year>2007</year>
-      <year>2008</year>
+      <year>2007-2009</year>
       <holder>Johannes Berg</holder>
     </copyright>
 
@@ -146,7 +145,6 @@ usage should require reading the full document.
         interface in STA mode at first!
       </para>
 !Finclude/net/mac80211.h ieee80211_if_init_conf
-!Finclude/net/mac80211.h ieee80211_if_conf
     </chapter>
 
     <chapter id="rx-tx">
@@ -165,8 +163,8 @@ usage should require reading the full document.
 !Pinclude/net/mac80211.h Frame format
       </sect1>
       <sect1>
-        <title>Alignment issues</title>
-        <para>TBD</para>
+        <title>Packet alignment</title>
+!Pnet/mac80211/rx.c Packet alignment
       </sect1>
       <sect1>
         <title>Calling into mac80211 from interrupts</title>
@@ -186,8 +184,6 @@ usage should require reading the full document.
 !Finclude/net/mac80211.h ieee80211_ctstoself_get
 !Finclude/net/mac80211.h ieee80211_ctstoself_duration
 !Finclude/net/mac80211.h ieee80211_generic_frame_duration
-!Finclude/net/mac80211.h ieee80211_get_hdrlen_from_skb
-!Finclude/net/mac80211.h ieee80211_hdrlen
 !Finclude/net/mac80211.h ieee80211_wake_queue
 !Finclude/net/mac80211.h ieee80211_stop_queue
 !Finclude/net/mac80211.h ieee80211_wake_queues
@@ -221,6 +217,17 @@ usage should require reading the full document.
 !Finclude/net/mac80211.h ieee80211_key_conf
 !Finclude/net/mac80211.h ieee80211_key_alg
 !Finclude/net/mac80211.h ieee80211_key_flags
+    </chapter>
+
+    <chapter id="powersave">
+      <title>Powersave support</title>
+!Pinclude/net/mac80211.h Powersave support
+    </chapter>
+
+    <chapter id="beacon-filter">
+      <title>Beacon filter support</title>
+!Pinclude/net/mac80211.h Beacon filter support
+!Finclude/net/mac80211.h ieee80211_beacon_loss
     </chapter>
 
     <chapter id="qos">

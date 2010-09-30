@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003 - 2006 NetXen, Inc.
+ * Copyright (C) 2003 - 2009 NetXen, Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or
@@ -22,12 +22,9 @@
  *
  * Contact Information:
  *    info@netxen.com
- * NetXen,
- * 3965 Freedom Circle, Fourth floor,
- * Santa Clara, CA 95054
- *
- *
- * Provides access to the Network Interface Unit h/w block.
+ * NetXen Inc,
+ * 18922 Forge Drive
+ * Cupertino, CA 95014-0701
  *
  */
 
@@ -46,8 +43,7 @@ static int phy_lock(struct netxen_adapter *adapter)
 	int done = 0, timeout = 0;
 
 	while (!done) {
-		done = netxen_nic_reg_read(adapter,
-				NETXEN_PCIE_REG(PCIE_SEM3_LOCK));
+		done = NXRD32(adapter, NETXEN_PCIE_REG(PCIE_SEM3_LOCK));
 		if (done == 1)
 			break;
 		if (timeout >= phy_lock_timeout) {
@@ -62,8 +58,7 @@ static int phy_lock(struct netxen_adapter *adapter)
 		}
 	}
 
-	netxen_crb_writelit_adapter(adapter,
-			NETXEN_PHY_LOCK_ID, PHY_LOCK_DRIVER);
+	NXWR32(adapter, NETXEN_PHY_LOCK_ID, PHY_LOCK_DRIVER);
 	return 0;
 }
 
@@ -108,9 +103,7 @@ int netxen_niu_gbe_phy_read(struct netxen_adapter *adapter, long reg,
 	 * so it cannot be in reset
 	 */
 
-	if (adapter->hw_read_wx(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(0),
-				  &mac_cfg0, 4))
-		return -EIO;
+	mac_cfg0 = NXRD32(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(0));
 	if (netxen_gb_get_soft_reset(mac_cfg0)) {
 		__u32 temp;
 		temp = 0;
@@ -118,9 +111,7 @@ int netxen_niu_gbe_phy_read(struct netxen_adapter *adapter, long reg,
 		netxen_gb_rx_reset_pb(temp);
 		netxen_gb_tx_reset_mac(temp);
 		netxen_gb_rx_reset_mac(temp);
-		if (adapter->hw_write_wx(adapter,
-					   NETXEN_NIU_GB_MAC_CONFIG_0(0),
-					   &temp, 4))
+		if (NXWR32(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(0), temp))
 			return -EIO;
 		restore = 1;
 	}
@@ -128,43 +119,32 @@ int netxen_niu_gbe_phy_read(struct netxen_adapter *adapter, long reg,
 	address = 0;
 	netxen_gb_mii_mgmt_reg_addr(address, reg);
 	netxen_gb_mii_mgmt_phy_addr(address, phy);
-	if (adapter->hw_write_wx(adapter, NETXEN_NIU_GB_MII_MGMT_ADDR(0),
-				   &address, 4))
+	if (NXWR32(adapter, NETXEN_NIU_GB_MII_MGMT_ADDR(0), address))
 		return -EIO;
 	command = 0;		/* turn off any prior activity */
-	if (adapter->hw_write_wx(adapter, NETXEN_NIU_GB_MII_MGMT_COMMAND(0),
-				   &command, 4))
+	if (NXWR32(adapter, NETXEN_NIU_GB_MII_MGMT_COMMAND(0), command))
 		return -EIO;
 	/* send read command */
 	netxen_gb_mii_mgmt_set_read_cycle(command);
-	if (adapter->hw_write_wx(adapter, NETXEN_NIU_GB_MII_MGMT_COMMAND(0),
-				   &command, 4))
+	if (NXWR32(adapter, NETXEN_NIU_GB_MII_MGMT_COMMAND(0), command))
 		return -EIO;
 
 	status = 0;
 	do {
-		if (adapter->hw_read_wx(adapter,
-					  NETXEN_NIU_GB_MII_MGMT_INDICATE(0),
-					  &status, 4))
-			return -EIO;
+		status = NXRD32(adapter, NETXEN_NIU_GB_MII_MGMT_INDICATE(0));
 		timeout++;
 	} while ((netxen_get_gb_mii_mgmt_busy(status)
 		  || netxen_get_gb_mii_mgmt_notvalid(status))
 		 && (timeout++ < NETXEN_NIU_PHY_WAITMAX));
 
 	if (timeout < NETXEN_NIU_PHY_WAITMAX) {
-		if (adapter->hw_read_wx(adapter,
-					  NETXEN_NIU_GB_MII_MGMT_STATUS(0),
-					  readval, 4))
-			return -EIO;
+		*readval = NXRD32(adapter, NETXEN_NIU_GB_MII_MGMT_STATUS(0));
 		result = 0;
 	} else
 		result = -1;
 
 	if (restore)
-		if (adapter->hw_write_wx(adapter,
-					   NETXEN_NIU_GB_MAC_CONFIG_0(0),
-					   &mac_cfg0, 4))
+		if (NXWR32(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(0), mac_cfg0))
 			return -EIO;
 	phy_unlock(adapter);
 	return result;
@@ -200,9 +180,7 @@ int netxen_niu_gbe_phy_write(struct netxen_adapter *adapter, long reg,
 	 * cannot be in reset
 	 */
 
-	if (adapter->hw_read_wx(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(0),
-				  &mac_cfg0, 4))
-		return -EIO;
+	mac_cfg0 = NXRD32(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(0));
 	if (netxen_gb_get_soft_reset(mac_cfg0)) {
 		__u32 temp;
 		temp = 0;
@@ -211,35 +189,27 @@ int netxen_niu_gbe_phy_write(struct netxen_adapter *adapter, long reg,
 		netxen_gb_tx_reset_mac(temp);
 		netxen_gb_rx_reset_mac(temp);
 
-		if (adapter->hw_write_wx(adapter,
-					   NETXEN_NIU_GB_MAC_CONFIG_0(0),
-					   &temp, 4))
+		if (NXWR32(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(0), temp))
 			return -EIO;
 		restore = 1;
 	}
 
 	command = 0;		/* turn off any prior activity */
-	if (adapter->hw_write_wx(adapter, NETXEN_NIU_GB_MII_MGMT_COMMAND(0),
-				   &command, 4))
+	if (NXWR32(adapter, NETXEN_NIU_GB_MII_MGMT_COMMAND(0), command))
 		return -EIO;
 
 	address = 0;
 	netxen_gb_mii_mgmt_reg_addr(address, reg);
 	netxen_gb_mii_mgmt_phy_addr(address, phy);
-	if (adapter->hw_write_wx(adapter, NETXEN_NIU_GB_MII_MGMT_ADDR(0),
-				   &address, 4))
+	if (NXWR32(adapter, NETXEN_NIU_GB_MII_MGMT_ADDR(0), address))
 		return -EIO;
 
-	if (adapter->hw_write_wx(adapter, NETXEN_NIU_GB_MII_MGMT_CTRL(0),
-				   &val, 4))
+	if (NXWR32(adapter, NETXEN_NIU_GB_MII_MGMT_CTRL(0), val))
 		return -EIO;
 
 	status = 0;
 	do {
-		if (adapter->hw_read_wx(adapter,
-					  NETXEN_NIU_GB_MII_MGMT_INDICATE(0),
-					  &status, 4))
-			return -EIO;
+		status = NXRD32(adapter, NETXEN_NIU_GB_MII_MGMT_INDICATE(0));
 		timeout++;
 	} while ((netxen_get_gb_mii_mgmt_busy(status))
 		 && (timeout++ < NETXEN_NIU_PHY_WAITMAX));
@@ -251,9 +221,7 @@ int netxen_niu_gbe_phy_write(struct netxen_adapter *adapter, long reg,
 
 	/* restore the state of port 0 MAC in case we tampered with it */
 	if (restore)
-		if (adapter->hw_write_wx(adapter,
-					   NETXEN_NIU_GB_MAC_CONFIG_0(0),
-					   &mac_cfg0, 4))
+		if (NXWR32(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(0), mac_cfg0))
 			return -EIO;
 
 	return result;
@@ -261,7 +229,7 @@ int netxen_niu_gbe_phy_write(struct netxen_adapter *adapter, long reg,
 
 int netxen_niu_xgbe_enable_phy_interrupts(struct netxen_adapter *adapter)
 {
-	netxen_crb_writelit_adapter(adapter, NETXEN_NIU_INT_MASK, 0x3f);
+	NXWR32(adapter, NETXEN_NIU_INT_MASK, 0x3f);
 	return 0;
 }
 
@@ -284,7 +252,7 @@ int netxen_niu_gbe_enable_phy_interrupts(struct netxen_adapter *adapter)
 
 int netxen_niu_xgbe_disable_phy_interrupts(struct netxen_adapter *adapter)
 {
-	netxen_crb_writelit_adapter(adapter, NETXEN_NIU_INT_MASK, 0x7f);
+	NXWR32(adapter, NETXEN_NIU_INT_MASK, 0x7f);
 	return 0;
 }
 
@@ -298,14 +266,6 @@ int netxen_niu_gbe_disable_phy_interrupts(struct netxen_adapter *adapter)
 
 	return result;
 }
-
-#if 0
-int netxen_niu_xgbe_clear_phy_interrupts(struct netxen_adapter *adapter)
-{
-	netxen_crb_writelit_adapter(adapter, NETXEN_NIU_ACTIVE_INT, -1);
-	return 0;
-}
-#endif  /*  0  */
 
 static int netxen_niu_gbe_clear_phy_interrupts(struct netxen_adapter *adapter)
 {
@@ -326,36 +286,27 @@ static int netxen_niu_gbe_clear_phy_interrupts(struct netxen_adapter *adapter)
 static void netxen_niu_gbe_set_mii_mode(struct netxen_adapter *adapter,
 					int port, long enable)
 {
-	netxen_crb_writelit_adapter(adapter, NETXEN_NIU_MODE, 0x2);
-	netxen_crb_writelit_adapter(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port),
-				    0x80000000);
-	netxen_crb_writelit_adapter(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port),
-				    0x0000f0025);
-	netxen_crb_writelit_adapter(adapter, NETXEN_NIU_GB_MAC_CONFIG_1(port),
-				    0xf1ff);
-	netxen_crb_writelit_adapter(adapter,
-				    NETXEN_NIU_GB0_GMII_MODE + (port << 3), 0);
-	netxen_crb_writelit_adapter(adapter,
-				    NETXEN_NIU_GB0_MII_MODE + (port << 3), 1);
-	netxen_crb_writelit_adapter(adapter,
-				    (NETXEN_NIU_GB0_HALF_DUPLEX + port * 4), 0);
-	netxen_crb_writelit_adapter(adapter,
-				    NETXEN_NIU_GB_MII_MGMT_CONFIG(port), 0x7);
+	NXWR32(adapter, NETXEN_NIU_MODE, 0x2);
+	NXWR32(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port), 0x80000000);
+	NXWR32(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port), 0x0000f0025);
+	NXWR32(adapter, NETXEN_NIU_GB_MAC_CONFIG_1(port), 0xf1ff);
+	NXWR32(adapter, NETXEN_NIU_GB0_GMII_MODE + (port << 3), 0);
+	NXWR32(adapter, NETXEN_NIU_GB0_MII_MODE + (port << 3), 1);
+	NXWR32(adapter, (NETXEN_NIU_GB0_HALF_DUPLEX + port * 4), 0);
+	NXWR32(adapter, NETXEN_NIU_GB_MII_MGMT_CONFIG(port), 0x7);
 
 	if (enable) {
 		/*
 		 * Do NOT enable flow control until a suitable solution for
 		 *  shutting down pause frames is found.
 		 */
-		netxen_crb_writelit_adapter(adapter,
-					    NETXEN_NIU_GB_MAC_CONFIG_0(port),
-					    0x5);
+		NXWR32(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port), 0x5);
 	}
 
 	if (netxen_niu_gbe_enable_phy_interrupts(adapter))
-		printk(KERN_ERR PFX "ERROR enabling PHY interrupts\n");
+		printk(KERN_ERR "ERROR enabling PHY interrupts\n");
 	if (netxen_niu_gbe_clear_phy_interrupts(adapter))
-		printk(KERN_ERR PFX "ERROR clearing PHY interrupts\n");
+		printk(KERN_ERR "ERROR clearing PHY interrupts\n");
 }
 
 /*
@@ -364,36 +315,27 @@ static void netxen_niu_gbe_set_mii_mode(struct netxen_adapter *adapter,
 static void netxen_niu_gbe_set_gmii_mode(struct netxen_adapter *adapter,
 					 int port, long enable)
 {
-	netxen_crb_writelit_adapter(adapter, NETXEN_NIU_MODE, 0x2);
-	netxen_crb_writelit_adapter(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port),
-				    0x80000000);
-	netxen_crb_writelit_adapter(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port),
-				    0x0000f0025);
-	netxen_crb_writelit_adapter(adapter, NETXEN_NIU_GB_MAC_CONFIG_1(port),
-				    0xf2ff);
-	netxen_crb_writelit_adapter(adapter,
-				    NETXEN_NIU_GB0_MII_MODE + (port << 3), 0);
-	netxen_crb_writelit_adapter(adapter,
-				    NETXEN_NIU_GB0_GMII_MODE + (port << 3), 1);
-	netxen_crb_writelit_adapter(adapter,
-				    (NETXEN_NIU_GB0_HALF_DUPLEX + port * 4), 0);
-	netxen_crb_writelit_adapter(adapter,
-				    NETXEN_NIU_GB_MII_MGMT_CONFIG(port), 0x7);
+	NXWR32(adapter, NETXEN_NIU_MODE, 0x2);
+	NXWR32(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port), 0x80000000);
+	NXWR32(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port), 0x0000f0025);
+	NXWR32(adapter, NETXEN_NIU_GB_MAC_CONFIG_1(port), 0xf2ff);
+	NXWR32(adapter, NETXEN_NIU_GB0_MII_MODE + (port << 3), 0);
+	NXWR32(adapter, NETXEN_NIU_GB0_GMII_MODE + (port << 3), 1);
+	NXWR32(adapter, (NETXEN_NIU_GB0_HALF_DUPLEX + port * 4), 0);
+	NXWR32(adapter, NETXEN_NIU_GB_MII_MGMT_CONFIG(port), 0x7);
 
 	if (enable) {
 		/*
 		 * Do NOT enable flow control until a suitable solution for
 		 *  shutting down pause frames is found.
 		 */
-		netxen_crb_writelit_adapter(adapter,
-					    NETXEN_NIU_GB_MAC_CONFIG_0(port),
-					    0x5);
+		NXWR32(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port), 0x5);
 	}
 
 	if (netxen_niu_gbe_enable_phy_interrupts(adapter))
-		printk(KERN_ERR PFX "ERROR enabling PHY interrupts\n");
+		printk(KERN_ERR "ERROR enabling PHY interrupts\n");
 	if (netxen_niu_gbe_clear_phy_interrupts(adapter))
-		printk(KERN_ERR PFX "ERROR clearing PHY interrupts\n");
+		printk(KERN_ERR "ERROR clearing PHY interrupts\n");
 }
 
 int netxen_niu_gbe_init_port(struct netxen_adapter *adapter, int port)
@@ -427,25 +369,20 @@ int netxen_niu_gbe_init_port(struct netxen_adapter *adapter, int port)
 			 * plugged in.
 			 */
 
-			netxen_crb_writelit_adapter(adapter,
-						    NETXEN_NIU_GB_MAC_CONFIG_0
-						    (port),
+			NXWR32(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port),
 						    NETXEN_GB_MAC_SOFT_RESET);
-			netxen_crb_writelit_adapter(adapter,
-						    NETXEN_NIU_GB_MAC_CONFIG_0
-						    (port),
-						    NETXEN_GB_MAC_RESET_PROT_BLK
-						    | NETXEN_GB_MAC_ENABLE_TX_RX
-						    |
-						    NETXEN_GB_MAC_PAUSED_FRMS);
+			NXWR32(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port),
+					    NETXEN_GB_MAC_RESET_PROT_BLK |
+					    NETXEN_GB_MAC_ENABLE_TX_RX |
+					    NETXEN_GB_MAC_PAUSED_FRMS);
 			if (netxen_niu_gbe_clear_phy_interrupts(adapter))
-				printk(KERN_ERR PFX
+				printk(KERN_ERR
 				       "ERROR clearing PHY interrupts\n");
 			if (netxen_niu_gbe_enable_phy_interrupts(adapter))
-				printk(KERN_ERR PFX
+				printk(KERN_ERR
 				       "ERROR enabling PHY interrupts\n");
 			if (netxen_niu_gbe_clear_phy_interrupts(adapter))
-				printk(KERN_ERR PFX
+				printk(KERN_ERR
 				       "ERROR clearing PHY interrupts\n");
 			result = -1;
 		}
@@ -458,268 +395,12 @@ int netxen_niu_gbe_init_port(struct netxen_adapter *adapter, int port)
 int netxen_niu_xg_init_port(struct netxen_adapter *adapter, int port)
 {
 	if (NX_IS_REVISION_P2(adapter->ahw.revision_id)) {
-		netxen_crb_writelit_adapter(adapter,
-			NETXEN_NIU_XGE_CONFIG_1+(0x10000*port), 0x1447);
-		netxen_crb_writelit_adapter(adapter,
-			NETXEN_NIU_XGE_CONFIG_0+(0x10000*port), 0x5);
+		NXWR32(adapter, NETXEN_NIU_XGE_CONFIG_1+(0x10000*port), 0x1447);
+		NXWR32(adapter, NETXEN_NIU_XGE_CONFIG_0+(0x10000*port), 0x5);
 	}
 
 	return 0;
 }
-
-#if 0
-/*
- * netxen_niu_gbe_handle_phy_interrupt - Handles GbE PHY interrupts
- * @param enable 0 means don't enable the port
- *		 1 means enable (or re-enable) the port
- */
-int netxen_niu_gbe_handle_phy_interrupt(struct netxen_adapter *adapter,
-					int port, long enable)
-{
-	int result = 0;
-	__u32 int_src;
-
-	printk(KERN_INFO PFX "NETXEN: Handling PHY interrupt on port %d"
-	       " (device enable = %d)\n", (int)port, (int)enable);
-
-	/*
-	 * The read of the PHY INT status will clear the pending
-	 * interrupt status
-	 */
-	if (netxen_niu_gbe_phy_read(adapter,
-				    NETXEN_NIU_GB_MII_MGMT_ADDR_INT_STATUS,
-				    &int_src) != 0)
-		result = -EINVAL;
-	else {
-		printk(KERN_INFO PFX "PHY Interrupt source = 0x%x \n", int_src);
-		if (netxen_get_phy_int_jabber(int_src))
-			printk(KERN_INFO PFX "jabber Interrupt ");
-		if (netxen_get_phy_int_polarity_changed(int_src))
-			printk(KERN_INFO PFX "polarity changed ");
-		if (netxen_get_phy_int_energy_detect(int_src))
-			printk(KERN_INFO PFX "energy detect \n");
-		if (netxen_get_phy_int_downshift(int_src))
-			printk(KERN_INFO PFX "downshift \n");
-		if (netxen_get_phy_int_mdi_xover_changed(int_src))
-			printk(KERN_INFO PFX "mdi_xover_changed ");
-		if (netxen_get_phy_int_fifo_over_underflow(int_src))
-			printk(KERN_INFO PFX "fifo_over_underflow ");
-		if (netxen_get_phy_int_false_carrier(int_src))
-			printk(KERN_INFO PFX "false_carrier ");
-		if (netxen_get_phy_int_symbol_error(int_src))
-			printk(KERN_INFO PFX "symbol_error ");
-		if (netxen_get_phy_int_autoneg_completed(int_src))
-			printk(KERN_INFO PFX "autoneg_completed ");
-		if (netxen_get_phy_int_page_received(int_src))
-			printk(KERN_INFO PFX "page_received ");
-		if (netxen_get_phy_int_duplex_changed(int_src))
-			printk(KERN_INFO PFX "duplex_changed ");
-		if (netxen_get_phy_int_autoneg_error(int_src))
-			printk(KERN_INFO PFX "autoneg_error ");
-		if ((netxen_get_phy_int_speed_changed(int_src))
-		    || (netxen_get_phy_int_link_status_changed(int_src))) {
-			__u32 status;
-
-			printk(KERN_INFO PFX
-			       "speed_changed or link status changed");
-			if (netxen_niu_gbe_phy_read
-			    (adapter,
-			     NETXEN_NIU_GB_MII_MGMT_ADDR_PHY_STATUS,
-			     &status) == 0) {
-				if (netxen_get_phy_speed(status) == 2) {
-					printk
-					    (KERN_INFO PFX "Link speed changed"
-					     " to 1000 Mbps\n");
-					netxen_niu_gbe_set_gmii_mode(adapter,
-								     port,
-								     enable);
-				} else if (netxen_get_phy_speed(status) == 1) {
-					printk
-					    (KERN_INFO PFX "Link speed changed"
-					     " to 100 Mbps\n");
-					netxen_niu_gbe_set_mii_mode(adapter,
-								    port,
-								    enable);
-				} else if (netxen_get_phy_speed(status) == 0) {
-					printk
-					    (KERN_INFO PFX "Link speed changed"
-					     " to 10 Mbps\n");
-					netxen_niu_gbe_set_mii_mode(adapter,
-								    port,
-								    enable);
-				} else {
-					printk(KERN_ERR PFX "ERROR reading "
-					       "PHY status. Invalid speed.\n");
-					result = -1;
-				}
-			} else {
-				printk(KERN_ERR PFX
-				       "ERROR reading PHY status.\n");
-				result = -1;
-			}
-
-		}
-		printk(KERN_INFO "\n");
-	}
-	return result;
-}
-#endif  /*  0  */
-
-/*
- * Return the current station MAC address.
- * Note that the passed-in value must already be in network byte order.
- */
-static int netxen_niu_macaddr_get(struct netxen_adapter *adapter,
-				  netxen_ethernet_macaddr_t * addr)
-{
-	u32 stationhigh;
-	u32 stationlow;
-	int phy = adapter->physical_port;
-	u8 val[8];
-
-	if (addr == NULL)
-		return -EINVAL;
-	if ((phy < 0) || (phy > 3))
-		return -EINVAL;
-
-	if (adapter->hw_read_wx(adapter, NETXEN_NIU_GB_STATION_ADDR_0(phy),
-				  &stationhigh, 4))
-		return -EIO;
-	if (adapter->hw_read_wx(adapter, NETXEN_NIU_GB_STATION_ADDR_1(phy),
-				  &stationlow, 4))
-		return -EIO;
-	((__le32 *)val)[1] = cpu_to_le32(stationhigh);
-	((__le32 *)val)[0] = cpu_to_le32(stationlow);
-
-	memcpy(addr, val + 2, 6);
-
-	return 0;
-}
-
-/*
- * Set the station MAC address.
- * Note that the passed-in value must already be in network byte order.
- */
-int netxen_niu_macaddr_set(struct netxen_adapter *adapter,
-			   netxen_ethernet_macaddr_t addr)
-{
-	u8 temp[4];
-	u32 val;
-	int phy = adapter->physical_port;
-	unsigned char mac_addr[6];
-	int i;
-
-	if (NX_IS_REVISION_P3(adapter->ahw.revision_id))
-		return 0;
-
-	for (i = 0; i < 10; i++) {
-		temp[0] = temp[1] = 0;
-		memcpy(temp + 2, addr, 2);
-		val = le32_to_cpu(*(__le32 *)temp);
-		if (adapter->hw_write_wx(adapter,
-				NETXEN_NIU_GB_STATION_ADDR_1(phy), &val, 4))
-			return -EIO;
-
-		memcpy(temp, ((u8 *) addr) + 2, sizeof(__le32));
-		val = le32_to_cpu(*(__le32 *)temp);
-		if (adapter->hw_write_wx(adapter,
-				NETXEN_NIU_GB_STATION_ADDR_0(phy), &val, 4))
-			return -2;
-
-		netxen_niu_macaddr_get(adapter,
-				       (netxen_ethernet_macaddr_t *) mac_addr);
-		if (memcmp(mac_addr, addr, 6) == 0)
-			break;
-	}
-
-	if (i == 10) {
-		printk(KERN_ERR "%s: cannot set Mac addr for %s\n",
-		       netxen_nic_driver_name, adapter->netdev->name);
-		printk(KERN_ERR "MAC address set: %pM.\n", addr);
-		printk(KERN_ERR "MAC address get: %pM.\n", mac_addr);
-	}
-	return 0;
-}
-
-#if 0
-/* Enable a GbE interface */
-int netxen_niu_enable_gbe_port(struct netxen_adapter *adapter,
-			       int port, netxen_niu_gbe_ifmode_t mode)
-{
-	__u32 mac_cfg0;
-	__u32 mac_cfg1;
-	__u32 mii_cfg;
-
-	if ((port < 0) || (port > NETXEN_NIU_MAX_GBE_PORTS))
-		return -EINVAL;
-
-	mac_cfg0 = 0;
-	netxen_gb_soft_reset(mac_cfg0);
-	if (adapter->hw_write_wx(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port),
-				   &mac_cfg0, 4))
-		return -EIO;
-	mac_cfg0 = 0;
-	netxen_gb_enable_tx(mac_cfg0);
-	netxen_gb_enable_rx(mac_cfg0);
-	netxen_gb_unset_rx_flowctl(mac_cfg0);
-	netxen_gb_tx_reset_pb(mac_cfg0);
-	netxen_gb_rx_reset_pb(mac_cfg0);
-	netxen_gb_tx_reset_mac(mac_cfg0);
-	netxen_gb_rx_reset_mac(mac_cfg0);
-
-	if (adapter->hw_write_wx(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port),
-				   &mac_cfg0, 4))
-		return -EIO;
-	mac_cfg1 = 0;
-	netxen_gb_set_preamblelen(mac_cfg1, 0xf);
-	netxen_gb_set_duplex(mac_cfg1);
-	netxen_gb_set_crc_enable(mac_cfg1);
-	netxen_gb_set_padshort(mac_cfg1);
-	netxen_gb_set_checklength(mac_cfg1);
-	netxen_gb_set_hugeframes(mac_cfg1);
-
-	if (mode == NETXEN_NIU_10_100_MB) {
-		netxen_gb_set_intfmode(mac_cfg1, 1);
-		if (adapter->hw_write_wx(adapter,
-					   NETXEN_NIU_GB_MAC_CONFIG_1(port),
-					   &mac_cfg1, 4))
-			return -EIO;
-
-		/* set mii mode */
-		netxen_crb_writelit_adapter(adapter, NETXEN_NIU_GB0_GMII_MODE +
-					    (port << 3), 0);
-		netxen_crb_writelit_adapter(adapter, NETXEN_NIU_GB0_MII_MODE +
-					    (port << 3), 1);
-
-	} else if (mode == NETXEN_NIU_1000_MB) {
-		netxen_gb_set_intfmode(mac_cfg1, 2);
-		if (adapter->hw_write_wx(adapter,
-					   NETXEN_NIU_GB_MAC_CONFIG_1(port),
-					   &mac_cfg1, 4))
-			return -EIO;
-		/* set gmii mode */
-		netxen_crb_writelit_adapter(adapter, NETXEN_NIU_GB0_MII_MODE +
-					    (port << 3), 0);
-		netxen_crb_writelit_adapter(adapter, NETXEN_NIU_GB0_GMII_MODE +
-					    (port << 3), 1);
-	}
-	mii_cfg = 0;
-	netxen_gb_set_mii_mgmt_clockselect(mii_cfg, 7);
-	if (adapter->hw_write_wx(adapter, NETXEN_NIU_GB_MII_MGMT_CONFIG(port),
-				   &mii_cfg, 4))
-		return -EIO;
-	mac_cfg0 = 0;
-	netxen_gb_enable_tx(mac_cfg0);
-	netxen_gb_enable_rx(mac_cfg0);
-	netxen_gb_unset_rx_flowctl(mac_cfg0);
-	netxen_gb_unset_tx_flowctl(mac_cfg0);
-
-	if (adapter->hw_write_wx(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port),
-				   &mac_cfg0, 4))
-		return -EIO;
-	return 0;
-}
-#endif  /*  0  */
 
 /* Disable a GbE interface */
 int netxen_niu_disable_gbe_port(struct netxen_adapter *adapter)
@@ -734,8 +415,7 @@ int netxen_niu_disable_gbe_port(struct netxen_adapter *adapter)
 		return -EINVAL;
 	mac_cfg0 = 0;
 	netxen_gb_soft_reset(mac_cfg0);
-	if (adapter->hw_write_wx(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port),
-				   &mac_cfg0, 4))
+	if (NXWR32(adapter, NETXEN_NIU_GB_MAC_CONFIG_0(port), mac_cfg0))
 		return -EIO;
 	return 0;
 }
@@ -753,8 +433,8 @@ int netxen_niu_disable_xg_port(struct netxen_adapter *adapter)
 		return -EINVAL;
 
 	mac_cfg = 0;
-	if (adapter->hw_write_wx(adapter,
-		NETXEN_NIU_XGE_CONFIG_0 + (0x10000 * port), &mac_cfg, 4))
+	if (NXWR32(adapter,
+			NETXEN_NIU_XGE_CONFIG_0 + (0x10000 * port), mac_cfg))
 		return -EIO;
 	return 0;
 }
@@ -770,9 +450,7 @@ int netxen_niu_set_promiscuous_mode(struct netxen_adapter *adapter,
 		return -EINVAL;
 
 	/* save previous contents */
-	if (adapter->hw_read_wx(adapter, NETXEN_NIU_GB_DROP_WRONGADDR,
-				  &reg, 4))
-		return -EIO;
+	reg = NXRD32(adapter, NETXEN_NIU_GB_DROP_WRONGADDR);
 	if (mode == NETXEN_NIU_PROMISC_MODE) {
 		switch (port) {
 		case 0:
@@ -808,99 +486,10 @@ int netxen_niu_set_promiscuous_mode(struct netxen_adapter *adapter,
 			return -EIO;
 		}
 	}
-	if (adapter->hw_write_wx(adapter, NETXEN_NIU_GB_DROP_WRONGADDR,
-				   &reg, 4))
+	if (NXWR32(adapter, NETXEN_NIU_GB_DROP_WRONGADDR, reg))
 		return -EIO;
 	return 0;
 }
-
-/*
- * Set the MAC address for an XG port
- * Note that the passed-in value must already be in network byte order.
- */
-int netxen_niu_xg_macaddr_set(struct netxen_adapter *adapter,
-			      netxen_ethernet_macaddr_t addr)
-{
-	int phy = adapter->physical_port;
-	u8 temp[4];
-	u32 val;
-
-	if (NX_IS_REVISION_P3(adapter->ahw.revision_id))
-		return 0;
-
-	if ((phy < 0) || (phy > NETXEN_NIU_MAX_XG_PORTS))
-		return -EIO;
-
-	temp[0] = temp[1] = 0;
-	switch (phy) {
-	case 0:
-	    memcpy(temp + 2, addr, 2);
-	    val = le32_to_cpu(*(__le32 *)temp);
-	    if (adapter->hw_write_wx(adapter, NETXEN_NIU_XGE_STATION_ADDR_0_1,
-				&val, 4))
-		return -EIO;
-
-	    memcpy(&temp, ((u8 *) addr) + 2, sizeof(__le32));
-	    val = le32_to_cpu(*(__le32 *)temp);
-	    if (adapter->hw_write_wx(adapter, NETXEN_NIU_XGE_STATION_ADDR_0_HI,
-				&val, 4))
-		return -EIO;
-	    break;
-
-	case 1:
-	    memcpy(temp + 2, addr, 2);
-	    val = le32_to_cpu(*(__le32 *)temp);
-	    if (adapter->hw_write_wx(adapter, NETXEN_NIU_XG1_STATION_ADDR_0_1,
-				&val, 4))
-		return -EIO;
-
-	    memcpy(&temp, ((u8 *) addr) + 2, sizeof(__le32));
-	    val = le32_to_cpu(*(__le32 *)temp);
-	    if (adapter->hw_write_wx(adapter, NETXEN_NIU_XG1_STATION_ADDR_0_HI,
-				&val, 4))
-		return -EIO;
-	    break;
-
-	default:
-	    printk(KERN_ERR "Unknown port %d\n", phy);
-	    break;
-	}
-
-	return 0;
-}
-
-#if 0
-/*
- * Return the current station MAC address.
- * Note that the passed-in value must already be in network byte order.
- */
-int netxen_niu_xg_macaddr_get(struct netxen_adapter *adapter,
-			      netxen_ethernet_macaddr_t * addr)
-{
-	int phy = adapter->physical_port;
-	u32 stationhigh;
-	u32 stationlow;
-	u8 val[8];
-
-	if (addr == NULL)
-		return -EINVAL;
-	if (phy != 0)
-		return -EINVAL;
-
-	if (adapter->hw_read_wx(adapter, NETXEN_NIU_XGE_STATION_ADDR_0_HI,
-				  &stationhigh, 4))
-		return -EIO;
-	if (adapter->hw_read_wx(adapter, NETXEN_NIU_XGE_STATION_ADDR_0_1,
-				  &stationlow, 4))
-		return -EIO;
-	((__le32 *)val)[1] = cpu_to_le32(stationhigh);
-	((__le32 *)val)[0] = cpu_to_le32(stationlow);
-
-	memcpy(addr, val + 2, 6);
-
-	return 0;
-}
-#endif  /*  0  */
 
 int netxen_niu_xg_set_promiscuous_mode(struct netxen_adapter *adapter,
 		u32 mode)
@@ -911,9 +500,7 @@ int netxen_niu_xg_set_promiscuous_mode(struct netxen_adapter *adapter,
 	if (port > NETXEN_NIU_MAX_XG_PORTS)
 		return -EINVAL;
 
-	if (adapter->hw_read_wx(adapter,
-		NETXEN_NIU_XGE_CONFIG_1 + (0x10000 * port), &reg, 4))
-			return -EIO;
+	reg = NXRD32(adapter, NETXEN_NIU_XGE_CONFIG_1 + (0x10000 * port));
 	if (mode == NETXEN_NIU_PROMISC_MODE)
 		reg = (reg | 0x2000UL);
 	else
@@ -924,8 +511,40 @@ int netxen_niu_xg_set_promiscuous_mode(struct netxen_adapter *adapter,
 	else
 		reg = (reg & ~0x1000UL);
 
-	netxen_crb_writelit_adapter(adapter,
-		NETXEN_NIU_XGE_CONFIG_1 + (0x10000 * port), reg);
+	NXWR32(adapter, NETXEN_NIU_XGE_CONFIG_1 + (0x10000 * port), reg);
+
+	return 0;
+}
+
+int netxen_p2_nic_set_mac_addr(struct netxen_adapter *adapter, u8 *addr)
+{
+	u32 mac_hi, mac_lo;
+	u32 reg_hi, reg_lo;
+
+	u8 phy = adapter->physical_port;
+	u8 phy_count = (adapter->ahw.port_type == NETXEN_NIC_XGBE) ?
+		NETXEN_NIU_MAX_XG_PORTS : NETXEN_NIU_MAX_GBE_PORTS;
+
+	if (phy >= phy_count)
+		return -EINVAL;
+
+	mac_lo = ((u32)addr[0] << 16) | ((u32)addr[1] << 24);
+	mac_hi = addr[2] | ((u32)addr[3] << 8) |
+		((u32)addr[4] << 16) | ((u32)addr[5] << 24);
+
+	if (adapter->ahw.port_type == NETXEN_NIC_XGBE) {
+		reg_lo = NETXEN_NIU_XGE_STATION_ADDR_0_1 + (0x10000 * phy);
+		reg_hi = NETXEN_NIU_XGE_STATION_ADDR_0_HI + (0x10000 * phy);
+	} else {
+		reg_lo = NETXEN_NIU_GB_STATION_ADDR_1(phy);
+		reg_hi = NETXEN_NIU_GB_STATION_ADDR_0(phy);
+	}
+
+	/* write twice to flush */
+	if (NXWR32(adapter, reg_lo, mac_lo) || NXWR32(adapter, reg_hi, mac_hi))
+		return -EIO;
+	if (NXWR32(adapter, reg_lo, mac_lo) || NXWR32(adapter, reg_hi, mac_hi))
+		return -EIO;
 
 	return 0;
 }

@@ -11,21 +11,18 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
-#include <linux/pci.h>
 #include <linux/irq.h>
-#include <linux/mtd/physmap.h>
-#include <linux/mtd/nand.h>
-#include <linux/timer.h>
+#include <linux/mtd/partitions.h>
 #include <linux/ata_platform.h>
 #include <linux/mv643xx_eth.h>
 #include <linux/ethtool.h>
 #include <net/dsa.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
-#include <asm/mach/pci.h>
 #include <mach/kirkwood.h>
-#include <plat/orion_nand.h>
+#include <plat/mvsdio.h>
 #include "common.h"
+#include "mpp.h"
 
 static struct mtd_partition rd88f6281_nand_parts[] = {
 	{
@@ -43,44 +40,23 @@ static struct mtd_partition rd88f6281_nand_parts[] = {
 	},
 };
 
-static struct resource rd88f6281_nand_resource = {
-	.flags		= IORESOURCE_MEM,
-	.start		= KIRKWOOD_NAND_MEM_PHYS_BASE,
-	.end		= KIRKWOOD_NAND_MEM_PHYS_BASE +
-			  KIRKWOOD_NAND_MEM_SIZE - 1,
-};
-
-static struct orion_nand_data rd88f6281_nand_data = {
-	.parts		= rd88f6281_nand_parts,
-	.nr_parts	= ARRAY_SIZE(rd88f6281_nand_parts),
-	.cle		= 0,
-	.ale		= 1,
-	.width		= 8,
-	.chip_delay	= 25,
-};
-
-static struct platform_device rd88f6281_nand_flash = {
-	.name		= "orion_nand",
-	.id		= -1,
-	.dev		= {
-		.platform_data	= &rd88f6281_nand_data,
-	},
-	.resource	= &rd88f6281_nand_resource,
-	.num_resources	= 1,
-};
-
 static struct mv643xx_eth_platform_data rd88f6281_ge00_data = {
 	.phy_addr	= MV643XX_ETH_PHY_NONE,
 	.speed		= SPEED_1000,
 	.duplex		= DUPLEX_FULL,
 };
 
-static struct dsa_platform_data rd88f6281_switch_data = {
+static struct dsa_chip_data rd88f6281_switch_chip_data = {
 	.port_names[0]	= "lan1",
 	.port_names[1]	= "lan2",
 	.port_names[2]	= "lan3",
 	.port_names[3]	= "lan4",
 	.port_names[5]	= "cpu",
+};
+
+static struct dsa_platform_data rd88f6281_switch_plat_data = {
+	.nr_chips	= 1,
+	.chip		= &rd88f6281_switch_chip_data,
 };
 
 static struct mv643xx_eth_platform_data rd88f6281_ge01_data = {
@@ -91,6 +67,15 @@ static struct mv_sata_platform_data rd88f6281_sata_data = {
 	.n_ports	= 2,
 };
 
+static struct mvsdio_platform_data rd88f6281_mvsdio_data = {
+	.gpio_card_detect = 28,
+};
+
+static unsigned int rd88f6281_mpp_config[] __initdata = {
+	MPP28_GPIO,
+	0
+};
+
 static void __init rd88f6281_init(void)
 {
 	u32 dev, rev;
@@ -99,24 +84,24 @@ static void __init rd88f6281_init(void)
 	 * Basic setup. Needs to be called early.
 	 */
 	kirkwood_init();
+	kirkwood_mpp_conf(rd88f6281_mpp_config);
 
+	kirkwood_nand_init(ARRAY_AND_SIZE(rd88f6281_nand_parts), 25);
 	kirkwood_ehci_init();
 
 	kirkwood_ge00_init(&rd88f6281_ge00_data);
 	kirkwood_pcie_id(&dev, &rev);
 	if (rev == MV88F6281_REV_A0) {
-		rd88f6281_switch_data.sw_addr = 10;
+		rd88f6281_switch_chip_data.sw_addr = 10;
 		kirkwood_ge01_init(&rd88f6281_ge01_data);
 	} else {
-		rd88f6281_switch_data.port_names[4] = "wan";
+		rd88f6281_switch_chip_data.port_names[4] = "wan";
 	}
-	kirkwood_ge00_switch_init(&rd88f6281_switch_data, NO_IRQ);
+	kirkwood_ge00_switch_init(&rd88f6281_switch_plat_data, NO_IRQ);
 
-	kirkwood_rtc_init();
 	kirkwood_sata_init(&rd88f6281_sata_data);
+	kirkwood_sdio_init(&rd88f6281_mvsdio_data);
 	kirkwood_uart0_init();
-
-	platform_device_register(&rd88f6281_nand_flash);
 }
 
 static int __init rd88f6281_pci_init(void)

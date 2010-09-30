@@ -352,8 +352,7 @@ static int tw9910_power(struct device *dev, int mode)
 }
 
 static struct sh_mobile_ceu_info sh_mobile_ceu_info = {
-	.flags = SOCAM_MASTER | SOCAM_DATAWIDTH_8 | SOCAM_PCLK_SAMPLE_RISING \
-	| SOCAM_HSYNC_ACTIVE_HIGH | SOCAM_VSYNC_ACTIVE_HIGH,
+	.flags = SH_CEU_FLAG_USE_8BIT_BUS,
 };
 
 static struct resource migor_ceu_resources[] = {
@@ -382,21 +381,6 @@ static struct platform_device migor_ceu_device = {
 	},
 };
 
-static struct ov772x_camera_info ov7725_info = {
-	.buswidth  = SOCAM_DATAWIDTH_8,
-	.link = {
-		.power  = ov7725_power,
-	},
-};
-
-static struct tw9910_video_info tw9910_info = {
-	.buswidth = SOCAM_DATAWIDTH_8,
-	.mpout    = TW9910_MPO_FIELD,
-	.link = {
-		.power  = tw9910_power,
-	}
-};
-
 struct spi_gpio_platform_data sdcard_cn9_platform_data = {
 	.sck = GPIO_PTD0,
 	.mosi = GPIO_PTD1,
@@ -411,16 +395,6 @@ static struct platform_device sdcard_cn9_device = {
 	},
 };
 
-static struct platform_device *migor_devices[] __initdata = {
-	&smc91x_eth_device,
-	&sh_keysc_device,
-	&migor_lcdc_device,
-	&migor_ceu_device,
-	&migor_nor_flash_device,
-	&migor_nand_flash_device,
-	&sdcard_cn9_device,
-};
-
 static struct i2c_board_info migor_i2c_devices[] = {
 	{
 		I2C_BOARD_INFO("rs5c372b", 0x32),
@@ -429,14 +403,64 @@ static struct i2c_board_info migor_i2c_devices[] = {
 		I2C_BOARD_INFO("migor_ts", 0x51),
 		.irq = 38, /* IRQ6 */
 	},
+};
+
+static struct i2c_board_info migor_i2c_camera[] = {
 	{
 		I2C_BOARD_INFO("ov772x", 0x21),
-		.platform_data = &ov7725_info,
 	},
 	{
 		I2C_BOARD_INFO("tw9910", 0x45),
-		.platform_data = &tw9910_info,
 	},
+};
+
+static struct ov772x_camera_info ov7725_info = {
+	.buswidth	= SOCAM_DATAWIDTH_8,
+	.link = {
+		.power		= ov7725_power,
+		.board_info	= &migor_i2c_camera[0],
+		.i2c_adapter_id	= 0,
+		.module_name	= "ov772x",
+	},
+};
+
+static struct tw9910_video_info tw9910_info = {
+	.buswidth	= SOCAM_DATAWIDTH_8,
+	.mpout		= TW9910_MPO_FIELD,
+	.link = {
+		.power		= tw9910_power,
+		.board_info	= &migor_i2c_camera[1],
+		.i2c_adapter_id	= 0,
+		.module_name	= "tw9910",
+	}
+};
+
+static struct platform_device migor_camera[] = {
+	{
+		.name	= "soc-camera-pdrv",
+		.id	= 0,
+		.dev	= {
+			.platform_data = &ov7725_info.link,
+		},
+	}, {
+		.name	= "soc-camera-pdrv",
+		.id	= 1,
+		.dev	= {
+			.platform_data = &tw9910_info.link,
+		},
+	},
+};
+
+static struct platform_device *migor_devices[] __initdata = {
+	&smc91x_eth_device,
+	&sh_keysc_device,
+	&migor_lcdc_device,
+	&migor_ceu_device,
+	&migor_nor_flash_device,
+	&migor_nand_flash_device,
+	&sdcard_cn9_device,
+	&migor_camera[0],
+	&migor_camera[1],
 };
 
 static struct spi_board_info migor_spi_devices[] = {
@@ -450,6 +474,14 @@ static struct spi_board_info migor_spi_devices[] = {
 
 static int __init migor_devices_setup(void)
 {
+
+#ifdef CONFIG_PM
+	/* Let D11 LED show STATUS0 */
+	gpio_request(GPIO_FN_STATUS0, NULL);
+
+	/* Lit D12 LED show PDSTATUS */
+	gpio_request(GPIO_FN_PDSTATUS, NULL);
+#else
 	/* Lit D11 LED */
 	gpio_request(GPIO_PTJ7, NULL);
 	gpio_direction_output(GPIO_PTJ7, 1);
@@ -459,6 +491,7 @@ static int __init migor_devices_setup(void)
 	gpio_request(GPIO_PTJ5, NULL);
 	gpio_direction_output(GPIO_PTJ5, 1);
 	gpio_export(GPIO_PTJ5, 0);
+#endif
 
 	/* SMC91C111 - Enable IRQ0, Setup CS4 for 16-bit fast access */
 	gpio_request(GPIO_FN_IRQ0, NULL);
@@ -575,4 +608,23 @@ static int __init migor_devices_setup(void)
 
 	return platform_add_devices(migor_devices, ARRAY_SIZE(migor_devices));
 }
-__initcall(migor_devices_setup);
+arch_initcall(migor_devices_setup);
+
+/* Return the board specific boot mode pin configuration */
+static int migor_mode_pins(void)
+{
+	/* MD0=1, MD1=1, MD2=0: Clock Mode 3
+	 * MD3=0: 16-bit Area0 Bus Width
+	 * MD5=1: Little Endian
+	 * TSTMD=1, MD8=0: Test Mode Disabled
+	 */
+	return MODE_PIN0 | MODE_PIN1 | MODE_PIN5;
+}
+
+/*
+ * The Machine Vector
+ */
+static struct sh_machine_vector mv_migor __initmv = {
+	.mv_name		= "Migo-R",
+	.mv_mode_pins		= migor_mode_pins,
+};

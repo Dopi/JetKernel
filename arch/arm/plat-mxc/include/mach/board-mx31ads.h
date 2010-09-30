@@ -11,6 +11,8 @@
 #ifndef __ASM_ARCH_MXC_BOARD_MX31ADS_H__
 #define __ASM_ARCH_MXC_BOARD_MX31ADS_H__
 
+#include <mach/hardware.h>
+
 /* Base address of PBC controller */
 #define PBC_BASE_ADDRESS        IO_ADDRESS(CS4_BASE_ADDR)
 /* Offsets for the PBC Controller register */
@@ -112,7 +114,7 @@
 
 #define MXC_MAX_EXP_IO_LINES	16
 
-/* mandatory for CONFIG_LL_DEBUG */
+/* mandatory for CONFIG_DEBUG_LL */
 
 #define MXC_LL_UART_PADDR	UART1_BASE_ADDR
 #define MXC_LL_UART_VADDR	AIPS1_IO_ADDRESS(UART1_BASE_ADDR)

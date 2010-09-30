@@ -314,6 +314,7 @@ typedef void qdio_handler_t(struct ccw_device *, unsigned int, int,
 			    int, int, unsigned long);
 
 /* qdio errors reported to the upper-layer program */
+#define QDIO_ERROR_SIGA_TARGET			0x02
 #define QDIO_ERROR_SIGA_ACCESS_EXCEPTION	0x10
 #define QDIO_ERROR_SIGA_BUSY			0x20
 #define QDIO_ERROR_ACTIVATE_CHECK_CONDITION	0x40
@@ -379,7 +380,7 @@ extern int qdio_establish(struct qdio_initialize *);
 extern int qdio_activate(struct ccw_device *);
 
 extern int do_QDIO(struct ccw_device *cdev, unsigned int callflags,
-		   int q_nr, int bufnr, int count);
+		   int q_nr, unsigned int bufnr, unsigned int count);
 extern int qdio_cleanup(struct ccw_device*, int);
 extern int qdio_shutdown(struct ccw_device*, int);
 extern int qdio_free(struct ccw_device *);

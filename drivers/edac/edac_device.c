@@ -389,7 +389,7 @@ static void del_edac_device_from_global_list(struct edac_device_ctl_info
  */
 static void edac_device_workq_function(struct work_struct *work_req)
 {
-	struct delayed_work *d_work = (struct delayed_work *)work_req;
+	struct delayed_work *d_work = to_delayed_work(work_req);
 	struct edac_device_ctl_info *edac_dev = to_edac_device_ctl_work(d_work);
 
 	mutex_lock(&device_ctls_mutex);
@@ -489,6 +489,20 @@ void edac_device_reset_delay_period(struct edac_device_ctl_info *edac_dev,
 
 	mutex_unlock(&device_ctls_mutex);
 }
+
+/*
+ * edac_device_alloc_index: Allocate a unique device index number
+ *
+ * Return:
+ *	allocated index number
+ */
+int edac_device_alloc_index(void)
+{
+	static atomic_t device_indexes = ATOMIC_INIT(0);
+
+	return atomic_inc_return(&device_indexes) - 1;
+}
+EXPORT_SYMBOL_GPL(edac_device_alloc_index);
 
 /**
  * edac_device_add_device: Insert the 'edac_dev' structure into the

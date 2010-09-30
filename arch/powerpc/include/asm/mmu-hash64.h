@@ -41,6 +41,7 @@ extern char initial_stab[];
 
 #define SLB_NUM_BOLTED		3
 #define SLB_CACHE_ENTRIES	8
+#define SLB_MIN_SIZE		32
 
 /* Bits in the SLB ESID word */
 #define SLB_ESID_V		ASM_CONST(0x0000000008000000) /* valid */
@@ -284,8 +285,6 @@ extern void add_gpage(unsigned long addr, unsigned long page_size,
 			  unsigned long number_of_pages);
 extern void demote_segment_4k(struct mm_struct *mm, unsigned long addr);
 
-extern void htab_initialize(void);
-extern void htab_initialize_secondary(void);
 extern void hpte_init_native(void);
 extern void hpte_init_lpar(void);
 extern void hpte_init_iSeries(void);
@@ -298,6 +297,7 @@ extern void slb_flush_and_rebolt(void);
 extern void stab_initialize(unsigned long stab);
 
 extern void slb_vmalloc_update(void);
+extern void slb_set_size(u16 size);
 #endif /* __ASSEMBLY__ */
 
 /*

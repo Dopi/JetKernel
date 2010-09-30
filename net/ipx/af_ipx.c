@@ -41,6 +41,7 @@
 #include <linux/netdevice.h>
 #include <linux/uio.h>
 #include <linux/skbuff.h>
+#include <linux/smp_lock.h>
 #include <linux/socket.h>
 #include <linux/sockios.h>
 #include <linux/string.h>
@@ -1835,7 +1836,7 @@ static int ipx_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 
 	switch (cmd) {
 	case TIOCOUTQ:
-		amount = sk->sk_sndbuf - atomic_read(&sk->sk_wmem_alloc);
+		amount = sk->sk_sndbuf - sk_wmem_alloc_get(sk);
 		if (amount < 0)
 			amount = 0;
 		rc = put_user(amount, (int __user *)argp);
@@ -1958,13 +1959,13 @@ static const struct proto_ops SOCKOPS_WRAPPED(ipx_dgram_ops) = {
 
 SOCKOPS_WRAP(ipx_dgram, PF_IPX);
 
-static struct packet_type ipx_8023_packet_type = {
-	.type		= __constant_htons(ETH_P_802_3),
+static struct packet_type ipx_8023_packet_type __read_mostly = {
+	.type		= cpu_to_be16(ETH_P_802_3),
 	.func		= ipx_rcv,
 };
 
-static struct packet_type ipx_dix_packet_type = {
-	.type		= __constant_htons(ETH_P_IPX),
+static struct packet_type ipx_dix_packet_type __read_mostly = {
+	.type		= cpu_to_be16(ETH_P_IPX),
 	.func		= ipx_rcv,
 };
 
@@ -1975,15 +1976,15 @@ static struct notifier_block ipx_dev_notifier = {
 extern struct datalink_proto *make_EII_client(void);
 extern void destroy_EII_client(struct datalink_proto *);
 
-static unsigned char ipx_8022_type = 0xE0;
-static unsigned char ipx_snap_id[5] = { 0x0, 0x0, 0x0, 0x81, 0x37 };
-static char ipx_EII_err_msg[] __initdata =
+static const unsigned char ipx_8022_type = 0xE0;
+static const unsigned char ipx_snap_id[5] = { 0x0, 0x0, 0x0, 0x81, 0x37 };
+static const char ipx_EII_err_msg[] __initconst =
 	KERN_CRIT "IPX: Unable to register with Ethernet II\n";
-static char ipx_8023_err_msg[] __initdata =
+static const char ipx_8023_err_msg[] __initconst =
 	KERN_CRIT "IPX: Unable to register with 802.3\n";
-static char ipx_llc_err_msg[] __initdata =
+static const char ipx_llc_err_msg[] __initconst =
 	KERN_CRIT "IPX: Unable to register with 802.2\n";
-static char ipx_snap_err_msg[] __initdata =
+static const char ipx_snap_err_msg[] __initconst =
 	KERN_CRIT "IPX: Unable to register with SNAP\n";
 
 static int __init ipx_init(void)

@@ -1,15 +1,12 @@
 /*
- *  linux/drivers/s390/net/lcs.c
- *
  *  Linux for S/390 Lan Channel Station Network Driver
  *
- *  Copyright (C)  1999-2001 IBM Deutschland Entwicklung GmbH,
- *			     IBM Corporation
- *    Author(s): Original Code written by
- *			  DJ Barrow (djbarrow@de.ibm.com,barrow_dj@yahoo.com)
- *		 Rewritten by
- *			  Frank Pavlic (fpavlic@de.ibm.com) and
- *		 	  Martin Schwidefsky <schwidefsky@de.ibm.com>
+ *  Copyright IBM Corp. 1999, 2009
+ *  Author(s): Original Code written by
+ *			DJ Barrow <djbarrow@de.ibm.com,barrow_dj@yahoo.com>
+ *	       Rewritten by
+ *			Frank Pavlic <fpavlic@de.ibm.com> and
+ *			Martin Schwidefsky <schwidefsky@de.ibm.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,6 +36,7 @@
 #include <linux/in.h>
 #include <linux/igmp.h>
 #include <linux/delay.h>
+#include <linux/kthread.h>
 #include <net/arp.h>
 #include <net/ip.h>
 
@@ -1259,7 +1257,6 @@ lcs_register_mc_addresses(void *data)
 	struct in_device *in4_dev;
 
 	card = (struct lcs_card *) data;
-	daemonize("regipm");
 
 	if (!lcs_do_run_thread(card, LCS_SET_MC_THREAD))
 		return 0;
@@ -1562,7 +1559,7 @@ __lcs_start_xmit(struct lcs_card *card, struct sk_buff *skb,
 	if (skb == NULL) {
 		card->stats.tx_dropped++;
 		card->stats.tx_errors++;
-		return -EIO;
+		return 0;
 	}
 	if (card->state != DEV_STATE_UP) {
 		dev_kfree_skb(skb);
@@ -1587,7 +1584,7 @@ __lcs_start_xmit(struct lcs_card *card, struct sk_buff *skb,
 		card->tx_buffer = lcs_get_buffer(&card->write);
 		if (card->tx_buffer == NULL) {
 			card->stats.tx_dropped++;
-			rc = -EBUSY;
+			rc = NETDEV_TX_BUSY;
 			goto out;
 		}
 		card->tx_buffer->callback = lcs_txbuffer_cb;
@@ -1753,11 +1750,10 @@ lcs_start_kernel_thread(struct work_struct *work)
 	struct lcs_card *card = container_of(work, struct lcs_card, kernel_thread_starter);
 	LCS_DBF_TEXT(5, trace, "krnthrd");
 	if (lcs_do_start_thread(card, LCS_RECOVERY_THREAD))
-		kernel_thread(lcs_recovery, (void *) card, SIGCHLD);
+		kthread_run(lcs_recovery, card, "lcs_recover");
 #ifdef CONFIG_IP_MULTICAST
 	if (lcs_do_start_thread(card, LCS_SET_MC_THREAD))
-		kernel_thread(lcs_register_mc_addresses,
-				(void *) card, SIGCHLD);
+		kthread_run(lcs_register_mc_addresses, card, "regipm");
 #endif
 }
 
@@ -1940,7 +1936,7 @@ lcs_portno_show (struct device *dev, struct device_attribute *attr, char *buf)
 {
         struct lcs_card *card;
 
-	card = (struct lcs_card *)dev->driver_data;
+	card = dev_get_drvdata(dev);
 
         if (!card)
                 return 0;
@@ -1957,7 +1953,7 @@ lcs_portno_store (struct device *dev, struct device_attribute *attr, const char 
         struct lcs_card *card;
         int value;
 
-	card = (struct lcs_card *)dev->driver_data;
+	card = dev_get_drvdata(dev);
 
         if (!card)
                 return 0;
@@ -1991,7 +1987,7 @@ lcs_timeout_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct lcs_card *card;
 
-	card = (struct lcs_card *)dev->driver_data;
+	card = dev_get_drvdata(dev);
 
 	return card ? sprintf(buf, "%u\n", card->lancmd_timeout) : 0;
 }
@@ -2002,7 +1998,7 @@ lcs_timeout_store (struct device *dev, struct device_attribute *attr, const char
         struct lcs_card *card;
         int value;
 
-	card = (struct lcs_card *)dev->driver_data;
+	card = dev_get_drvdata(dev);
 
         if (!card)
                 return 0;
@@ -2021,7 +2017,7 @@ static ssize_t
 lcs_dev_recover_store(struct device *dev, struct device_attribute *attr,
 		      const char *buf, size_t count)
 {
-	struct lcs_card *card = dev->driver_data;
+	struct lcs_card *card = dev_get_drvdata(dev);
 	char *tmp;
 	int i;
 
@@ -2074,7 +2070,7 @@ lcs_probe_device(struct ccwgroup_device *ccwgdev)
 		put_device(&ccwgdev->dev);
 		return ret;
         }
-	ccwgdev->dev.driver_data = card;
+	dev_set_drvdata(&ccwgdev->dev, card);
 	ccwgdev->cdev[0]->handler = lcs_irq;
 	ccwgdev->cdev[1]->handler = lcs_irq;
 	card->gdev = ccwgdev;
@@ -2091,7 +2087,7 @@ lcs_register_netdev(struct ccwgroup_device *ccwgdev)
 	struct lcs_card *card;
 
 	LCS_DBF_TEXT(2, setup, "regnetdv");
-	card = (struct lcs_card *)ccwgdev->dev.driver_data;
+	card = dev_get_drvdata(&ccwgdev->dev);
 	if (card->dev->reg_state != NETREG_UNINITIALIZED)
 		return 0;
 	SET_NETDEV_DEV(card->dev, &ccwgdev->dev);
@@ -2101,6 +2097,20 @@ lcs_register_netdev(struct ccwgroup_device *ccwgdev)
 /**
  * lcs_new_device will be called by setting the group device online.
  */
+static const struct net_device_ops lcs_netdev_ops = {
+	.ndo_open		= lcs_open_device,
+	.ndo_stop		= lcs_stop_device,
+	.ndo_get_stats		= lcs_getstats,
+	.ndo_start_xmit		= lcs_start_xmit,
+};
+
+static const struct net_device_ops lcs_mc_netdev_ops = {
+	.ndo_open		= lcs_open_device,
+	.ndo_stop		= lcs_stop_device,
+	.ndo_get_stats		= lcs_getstats,
+	.ndo_start_xmit		= lcs_start_xmit,
+	.ndo_set_multicast_list = lcs_set_multicast_list,
+};
 
 static int
 lcs_new_device(struct ccwgroup_device *ccwgdev)
@@ -2110,7 +2120,7 @@ lcs_new_device(struct ccwgroup_device *ccwgdev)
 	enum lcs_dev_states recover_state;
 	int rc;
 
-	card = (struct lcs_card *)ccwgdev->dev.driver_data;
+	card = dev_get_drvdata(&ccwgdev->dev);
 	if (!card)
 		return -ENODEV;
 
@@ -2168,14 +2178,11 @@ lcs_new_device(struct ccwgroup_device *ccwgdev)
 		goto out;
 	card->dev = dev;
 	card->dev->ml_priv = card;
-	card->dev->open = lcs_open_device;
-	card->dev->stop = lcs_stop_device;
-	card->dev->hard_start_xmit = lcs_start_xmit;
-	card->dev->get_stats = lcs_getstats;
+	card->dev->netdev_ops = &lcs_netdev_ops;
 	memcpy(card->dev->dev_addr, card->mac, LCS_MAC_LENGTH);
 #ifdef CONFIG_IP_MULTICAST
 	if (!lcs_check_multicast_support(card))
-		card->dev->set_multicast_list = lcs_set_multicast_list;
+		card->dev->netdev_ops = &lcs_mc_netdev_ops;
 #endif
 netdev_out:
 	lcs_set_allowed_threads(card,0xffffffff);
@@ -2219,7 +2226,7 @@ __lcs_shutdown_device(struct ccwgroup_device *ccwgdev, int recovery_mode)
 	int ret;
 
 	LCS_DBF_TEXT(3, setup, "shtdndev");
-	card = (struct lcs_card *)ccwgdev->dev.driver_data;
+	card = dev_get_drvdata(&ccwgdev->dev);
 	if (!card)
 		return -ENODEV;
 	if (recovery_mode == 0) {
@@ -2258,7 +2265,6 @@ lcs_recovery(void *ptr)
         int rc;
 
 	card = (struct lcs_card *) ptr;
-	daemonize("lcs_recover");
 
 	LCS_DBF_TEXT(4, trace, "recover1");
 	if (!lcs_do_run_thread(card, LCS_RECOVERY_THREAD))
@@ -2287,7 +2293,7 @@ lcs_remove_device(struct ccwgroup_device *ccwgdev)
 {
 	struct lcs_card *card;
 
-	card = (struct lcs_card *)ccwgdev->dev.driver_data;
+	card = dev_get_drvdata(&ccwgdev->dev);
 	if (!card)
 		return;
 
@@ -2304,6 +2310,60 @@ lcs_remove_device(struct ccwgroup_device *ccwgdev)
 	put_device(&ccwgdev->dev);
 }
 
+static int lcs_pm_suspend(struct lcs_card *card)
+{
+	if (card->dev)
+		netif_device_detach(card->dev);
+	lcs_set_allowed_threads(card, 0);
+	lcs_wait_for_threads(card, 0xffffffff);
+	if (card->state != DEV_STATE_DOWN)
+		__lcs_shutdown_device(card->gdev, 1);
+	return 0;
+}
+
+static int lcs_pm_resume(struct lcs_card *card)
+{
+	int rc = 0;
+
+	if (card->state == DEV_STATE_RECOVER)
+		rc = lcs_new_device(card->gdev);
+	if (card->dev)
+		netif_device_attach(card->dev);
+	if (rc) {
+		dev_warn(&card->gdev->dev, "The lcs device driver "
+			"failed to recover the device\n");
+	}
+	return rc;
+}
+
+static int lcs_prepare(struct ccwgroup_device *gdev)
+{
+	return 0;
+}
+
+static void lcs_complete(struct ccwgroup_device *gdev)
+{
+	return;
+}
+
+static int lcs_freeze(struct ccwgroup_device *gdev)
+{
+	struct lcs_card *card = dev_get_drvdata(&gdev->dev);
+	return lcs_pm_suspend(card);
+}
+
+static int lcs_thaw(struct ccwgroup_device *gdev)
+{
+	struct lcs_card *card = dev_get_drvdata(&gdev->dev);
+	return lcs_pm_resume(card);
+}
+
+static int lcs_restore(struct ccwgroup_device *gdev)
+{
+	struct lcs_card *card = dev_get_drvdata(&gdev->dev);
+	return lcs_pm_resume(card);
+}
+
 /**
  * LCS ccwgroup driver registration
  */
@@ -2316,6 +2376,11 @@ static struct ccwgroup_driver lcs_group_driver = {
 	.remove      = lcs_remove_device,
 	.set_online  = lcs_new_device,
 	.set_offline = lcs_shutdown_device,
+	.prepare     = lcs_prepare,
+	.complete    = lcs_complete,
+	.freeze	     = lcs_freeze,
+	.thaw	     = lcs_thaw,
+	.restore     = lcs_restore,
 };
 
 /**

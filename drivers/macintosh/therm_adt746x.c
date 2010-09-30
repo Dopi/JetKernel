@@ -37,6 +37,7 @@
 #define CONFIG_REG   0x40
 #define MANUAL_MASK  0xe0
 #define AUTO_MASK    0x20
+#define INVERT_MASK  0x10
 
 static u8 TEMP_REG[3]    = {0x26, 0x25, 0x27}; /* local, sensor1, sensor2 */
 static u8 LIMIT_REG[3]   = {0x6b, 0x6a, 0x6c}; /* local, sensor1, sensor2 */
@@ -71,13 +72,14 @@ MODULE_PARM_DESC(verbose,"Verbose log operations "
 		 "(default 0)");
 
 struct thermostat {
-	struct i2c_client	clt;
+	struct i2c_client	*clt;
 	u8			temps[3];
 	u8			cached_temp[3];
 	u8			initial_limits[3];
 	u8			limits[3];
 	int			last_speed[2];
 	int			last_var[2];
+	int			pwm_inv[2];
 };
 
 static enum {ADT7460, ADT7467} therm_type;
@@ -85,9 +87,6 @@ static int therm_bus, therm_address;
 static struct of_device * of_dev;
 static struct thermostat* thermostat;
 static struct task_struct *thread_therm = NULL;
-
-static int attach_one_thermostat(struct i2c_adapter *adapter, int addr,
-				 int busno);
 
 static void write_both_fan_speed(struct thermostat *th, int speed);
 static void write_fan_speed(struct thermostat *th, int speed, int fan);
@@ -100,7 +99,7 @@ write_reg(struct thermostat* th, int reg, u8 data)
 	
 	tmp[0] = reg;
 	tmp[1] = data;
-	rc = i2c_master_send(&th->clt, (const char *)tmp, 2);
+	rc = i2c_master_send(th->clt, (const char *)tmp, 2);
 	if (rc < 0)
 		return rc;
 	if (rc != 2)
@@ -115,41 +114,53 @@ read_reg(struct thermostat* th, int reg)
 	int rc;
 
 	reg_addr = (u8)reg;
-	rc = i2c_master_send(&th->clt, &reg_addr, 1);
+	rc = i2c_master_send(th->clt, &reg_addr, 1);
 	if (rc < 0)
 		return rc;
 	if (rc != 1)
 		return -ENODEV;
-	rc = i2c_master_recv(&th->clt, (char *)&data, 1);
+	rc = i2c_master_recv(th->clt, (char *)&data, 1);
 	if (rc < 0)
 		return rc;
 	return data;
 }
 
+static struct i2c_driver thermostat_driver;
+
 static int
 attach_thermostat(struct i2c_adapter *adapter)
 {
 	unsigned long bus_no;
+	struct i2c_board_info info;
+	struct i2c_client *client;
 
 	if (strncmp(adapter->name, "uni-n", 5))
 		return -ENODEV;
 	bus_no = simple_strtoul(adapter->name + 6, NULL, 10);
 	if (bus_no != therm_bus)
 		return -ENODEV;
-	return attach_one_thermostat(adapter, therm_address, bus_no);
+
+	memset(&info, 0, sizeof(struct i2c_board_info));
+	strlcpy(info.type, "therm_adt746x", I2C_NAME_SIZE);
+	info.addr = therm_address;
+	client = i2c_new_device(adapter, &info);
+	if (!client)
+		return -ENODEV;
+
+	/*
+	 * Let i2c-core delete that device on driver removal.
+	 * This is safe because i2c-core holds the core_lock mutex for us.
+	 */
+	list_add_tail(&client->detected, &thermostat_driver.clients);
+	return 0;
 }
 
 static int
-detach_thermostat(struct i2c_adapter *adapter)
+remove_thermostat(struct i2c_client *client)
 {
-	struct thermostat* th;
+	struct thermostat *th = i2c_get_clientdata(client);
 	int i;
 	
-	if (thermostat == NULL)
-		return 0;
-
-	th = thermostat;
-
 	if (thread_therm != NULL) {
 		kthread_stop(thread_therm);
 	}
@@ -165,22 +176,12 @@ detach_thermostat(struct i2c_adapter *adapter)
 
 	write_both_fan_speed(th, -1);
 
-	i2c_detach_client(&th->clt);
-
 	thermostat = NULL;
 
 	kfree(th);
 
 	return 0;
 }
-
-static struct i2c_driver thermostat_driver = {  
-	.driver = {
-		.name	= "therm_adt746x",
-	},
-	.attach_adapter	= attach_thermostat,
-	.detach_adapter	= detach_thermostat,
-};
 
 static int read_fan_speed(struct thermostat *th, u8 addr)
 {
@@ -229,18 +230,23 @@ static void write_fan_speed(struct thermostat *th, int speed, int fan)
 	
 	if (speed >= 0) {
 		manual = read_reg(th, MANUAL_MODE[fan]);
-		write_reg(th, MANUAL_MODE[fan], manual|MANUAL_MASK);
+		manual &= ~INVERT_MASK;
+		write_reg(th, MANUAL_MODE[fan],
+			manual | MANUAL_MASK | th->pwm_inv[fan]);
 		write_reg(th, FAN_SPD_SET[fan], speed);
 	} else {
 		/* back to automatic */
 		if(therm_type == ADT7460) {
 			manual = read_reg(th,
 				MANUAL_MODE[fan]) & (~MANUAL_MASK);
-
+			manual &= ~INVERT_MASK;
+			manual |= th->pwm_inv[fan];
 			write_reg(th,
 				MANUAL_MODE[fan], manual|REM_CONTROL[fan]);
 		} else {
 			manual = read_reg(th, MANUAL_MODE[fan]);
+			manual &= ~INVERT_MASK;
+			manual |= th->pwm_inv[fan];
 			write_reg(th, MANUAL_MODE[fan], manual&(~AUTO_MASK));
 		}
 	}
@@ -369,8 +375,8 @@ static void set_limit(struct thermostat *th, int i)
 		th->limits[i] = default_limits_local[i] + limit_adjust;
 }
 
-static int attach_one_thermostat(struct i2c_adapter *adapter, int addr,
-				 int busno)
+static int probe_thermostat(struct i2c_client *client,
+			    const struct i2c_device_id *id)
 {
 	struct thermostat* th;
 	int rc;
@@ -383,16 +389,12 @@ static int attach_one_thermostat(struct i2c_adapter *adapter, int addr,
 	if (!th)
 		return -ENOMEM;
 
-	th->clt.addr = addr;
-	th->clt.adapter = adapter;
-	th->clt.driver = &thermostat_driver;
-	strcpy(th->clt.name, "thermostat");
+	i2c_set_clientdata(client, th);
+	th->clt = client;
 
 	rc = read_reg(th, 0);
 	if (rc < 0) {
-		printk(KERN_ERR "adt746x: Thermostat failed to read config "
-				"from bus %d !\n",
-				busno);
+		dev_err(&client->dev, "Thermostat failed to read config!\n");
 		kfree(th);
 		return -ENODEV;
 	}
@@ -421,13 +423,9 @@ static int attach_one_thermostat(struct i2c_adapter *adapter, int addr,
 
 	thermostat = th;
 
-	if (i2c_attach_client(&th->clt)) {
-		printk(KERN_INFO "adt746x: Thermostat failed to attach "
-				 "client !\n");
-		thermostat = NULL;
-		kfree(th);
-		return -ENODEV;
-	}
+	/* record invert bit status because fw can corrupt it after suspend */
+	th->pwm_inv[0] = read_reg(th, MANUAL_MODE[0]) & INVERT_MASK;
+	th->pwm_inv[1] = read_reg(th, MANUAL_MODE[1]) & INVERT_MASK;
 
 	/* be sure to really write fan speed the first time */
 	th->last_speed[0] = -2;
@@ -453,6 +451,21 @@ static int attach_one_thermostat(struct i2c_adapter *adapter, int addr,
 
 	return 0;
 }
+
+static const struct i2c_device_id therm_adt746x_id[] = {
+	{ "therm_adt746x", 0 },
+	{ }
+};
+
+static struct i2c_driver thermostat_driver = {
+	.driver = {
+		.name	= "therm_adt746x",
+	},
+	.attach_adapter	= attach_thermostat,
+	.probe = probe_thermostat,
+	.remove = remove_thermostat,
+	.id_table = therm_adt746x_id,
+};
 
 /* 
  * Now, unfortunately, sysfs doesn't give us a nice void * we could
@@ -498,8 +511,8 @@ static ssize_t store_##name(struct device *dev, struct device_attribute *attr, c
 #define BUILD_STORE_FUNC_INT(name, data)			\
 static ssize_t store_##name(struct device *dev, struct device_attribute *attr, const char *buf, size_t n) \
 {								\
-	u32 val;						\
-	val = simple_strtoul(buf, NULL, 10);			\
+	int val;						\
+	val = simple_strtol(buf, NULL, 10);			\
 	if (val < 0 || val > 255)				\
 		return -EINVAL;					\
 	printk(KERN_INFO "Setting specified fan speed to %d\n", val);	\

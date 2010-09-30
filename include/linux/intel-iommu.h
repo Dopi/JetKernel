@@ -53,6 +53,7 @@
 #define	DMAR_PHMLIMIT_REG 0x78	/* pmrr high limit */
 #define DMAR_IQH_REG	0x80	/* Invalidation queue head register */
 #define DMAR_IQT_REG	0x88	/* Invalidation queue tail register */
+#define DMAR_IQ_SHIFT	4	/* Invalidation queue head/tail shift */
 #define DMAR_IQA_REG	0x90	/* Invalidation queue addr register */
 #define DMAR_ICS_REG	0x98	/* Invalidation complete status register */
 #define DMAR_IRTA_REG	0xb8    /* Interrupt remapping table addr register */
@@ -120,10 +121,12 @@ static inline void dmar_writeq(void __iomem *addr, u64 val)
 	(ecap_iotlb_offset(e) + ecap_niotlb_iunits(e) * 16)
 #define ecap_coherent(e)	((e) & 0x1)
 #define ecap_qis(e)		((e) & 0x2)
+#define ecap_pass_through(e)	((e >> 6) & 0x1)
 #define ecap_eim_support(e)	((e >> 4) & 0x1)
 #define ecap_ir_support(e)	((e >> 3) & 0x1)
+#define ecap_dev_iotlb_support(e)	(((e) >> 2) & 0x1)
 #define ecap_max_handle_mask(e) ((e >> 20) & 0xf)
-
+#define ecap_sc_support(e)	((e >> 7) & 0x1) /* Snooping Control */
 
 /* IOTLB_REG */
 #define DMA_TLB_FLUSH_GRANU_OFFSET  60
@@ -164,6 +167,7 @@ static inline void dmar_writeq(void __iomem *addr, u64 val)
 #define DMA_GCMD_QIE (((u32)1) << 26)
 #define DMA_GCMD_SIRTP (((u32)1) << 24)
 #define DMA_GCMD_IRE (((u32) 1) << 25)
+#define DMA_GCMD_CFI (((u32) 1) << 23)
 
 /* GSTS_REG */
 #define DMA_GSTS_TES (((u32)1) << 31)
@@ -174,6 +178,7 @@ static inline void dmar_writeq(void __iomem *addr, u64 val)
 #define DMA_GSTS_QIES (((u32)1) << 26)
 #define DMA_GSTS_IRTPS (((u32)1) << 24)
 #define DMA_GSTS_IRES (((u32)1) << 25)
+#define DMA_GSTS_CFIS (((u32)1) << 23)
 
 /* CCMD_REG */
 #define DMA_CCMD_ICC (((u64)1) << 63)
@@ -195,6 +200,8 @@ static inline void dmar_writeq(void __iomem *addr, u64 val)
 #define DMA_FSTS_PPF ((u32)2)
 #define DMA_FSTS_PFO ((u32)1)
 #define DMA_FSTS_IQE (1 << 4)
+#define DMA_FSTS_ICE (1 << 5)
+#define DMA_FSTS_ITE (1 << 6)
 #define dma_fsts_fault_record_index(s) (((s) >> 8) & 0xff)
 
 /* FRCD_REG, 32 bits access */
@@ -223,7 +230,8 @@ do {									\
 enum {
 	QI_FREE,
 	QI_IN_USE,
-	QI_DONE
+	QI_DONE,
+	QI_ABORT
 };
 
 #define QI_CC_TYPE		0x1
@@ -252,6 +260,12 @@ enum {
 #define QI_CC_DID(did)		(((u64)did) << 16)
 #define QI_CC_GRAN(gran)	(((u64)gran) >> (DMA_CCMD_INVL_GRANU_OFFSET-4))
 
+#define QI_DEV_IOTLB_SID(sid)	((u64)((sid) & 0xffff) << 32)
+#define QI_DEV_IOTLB_QDEP(qdep)	(((qdep) & 0x1f) << 16)
+#define QI_DEV_IOTLB_ADDR(addr)	((u64)(addr) & VTD_PAGE_MASK)
+#define QI_DEV_IOTLB_SIZE	1
+#define QI_DEV_IOTLB_MAX_INVS	32
+
 struct qi_desc {
 	u64 low, high;
 };
@@ -278,10 +292,18 @@ struct ir_table {
 #endif
 
 struct iommu_flush {
-	int (*flush_context)(struct intel_iommu *iommu, u16 did, u16 sid, u8 fm,
-		u64 type, int non_present_entry_flush);
-	int (*flush_iotlb)(struct intel_iommu *iommu, u16 did, u64 addr,
-		unsigned int size_order, u64 type, int non_present_entry_flush);
+	void (*flush_context)(struct intel_iommu *iommu, u16 did, u16 sid,
+			      u8 fm, u64 type);
+	void (*flush_iotlb)(struct intel_iommu *iommu, u16 did, u64 addr,
+			    unsigned int size_order, u64 type);
+};
+
+enum {
+	SR_DMAR_FECTL_REG,
+	SR_DMAR_FEDATA_REG,
+	SR_DMAR_FEADDR_REG,
+	SR_DMAR_FEUADDR_REG,
+	MAX_SR_DMAR_REGS
 };
 
 struct intel_iommu {
@@ -292,6 +314,9 @@ struct intel_iommu {
 	spinlock_t	register_lock; /* protect register handling */
 	int		seq_id;	/* sequence id of the iommu */
 	int		agaw; /* agaw of this iommu */
+	int		msagaw; /* max sagaw of this iommu */
+	unsigned int 	irq;
+	unsigned char 	name[13];    /* Device Name */
 
 #ifdef CONFIG_DMAR
 	unsigned long 	*domain_ids; /* bitmap of domains */
@@ -299,11 +324,11 @@ struct intel_iommu {
 	spinlock_t	lock; /* protect context, domain ids */
 	struct root_entry *root_entry; /* virtual address */
 
-	unsigned int irq;
-	unsigned char name[7];    /* Device Name */
 	struct iommu_flush flush;
 #endif
 	struct q_inval  *qi;            /* Queued invalidation info */
+	u32 *iommu_state; /* Store iommu states between suspend and resume.*/
+
 #ifdef CONFIG_INTR_REMAP
 	struct ir_table *ir_table;	/* Interrupt remapping info */
 #endif
@@ -317,25 +342,22 @@ static inline void __iommu_flush_cache(
 }
 
 extern struct dmar_drhd_unit * dmar_find_matched_drhd_unit(struct pci_dev *dev);
+extern int dmar_find_matched_atsr_unit(struct pci_dev *dev);
 
 extern int alloc_iommu(struct dmar_drhd_unit *drhd);
 extern void free_iommu(struct intel_iommu *iommu);
 extern int dmar_enable_qi(struct intel_iommu *iommu);
+extern void dmar_disable_qi(struct intel_iommu *iommu);
+extern int dmar_reenable_qi(struct intel_iommu *iommu);
 extern void qi_global_iec(struct intel_iommu *iommu);
 
-extern int qi_flush_context(struct intel_iommu *iommu, u16 did, u16 sid,
-			        u8 fm, u64 type, int non_present_entry_flush);
-extern int qi_flush_iotlb(struct intel_iommu *iommu, u16 did, u64 addr,
-			  unsigned int size_order, u64 type,
-			  int non_present_entry_flush);
+extern void qi_flush_context(struct intel_iommu *iommu, u16 did, u16 sid,
+			     u8 fm, u64 type);
+extern void qi_flush_iotlb(struct intel_iommu *iommu, u16 did, u64 addr,
+			  unsigned int size_order, u64 type);
+extern void qi_flush_dev_iotlb(struct intel_iommu *iommu, u16 sid, u16 qdep,
+			       u64 addr, unsigned mask);
 
 extern int qi_submit_sync(struct qi_desc *desc, struct intel_iommu *iommu);
-
-extern void *intel_alloc_coherent(struct device *, size_t, dma_addr_t *, gfp_t);
-extern void intel_free_coherent(struct device *, size_t, void *, dma_addr_t);
-extern dma_addr_t intel_map_single(struct device *, phys_addr_t, size_t, int);
-extern void intel_unmap_single(struct device *, dma_addr_t, size_t, int);
-extern int intel_map_sg(struct device *, struct scatterlist *, int, int);
-extern void intel_unmap_sg(struct device *, struct scatterlist *, int, int);
 
 #endif

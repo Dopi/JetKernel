@@ -39,7 +39,6 @@
 #define GRU_NUM_CBE		128
 #define GRU_NUM_TFH		128
 #define GRU_NUM_CCH		16
-#define GRU_NUM_GSH		1
 
 /* Maximum resource counts that can be reserved by user programs */
 #define GRU_NUM_USER_CBR	GRU_NUM_CBE
@@ -56,7 +55,6 @@
 #define GRU_CBE_BASE		(GRU_MCS_BASE + 0x10000)
 #define GRU_TFH_BASE		(GRU_MCS_BASE + 0x18000)
 #define GRU_CCH_BASE		(GRU_MCS_BASE + 0x20000)
-#define GRU_GSH_BASE		(GRU_MCS_BASE + 0x30000)
 
 /* User gseg constants */
 #define GRU_GSEG_STRIDE		(4 * 1024 * 1024)
@@ -251,15 +249,15 @@ struct gru_tlb_fault_handle {
 	unsigned int fill1:9;
 
 	unsigned int status:2;
-	unsigned int fill2:1;
-	unsigned int color:1;
+	unsigned int fill2:2;
 	unsigned int state:3;
 	unsigned int fill3:1;
 
-	unsigned int cause:7;		/* DW 0 - high 32 */
+	unsigned int cause:6;
+	unsigned int cb_int:1;
 	unsigned int fill4:1;
 
-	unsigned int indexway:12;
+	unsigned int indexway:12;	/* DW 0 - high 32 */
 	unsigned int fill5:4;
 
 	unsigned int ctxnum:4;
@@ -457,21 +455,7 @@ enum gru_cbr_state {
 	CBRSTATE_BUSY_INTERRUPT,
 };
 
-/* CBE cbrexecstatus bits */
-#define CBR_EXS_ABORT_OCC_BIT			0
-#define CBR_EXS_INT_OCC_BIT			1
-#define CBR_EXS_PENDING_BIT			2
-#define CBR_EXS_QUEUED_BIT			3
-#define CBR_EXS_TLBHW_BIT			4
-#define CBR_EXS_EXCEPTION_BIT			5
-
-#define CBR_EXS_ABORT_OCC			(1 << CBR_EXS_ABORT_OCC_BIT)
-#define CBR_EXS_INT_OCC				(1 << CBR_EXS_INT_OCC_BIT)
-#define CBR_EXS_PENDING				(1 << CBR_EXS_PENDING_BIT)
-#define CBR_EXS_QUEUED				(1 << CBR_EXS_QUEUED_BIT)
-#define CBR_EXS_TLBHW				(1 << CBR_EXS_TLBHW_BIT)
-#define CBR_EXS_EXCEPTION			(1 << CBR_EXS_EXCEPTION_BIT)
-
+/* CBE cbrexecstatus bits  - defined in gru_instructions.h*/
 /* CBE ecause bits  - defined in gru_instructions.h */
 
 /*
@@ -489,170 +473,26 @@ enum gru_cbr_state {
  * 	 64m			26	8
  * 	...
  */
-#define GRU_PAGESIZE(sh)	((((sh) > 20 ? (sh) + 2: (sh)) >> 1) - 6)
+#define GRU_PAGESIZE(sh)	((((sh) > 20 ? (sh) + 2 : (sh)) >> 1) - 6)
 #define GRU_SIZEAVAIL(sh)	(1UL << GRU_PAGESIZE(sh))
 
 /* minimum TLB purge count to ensure a full purge */
 #define GRUMAXINVAL		1024UL
 
-
-/* Extract the status field from a kernel handle */
-#define GET_MSEG_HANDLE_STATUS(h)	(((*(unsigned long *)(h)) >> 16) & 3)
-
-static inline void start_instruction(void *h)
-{
-	unsigned long *w0 = h;
-
-	wmb();		/* setting CMD bit must be last */
-	*w0 = *w0 | 1;
-	gru_flush_cache(h);
-}
-
-static inline int wait_instruction_complete(void *h)
-{
-	int status;
-
-	do {
-		cpu_relax();
-		barrier();
-		status = GET_MSEG_HANDLE_STATUS(h);
-	} while (status == CCHSTATUS_ACTIVE);
-	return status;
-}
-
-#if defined CONFIG_IA64
-static inline void cch_allocate_set_asids(
-		  struct gru_context_configuration_handle *cch, int asidval)
-{
-	int i;
-
-	for (i = 0; i <= RGN_HPAGE; i++) {  /*  assume HPAGE is last region */
-		cch->asid[i] = (asidval++);
-#if 0
-		/* ZZZ hugepages not supported yet */
-		if (i == RGN_HPAGE)
-			cch->sizeavail[i] = GRU_SIZEAVAIL(hpage_shift);
-		else
-#endif
-			cch->sizeavail[i] = GRU_SIZEAVAIL(PAGE_SHIFT);
-	}
-}
-#elif defined CONFIG_X86_64
-static inline void cch_allocate_set_asids(
-		  struct gru_context_configuration_handle *cch, int asidval)
-{
-	int i;
-
-	for (i = 0; i < 8; i++) {
-		cch->asid[i] = asidval++;
-		cch->sizeavail[i] = GRU_SIZEAVAIL(PAGE_SHIFT) |
-			GRU_SIZEAVAIL(21);
-	}
-}
-#endif
-
-static inline int cch_allocate(struct gru_context_configuration_handle *cch,
-			       int asidval, unsigned long cbrmap,
-			       unsigned long dsrmap)
-{
-	cch_allocate_set_asids(cch, asidval);
-	cch->dsr_allocation_map = dsrmap;
-	cch->cbr_allocation_map = cbrmap;
-	cch->opc = CCHOP_ALLOCATE;
-	start_instruction(cch);
-	return wait_instruction_complete(cch);
-}
-
-static inline int cch_start(struct gru_context_configuration_handle *cch)
-{
-	cch->opc = CCHOP_START;
-	start_instruction(cch);
-	return wait_instruction_complete(cch);
-}
-
-static inline int cch_interrupt(struct gru_context_configuration_handle *cch)
-{
-	cch->opc = CCHOP_INTERRUPT;
-	start_instruction(cch);
-	return wait_instruction_complete(cch);
-}
-
-static inline int cch_deallocate(struct gru_context_configuration_handle *cch)
-{
-	cch->opc = CCHOP_DEALLOCATE;
-	start_instruction(cch);
-	return wait_instruction_complete(cch);
-}
-
-static inline int cch_interrupt_sync(struct gru_context_configuration_handle
-				     *cch)
-{
-	cch->opc = CCHOP_INTERRUPT_SYNC;
-	start_instruction(cch);
-	return wait_instruction_complete(cch);
-}
-
-static inline int tgh_invalidate(struct gru_tlb_global_handle *tgh,
-				 unsigned long vaddr, unsigned long vaddrmask,
-				 int asid, int pagesize, int global, int n,
-				 unsigned short ctxbitmap)
-{
-	tgh->vaddr = vaddr;
-	tgh->asid = asid;
-	tgh->pagesize = pagesize;
-	tgh->n = n;
-	tgh->global = global;
-	tgh->vaddrmask = vaddrmask;
-	tgh->ctxbitmap = ctxbitmap;
-	tgh->opc = TGHOP_TLBINV;
-	start_instruction(tgh);
-	return wait_instruction_complete(tgh);
-}
-
-static inline void tfh_write_only(struct gru_tlb_fault_handle *tfh,
-				  unsigned long pfn, unsigned long vaddr,
-				  int asid, int dirty, int pagesize)
-{
-	tfh->fillasid = asid;
-	tfh->fillvaddr = vaddr;
-	tfh->pfn = pfn;
-	tfh->dirty = dirty;
-	tfh->pagesize = pagesize;
-	tfh->opc = TFHOP_WRITE_ONLY;
-	start_instruction(tfh);
-}
-
-static inline void tfh_write_restart(struct gru_tlb_fault_handle *tfh,
-				     unsigned long paddr, int gaa,
-				     unsigned long vaddr, int asid, int dirty,
-				     int pagesize)
-{
-	tfh->fillasid = asid;
-	tfh->fillvaddr = vaddr;
-	tfh->pfn = paddr >> GRU_PADDR_SHIFT;
-	tfh->gaa = gaa;
-	tfh->dirty = dirty;
-	tfh->pagesize = pagesize;
-	tfh->opc = TFHOP_WRITE_RESTART;
-	start_instruction(tfh);
-}
-
-static inline void tfh_restart(struct gru_tlb_fault_handle *tfh)
-{
-	tfh->opc = TFHOP_RESTART;
-	start_instruction(tfh);
-}
-
-static inline void tfh_user_polling_mode(struct gru_tlb_fault_handle *tfh)
-{
-	tfh->opc = TFHOP_USER_POLLING_MODE;
-	start_instruction(tfh);
-}
-
-static inline void tfh_exception(struct gru_tlb_fault_handle *tfh)
-{
-	tfh->opc = TFHOP_EXCEPTION;
-	start_instruction(tfh);
-}
+int cch_allocate(struct gru_context_configuration_handle *cch);
+int cch_start(struct gru_context_configuration_handle *cch);
+int cch_interrupt(struct gru_context_configuration_handle *cch);
+int cch_deallocate(struct gru_context_configuration_handle *cch);
+int cch_interrupt_sync(struct gru_context_configuration_handle *cch);
+int tgh_invalidate(struct gru_tlb_global_handle *tgh, unsigned long vaddr,
+	unsigned long vaddrmask, int asid, int pagesize, int global, int n,
+	unsigned short ctxbitmap);
+void tfh_write_only(struct gru_tlb_fault_handle *tfh, unsigned long pfn,
+	unsigned long vaddr, int asid, int dirty, int pagesize);
+void tfh_write_restart(struct gru_tlb_fault_handle *tfh, unsigned long paddr,
+	int gaa, unsigned long vaddr, int asid, int dirty, int pagesize);
+void tfh_restart(struct gru_tlb_fault_handle *tfh);
+void tfh_user_polling_mode(struct gru_tlb_fault_handle *tfh);
+void tfh_exception(struct gru_tlb_fault_handle *tfh);
 
 #endif /* __GRUHANDLES_H__ */

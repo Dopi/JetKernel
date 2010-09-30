@@ -14,8 +14,7 @@
 #include <linux/uio.h>
 
 /*
- * Representation of a reply cache entry. The first two members *must*
- * be hash_next and hash_prev.
+ * Representation of a reply cache entry.
  */
 struct svc_cacherep {
 	struct hlist_node	c_hash;
@@ -75,5 +74,13 @@ int	nfsd_reply_cache_init(void);
 void	nfsd_reply_cache_shutdown(void);
 int	nfsd_cache_lookup(struct svc_rqst *, int);
 void	nfsd_cache_update(struct svc_rqst *, int, __be32 *);
+
+#ifdef CONFIG_NFSD_V4
+void	nfsd4_set_statp(struct svc_rqst *rqstp, __be32 *statp);
+#else  /* CONFIG_NFSD_V4 */
+static inline void nfsd4_set_statp(struct svc_rqst *rqstp, __be32 *statp)
+{
+}
+#endif /* CONFIG_NFSD_V4 */
 
 #endif /* NFSCACHE_H */

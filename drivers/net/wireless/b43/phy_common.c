@@ -84,7 +84,7 @@ int b43_phy_init(struct b43_wldev *dev)
 
 	phy->channel = ops->get_default_chan(dev);
 
-	ops->software_rfkill(dev, RFKILL_STATE_UNBLOCKED);
+	ops->software_rfkill(dev, false);
 	err = ops->init(dev);
 	if (err) {
 		b43err(dev->wl, "PHY init failed\n");
@@ -104,7 +104,7 @@ err_phy_exit:
 	if (ops->exit)
 		ops->exit(dev);
 err_block_rf:
-	ops->software_rfkill(dev, RFKILL_STATE_SOFT_BLOCKED);
+	ops->software_rfkill(dev, true);
 
 	return err;
 }
@@ -113,7 +113,7 @@ void b43_phy_exit(struct b43_wldev *dev)
 {
 	const struct b43_phy_operations *ops = dev->phy.ops;
 
-	ops->software_rfkill(dev, RFKILL_STATE_SOFT_BLOCKED);
+	ops->software_rfkill(dev, true);
 	if (ops->exit)
 		ops->exit(dev);
 }
@@ -131,12 +131,16 @@ void b43_radio_lock(struct b43_wldev *dev)
 {
 	u32 macctl;
 
+#if B43_DEBUG
+	B43_WARN_ON(dev->phy.radio_locked);
+	dev->phy.radio_locked = 1;
+#endif
+
 	macctl = b43_read32(dev, B43_MMIO_MACCTL);
-	B43_WARN_ON(macctl & B43_MACCTL_RADIOLOCK);
 	macctl |= B43_MACCTL_RADIOLOCK;
 	b43_write32(dev, B43_MMIO_MACCTL, macctl);
-	/* Commit the write and wait for the device
-	 * to exit any radio register access. */
+	/* Commit the write and wait for the firmware
+	 * to finish any radio register access. */
 	b43_read32(dev, B43_MMIO_MACCTL);
 	udelay(10);
 }
@@ -145,11 +149,15 @@ void b43_radio_unlock(struct b43_wldev *dev)
 {
 	u32 macctl;
 
+#if B43_DEBUG
+	B43_WARN_ON(!dev->phy.radio_locked);
+	dev->phy.radio_locked = 0;
+#endif
+
 	/* Commit any write */
 	b43_read16(dev, B43_MMIO_PHY_VER);
 	/* unlock */
 	macctl = b43_read32(dev, B43_MMIO_MACCTL);
-	B43_WARN_ON(!(macctl & B43_MACCTL_RADIOLOCK));
 	macctl &= ~B43_MACCTL_RADIOLOCK;
 	b43_write32(dev, B43_MMIO_MACCTL, macctl);
 }
@@ -287,18 +295,13 @@ err_restore_cookie:
 	return err;
 }
 
-void b43_software_rfkill(struct b43_wldev *dev, enum rfkill_state state)
+void b43_software_rfkill(struct b43_wldev *dev, bool blocked)
 {
 	struct b43_phy *phy = &dev->phy;
 
-	if (state == RFKILL_STATE_HARD_BLOCKED) {
-		/* We cannot hardware-block the device */
-		state = RFKILL_STATE_SOFT_BLOCKED;
-	}
-
 	b43_mac_suspend(dev);
-	phy->ops->software_rfkill(dev, state);
-	phy->radio_on = (state == RFKILL_STATE_UNBLOCKED);
+	phy->ops->software_rfkill(dev, blocked);
+	phy->radio_on = !blocked;
 	b43_mac_enable(dev);
 }
 

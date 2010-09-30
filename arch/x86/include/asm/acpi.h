@@ -102,9 +102,6 @@ static inline void disable_acpi(void)
 	acpi_noirq = 1;
 }
 
-/* Fixmap pages to reserve for ACPI boot-time tables (see fixmap.h) */
-#define FIX_ACPI_PAGES 4
-
 extern int acpi_gsi_to_irq(u32 gsi, unsigned int *irq);
 
 static inline void acpi_noirq_set(void) { acpi_noirq = 1; }
@@ -147,6 +144,7 @@ static inline unsigned int acpi_processor_cstate_check(unsigned int max_cstate)
 
 #else /* !CONFIG_ACPI */
 
+#define acpi_disabled 1
 #define acpi_lapic 0
 #define acpi_ioapic 0
 static inline void acpi_noirq_set(void) { }

@@ -186,8 +186,9 @@ static int spufs_rmdir(struct inode *parent, struct dentry *dir)
 	return simple_rmdir(parent, dir);
 }
 
-static int spufs_fill_dir(struct dentry *dir, struct spufs_tree_descr *files,
-			  int mode, struct spu_context *ctx)
+static int spufs_fill_dir(struct dentry *dir,
+		const struct spufs_tree_descr *files, int mode,
+		struct spu_context *ctx)
 {
 	struct dentry *dentry, *tmp;
 	int ret;
@@ -630,11 +631,7 @@ long spufs_create(struct nameidata *nd, unsigned int flags, mode_t mode,
 	if (IS_ERR(dentry))
 		goto out_dir;
 
-	ret = -EEXIST;
-	if (dentry->d_inode)
-		goto out_dput;
-
-	mode &= ~current->fs->umask;
+	mode &= ~current_umask();
 
 	if (flags & SPU_CREATE_GANG)
 		ret = spufs_create_gang(nd->path.dentry->d_inode,
@@ -647,8 +644,6 @@ long spufs_create(struct nameidata *nd, unsigned int flags, mode_t mode,
 		fsnotify_mkdir(nd->path.dentry->d_inode, dentry);
 	return ret;
 
-out_dput:
-	dput(dentry);
 out_dir:
 	mutex_unlock(&nd->path.dentry->d_inode->i_mutex);
 out:

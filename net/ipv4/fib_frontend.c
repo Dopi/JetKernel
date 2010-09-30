@@ -40,7 +40,6 @@
 #include <net/route.h>
 #include <net/tcp.h>
 #include <net/sock.h>
-#include <net/icmp.h>
 #include <net/arp.h>
 #include <net/ip_fib.h>
 #include <net/rtnetlink.h>
@@ -275,7 +274,7 @@ int fib_validate_source(__be32 src, __be32 dst, u8 tos, int oif,
 	fib_res_put(&res);
 	if (no_addr)
 		goto last_resort;
-	if (rpf)
+	if (rpf == 1)
 		goto e_inval;
 	fl.oif = dev->ifindex;
 

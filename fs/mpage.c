@@ -82,7 +82,7 @@ static void mpage_end_io_write(struct bio *bio, int err)
 	bio_put(bio);
 }
 
-struct bio *mpage_bio_submit(int rw, struct bio *bio)
+static struct bio *mpage_bio_submit(int rw, struct bio *bio)
 {
 	bio->bi_end_io = mpage_end_io_read;
 	if (rw == WRITE)
@@ -90,7 +90,6 @@ struct bio *mpage_bio_submit(int rw, struct bio *bio)
 	submit_bio(rw, bio);
 	return NULL;
 }
-EXPORT_SYMBOL(mpage_bio_submit);
 
 static struct bio *
 mpage_alloc(struct block_device *bdev,
@@ -380,7 +379,8 @@ mpage_readpages(struct address_space *mapping, struct list_head *pages,
 	struct buffer_head map_bh;
 	unsigned long first_logical_block = 0;
 
-	clear_buffer_mapped(&map_bh);
+	map_bh.b_state = 0;
+	map_bh.b_size = 0;
 	for (page_idx = 0; page_idx < nr_pages; page_idx++) {
 		struct page *page = list_entry(pages->prev, struct page, lru);
 
@@ -413,7 +413,8 @@ int mpage_readpage(struct page *page, get_block_t get_block)
 	struct buffer_head map_bh;
 	unsigned long first_logical_block = 0;
 
-	clear_buffer_mapped(&map_bh);
+	map_bh.b_state = 0;
+	map_bh.b_size = 0;
 	bio = do_mpage_readpage(bio, page, 1, &last_block_in_bio,
 			&map_bh, &first_logical_block, get_block);
 	if (bio)
@@ -439,7 +440,14 @@ EXPORT_SYMBOL(mpage_readpage);
  * just allocate full-size (16-page) BIOs.
  */
 
-int __mpage_writepage(struct page *page, struct writeback_control *wbc,
+struct mpage_data {
+	struct bio *bio;
+	sector_t last_block_in_bio;
+	get_block_t *get_block;
+	unsigned use_writepage;
+};
+
+static int __mpage_writepage(struct page *page, struct writeback_control *wbc,
 		      void *data)
 {
 	struct mpage_data *mpd = data;
@@ -648,7 +656,6 @@ out:
 	mpd->bio = bio;
 	return ret;
 }
-EXPORT_SYMBOL(__mpage_writepage);
 
 /**
  * mpage_writepages - walk the list of dirty pages of the given address space & writepage() all of them

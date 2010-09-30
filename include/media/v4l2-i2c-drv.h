@@ -22,7 +22,7 @@
  */
 
 /* NOTE: the full version of this header is in the v4l-dvb repository
- * and allows v4l i2c drivers to be compiled on older kernels as well.
+ * and allows v4l i2c drivers to be compiled on pre-2.6.26 kernels.
  * The version of this header as it appears in the kernel is a stripped
  * version (without all the backwards compatibility stuff) and so it
  * looks a bit odd.
@@ -30,6 +30,9 @@
  * If you look at the full version then you will understand the reason
  * for introducing this header since you really don't want to have all
  * the tricky backwards compatibility code in each and every i2c driver.
+ *
+ * If the i2c driver will never be compiled for pre-2.6.26 kernels, then
+ * DO NOT USE this header! Just write it as a regular i2c driver.
  */
 
 #ifndef __V4L2_I2C_DRV_H__
@@ -39,14 +42,11 @@
 
 struct v4l2_i2c_driver_data {
 	const char * const name;
-	int driverid;
 	int (*command)(struct i2c_client *client, unsigned int cmd, void *arg);
 	int (*probe)(struct i2c_client *client, const struct i2c_device_id *id);
 	int (*remove)(struct i2c_client *client);
 	int (*suspend)(struct i2c_client *client, pm_message_t state);
 	int (*resume)(struct i2c_client *client);
-	int (*legacy_probe)(struct i2c_adapter *adapter);
-	int legacy_class;
 	const struct i2c_device_id *id_table;
 };
 
@@ -54,12 +54,11 @@ static struct v4l2_i2c_driver_data v4l2_i2c_data;
 static struct i2c_driver v4l2_i2c_driver;
 
 
-/* Bus-based I2C implementation for kernels >= 2.6.22 */
+/* Bus-based I2C implementation for kernels >= 2.6.26 */
 
 static int __init v4l2_i2c_drv_init(void)
 {
 	v4l2_i2c_driver.driver.name = v4l2_i2c_data.name;
-	v4l2_i2c_driver.id = v4l2_i2c_data.driverid;
 	v4l2_i2c_driver.command = v4l2_i2c_data.command;
 	v4l2_i2c_driver.probe = v4l2_i2c_data.probe;
 	v4l2_i2c_driver.remove = v4l2_i2c_data.remove;

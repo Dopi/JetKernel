@@ -24,11 +24,10 @@
 #include <asm/apic.h>
 #include <asm/hpet.h>
 #include <linux/kdebug.h>
-#include <asm/smp.h>
+#include <asm/cpu.h>
 #include <asm/reboot.h>
 #include <asm/virtext.h>
-
-#include <mach_ipi.h>
+#include <asm/iommu.h>
 
 
 #if defined(CONFIG_SMP) && defined(CONFIG_X86_LOCAL_APIC)
@@ -105,5 +104,10 @@ void native_machine_crash_shutdown(struct pt_regs *regs)
 #ifdef CONFIG_HPET_TIMER
 	hpet_disable();
 #endif
+
+#ifdef CONFIG_X86_64
+	pci_iommu_shutdown();
+#endif
+
 	crash_save_cpu(regs, safe_smp_processor_id());
 }

@@ -25,6 +25,7 @@
 #include <linux/sunrpc/stats.h>
 #include <linux/sunrpc/svcsock.h>
 #include <linux/sunrpc/clnt.h>
+#include <linux/sunrpc/bc_xprt.h>
 
 #define RPCDBG_FACILITY	RPCDBG_SVCDSP
 
@@ -124,7 +125,7 @@ svc_pool_map_choose_mode(void)
 {
 	unsigned int node;
 
-	if (num_online_nodes() > 1) {
+	if (nr_online_nodes > 1) {
 		/*
 		 * Actually have multiple NUMA nodes,
 		 * so split pools on NUMA node boundaries
@@ -312,13 +313,12 @@ svc_pool_map_set_cpumask(struct task_struct *task, unsigned int pidx)
 	switch (m->mode) {
 	case SVC_POOL_PERCPU:
 	{
-		set_cpus_allowed_ptr(task, &cpumask_of_cpu(node));
+		set_cpus_allowed_ptr(task, cpumask_of(node));
 		break;
 	}
 	case SVC_POOL_PERNODE:
 	{
-		node_to_cpumask_ptr(nodecpumask, node);
-		set_cpus_allowed_ptr(task, nodecpumask);
+		set_cpus_allowed_ptr(task, cpumask_of_node(node));
 		break;
 	}
 	}
@@ -359,7 +359,7 @@ svc_pool_for_cpu(struct svc_serv *serv, int cpu)
  */
 static struct svc_serv *
 __svc_create(struct svc_program *prog, unsigned int bufsize, int npools,
-	   sa_family_t family, void (*shutdown)(struct svc_serv *serv))
+	     void (*shutdown)(struct svc_serv *serv))
 {
 	struct svc_serv	*serv;
 	unsigned int vers;
@@ -368,7 +368,6 @@ __svc_create(struct svc_program *prog, unsigned int bufsize, int npools,
 
 	if (!(serv = kzalloc(sizeof(*serv), GFP_KERNEL)))
 		return NULL;
-	serv->sv_family    = family;
 	serv->sv_name      = prog->pg_name;
 	serv->sv_program   = prog;
 	serv->sv_nrthreads = 1;
@@ -427,21 +426,21 @@ __svc_create(struct svc_program *prog, unsigned int bufsize, int npools,
 
 struct svc_serv *
 svc_create(struct svc_program *prog, unsigned int bufsize,
-		sa_family_t family, void (*shutdown)(struct svc_serv *serv))
+	   void (*shutdown)(struct svc_serv *serv))
 {
-	return __svc_create(prog, bufsize, /*npools*/1, family, shutdown);
+	return __svc_create(prog, bufsize, /*npools*/1, shutdown);
 }
 EXPORT_SYMBOL_GPL(svc_create);
 
 struct svc_serv *
 svc_create_pooled(struct svc_program *prog, unsigned int bufsize,
-		  sa_family_t family, void (*shutdown)(struct svc_serv *serv),
+		  void (*shutdown)(struct svc_serv *serv),
 		  svc_thread_fn func, struct module *mod)
 {
 	struct svc_serv *serv;
 	unsigned int npools = svc_pool_map_get();
 
-	serv = __svc_create(prog, bufsize, npools, family, shutdown);
+	serv = __svc_create(prog, bufsize, npools, shutdown);
 
 	if (serv != NULL) {
 		serv->sv_function = func;
@@ -487,6 +486,10 @@ svc_destroy(struct svc_serv *serv)
 
 	if (svc_serv_is_pooled(serv))
 		svc_pool_map_put();
+
+#if defined(CONFIG_NFS_V4_1)
+	svc_sock_destroy(serv->bc_xprt);
+#endif /* CONFIG_NFS_V4_1 */
 
 	svc_unregister(serv);
 	kfree(serv->sv_pools);
@@ -719,8 +722,6 @@ svc_exit_thread(struct svc_rqst *rqstp)
 }
 EXPORT_SYMBOL_GPL(svc_exit_thread);
 
-#ifdef CONFIG_SUNRPC_REGISTER_V4
-
 /*
  * Register an "inet" protocol family netid with the local
  * rpcbind daemon via an rpcbind v4 SET request.
@@ -735,12 +736,13 @@ static int __svc_rpcb_register4(const u32 program, const u32 version,
 				const unsigned short protocol,
 				const unsigned short port)
 {
-	struct sockaddr_in sin = {
+	const struct sockaddr_in sin = {
 		.sin_family		= AF_INET,
 		.sin_addr.s_addr	= htonl(INADDR_ANY),
 		.sin_port		= htons(port),
 	};
-	char *netid;
+	const char *netid;
+	int error;
 
 	switch (protocol) {
 	case IPPROTO_UDP:
@@ -750,13 +752,23 @@ static int __svc_rpcb_register4(const u32 program, const u32 version,
 		netid = RPCBIND_NETID_TCP;
 		break;
 	default:
-		return -EPROTONOSUPPORT;
+		return -ENOPROTOOPT;
 	}
 
-	return rpcb_v4_register(program, version,
-				(struct sockaddr *)&sin, netid);
+	error = rpcb_v4_register(program, version,
+					(const struct sockaddr *)&sin, netid);
+
+	/*
+	 * User space didn't support rpcbind v4, so retry this
+	 * registration request with the legacy rpcbind v2 protocol.
+	 */
+	if (error == -EPROTONOSUPPORT)
+		error = rpcb_register(program, version, protocol, port);
+
+	return error;
 }
 
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
 /*
  * Register an "inet6" protocol family netid with the local
  * rpcbind daemon via an rpcbind v4 SET request.
@@ -771,12 +783,13 @@ static int __svc_rpcb_register6(const u32 program, const u32 version,
 				const unsigned short protocol,
 				const unsigned short port)
 {
-	struct sockaddr_in6 sin6 = {
+	const struct sockaddr_in6 sin6 = {
 		.sin6_family		= AF_INET6,
 		.sin6_addr		= IN6ADDR_ANY_INIT,
 		.sin6_port		= htons(port),
 	};
-	char *netid;
+	const char *netid;
+	int error;
 
 	switch (protocol) {
 	case IPPROTO_UDP:
@@ -786,12 +799,22 @@ static int __svc_rpcb_register6(const u32 program, const u32 version,
 		netid = RPCBIND_NETID_TCP6;
 		break;
 	default:
-		return -EPROTONOSUPPORT;
+		return -ENOPROTOOPT;
 	}
 
-	return rpcb_v4_register(program, version,
-				(struct sockaddr *)&sin6, netid);
+	error = rpcb_v4_register(program, version,
+					(const struct sockaddr *)&sin6, netid);
+
+	/*
+	 * User space didn't support rpcbind version 4, so we won't
+	 * use a PF_INET6 listener.
+	 */
+	if (error == -EPROTONOSUPPORT)
+		error = -EAFNOSUPPORT;
+
+	return error;
 }
+#endif	/* defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE) */
 
 /*
  * Register a kernel RPC service via rpcbind version 4.
@@ -799,69 +822,43 @@ static int __svc_rpcb_register6(const u32 program, const u32 version,
  * Returns zero on success; a negative errno value is returned
  * if any error occurs.
  */
-static int __svc_register(const u32 program, const u32 version,
-			  const sa_family_t family,
+static int __svc_register(const char *progname,
+			  const u32 program, const u32 version,
+			  const int family,
 			  const unsigned short protocol,
 			  const unsigned short port)
 {
-	int error;
+	int error = -EAFNOSUPPORT;
 
 	switch (family) {
-	case AF_INET:
-		return __svc_rpcb_register4(program, version,
+	case PF_INET:
+		error = __svc_rpcb_register4(program, version,
 						protocol, port);
-	case AF_INET6:
+		break;
+#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+	case PF_INET6:
 		error = __svc_rpcb_register6(program, version,
 						protocol, port);
-		if (error < 0)
-			return error;
-
-		/*
-		 * Work around bug in some versions of Linux rpcbind
-		 * which don't allow registration of both inet and
-		 * inet6 netids.
-		 *
-		 * Error return ignored for now.
-		 */
-		__svc_rpcb_register4(program, version,
-						protocol, port);
-		return 0;
+#endif	/* defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE) */
 	}
 
-	return -EAFNOSUPPORT;
+	if (error < 0)
+		printk(KERN_WARNING "svc: failed to register %sv%u RPC "
+			"service (errno %d).\n", progname, version, -error);
+	return error;
 }
-
-#else	/* CONFIG_SUNRPC_REGISTER_V4 */
-
-/*
- * Register a kernel RPC service via rpcbind version 2.
- *
- * Returns zero on success; a negative errno value is returned
- * if any error occurs.
- */
-static int __svc_register(const u32 program, const u32 version,
-			  sa_family_t family,
-			  const unsigned short protocol,
-			  const unsigned short port)
-{
-	if (family != AF_INET)
-		return -EAFNOSUPPORT;
-
-	return rpcb_register(program, version, protocol, port);
-}
-
-#endif /* CONFIG_SUNRPC_REGISTER_V4 */
 
 /**
  * svc_register - register an RPC service with the local portmapper
  * @serv: svc_serv struct for the service to register
+ * @family: protocol family of service's listener socket
  * @proto: transport protocol number to advertise
  * @port: port to advertise
  *
- * Service is registered for any address in serv's address family
+ * Service is registered for any address in the passed-in protocol family
  */
-int svc_register(const struct svc_serv *serv, const unsigned short proto,
-		 const unsigned short port)
+int svc_register(const struct svc_serv *serv, const int family,
+		 const unsigned short proto, const unsigned short port)
 {
 	struct svc_program	*progp;
 	unsigned int		i;
@@ -879,15 +876,15 @@ int svc_register(const struct svc_serv *serv, const unsigned short proto,
 					i,
 					proto == IPPROTO_UDP?  "udp" : "tcp",
 					port,
-					serv->sv_family,
+					family,
 					progp->pg_vers[i]->vs_hidden?
 						" (but not telling portmap)" : "");
 
 			if (progp->pg_vers[i]->vs_hidden)
 				continue;
 
-			error = __svc_register(progp->pg_prog, i,
-						serv->sv_family, proto, port);
+			error = __svc_register(progp->pg_name, progp->pg_prog,
+						i, family, proto, port);
 			if (error < 0)
 				break;
 		}
@@ -896,37 +893,30 @@ int svc_register(const struct svc_serv *serv, const unsigned short proto,
 	return error;
 }
 
-#ifdef CONFIG_SUNRPC_REGISTER_V4
-
-static void __svc_unregister(const u32 program, const u32 version,
-			     const char *progname)
-{
-	struct sockaddr_in6 sin6 = {
-		.sin6_family		= AF_INET6,
-		.sin6_addr		= IN6ADDR_ANY_INIT,
-		.sin6_port		= 0,
-	};
-	int error;
-
-	error = rpcb_v4_register(program, version,
-				(struct sockaddr *)&sin6, "");
-	dprintk("svc: %s(%sv%u), error %d\n",
-			__func__, progname, version, error);
-}
-
-#else	/* CONFIG_SUNRPC_REGISTER_V4 */
-
+/*
+ * If user space is running rpcbind, it should take the v4 UNSET
+ * and clear everything for this [program, version].  If user space
+ * is running portmap, it will reject the v4 UNSET, but won't have
+ * any "inet6" entries anyway.  So a PMAP_UNSET should be sufficient
+ * in this case to clear all existing entries for [program, version].
+ */
 static void __svc_unregister(const u32 program, const u32 version,
 			     const char *progname)
 {
 	int error;
 
-	error = rpcb_register(program, version, 0, 0);
+	error = rpcb_v4_register(program, version, NULL, "");
+
+	/*
+	 * User space didn't support rpcbind v4, so retry this
+	 * request with the legacy rpcbind v2 protocol.
+	 */
+	if (error == -EPROTONOSUPPORT)
+		error = rpcb_register(program, version, 0, 0);
+
 	dprintk("svc: %s(%sv%u), error %d\n",
 			__func__, progname, version, error);
 }
-
-#endif	/* CONFIG_SUNRPC_REGISTER_V4 */
 
 /*
  * All netids, bind addresses and ports registered for [program, version]
@@ -985,20 +975,18 @@ svc_printk(struct svc_rqst *rqstp, const char *fmt, ...)
 }
 
 /*
- * Process the RPC request.
+ * Common routine for processing the RPC request.
  */
-int
-svc_process(struct svc_rqst *rqstp)
+static int
+svc_process_common(struct svc_rqst *rqstp, struct kvec *argv, struct kvec *resv)
 {
 	struct svc_program	*progp;
 	struct svc_version	*versp = NULL;	/* compiler food */
 	struct svc_procedure	*procp = NULL;
-	struct kvec *		argv = &rqstp->rq_arg.head[0];
-	struct kvec *		resv = &rqstp->rq_res.head[0];
 	struct svc_serv		*serv = rqstp->rq_server;
 	kxdrproc_t		xdr;
 	__be32			*statp;
-	u32			dir, prog, vers, proc;
+	u32			prog, vers, proc;
 	__be32			auth_stat, rpc_stat;
 	int			auth_res;
 	__be32			*reply_statp;
@@ -1008,36 +996,21 @@ svc_process(struct svc_rqst *rqstp)
 	if (argv->iov_len < 6*4)
 		goto err_short_len;
 
-	/* setup response xdr_buf.
-	 * Initially it has just one page
-	 */
-	rqstp->rq_resused = 1;
-	resv->iov_base = page_address(rqstp->rq_respages[0]);
-	resv->iov_len = 0;
-	rqstp->rq_res.pages = rqstp->rq_respages + 1;
-	rqstp->rq_res.len = 0;
-	rqstp->rq_res.page_base = 0;
-	rqstp->rq_res.page_len = 0;
-	rqstp->rq_res.buflen = PAGE_SIZE;
-	rqstp->rq_res.tail[0].iov_base = NULL;
-	rqstp->rq_res.tail[0].iov_len = 0;
 	/* Will be turned off only in gss privacy case: */
 	rqstp->rq_splice_ok = 1;
+	/* Will be turned off only when NFSv4 Sessions are used */
+	rqstp->rq_usedeferral = 1;
 
 	/* Setup reply header */
 	rqstp->rq_xprt->xpt_ops->xpo_prep_reply_hdr(rqstp);
 
-	rqstp->rq_xid = svc_getu32(argv);
 	svc_putu32(resv, rqstp->rq_xid);
 
-	dir  = svc_getnl(argv);
 	vers = svc_getnl(argv);
 
 	/* First words of reply: */
 	svc_putnl(resv, 1);		/* REPLY */
 
-	if (dir != 0)		/* direction != CALL */
-		goto err_bad_dir;
 	if (vers != 2)		/* RPC version number */
 		goto err_bad_rpc;
 
@@ -1093,7 +1066,6 @@ svc_process(struct svc_rqst *rqstp)
 	procp = versp->vs_proc + proc;
 	if (proc >= versp->vs_nproc || !procp->pc_func)
 		goto err_bad_proc;
-	rqstp->rq_server   = serv;
 	rqstp->rq_procinfo = procp;
 
 	/* Syntactic check complete */
@@ -1161,7 +1133,7 @@ svc_process(struct svc_rqst *rqstp)
  sendit:
 	if (svc_authorise(rqstp))
 		goto dropit;
-	return svc_send(rqstp);
+	return 1;		/* Caller can now send it */
 
  dropit:
 	svc_authorise(rqstp);	/* doesn't hurt to call this twice */
@@ -1173,12 +1145,6 @@ err_short_len:
 	svc_printk(rqstp, "short len %Zd, dropping request\n",
 			argv->iov_len);
 
-	goto dropit;			/* drop request */
-
-err_bad_dir:
-	svc_printk(rqstp, "bad direction %d, dropping request\n", dir);
-
-	serv->sv_stats->rpcbadfmt++;
 	goto dropit;			/* drop request */
 
 err_bad_rpc:
@@ -1232,6 +1198,100 @@ err_bad:
 	goto sendit;
 }
 EXPORT_SYMBOL_GPL(svc_process);
+
+/*
+ * Process the RPC request.
+ */
+int
+svc_process(struct svc_rqst *rqstp)
+{
+	struct kvec		*argv = &rqstp->rq_arg.head[0];
+	struct kvec		*resv = &rqstp->rq_res.head[0];
+	struct svc_serv		*serv = rqstp->rq_server;
+	u32			dir;
+	int			error;
+
+	/*
+	 * Setup response xdr_buf.
+	 * Initially it has just one page
+	 */
+	rqstp->rq_resused = 1;
+	resv->iov_base = page_address(rqstp->rq_respages[0]);
+	resv->iov_len = 0;
+	rqstp->rq_res.pages = rqstp->rq_respages + 1;
+	rqstp->rq_res.len = 0;
+	rqstp->rq_res.page_base = 0;
+	rqstp->rq_res.page_len = 0;
+	rqstp->rq_res.buflen = PAGE_SIZE;
+	rqstp->rq_res.tail[0].iov_base = NULL;
+	rqstp->rq_res.tail[0].iov_len = 0;
+
+	rqstp->rq_xid = svc_getu32(argv);
+
+	dir  = svc_getnl(argv);
+	if (dir != 0) {
+		/* direction != CALL */
+		svc_printk(rqstp, "bad direction %d, dropping request\n", dir);
+		serv->sv_stats->rpcbadfmt++;
+		svc_drop(rqstp);
+		return 0;
+	}
+
+	error = svc_process_common(rqstp, argv, resv);
+	if (error <= 0)
+		return error;
+
+	return svc_send(rqstp);
+}
+
+#if defined(CONFIG_NFS_V4_1)
+/*
+ * Process a backchannel RPC request that arrived over an existing
+ * outbound connection
+ */
+int
+bc_svc_process(struct svc_serv *serv, struct rpc_rqst *req,
+	       struct svc_rqst *rqstp)
+{
+	struct kvec	*argv = &rqstp->rq_arg.head[0];
+	struct kvec	*resv = &rqstp->rq_res.head[0];
+	int 		error;
+
+	/* Build the svc_rqst used by the common processing routine */
+	rqstp->rq_xprt = serv->bc_xprt;
+	rqstp->rq_xid = req->rq_xid;
+	rqstp->rq_prot = req->rq_xprt->prot;
+	rqstp->rq_server = serv;
+
+	rqstp->rq_addrlen = sizeof(req->rq_xprt->addr);
+	memcpy(&rqstp->rq_addr, &req->rq_xprt->addr, rqstp->rq_addrlen);
+	memcpy(&rqstp->rq_arg, &req->rq_rcv_buf, sizeof(rqstp->rq_arg));
+	memcpy(&rqstp->rq_res, &req->rq_snd_buf, sizeof(rqstp->rq_res));
+
+	/* reset result send buffer "put" position */
+	resv->iov_len = 0;
+
+	if (rqstp->rq_prot != IPPROTO_TCP) {
+		printk(KERN_ERR "No support for Non-TCP transports!\n");
+		BUG();
+	}
+
+	/*
+	 * Skip the next two words because they've already been
+	 * processed in the trasport
+	 */
+	svc_getu32(argv);	/* XID */
+	svc_getnl(argv);	/* CALLDIR */
+
+	error = svc_process_common(rqstp, argv, resv);
+	if (error <= 0)
+		return error;
+
+	memcpy(&req->rq_snd_buf, &rqstp->rq_res, sizeof(req->rq_snd_buf));
+	return bc_send(req);
+}
+EXPORT_SYMBOL(bc_svc_process);
+#endif /* CONFIG_NFS_V4_1 */
 
 /*
  * Return (transport-specific) limit on the rpc payload.

@@ -6,6 +6,7 @@
 #include <asm-generic/vmlinux.lds.h>
 #include <asm/thread_info.h>
 #include <asm/memory.h>
+#include <asm/page.h>
 	
 OUTPUT_ARCH(arm)
 ENTRY(stext)
@@ -63,15 +64,17 @@ SECTIONS
 			usr/built-in.o(.init.ramfs)
 		__initramfs_end = .;
 #endif
-		. = ALIGN(4096);
+		. = ALIGN(PAGE_SIZE);
+		__per_cpu_load = .;
 		__per_cpu_start = .;
+			*(.data.percpu.page_aligned)
 			*(.data.percpu)
 			*(.data.percpu.shared_aligned)
 		__per_cpu_end = .;
 #ifndef CONFIG_XIP_KERNEL
 		__init_begin = _stext;
 		INIT_DATA
-		. = ALIGN(4096);
+		. = ALIGN(PAGE_SIZE);
 		__init_end = .;
 #endif
 	}
@@ -80,6 +83,16 @@ SECTIONS
 		EXIT_TEXT
 		EXIT_DATA
 		*(.exitcall.exit)
+		*(.ARM.exidx.exit.text)
+		*(.ARM.extab.exit.text)
+#ifndef CONFIG_HOTPLUG_CPU
+		*(.ARM.exidx.cpuexit.text)
+		*(.ARM.extab.cpuexit.text)
+#endif
+#ifndef CONFIG_HOTPLUG
+		*(.ARM.exidx.devexit.text)
+		*(.ARM.extab.devexit.text)
+#endif
 #ifndef CONFIG_MMU
 		*(.fixup)
 		*(__ex_table)
@@ -106,9 +119,26 @@ SECTIONS
 		*(.got)			/* Global offset table		*/
 	}
 
-	RODATA
+	RO_DATA(PAGE_SIZE)
 
 	_etext = .;			/* End of text and rodata section */
+
+#ifdef CONFIG_ARM_UNWIND
+	/*
+	 * Stack unwinding tables
+	 */
+	. = ALIGN(8);
+	.ARM.unwind_idx : {
+		__start_unwind_idx = .;
+		*(.ARM.exidx*)
+		__stop_unwind_idx = .;
+	}
+	.ARM.unwind_tab : {
+		__start_unwind_tab = .;
+		*(.ARM.extab*)
+		__stop_unwind_tab = .;
+	}
+#endif
 
 #ifdef CONFIG_XIP_KERNEL
 	__data_loc = ALIGN(4);		/* location in binary */
@@ -120,6 +150,7 @@ SECTIONS
 
 	.data : AT(__data_loc) {
 		_data = .;		/* address in memory */
+		_sdata = .;
 
 		/*
 		 * first, the init task union, aligned
@@ -128,17 +159,17 @@ SECTIONS
 		*(.data.init_task)
 
 #ifdef CONFIG_XIP_KERNEL
-		. = ALIGN(4096);
+		. = ALIGN(PAGE_SIZE);
 		__init_begin = .;
 		INIT_DATA
-		. = ALIGN(4096);
+		. = ALIGN(PAGE_SIZE);
 		__init_end = .;
 #endif
 
-		. = ALIGN(4096);
+		. = ALIGN(PAGE_SIZE);
 		__nosave_begin = .;
 		*(.data.nosave)
-		. = ALIGN(4096);
+		. = ALIGN(PAGE_SIZE);
 		__nosave_end = .;
 
 		/*
@@ -171,6 +202,7 @@ SECTIONS
 		__bss_start = .;	/* BSS				*/
 		*(.bss)
 		*(COMMON)
+		__bss_stop = .;
 		_end = .;
 	}
 					/* Stabs debugging sections.	*/

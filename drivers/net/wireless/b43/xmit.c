@@ -118,7 +118,6 @@ u8 b43_plcp_get_ratecode_ofdm(const u8 bitrate)
 void b43_generate_plcp_hdr(struct b43_plcp_hdr4 *plcp,
 			   const u16 octets, const u8 bitrate)
 {
-	__le32 *data = &(plcp->data);
 	__u8 *raw = plcp->raw;
 
 	if (b43_is_ofdm_rate(bitrate)) {
@@ -127,7 +126,7 @@ void b43_generate_plcp_hdr(struct b43_plcp_hdr4 *plcp,
 		d = b43_plcp_get_ratecode_ofdm(bitrate);
 		B43_WARN_ON(octets & 0xF000);
 		d |= (octets << 5);
-		*data = cpu_to_le32(d);
+		plcp->data = cpu_to_le32(d);
 	} else {
 		u32 plen;
 
@@ -141,7 +140,7 @@ void b43_generate_plcp_hdr(struct b43_plcp_hdr4 *plcp,
 				raw[1] = 0x04;
 		} else
 			raw[1] = 0x04;
-		*data |= cpu_to_le32(plen << 16);
+		plcp->data |= cpu_to_le32(plen << 16);
 		raw[0] = b43_plcp_get_ratecode_cck(bitrate);
 	}
 }
@@ -538,8 +537,14 @@ void b43_rx(struct b43_wldev *dev, struct sk_buff *skb, const void *_rxhdr)
 	chanstat = le16_to_cpu(rxhdr->channel);
 	phytype = chanstat & B43_RX_CHAN_PHYTYPE;
 
-	if (macstat & B43_RX_MAC_FCSERR)
+	if (unlikely(macstat & B43_RX_MAC_FCSERR)) {
 		dev->wl->ieee_stats.dot11FCSErrorCount++;
+		status.flag |= RX_FLAG_FAILED_FCS_CRC;
+	}
+	if (unlikely(phystat0 & (B43_RX_PHYST0_PLCPHCF | B43_RX_PHYST0_PLCPFV)))
+		status.flag |= RX_FLAG_FAILED_PLCP_CRC;
+	if (phystat0 & B43_RX_PHYST0_SHORTPRMBL)
+		status.flag |= RX_FLAG_SHORTPRE;
 	if (macstat & B43_RX_MAC_DECERR) {
 		/* Decryption with the given key failed.
 		 * Drop the packet. We also won't be able to decrypt it with
@@ -606,8 +611,12 @@ void b43_rx(struct b43_wldev *dev, struct sk_buff *skb, const void *_rxhdr)
 						phytype == B43_PHYTYPE_A);
 	else
 		status.rate_idx = b43_plcp_get_bitrate_idx_cck(plcp);
-	if (unlikely(status.rate_idx == -1))
-		goto drop;
+	if (unlikely(status.rate_idx == -1)) {
+		/* PLCP seems to be corrupted.
+		 * Drop the frame, if we are not interested in corrupted frames. */
+		if (!(dev->wl->filter_flags & FIF_PLCPFAIL))
+			goto drop;
+	}
 	status.antenna = !!(phystat0 & B43_RX_PHYST0_ANT);
 
 	/*
@@ -661,7 +670,6 @@ void b43_rx(struct b43_wldev *dev, struct sk_buff *skb, const void *_rxhdr)
 		goto drop;
 	}
 
-	dev->stats.last_rx = jiffies;
 	ieee80211_rx_irqsafe(dev->wl->hw, skb, &status);
 
 	return;

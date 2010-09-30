@@ -150,14 +150,32 @@
 enum {
 	/* Firmware uploading */
 	I2400M_BOOT_RETRIES = 3,
+	I3200_BOOT_RETRIES = 3,
 	/* Size of the Boot Mode Command buffer */
 	I2400M_BM_CMD_BUF_SIZE = 16 * 1024,
 	I2400M_BM_ACK_BUF_SIZE = 256,
 };
 
+/**
+ * struct i2400m_poke_table - Hardware poke table for the Intel 2400m
+ *
+ * This structure will be used to create a device specific poke table
+ * to put the device in a consistant state at boot time.
+ *
+ * @address: The device address to poke
+ *
+ * @data: The data value to poke to the device address
+ *
+ */
+struct i2400m_poke_table{
+	__le32 address;
+	__le32 data;
+};
 
-/* Firmware version we request when pulling the fw image file */
-#define I2400M_FW_VERSION "1.4"
+#define I2400M_FW_POKE(a, d) {		\
+	.address = cpu_to_le32(a),	\
+	.data = cpu_to_le32(d)		\
+}
 
 
 /**
@@ -178,6 +196,7 @@ enum i2400m_reset_type {
 };
 
 struct i2400m_reset_ctx;
+struct i2400m_roq;
 
 /**
  * struct i2400m - descriptor for an Intel 2400m
@@ -227,6 +246,17 @@ struct i2400m_reset_ctx;
  *     process, so it cannot rely on common infrastructure being laid
  *     out.
  *
+ * @bus_bm_retries: [fill] How many times shall a firmware upload /
+ *     device initialization be retried? Different models of the same
+ *     device might need different values, hence it is set by the
+ *     bus-specific driver. Note this value is used in two places,
+ *     i2400m_fw_dnload() and __i2400m_dev_start(); they won't become
+ *     multiplicative (__i2400m_dev_start() calling N times
+ *     i2400m_fw_dnload() and this trying N times to download the
+ *     firmware), as if __i2400m_dev_start() only retries if the
+ *     firmware crashed while initializing the device (not in a
+ *     general case).
+ *
  * @bus_bm_cmd_send: [fill] Function called to send a boot-mode
  *     command. Flags are defined in 'enum i2400m_bm_cmd_flags'. This
  *     is synchronous and has to return 0 if ok or < 0 errno code in
@@ -242,20 +272,33 @@ struct i2400m_reset_ctx;
  *     The caller to this function will check if the response is a
  *     barker that indicates the device going into reset mode.
  *
- * @bus_fw_name: [fill] name of the firmware image (in most cases,
- *     they are all the same for a single release, except that they
- *     have the type of the bus embedded in the name (eg:
- *     i2400m-fw-X-VERSION.sbcf, where X is the bus name).
+ * @bus_fw_names: [fill] a NULL-terminated array with the names of the
+ *     firmware images to try loading. This is made a list so we can
+ *     support backward compatibility of firmware releases (eg: if we
+ *     can't find the default v1.4, we try v1.3). In general, the name
+ *     should be i2400m-fw-X-VERSION.sbcf, where X is the bus name.
+ *     The list is tried in order and the first one that loads is
+ *     used. The fw loader will set i2400m->fw_name to point to the
+ *     active firmware image.
  *
  * @bus_bm_mac_addr_impaired: [fill] Set to true if the device's MAC
  *     address provided in boot mode is kind of broken and needs to
  *     be re-read later on.
+ *
+ * @bus_bm_pokes_table: [fill/optional] A table of device addresses
+ *     and values that will be poked at device init time to move the
+ *     device to the correct state for the type of boot/firmware being
+ *     used.  This table MUST be terminated with (0x000000,
+ *     0x00000000) or bad things will happen.
  *
  *
  * @wimax_dev: WiMAX generic device for linkage into the kernel WiMAX
  *     stack. Due to the way a net_device is allocated, we need to
  *     force this to be the first field so that we can get from
  *     netdev_priv() the right pointer.
+ *
+ * @rx_reorder: 1 if RX reordering is enabled; this can only be
+ *     set at probe time.
  *
  * @state: device's state (as reported by it)
  *
@@ -313,6 +356,16 @@ struct i2400m_reset_ctx;
  *
  * @rx_size_max: buggest RX message received.
  *
+ * @rx_roq: RX ReOrder queues. (fw >= v1.4) When packets are received
+ *     out of order, the device will ask the driver to hold certain
+ *     packets until the ones that are received out of order can be
+ *     delivered. Then the driver can release them to the host. See
+ *     drivers/net/i2400m/rx.c for details.
+ *
+ * @src_mac_addr: MAC address used to make ethernet packets be coming
+ *     from. This is generated at i2400m_setup() time and used during
+ *     the life cycle of the instance. See i2400m_fake_eth_header().
+ *
  * @init_mutex: Mutex used for serializing the device bringup
  *     sequence; this way if the device reboots in the middle, we
  *     don't try to do a bringup again while we are tearing down the
@@ -364,6 +417,11 @@ struct i2400m_reset_ctx;
  *     These have to be in a separate directory, a child of
  *     (wimax_dev->debugfs_dentry) so they can be removed when the
  *     module unloads, as we don't keep each dentry.
+ *
+ * @fw_name: name of the firmware image that is currently being used.
+ *
+ * @fw_version: version of the firmware interface, Major.minor,
+ *     encoded in the high word and low word (major << 16 | minor).
  */
 struct i2400m {
 	struct wimax_dev wimax_dev;	/* FIRST! See doc */
@@ -372,13 +430,16 @@ struct i2400m {
 	unsigned boot_mode:1;		/* is the device in boot mode? */
 	unsigned sboot:1;		/* signed or unsigned fw boot */
 	unsigned ready:1;		/* all probing steps done */
+	unsigned rx_reorder:1;		/* RX reorder is enabled */
 	u8 trace_msg_from_user;		/* echo rx msgs to 'trace' pipe */
-					/* typed u8 so debugfs/u8 can tweak */
+					/* typed u8 so /sys/kernel/debug/u8 can tweak */
 	enum i2400m_system_state state;
 	wait_queue_head_t state_wq;	/* Woken up when on state updates */
 
 	size_t bus_tx_block_size;
 	size_t bus_pl_size_max;
+	unsigned bus_bm_retries;
+
 	int (*bus_dev_start)(struct i2400m *);
 	void (*bus_dev_stop)(struct i2400m *);
 	void (*bus_tx_kick)(struct i2400m *);
@@ -388,8 +449,9 @@ struct i2400m {
 				   size_t, int flags);
 	ssize_t (*bus_bm_wait_for_ack)(struct i2400m *,
 				       struct i2400m_bootrom_header *, size_t);
-	const char *bus_fw_name;
+	const char **bus_fw_names;
 	unsigned bus_bm_mac_addr_impaired:1;
+	const struct i2400m_poke_table *bus_bm_pokes_table;
 
 	spinlock_t tx_lock;		/* protect TX state */
 	void *tx_buf;
@@ -400,10 +462,12 @@ struct i2400m {
 	unsigned tx_pl_num, tx_pl_max, tx_pl_min,
 		tx_num, tx_size_acc, tx_size_min, tx_size_max;
 
-	/* RX stats */
+	/* RX stuff */
 	spinlock_t rx_lock;		/* protect RX state */
 	unsigned rx_pl_num, rx_pl_max, rx_pl_min,
 		rx_num, rx_size_acc, rx_size_min, rx_size_max;
+	struct i2400m_roq *rx_roq;	/* not under rx_lock! */
+	u8 src_mac_addr[ETH_HLEN];
 
 	struct mutex msg_mutex;		/* serialize command execution */
 	struct completion msg_completion;
@@ -421,6 +485,8 @@ struct i2400m {
 	struct sk_buff *wake_tx_skb;
 
 	struct dentry *debugfs_dentry;
+	const char *fw_name;		/* name of the current firmware image */
+	unsigned long fw_version;	/* version of the firmware interface */
 };
 
 
@@ -435,6 +501,7 @@ void i2400m_init(struct i2400m *i2400m)
 	wimax_dev_init(&i2400m->wimax_dev);
 
 	i2400m->boot_mode = 1;
+	i2400m->rx_reorder = 1;
 	init_waitqueue_head(&i2400m->state_wq);
 
 	spin_lock_init(&i2400m->tx_lock);
@@ -578,12 +645,19 @@ unsigned i2400m_brh_get_signature(const struct i2400m_bootrom_header *hdr)
  * Driver / device setup and internal functions
  */
 extern void i2400m_netdev_setup(struct net_device *net_dev);
+extern int i2400m_sysfs_setup(struct device_driver *);
+extern void i2400m_sysfs_release(struct device_driver *);
 extern int i2400m_tx_setup(struct i2400m *);
 extern void i2400m_wake_tx_work(struct work_struct *);
 extern void i2400m_tx_release(struct i2400m *);
 
+extern int i2400m_rx_setup(struct i2400m *);
+extern void i2400m_rx_release(struct i2400m *);
+
 extern void i2400m_net_rx(struct i2400m *, struct sk_buff *, unsigned,
 			  const void *, int);
+extern void i2400m_net_erx(struct i2400m *, struct sk_buff *,
+			   enum i2400m_cs);
 enum i2400m_pt;
 extern int i2400m_tx(struct i2400m *, const void *, size_t, enum i2400m_pt);
 
@@ -664,19 +738,20 @@ extern struct i2400m_msg_hdr *i2400m_tx_msg_get(struct i2400m *, size_t *);
 extern void i2400m_tx_msg_sent(struct i2400m *);
 
 static const __le32 i2400m_NBOOT_BARKER[4] = {
-	__constant_cpu_to_le32(I2400M_NBOOT_BARKER),
-	__constant_cpu_to_le32(I2400M_NBOOT_BARKER),
-	__constant_cpu_to_le32(I2400M_NBOOT_BARKER),
-	__constant_cpu_to_le32(I2400M_NBOOT_BARKER)
+	cpu_to_le32(I2400M_NBOOT_BARKER),
+	cpu_to_le32(I2400M_NBOOT_BARKER),
+	cpu_to_le32(I2400M_NBOOT_BARKER),
+	cpu_to_le32(I2400M_NBOOT_BARKER)
 };
 
 static const __le32 i2400m_SBOOT_BARKER[4] = {
-	__constant_cpu_to_le32(I2400M_SBOOT_BARKER),
-	__constant_cpu_to_le32(I2400M_SBOOT_BARKER),
-	__constant_cpu_to_le32(I2400M_SBOOT_BARKER),
-	__constant_cpu_to_le32(I2400M_SBOOT_BARKER)
+	cpu_to_le32(I2400M_SBOOT_BARKER),
+	cpu_to_le32(I2400M_SBOOT_BARKER),
+	cpu_to_le32(I2400M_SBOOT_BARKER),
+	cpu_to_le32(I2400M_SBOOT_BARKER)
 };
 
+extern int i2400m_power_save_disabled;
 
 /*
  * Utility functions
@@ -721,6 +796,7 @@ extern struct sk_buff *i2400m_get_device_info(struct i2400m *);
 extern int i2400m_firmware_check(struct i2400m *);
 extern int i2400m_set_init_config(struct i2400m *,
 				  const struct i2400m_tlv_hdr **, size_t);
+extern int i2400m_set_idle_timeout(struct i2400m *, unsigned);
 
 static inline
 struct usb_endpoint_descriptor *usb_get_epd(struct usb_interface *iface, int ep)
@@ -732,6 +808,32 @@ extern int i2400m_op_rfkill_sw_toggle(struct wimax_dev *,
 				      enum wimax_rf_state);
 extern void i2400m_report_tlv_rf_switches_status(
 	struct i2400m *, const struct i2400m_tlv_rf_switches_status *);
+
+/*
+ * Helpers for firmware backwards compability
+ *
+ * As we aim to support at least the firmware version that was
+ * released with the previous kernel/driver release, some code will be
+ * conditionally executed depending on the firmware version. On each
+ * release, the code to support fw releases past the last two ones
+ * will be purged.
+ *
+ * By making it depend on this macros, it is easier to keep it a tab
+ * on what has to go and what not.
+ */
+static inline
+unsigned i2400m_le_v1_3(struct i2400m *i2400m)
+{
+	/* running fw is lower or v1.3 */
+	return i2400m->fw_version <= 0x00090001;
+}
+
+static inline
+unsigned i2400m_ge_v1_4(struct i2400m *i2400m)
+{
+	/* running fw is higher or v1.4 */
+	return i2400m->fw_version >= 0x00090002;
+}
 
 
 /*
@@ -750,6 +852,7 @@ void __i2400m_msleep(unsigned ms)
 /* Module parameters */
 
 extern int i2400m_idle_mode_disabled;
+extern int i2400m_rx_reorder_disabled;
 
 
 #endif /* #ifndef __I2400M_H__ */

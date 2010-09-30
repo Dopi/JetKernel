@@ -37,6 +37,13 @@ config MMC_SDHCI
 
 	  If unsure, say N.
 
+config MMC_SDHCI_IO_ACCESSORS
+	bool
+	depends on MMC_SDHCI
+	help
+	  This is silent Kconfig symbol that is selected by the drivers that
+	  need to overwrite SDHCI IO memory accessors.
+
 config MMC_SDHCI_PCI
 	tristate "SDHCI support on PCI bus"
 	depends on MMC_SDHCI && PCI
@@ -64,6 +71,53 @@ config MMC_RICOH_MMC
 	  the module will be called ricoh_mmc.
 
 	  If unsure, say Y.
+
+config MMC_SDHCI_OF
+	tristate "SDHCI support on OpenFirmware platforms"
+	depends on MMC_SDHCI && PPC_OF
+	select MMC_SDHCI_IO_ACCESSORS
+	help
+	  This selects the OF support for Secure Digital Host Controller
+	  Interfaces. So far, only the Freescale eSDHC controller is known
+	  to exist on OF platforms.
+
+	  If unsure, say N.
+
+config MMC_SDHCI_PLTFM
+	tristate "SDHCI support on the platform specific bus"
+	depends on MMC_SDHCI
+	help
+	  This selects the platform specific bus support for Secure Digital Host
+	  Controller Interface.
+
+	  If you have a controller with this interface, say Y or M here.
+
+	  If unsure, say N.
+
+config MMC_SDHCI_S3C
+	tristate "SDHCI support on Samsung S3C SoC"
+	depends on MMC_SDHCI && (PLAT_S3C24XX || PLAT_S3C64XX)
+	help
+	  This selects the Secure Digital Host Controller Interface (SDHCI)
+	  often referrered to as the HSMMC block in some of the Samsung S3C
+	  range of SoC.
+
+	  Note, due to the problems with DMA, the DMA support is only
+	  available with CONFIG_EXPERIMENTAL is selected.
+
+	  If you have a controller with this interface, say Y or M here.
+
+	  If unsure, say N.
+
+config MMC_SDHCI_S3C_DMA
+	bool "DMA support on S3C SDHCI"
+	depends on MMC_SDHCI_S3C && EXPERIMENTAL
+	help
+	  Enable DMA support on the Samsung S3C SDHCI glue. The DMA
+	  has proved to be problematic if the controller encounters
+	  certain errors, and thus should be treated with care.
+
+	  YMMV.
 
 config MMC_OMAP
 	tristate "TI OMAP Multimedia Card Interface support"
@@ -137,7 +191,7 @@ config MMC_ATMELMCI_DMA
 
 config MMC_IMX
 	tristate "Motorola i.MX Multimedia Card Interface support"
-	depends on ARCH_IMX
+	depends on ARCH_MX1
 	help
 	  This selects the Motorola i.MX Multimedia card Interface.
 	  If you have a i.MX platform with a Multimedia Card slot,
@@ -171,13 +225,24 @@ config MMC_TIFM_SD
           To compile this driver as a module, choose M here: the
 	  module will be called tifm_sd.
 
+config MMC_MVSDIO
+	tristate "Marvell MMC/SD/SDIO host driver"
+	depends on PLAT_ORION
+	---help---
+	  This selects the Marvell SDIO host driver.
+	  SDIO may currently be found on the Kirkwood 88F6281 and 88F6192
+	  SoC controllers.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called mvsdio.
+
 config MMC_SPI
 	tristate "MMC/SD/SDIO over SPI"
 	depends on SPI_MASTER && !HIGHMEM && HAS_DMA
 	select CRC7
 	select CRC_ITU_T
 	help
-	  Some systems accss MMC/SD/SDIO cards using a SPI controller
+	  Some systems access MMC/SD/SDIO cards using a SPI controller
 	  instead of using a "native" MMC/SD/SDIO controller.  This has a
 	  disadvantage of being relatively high overhead, but a compensating
 	  advantage of working on many systems without dedicated MMC/SD/SDIO
@@ -208,7 +273,31 @@ config MMC_SDRICOH_CS
 
 config MMC_TMIO
 	tristate "Toshiba Mobile IO Controller (TMIO) MMC/SD function support"
-	depends on MFD_TMIO
+	depends on MFD_TMIO || MFD_ASIC3
 	help
 	  This provides support for the SD/MMC cell found in TC6393XB,
-	  T7L66XB and also ipaq ASIC3
+	  T7L66XB and also HTC ASIC3
+
+config MMC_CB710
+	tristate "ENE CB710 MMC/SD Interface support"
+	depends on PCI
+	select CB710_CORE
+	help
+	  This option enables support for MMC/SD part of ENE CB710/720 Flash
+	  memory card reader found in some laptops (ie. some versions of
+	  HP Compaq nx9500).
+
+	  This driver can also be built as a module. If so, the module
+	  will be called cb710-mmc.
+
+config MMC_VIA_SDMMC
+	tristate "VIA SD/MMC Card Reader Driver"
+	depends on PCI
+	help
+	  This selects the VIA SD/MMC Card Reader driver, say Y or M here.
+	  VIA provides one multi-functional card reader which integrated into
+	  some motherboards manufactured by VIA. This card reader supports
+	  SD/MMC/SDHC.
+	  If you have a controller with this interface, say Y or M here.
+
+	  If unsure, say N.

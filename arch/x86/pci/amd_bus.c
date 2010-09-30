@@ -94,11 +94,16 @@ struct pci_root_info {
 static int pci_root_num;
 static struct pci_root_info pci_root_info[PCI_ROOT_NR];
 
-void set_pci_bus_resources_arch_default(struct pci_bus *b)
+void x86_pci_root_bus_res_quirks(struct pci_bus *b)
 {
 	int i;
 	int j;
 	struct pci_root_info *info;
+
+	/* don't go for it if _CRS is used already */
+	if (b->resource[0] != &ioport_resource ||
+	    b->resource[1] != &iomem_resource)
+		return;
 
 	/* if only one root bus, don't need to anything */
 	if (pci_root_num < 2)
@@ -111,6 +116,9 @@ void set_pci_bus_resources_arch_default(struct pci_bus *b)
 
 	if (i == pci_root_num)
 		return;
+
+	printk(KERN_DEBUG "PCI: peer root bus %02x res updated from pci conf\n",
+			b->number);
 
 	info = &pci_root_info[i];
 	for (j = 0; j < info->res_num; j++) {

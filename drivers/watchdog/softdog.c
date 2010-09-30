@@ -1,7 +1,8 @@
 /*
  *	SoftDog	0.07:	A Software Watchdog Device
  *
- *	(c) Copyright 1996 Alan Cox <alan@lxorguk.ukuu.org.uk>, All Rights Reserved.
+ *	(c) Copyright 1996 Alan Cox <alan@lxorguk.ukuu.org.uk>,
+ *							All Rights Reserved.
  *
  *	This program is free software; you can redistribute it and/or
  *	modify it under the terms of the GNU General Public License
@@ -32,7 +33,7 @@
  *	Added WDIOC_GETTIMEOUT and WDIOC_SETTIMOUT.
  *
  *  20020530 Joel Becker <joel.becker@oracle.com>
- *  	Added Matt Domsch's nowayout module option.
+ *	Added Matt Domsch's nowayout module option.
  */
 
 #include <linux/module.h>
@@ -70,7 +71,9 @@ static int soft_noboot = 0;
 #endif  /* ONLY_TESTING */
 
 module_param(soft_noboot, int, 0);
-MODULE_PARM_DESC(soft_noboot, "Softdog action, set to 1 to ignore reboots, 0 to reboot (default depends on ONLY_TESTING)");
+MODULE_PARM_DESC(soft_noboot,
+	"Softdog action, set to 1 to ignore reboots, 0 to reboot "
+					"(default depends on ONLY_TESTING)");
 
 /*
  *	Our timer
@@ -263,7 +266,8 @@ static struct notifier_block softdog_notifier = {
 	.notifier_call	= softdog_notify_sys,
 };
 
-static char banner[] __initdata = KERN_INFO "Software Watchdog Timer: 0.07 initialized. soft_noboot=%d soft_margin=%d sec (nowayout= %d)\n";
+static char banner[] __initdata = KERN_INFO "Software Watchdog Timer: 0.07 "
+	"initialized. soft_noboot=%d soft_margin=%d sec (nowayout= %d)\n";
 
 static int __init watchdog_init(void)
 {

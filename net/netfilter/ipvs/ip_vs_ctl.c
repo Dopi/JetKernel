@@ -2713,6 +2713,8 @@ static int ip_vs_genl_parse_service(struct ip_vs_service_user_kern *usvc,
 	if (!(nla_af && (nla_fwmark || (nla_port && nla_protocol && nla_addr))))
 		return -EINVAL;
 
+	memset(usvc, 0, sizeof(*usvc));
+
 	usvc->af = nla_get_u16(nla_af);
 #ifdef CONFIG_IP_VS_IPV6
 	if (usvc->af != AF_INET && usvc->af != AF_INET6)
@@ -2899,6 +2901,8 @@ static int ip_vs_genl_parse_dest(struct ip_vs_dest_user_kern *udest,
 
 	if (!(nla_addr && nla_port))
 		return -EINVAL;
+
+	memset(udest, 0, sizeof(*udest));
 
 	nla_memcpy(&udest->addr, nla_addr, sizeof(udest->addr));
 	udest->port = nla_get_u16(nla_port);
@@ -3345,22 +3349,8 @@ static struct genl_ops ip_vs_genl_ops[] __read_mostly = {
 
 static int __init ip_vs_genl_register(void)
 {
-	int ret, i;
-
-	ret = genl_register_family(&ip_vs_genl_family);
-	if (ret)
-		return ret;
-
-	for (i = 0; i < ARRAY_SIZE(ip_vs_genl_ops); i++) {
-		ret = genl_register_ops(&ip_vs_genl_family, &ip_vs_genl_ops[i]);
-		if (ret)
-			goto err_out;
-	}
-	return 0;
-
-err_out:
-	genl_unregister_family(&ip_vs_genl_family);
-	return ret;
+	return genl_register_family_with_ops(&ip_vs_genl_family,
+		ip_vs_genl_ops, ARRAY_SIZE(ip_vs_genl_ops));
 }
 
 static void ip_vs_genl_unregister(void)

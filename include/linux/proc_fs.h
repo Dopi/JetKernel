@@ -41,9 +41,6 @@ enum {
  * while parent/subdir create the directory structure (every
  * /proc file has a parent, but "subdir" is NULL for all
  * non-directory entries).
- *
- * "owner" is used to protect module
- * from unloading while proc_dir_entry is in use
  */
 
 typedef	int (read_proc_t)(char *page, char **start, off_t off,
@@ -70,7 +67,6 @@ struct proc_dir_entry {
 	 * somewhere.
 	 */
 	const struct file_operations *proc_fops;
-	struct module *owner;
 	struct proc_dir_entry *next, *parent, *subdir;
 	void *data;
 	read_proc_t *read_proc;
@@ -97,20 +93,9 @@ struct vmcore {
 
 #ifdef CONFIG_PROC_FS
 
-extern spinlock_t proc_subdir_lock;
-
 extern void proc_root_init(void);
 
 void proc_flush_task(struct task_struct *task);
-struct dentry *proc_pid_lookup(struct inode *dir, struct dentry * dentry, struct nameidata *);
-int proc_pid_readdir(struct file * filp, void * dirent, filldir_t filldir);
-unsigned long task_vsize(struct mm_struct *);
-int task_statm(struct mm_struct *, int *, int *, int *, int *);
-void task_mem(struct seq_file *, struct mm_struct *);
-void clear_refs_smap(struct mm_struct *mm);
-
-struct proc_dir_entry *de_get(struct proc_dir_entry *de);
-void de_put(struct proc_dir_entry *de);
 
 extern struct proc_dir_entry *create_proc_entry(const char *name, mode_t mode,
 						struct proc_dir_entry *parent);
@@ -120,20 +105,7 @@ struct proc_dir_entry *proc_create_data(const char *name, mode_t mode,
 				void *data);
 extern void remove_proc_entry(const char *name, struct proc_dir_entry *parent);
 
-extern struct vfsmount *proc_mnt;
 struct pid_namespace;
-extern int proc_fill_super(struct super_block *);
-extern struct inode *proc_get_inode(struct super_block *, unsigned int, struct proc_dir_entry *);
-
-/*
- * These are generic /proc routines that use the internal
- * "struct proc_dir_entry" tree to traverse the filesystem.
- *
- * The /proc root directory has extended versions to take care
- * of the /proc/<pid> subdirectories.
- */
-extern int proc_readdir(struct file *, void *, filldir_t);
-extern struct dentry *proc_lookup(struct inode *, struct dentry *, struct nameidata *);
 
 extern int pid_ns_prepare_proc(struct pid_namespace *ns);
 extern void pid_ns_release_proc(struct pid_namespace *ns);

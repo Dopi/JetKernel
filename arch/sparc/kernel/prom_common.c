@@ -76,6 +76,7 @@ int of_set_property(struct device_node *dp, const char *name, void *val, int len
 
 	err = -ENODEV;
 
+	mutex_lock(&of_set_property_mutex);
 	write_lock(&devtree_lock);
 	prevp = &dp->properties;
 	while (*prevp) {
@@ -85,9 +86,7 @@ int of_set_property(struct device_node *dp, const char *name, void *val, int len
 			void *old_val = prop->value;
 			int ret;
 
-			mutex_lock(&of_set_property_mutex);
 			ret = prom_setprop(dp->node, name, val, len);
-			mutex_unlock(&of_set_property_mutex);
 
 			err = -EINVAL;
 			if (ret >= 0) {
@@ -106,6 +105,7 @@ int of_set_property(struct device_node *dp, const char *name, void *val, int len
 		prevp = &(*prevp)->next;
 	}
 	write_unlock(&devtree_lock);
+	mutex_unlock(&of_set_property_mutex);
 
 	/* XXX Upate procfs if necessary... */
 
@@ -313,6 +313,4 @@ void __init prom_build_devicetree(void)
 
 	printk("PROM: Built device tree with %u bytes of memory.\n",
 	       prom_early_allocated);
-
-	of_fill_in_cpu_data();
 }

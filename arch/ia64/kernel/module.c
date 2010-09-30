@@ -171,7 +171,8 @@ apply_imm60 (struct module *mod, struct insn *insn, uint64_t val)
 		return 0;
 	}
 	if (val + ((uint64_t) 1 << 59) >= (1UL << 60)) {
-		printk(KERN_ERR "%s: value %ld out of IMM60 range\n", mod->name, (int64_t) val);
+		printk(KERN_ERR "%s: value %ld out of IMM60 range\n",
+			mod->name, (long) val);
 		return 0;
 	}
 	ia64_patch_imm60((u64) insn, val);
@@ -182,7 +183,8 @@ static int
 apply_imm22 (struct module *mod, struct insn *insn, uint64_t val)
 {
 	if (val + (1 << 21) >= (1 << 22)) {
-		printk(KERN_ERR "%s: value %li out of IMM22 range\n", mod->name, (int64_t)val);
+		printk(KERN_ERR "%s: value %li out of IMM22 range\n",
+			mod->name, (long)val);
 		return 0;
 	}
 	ia64_patch((u64) insn, 0x01fffcfe000UL, (  ((val & 0x200000UL) << 15) /* bit 21 -> 36 */
@@ -196,7 +198,8 @@ static int
 apply_imm21b (struct module *mod, struct insn *insn, uint64_t val)
 {
 	if (val + (1 << 20) >= (1 << 21)) {
-		printk(KERN_ERR "%s: value %li out of IMM21b range\n", mod->name, (int64_t)val);
+		printk(KERN_ERR "%s: value %li out of IMM21b range\n",
+			mod->name, (long)val);
 		return 0;
 	}
 	ia64_patch((u64) insn, 0x11ffffe000UL, (  ((val & 0x100000UL) << 16) /* bit 20 -> 36 */
@@ -446,6 +449,14 @@ module_frob_arch_sections (Elf_Ehdr *ehdr, Elf_Shdr *sechdrs, char *secstrings,
 			mod->arch.opd = s;
 		else if (strcmp(".IA_64.unwind", secstrings + s->sh_name) == 0)
 			mod->arch.unwind = s;
+#ifdef CONFIG_PARAVIRT
+		else if (strcmp(".paravirt_bundles",
+				secstrings + s->sh_name) == 0)
+			mod->arch.paravirt_bundles = s;
+		else if (strcmp(".paravirt_insts",
+				secstrings + s->sh_name) == 0)
+			mod->arch.paravirt_insts = s;
+#endif
 
 	if (!mod->arch.core_plt || !mod->arch.init_plt || !mod->arch.got || !mod->arch.opd) {
 		printk(KERN_ERR "%s: sections missing\n", mod->name);
@@ -525,8 +536,7 @@ get_ltoff (struct module *mod, uint64_t value, int *okp)
 			goto found;
 
 	/* Not enough GOT entries? */
-	if (e >= (struct got_entry *) (mod->arch.got->sh_addr + mod->arch.got->sh_size))
-		BUG();
+	BUG_ON(e >= (struct got_entry *) (mod->arch.got->sh_addr + mod->arch.got->sh_size));
 
 	e->val = value;
 	++mod->arch.next_got_entry;
@@ -694,8 +704,9 @@ do_reloc (struct module *mod, uint8_t r_type, Elf64_Sym *sym, uint64_t addend,
 	      case RV_PCREL2:
 		if (r_type == R_IA64_PCREL21BI) {
 			if (!is_internal(mod, val)) {
-				printk(KERN_ERR "%s: %s reloc against non-local symbol (%lx)\n",
-				       __func__, reloc_name[r_type], val);
+				printk(KERN_ERR "%s: %s reloc against "
+					"non-local symbol (%lx)\n", __func__,
+					reloc_name[r_type], (unsigned long)val);
 				return -ENOEXEC;
 			}
 			format = RF_INSN21B;
@@ -921,6 +932,30 @@ module_finalize (const Elf_Ehdr *hdr, const Elf_Shdr *sechdrs, struct module *mo
 	DEBUGP("%s: init: entry=%p\n", __func__, mod->init);
 	if (mod->arch.unwind)
 		register_unwind_table(mod);
+#ifdef CONFIG_PARAVIRT
+        if (mod->arch.paravirt_bundles) {
+                struct paravirt_patch_site_bundle *start =
+                        (struct paravirt_patch_site_bundle *)
+                        mod->arch.paravirt_bundles->sh_addr;
+                struct paravirt_patch_site_bundle *end =
+                        (struct paravirt_patch_site_bundle *)
+                        (mod->arch.paravirt_bundles->sh_addr +
+                         mod->arch.paravirt_bundles->sh_size);
+
+                paravirt_patch_apply_bundle(start, end);
+        }
+        if (mod->arch.paravirt_insts) {
+                struct paravirt_patch_site_inst *start =
+                        (struct paravirt_patch_site_inst *)
+                        mod->arch.paravirt_insts->sh_addr;
+                struct paravirt_patch_site_inst *end =
+                        (struct paravirt_patch_site_inst *)
+                        (mod->arch.paravirt_insts->sh_addr +
+                         mod->arch.paravirt_insts->sh_size);
+
+                paravirt_patch_apply_inst(start, end);
+        }
+#endif
 	return 0;
 }
 

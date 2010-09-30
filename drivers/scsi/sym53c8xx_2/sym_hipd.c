@@ -602,7 +602,7 @@ sym_getsync(struct sym_hcb *np, u_char dt, u_char sfac, u_char *divp, u_char *fa
 /*
  *  Set initial io register bits from burst code.
  */
-static __inline void sym_init_burst(struct sym_hcb *np, u_char bc)
+static inline void sym_init_burst(struct sym_hcb *np, u_char bc)
 {
 	np->rv_ctest4	&= ~0x80;
 	np->rv_dmode	&= ~(0x3 << 6);
@@ -1433,13 +1433,12 @@ static int sym_prepare_nego(struct sym_hcb *np, struct sym_ccb *cp, u_char *msgp
 	 * Many devices implement PPR in a buggy way, so only use it if we
 	 * really want to.
 	 */
-	if (goal->offset &&
-	    (goal->iu || goal->dt || goal->qas || (goal->period < 0xa))) {
+	if (goal->renego == NS_PPR || (goal->offset &&
+	    (goal->iu || goal->dt || goal->qas || (goal->period < 0xa)))) {
 		nego = NS_PPR;
-	} else if (spi_width(starget) != goal->width) {
+	} else if (goal->renego == NS_WIDE || goal->width) {
 		nego = NS_WIDE;
-	} else if (spi_period(starget) != goal->period ||
-		   spi_offset(starget) != goal->offset) {
+	} else if (goal->renego == NS_SYNC || goal->offset) {
 		nego = NS_SYNC;
 	} else {
 		goal->check_nego = 0;
@@ -1897,6 +1896,15 @@ void sym_start_up(struct Scsi_Host *shost, int reason)
 		tp->head.sval = 0;
 		tp->head.wval = np->rv_scntl3;
 		tp->head.uval = 0;
+		if (tp->lun0p)
+			tp->lun0p->to_clear = 0;
+		if (tp->lunmp) {
+			int ln;
+
+			for (ln = 1; ln < SYM_CONF_MAX_LUN; ln++)
+				if (tp->lunmp[ln])
+					tp->lunmp[ln]->to_clear = 0;
+		}
 	}
 
 	/*
@@ -2040,6 +2048,29 @@ static void sym_settrans(struct sym_hcb *np, int target, u_char opts, u_char ofs
 	}
 }
 
+static void sym_announce_transfer_rate(struct sym_tcb *tp)
+{
+	struct scsi_target *starget = tp->starget;
+
+	if (tp->tprint.period != spi_period(starget) ||
+	    tp->tprint.offset != spi_offset(starget) ||
+	    tp->tprint.width != spi_width(starget) ||
+	    tp->tprint.iu != spi_iu(starget) ||
+	    tp->tprint.dt != spi_dt(starget) ||
+	    tp->tprint.qas != spi_qas(starget) ||
+	    !tp->tprint.check_nego) {
+		tp->tprint.period = spi_period(starget);
+		tp->tprint.offset = spi_offset(starget);
+		tp->tprint.width = spi_width(starget);
+		tp->tprint.iu = spi_iu(starget);
+		tp->tprint.dt = spi_dt(starget);
+		tp->tprint.qas = spi_qas(starget);
+		tp->tprint.check_nego = 1;
+
+		spi_display_xfer_agreement(starget);
+	}
+}
+
 /*
  *  We received a WDTR.
  *  Let everything be aware of the changes.
@@ -2049,11 +2080,13 @@ static void sym_setwide(struct sym_hcb *np, int target, u_char wide)
 	struct sym_tcb *tp = &np->target[target];
 	struct scsi_target *starget = tp->starget;
 
-	if (spi_width(starget) == wide)
-		return;
-
 	sym_settrans(np, target, 0, 0, 0, wide, 0, 0);
 
+	if (wide)
+		tp->tgoal.renego = NS_WIDE;
+	else
+		tp->tgoal.renego = 0;
+	tp->tgoal.check_nego = 0;
 	tp->tgoal.width = wide;
 	spi_offset(starget) = 0;
 	spi_period(starget) = 0;
@@ -2063,7 +2096,7 @@ static void sym_setwide(struct sym_hcb *np, int target, u_char wide)
 	spi_qas(starget) = 0;
 
 	if (sym_verbose >= 3)
-		spi_display_xfer_agreement(starget);
+		sym_announce_transfer_rate(tp);
 }
 
 /*
@@ -2080,6 +2113,12 @@ sym_setsync(struct sym_hcb *np, int target,
 
 	sym_settrans(np, target, 0, ofs, per, wide, div, fak);
 
+	if (wide)
+		tp->tgoal.renego = NS_WIDE;
+	else if (ofs)
+		tp->tgoal.renego = NS_SYNC;
+	else
+		tp->tgoal.renego = 0;
 	spi_period(starget) = per;
 	spi_offset(starget) = ofs;
 	spi_iu(starget) = spi_dt(starget) = spi_qas(starget) = 0;
@@ -2090,7 +2129,7 @@ sym_setsync(struct sym_hcb *np, int target,
 		tp->tgoal.check_nego = 0;
 	}
 
-	spi_display_xfer_agreement(starget);
+	sym_announce_transfer_rate(tp);
 }
 
 /*
@@ -2106,6 +2145,10 @@ sym_setpprot(struct sym_hcb *np, int target, u_char opts, u_char ofs,
 
 	sym_settrans(np, target, opts, ofs, per, wide, div, fak);
 
+	if (wide || ofs)
+		tp->tgoal.renego = NS_PPR;
+	else
+		tp->tgoal.renego = 0;
 	spi_width(starget) = tp->tgoal.width = wide;
 	spi_period(starget) = tp->tgoal.period = per;
 	spi_offset(starget) = tp->tgoal.offset = ofs;
@@ -2114,7 +2157,7 @@ sym_setpprot(struct sym_hcb *np, int target, u_char opts, u_char ofs,
 	spi_qas(starget) = tp->tgoal.qas = !!(opts & PPR_OPT_QAS);
 	tp->tgoal.check_nego = 0;
 
-	spi_display_xfer_agreement(starget);
+	sym_announce_transfer_rate(tp);
 }
 
 /*
@@ -2278,8 +2321,9 @@ static void sym_int_par (struct sym_hcb *np, u_short sist)
 	int phase	= cmd & 7;
 	struct sym_ccb *cp	= sym_ccb_from_dsa(np, dsa);
 
-	printf("%s: SCSI parity error detected: SCR1=%d DBC=%x SBCL=%x\n",
-		sym_name(np), hsts, dbc, sbcl);
+	if (printk_ratelimit())
+		printf("%s: SCSI parity error detected: SCR1=%d DBC=%x SBCL=%x\n",
+			sym_name(np), hsts, dbc, sbcl);
 
 	/*
 	 *  Check that the chip is connected to the SCSI BUS.
@@ -3516,6 +3560,7 @@ static void sym_sir_task_recovery(struct sym_hcb *np, int num)
 			spi_dt(starget) = 0;
 			spi_qas(starget) = 0;
 			tp->tgoal.check_nego = 1;
+			tp->tgoal.renego = 0;
 		}
 
 		/*
@@ -4953,7 +4998,7 @@ struct sym_lcb *sym_alloc_lcb (struct sym_hcb *np, u_char tn, u_char ln)
 	 */
 	if (ln && !tp->lunmp) {
 		tp->lunmp = kcalloc(SYM_CONF_MAX_LUN, sizeof(struct sym_lcb *),
-				GFP_KERNEL);
+				GFP_ATOMIC);
 		if (!tp->lunmp)
 			goto fail;
 	}
@@ -4973,6 +5018,7 @@ struct sym_lcb *sym_alloc_lcb (struct sym_hcb *np, u_char tn, u_char ln)
 		tp->lun0p = lp;
 		tp->head.lun0_sa = cpu_to_scr(vtobus(lp));
 	}
+	tp->nlcb++;
 
 	/*
 	 *  Let the itl task point to error handling.
@@ -5047,6 +5093,43 @@ static void sym_alloc_lcb_tags (struct sym_hcb *np, u_char tn, u_char ln)
 	return;
 fail:
 	return;
+}
+
+/*
+ *  Lun control block deallocation. Returns the number of valid remaing LCBs
+ *  for the target.
+ */
+int sym_free_lcb(struct sym_hcb *np, u_char tn, u_char ln)
+{
+	struct sym_tcb *tp = &np->target[tn];
+	struct sym_lcb *lp = sym_lp(tp, ln);
+
+	tp->nlcb--;
+
+	if (ln) {
+		if (!tp->nlcb) {
+			kfree(tp->lunmp);
+			sym_mfree_dma(tp->luntbl, 256, "LUNTBL");
+			tp->lunmp = NULL;
+			tp->luntbl = NULL;
+			tp->head.luntbl_sa = cpu_to_scr(vtobus(np->badluntbl));
+		} else {
+			tp->luntbl[ln] = cpu_to_scr(vtobus(&np->badlun_sa));
+			tp->lunmp[ln] = NULL;
+		}
+	} else {
+		tp->lun0p = NULL;
+		tp->head.lun0_sa = cpu_to_scr(vtobus(&np->badlun_sa));
+	}
+
+	if (lp->itlq_tbl) {
+		sym_mfree_dma(lp->itlq_tbl, SYM_CONF_MAX_TASK*4, "ITLQ_TBL");
+		kfree(lp->cb_tags);
+	}
+
+	sym_mfree_dma(lp, sizeof(*lp), "LCB");
+
+	return tp->nlcb;
 }
 
 /*
@@ -5135,9 +5218,14 @@ int sym_queue_scsiio(struct sym_hcb *np, struct scsi_cmnd *cmd, struct sym_ccb *
 	/*
 	 *  Build a negotiation message if needed.
 	 *  (nego_status is filled by sym_prepare_nego())
+	 *
+	 *  Always negotiate on INQUIRY and REQUEST SENSE.
+	 *
 	 */
 	cp->nego_status = 0;
-	if (tp->tgoal.check_nego && !tp->nego_cp && lp) {
+	if ((tp->tgoal.check_nego ||
+	     cmd->cmnd[0] == INQUIRY || cmd->cmnd[0] == REQUEST_SENSE) &&
+	    !tp->nego_cp && lp) {
 		msglen += sym_prepare_nego(np, cp, msgptr + msglen);
 	}
 

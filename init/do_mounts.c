@@ -14,6 +14,7 @@
 #include <linux/fs.h>
 #include <linux/initrd.h>
 #include <linux/async.h>
+#include <linux/fs_struct.h>
 
 #include <linux/nfs_fs.h>
 #include <linux/nfs_fs_sb.h>
@@ -230,7 +231,8 @@ static int __init do_mount_root(char *name, char *fs, int flags, void *data)
 
 void __init mount_block_root(char *name, int flags)
 {
-	char *fs_names = __getname();
+	char *fs_names = __getname_gfp(GFP_KERNEL
+		| __GFP_NOTRACK_FALSE_POSITIVE);
 	char *p;
 #ifdef CONFIG_BLOCK
 	char b[BDEVNAME_SIZE];

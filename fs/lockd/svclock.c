@@ -326,6 +326,8 @@ static void nlmsvc_freegrantargs(struct nlm_rqst *call)
 {
 	if (call->a_args.lock.oh.data != call->a_owner)
 		kfree(call->a_args.lock.oh.data);
+
+	locks_release_private(&call->a_args.lock.fl);
 }
 
 /*
@@ -426,8 +428,15 @@ nlmsvc_lock(struct svc_rqst *rqstp, struct nlm_file *file,
 			ret = nlm_granted;
 			goto out;
 		case -EAGAIN:
+			/*
+			 * If this is a blocking request for an
+			 * already pending lock request then we need
+			 * to put it back on lockd's block list
+			 */
+			if (wait)
+				break;
 			ret = nlm_lck_denied;
-			break;
+			goto out;
 		case FILE_LOCK_DEFERRED:
 			if (wait)
 				break;
@@ -442,10 +451,6 @@ nlmsvc_lock(struct svc_rqst *rqstp, struct nlm_file *file,
 			ret = nlm_lck_denied_nolocks;
 			goto out;
 	}
-
-	ret = nlm_lck_denied;
-	if (!wait)
-		goto out;
 
 	ret = nlm_lck_blocked;
 

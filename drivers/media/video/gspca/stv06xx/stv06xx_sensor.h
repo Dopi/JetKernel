@@ -32,16 +32,13 @@
 
 #include "stv06xx.h"
 
-#define IS_850(sd)	((sd)->gspca_dev.dev->descriptor.idProduct == 0x850)
-#define IS_870(sd)	((sd)->gspca_dev.dev->descriptor.idProduct == 0x870)
 #define IS_1020(sd)	((sd)->sensor == &stv06xx_sensor_hdcs1020)
 
 extern const struct stv06xx_sensor stv06xx_sensor_vv6410;
 extern const struct stv06xx_sensor stv06xx_sensor_hdcs1x00;
 extern const struct stv06xx_sensor stv06xx_sensor_hdcs1020;
 extern const struct stv06xx_sensor stv06xx_sensor_pb0100;
-
-#define STV06XX_MAX_CTRLS		(V4L2_CID_LASTP1 - V4L2_CID_BASE + 10)
+extern const struct stv06xx_sensor stv06xx_sensor_st6422;
 
 struct stv06xx_sensor {
 	/* Defines the name of a sensor */
@@ -81,12 +78,6 @@ struct stv06xx_sensor {
 
 	/* Instructs the sensor to dump all its contents */
 	int (*dump)(struct sd *sd);
-
-	int nctrls;
-	struct ctrl ctrls[STV06XX_MAX_CTRLS];
-
-	char nmodes;
-	struct v4l2_pix_format modes[];
 };
 
 #endif

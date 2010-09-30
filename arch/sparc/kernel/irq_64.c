@@ -20,7 +20,6 @@
 #include <linux/delay.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
-#include <linux/bootmem.h>
 #include <linux/irq.h>
 
 #include <asm/ptrace.h>
@@ -45,6 +44,7 @@
 #include <asm/cacheflush.h>
 
 #include "entry.h"
+#include "cpumap.h"
 
 #define NUM_IVECS	(IMAP_INR + 1)
 
@@ -185,7 +185,7 @@ int show_interrupts(struct seq_file *p, void *v)
 		seq_printf(p, "%10u ", kstat_irqs(i));
 #else
 		for_each_online_cpu(j)
-			seq_printf(p, "%10u ", kstat_cpu(j).irqs[i]);
+			seq_printf(p, "%10u ", kstat_irqs_cpu(i, j));
 #endif
 		seq_printf(p, " %9s", irq_desc[i].chip->typename);
 		seq_printf(p, "  %s", action->name);
@@ -252,38 +252,17 @@ struct irq_handler_data {
 #ifdef CONFIG_SMP
 static int irq_choose_cpu(unsigned int virt_irq)
 {
-	cpumask_t mask = irq_desc[virt_irq].affinity;
+	cpumask_t mask;
 	int cpuid;
 
-	if (cpus_equal(mask, CPU_MASK_ALL)) {
-		static int irq_rover;
-		static DEFINE_SPINLOCK(irq_rover_lock);
-		unsigned long flags;
-
-		/* Round-robin distribution... */
-	do_round_robin:
-		spin_lock_irqsave(&irq_rover_lock, flags);
-
-		while (!cpu_online(irq_rover)) {
-			if (++irq_rover >= NR_CPUS)
-				irq_rover = 0;
-		}
-		cpuid = irq_rover;
-		do {
-			if (++irq_rover >= NR_CPUS)
-				irq_rover = 0;
-		} while (!cpu_online(irq_rover));
-
-		spin_unlock_irqrestore(&irq_rover_lock, flags);
+	cpumask_copy(&mask, irq_desc[virt_irq].affinity);
+	if (cpus_equal(mask, cpu_online_map)) {
+		cpuid = map_to_cpu(virt_irq);
 	} else {
 		cpumask_t tmp;
 
 		cpus_and(tmp, cpu_online_map, mask);
-
-		if (cpus_empty(tmp))
-			goto do_round_robin;
-
-		cpuid = first_cpu(tmp);
+		cpuid = cpus_empty(tmp) ? map_to_cpu(virt_irq) : first_cpu(tmp);
 	}
 
 	return cpuid;
@@ -317,10 +296,12 @@ static void sun4u_irq_enable(unsigned int virt_irq)
 	}
 }
 
-static void sun4u_set_affinity(unsigned int virt_irq,
+static int sun4u_set_affinity(unsigned int virt_irq,
 			       const struct cpumask *mask)
 {
 	sun4u_irq_enable(virt_irq);
+
+	return 0;
 }
 
 /* Don't do anything.  The desc->status check for IRQ_DISABLED in
@@ -376,7 +357,7 @@ static void sun4v_irq_enable(unsigned int virt_irq)
 		       ino, err);
 }
 
-static void sun4v_set_affinity(unsigned int virt_irq,
+static int sun4v_set_affinity(unsigned int virt_irq,
 			       const struct cpumask *mask)
 {
 	unsigned int ino = virt_irq_table[virt_irq].dev_ino;
@@ -387,6 +368,8 @@ static void sun4v_set_affinity(unsigned int virt_irq,
 	if (err != HV_EOK)
 		printk(KERN_ERR "sun4v_intr_settarget(%x,%lu): "
 		       "err(%d)\n", ino, cpuid, err);
+
+	return 0;
 }
 
 static void sun4v_irq_disable(unsigned int virt_irq)
@@ -444,7 +427,7 @@ static void sun4v_virq_enable(unsigned int virt_irq)
 		       dev_handle, dev_ino, err);
 }
 
-static void sun4v_virt_set_affinity(unsigned int virt_irq,
+static int sun4v_virt_set_affinity(unsigned int virt_irq,
 				    const struct cpumask *mask)
 {
 	unsigned long cpuid, dev_handle, dev_ino;
@@ -460,6 +443,8 @@ static void sun4v_virt_set_affinity(unsigned int virt_irq,
 		printk(KERN_ERR "sun4v_vintr_set_target(%lx,%lx,%lu): "
 		       "err(%d)\n",
 		       dev_handle, dev_ino, cpuid, err);
+
+	return 0;
 }
 
 static void sun4v_virq_disable(unsigned int virt_irq)
@@ -805,7 +790,7 @@ void fixup_irqs(void)
 		    !(irq_desc[irq].status & IRQ_PER_CPU)) {
 			if (irq_desc[irq].chip->set_affinity)
 				irq_desc[irq].chip->set_affinity(irq,
-					&irq_desc[irq].affinity);
+					irq_desc[irq].affinity);
 		}
 		spin_unlock_irqrestore(&irq_desc[irq].lock, flags);
 	}
@@ -901,7 +886,7 @@ void notrace init_irqwork_curcpu(void)
  * Therefore you cannot make any OBP calls, not even prom_printf,
  * from these two routines.
  */
-static void __cpuinit register_one_mondo(unsigned long paddr, unsigned long type, unsigned long qmask)
+static void __cpuinit notrace register_one_mondo(unsigned long paddr, unsigned long type, unsigned long qmask)
 {
 	unsigned long num_entries = (qmask + 1) / 64;
 	unsigned long status;
@@ -928,25 +913,19 @@ void __cpuinit notrace sun4v_register_mondo_queues(int this_cpu)
 			   tb->nonresum_qmask);
 }
 
-static void __init alloc_one_mondo(unsigned long *pa_ptr, unsigned long qmask)
+/* Each queue region must be a power of 2 multiple of 64 bytes in
+ * size.  The base real address must be aligned to the size of the
+ * region.  Thus, an 8KB queue must be 8KB aligned, for example.
+ */
+static void __init alloc_one_queue(unsigned long *pa_ptr, unsigned long qmask)
 {
 	unsigned long size = PAGE_ALIGN(qmask + 1);
-	void *p = __alloc_bootmem(size, size, 0);
+	unsigned long order = get_order(size);
+	unsigned long p;
+
+	p = __get_free_pages(GFP_KERNEL, order);
 	if (!p) {
-		prom_printf("SUN4V: Error, cannot allocate mondo queue.\n");
-		prom_halt();
-	}
-
-	*pa_ptr = __pa(p);
-}
-
-static void __init alloc_one_kbuf(unsigned long *pa_ptr, unsigned long qmask)
-{
-	unsigned long size = PAGE_ALIGN(qmask + 1);
-	void *p = __alloc_bootmem(size, size, 0);
-
-	if (!p) {
-		prom_printf("SUN4V: Error, cannot allocate kbuf page.\n");
+		prom_printf("SUN4V: Error, cannot allocate queue.\n");
 		prom_halt();
 	}
 
@@ -956,11 +935,11 @@ static void __init alloc_one_kbuf(unsigned long *pa_ptr, unsigned long qmask)
 static void __init init_cpu_send_mondo_info(struct trap_per_cpu *tb)
 {
 #ifdef CONFIG_SMP
-	void *page;
+	unsigned long page;
 
 	BUILD_BUG_ON((NR_CPUS * sizeof(u16)) > (PAGE_SIZE - 64));
 
-	page = alloc_bootmem_pages(PAGE_SIZE);
+	page = get_zeroed_page(GFP_KERNEL);
 	if (!page) {
 		prom_printf("SUN4V: Error, cannot allocate cpu mondo page.\n");
 		prom_halt();
@@ -979,13 +958,13 @@ static void __init sun4v_init_mondo_queues(void)
 	for_each_possible_cpu(cpu) {
 		struct trap_per_cpu *tb = &trap_block[cpu];
 
-		alloc_one_mondo(&tb->cpu_mondo_pa, tb->cpu_mondo_qmask);
-		alloc_one_mondo(&tb->dev_mondo_pa, tb->dev_mondo_qmask);
-		alloc_one_mondo(&tb->resum_mondo_pa, tb->resum_qmask);
-		alloc_one_kbuf(&tb->resum_kernel_buf_pa, tb->resum_qmask);
-		alloc_one_mondo(&tb->nonresum_mondo_pa, tb->nonresum_qmask);
-		alloc_one_kbuf(&tb->nonresum_kernel_buf_pa,
-			       tb->nonresum_qmask);
+		alloc_one_queue(&tb->cpu_mondo_pa, tb->cpu_mondo_qmask);
+		alloc_one_queue(&tb->dev_mondo_pa, tb->dev_mondo_qmask);
+		alloc_one_queue(&tb->resum_mondo_pa, tb->resum_qmask);
+		alloc_one_queue(&tb->resum_kernel_buf_pa, tb->resum_qmask);
+		alloc_one_queue(&tb->nonresum_mondo_pa, tb->nonresum_qmask);
+		alloc_one_queue(&tb->nonresum_kernel_buf_pa,
+				tb->nonresum_qmask);
 	}
 }
 
@@ -1013,7 +992,7 @@ void __init init_IRQ(void)
 	kill_prom_timer();
 
 	size = sizeof(struct ino_bucket) * NUM_IVECS;
-	ivector_table = alloc_bootmem(size);
+	ivector_table = kzalloc(size, GFP_KERNEL);
 	if (!ivector_table) {
 		prom_printf("Fatal error, cannot allocate ivector_table\n");
 		prom_halt();

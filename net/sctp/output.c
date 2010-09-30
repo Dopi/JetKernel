@@ -49,12 +49,9 @@
 #include <linux/ipv6.h>
 #include <linux/init.h>
 #include <net/inet_ecn.h>
+#include <net/ip.h>
 #include <net/icmp.h>
 #include <net/net_namespace.h>
-
-#ifndef TEST_FRAME
-#include <net/tcp.h>
-#endif /* TEST_FRAME (not defined) */
 
 #include <linux/socket.h> /* for sa_family_t */
 #include <net/sock.h>
@@ -367,7 +364,6 @@ int sctp_packet_transmit(struct sctp_packet *packet)
 	struct sctp_transport *tp = packet->transport;
 	struct sctp_association *asoc = tp->asoc;
 	struct sctphdr *sh;
-	__be32 crc32 = __constant_cpu_to_be32(0);
 	struct sk_buff *nskb;
 	struct sctp_chunk *chunk, *tmp;
 	struct sock *sk;
@@ -409,13 +405,14 @@ int sctp_packet_transmit(struct sctp_packet *packet)
 			sctp_assoc_sync_pmtu(asoc);
 		}
 	}
-	nskb->dst = dst_clone(tp->dst);
-	if (!nskb->dst)
+	dst = dst_clone(tp->dst);
+	skb_dst_set(nskb, dst);
+	if (!dst)
 		goto no_route;
-	dst = nskb->dst;
 
 	/* Build the SCTP header.  */
 	sh = (struct sctphdr *)skb_push(nskb, sizeof(struct sctphdr));
+	skb_reset_transport_header(nskb);
 	sh->source = htons(packet->source_port);
 	sh->dest   = htons(packet->destination_port);
 
@@ -531,16 +528,25 @@ int sctp_packet_transmit(struct sctp_packet *packet)
 	 * Note: Adler-32 is no longer applicable, as has been replaced
 	 * by CRC32-C as described in <draft-ietf-tsvwg-sctpcsum-02.txt>.
 	 */
-	if (!(dst->dev->features & NETIF_F_NO_CSUM)) {
-		crc32 = sctp_start_cksum((__u8 *)sh, cksum_buf_len);
-		crc32 = sctp_end_cksum(crc32);
-	} else
-		nskb->ip_summed = CHECKSUM_UNNECESSARY;
+	if (!sctp_checksum_disable &&
+	    !(dst->dev->features & (NETIF_F_NO_CSUM | NETIF_F_SCTP_CSUM))) {
+		__u32 crc32 = sctp_start_cksum((__u8 *)sh, cksum_buf_len);
 
-	/* 3) Put the resultant value into the checksum field in the
-	 *    common header, and leave the rest of the bits unchanged.
-	 */
-	sh->checksum = crc32;
+		/* 3) Put the resultant value into the checksum field in the
+		 *    common header, and leave the rest of the bits unchanged.
+		 */
+		sh->checksum = sctp_end_cksum(crc32);
+	} else {
+		if (dst->dev->features & NETIF_F_SCTP_CSUM) {
+			/* no need to seed psuedo checksum for SCTP */
+			nskb->ip_summed = CHECKSUM_PARTIAL;
+			nskb->csum_start = (skb_transport_header(nskb) -
+			                    nskb->head);
+			nskb->csum_offset = offsetof(struct sctphdr, checksum);
+		} else {
+			nskb->ip_summed = CHECKSUM_UNNECESSARY;
+		}
+	}
 
 	/* IP layer ECN support
 	 * From RFC 2481

@@ -46,8 +46,6 @@
 #include <asm/hwrpb.h>
 #include <asm/processor.h>
 
-extern int do_pipe(int *);
-
 /*
  * Brk needs to return an error.  Still support Linux's brk(0) query idiom,
  * which OSF programs just shouldn't be doing.  We're still not quite
@@ -373,8 +371,6 @@ SYSCALL_DEFINE4(osf_mount, unsigned long, typenr, char __user *, path,
 	int retval = -EINVAL;
 	char *name;
 
-	lock_kernel();
-
 	name = getname(path);
 	retval = PTR_ERR(name);
 	if (IS_ERR(name))
@@ -394,7 +390,6 @@ SYSCALL_DEFINE4(osf_mount, unsigned long, typenr, char __user *, path,
 	}
 	putname(name);
  out:
-	unlock_kernel();
 	return retval;
 }
 

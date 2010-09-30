@@ -261,6 +261,8 @@ static ssize_t cifs_stats_proc_write(struct file *file,
 					atomic_set(&tcon->num_reads, 0);
 					atomic_set(&tcon->num_oplock_brks, 0);
 					atomic_set(&tcon->num_opens, 0);
+					atomic_set(&tcon->num_posixopens, 0);
+					atomic_set(&tcon->num_posixmkdirs, 0);
 					atomic_set(&tcon->num_closes, 0);
 					atomic_set(&tcon->num_deletes, 0);
 					atomic_set(&tcon->num_mkdirs, 0);
@@ -340,16 +342,22 @@ static int cifs_stats_proc_show(struct seq_file *m, void *v)
 				seq_printf(m, "\nWrites: %d Bytes: %lld",
 					atomic_read(&tcon->num_writes),
 					(long long)(tcon->bytes_written));
+				seq_printf(m, "\nFlushes: %d",
+					atomic_read(&tcon->num_flushes));
 				seq_printf(m, "\nLocks: %d HardLinks: %d "
 					      "Symlinks: %d",
 					atomic_read(&tcon->num_locks),
 					atomic_read(&tcon->num_hardlinks),
 					atomic_read(&tcon->num_symlinks));
-				seq_printf(m, "\nOpens: %d Closes: %d"
+				seq_printf(m, "\nOpens: %d Closes: %d "
 					      "Deletes: %d",
 					atomic_read(&tcon->num_opens),
 					atomic_read(&tcon->num_closes),
 					atomic_read(&tcon->num_deletes));
+				seq_printf(m, "\nPosix Opens: %d "
+					      "Posix Mkdirs: %d",
+					atomic_read(&tcon->num_posixopens),
+					atomic_read(&tcon->num_posixmkdirs));
 				seq_printf(m, "\nMkdirs: %d Rmdirs: %d",
 					atomic_read(&tcon->num_mkdirs),
 					atomic_read(&tcon->num_rmdirs));
@@ -402,7 +410,6 @@ cifs_proc_init(void)
 	if (proc_fs_cifs == NULL)
 		return;
 
-	proc_fs_cifs->owner = THIS_MODULE;
 	proc_create("DebugData", 0, proc_fs_cifs, &cifs_debug_data_proc_fops);
 
 #ifdef CONFIG_CIFS_STATS

@@ -156,7 +156,8 @@ static int at91_wdt_settimeout(unsigned int timeout)
 
 static const struct watchdog_info at91_wdt_info = {
 	.identity	= DRV_NAME,
-	.options	= WDIOF_SETTIMEOUT | WDIOF_KEEPALIVEPING,
+	.options	= WDIOF_SETTIMEOUT | WDIOF_KEEPALIVEPING |
+						WDIOF_MAGICCLOSE,
 };
 
 /*
@@ -201,7 +202,7 @@ static long at91_wdt_ioctl(struct file *file,
  * Pat the watchdog whenever device is written to.
  */
 static ssize_t at91_wdt_write(struct file *file, const char *data, size_t len,
-      loff_t *ppos)
+								loff_t *ppos)
 {
 	if (!len)
 		return 0;

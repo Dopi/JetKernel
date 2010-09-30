@@ -98,7 +98,6 @@ static int zl10353_read_register(struct zl10353_state *state, u8 reg)
 static void zl10353_dump_regs(struct dvb_frontend *fe)
 {
 	struct zl10353_state *state = fe->demodulator_priv;
-	char buf[52], buf2[4];
 	int ret;
 	u8 reg;
 
@@ -106,19 +105,18 @@ static void zl10353_dump_regs(struct dvb_frontend *fe)
 	for (reg = 0; ; reg++) {
 		if (reg % 16 == 0) {
 			if (reg)
-				printk(KERN_DEBUG "%s\n", buf);
-			sprintf(buf, "%02x: ", reg);
+				printk(KERN_CONT "\n");
+			printk(KERN_DEBUG "%02x:", reg);
 		}
 		ret = zl10353_read_register(state, reg);
 		if (ret >= 0)
-			sprintf(buf2, "%02x ", (u8)ret);
+			printk(KERN_CONT " %02x", (u8)ret);
 		else
-			strcpy(buf2, "-- ");
-		strcat(buf, buf2);
+			printk(KERN_CONT " --");
 		if (reg == 0xff)
 			break;
 	}
-	printk(KERN_DEBUG "%s\n", buf);
+	printk(KERN_CONT "\n");
 }
 
 static void zl10353_calc_nominal_rate(struct dvb_frontend *fe,
@@ -572,6 +570,10 @@ static int zl10353_init(struct dvb_frontend *fe)
 		zl10353_dump_regs(fe);
 	if (state->config.parallel_ts)
 		zl10353_reset_attach[2] &= ~0x20;
+	if (state->config.clock_ctl_1)
+		zl10353_reset_attach[3] = state->config.clock_ctl_1;
+	if (state->config.pll_0)
+		zl10353_reset_attach[4] = state->config.pll_0;
 
 	/* Do a "hard" reset if not already done */
 	if (zl10353_read_register(state, 0x50) != zl10353_reset_attach[1] ||
@@ -614,6 +616,7 @@ struct dvb_frontend *zl10353_attach(const struct zl10353_config *config,
 				    struct i2c_adapter *i2c)
 {
 	struct zl10353_state *state = NULL;
+	int id;
 
 	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct zl10353_state), GFP_KERNEL);
@@ -625,7 +628,8 @@ struct dvb_frontend *zl10353_attach(const struct zl10353_config *config,
 	memcpy(&state->config, config, sizeof(struct zl10353_config));
 
 	/* check if the demod is there */
-	if (zl10353_read_register(state, CHIP_ID) != ID_ZL10353)
+	id = zl10353_read_register(state, CHIP_ID);
+	if ((id != ID_ZL10353) && (id != ID_CE6230) && (id != ID_CE6231))
 		goto error;
 
 	/* create dvb_frontend */

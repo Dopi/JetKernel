@@ -99,7 +99,6 @@ ip6_packet_match(const struct sk_buff *skb,
 		 unsigned int *protoff,
 		 int *fragoff, bool *hotdrop)
 {
-	size_t i;
 	unsigned long ret;
 	const struct ipv6hdr *ipv6 = ipv6_hdr(skb);
 
@@ -120,12 +119,7 @@ ip6_packet_match(const struct sk_buff *skb,
 		return false;
 	}
 
-	/* Look for ifname matches; this should unroll nicely. */
-	for (i = 0, ret = 0; i < IFNAMSIZ/sizeof(unsigned long); i++) {
-		ret |= (((const unsigned long *)indev)[i]
-			^ ((const unsigned long *)ip6info->iniface)[i])
-			& ((const unsigned long *)ip6info->iniface_mask)[i];
-	}
+	ret = ifname_compare_aligned(indev, ip6info->iniface, ip6info->iniface_mask);
 
 	if (FWINV(ret != 0, IP6T_INV_VIA_IN)) {
 		dprintf("VIA in mismatch (%s vs %s).%s\n",
@@ -134,11 +128,7 @@ ip6_packet_match(const struct sk_buff *skb,
 		return false;
 	}
 
-	for (i = 0, ret = 0; i < IFNAMSIZ/sizeof(unsigned long); i++) {
-		ret |= (((const unsigned long *)outdev)[i]
-			^ ((const unsigned long *)ip6info->outiface)[i])
-			& ((const unsigned long *)ip6info->outiface_mask)[i];
-	}
+	ret = ifname_compare_aligned(outdev, ip6info->outiface, ip6info->outiface_mask);
 
 	if (FWINV(ret != 0, IP6T_INV_VIA_OUT)) {
 		dprintf("VIA out mismatch (%s vs %s).%s\n",
@@ -280,8 +270,8 @@ static struct nf_loginfo trace_loginfo = {
 /* Mildly perf critical (only if packet tracing is on) */
 static inline int
 get_chainname_rulenum(struct ip6t_entry *s, struct ip6t_entry *e,
-		      char *hookname, char **chainname,
-		      char **comment, unsigned int *rulenum)
+		      const char *hookname, const char **chainname,
+		      const char **comment, unsigned int *rulenum)
 {
 	struct ip6t_standard_target *t = (void *)ip6t_get_target(s);
 
@@ -299,8 +289,8 @@ get_chainname_rulenum(struct ip6t_entry *s, struct ip6t_entry *e,
 		   && unconditional(&s->ipv6)) {
 			/* Tail of chains: STANDARD target (return/policy) */
 			*comment = *chainname == hookname
-				? (char *)comments[NF_IP6_TRACE_COMMENT_POLICY]
-				: (char *)comments[NF_IP6_TRACE_COMMENT_RETURN];
+				? comments[NF_IP6_TRACE_COMMENT_POLICY]
+				: comments[NF_IP6_TRACE_COMMENT_RETURN];
 		}
 		return 1;
 	} else
@@ -319,14 +309,14 @@ static void trace_packet(struct sk_buff *skb,
 {
 	void *table_base;
 	const struct ip6t_entry *root;
-	char *hookname, *chainname, *comment;
+	const char *hookname, *chainname, *comment;
 	unsigned int rulenum = 0;
 
-	table_base = (void *)private->entries[smp_processor_id()];
+	table_base = private->entries[smp_processor_id()];
 	root = get_entry(table_base, private->hook_entry[hook]);
 
-	hookname = chainname = (char *)hooknames[hook];
-	comment = (char *)comments[NF_IP6_TRACE_COMMENT_RULE];
+	hookname = chainname = hooknames[hook];
+	comment = comments[NF_IP6_TRACE_COMMENT_RULE];
 
 	IP6T_ENTRY_ITERATE(root,
 			   private->size - private->hook_entry[hook],
@@ -339,6 +329,12 @@ static void trace_packet(struct sk_buff *skb,
 }
 #endif
 
+static inline __pure struct ip6t_entry *
+ip6t_next_entry(const struct ip6t_entry *entry)
+{
+	return (void *)entry + entry->next_offset;
+}
+
 /* Returns one of the generic firewall policies, like NF_ACCEPT. */
 unsigned int
 ip6t_do_table(struct sk_buff *skb,
@@ -347,6 +343,8 @@ ip6t_do_table(struct sk_buff *skb,
 	      const struct net_device *out,
 	      struct xt_table *table)
 {
+#define tb_comefrom ((struct ip6t_entry *)table_base)->comefrom
+
 	static const char nulldevname[IFNAMSIZ] __attribute__((aligned(sizeof(long))));
 	bool hotdrop = false;
 	/* Initializing verdict to NF_DROP keeps gcc happy. */
@@ -371,110 +369,102 @@ ip6t_do_table(struct sk_buff *skb,
 	mtpar.in      = tgpar.in  = in;
 	mtpar.out     = tgpar.out = out;
 	mtpar.family  = tgpar.family = NFPROTO_IPV6;
-	tgpar.hooknum = hook;
+	mtpar.hooknum = tgpar.hooknum = hook;
 
-	read_lock_bh(&table->lock);
 	IP_NF_ASSERT(table->valid_hooks & (1 << hook));
+
+	xt_info_rdlock_bh();
 	private = table->private;
-	table_base = (void *)private->entries[smp_processor_id()];
+	table_base = private->entries[smp_processor_id()];
+
 	e = get_entry(table_base, private->hook_entry[hook]);
 
 	/* For return from builtin chain */
 	back = get_entry(table_base, private->underflow[hook]);
 
 	do {
+		struct ip6t_entry_target *t;
+
 		IP_NF_ASSERT(e);
 		IP_NF_ASSERT(back);
-		if (ip6_packet_match(skb, indev, outdev, &e->ipv6,
-			&mtpar.thoff, &mtpar.fragoff, &hotdrop)) {
-			struct ip6t_entry_target *t;
+		if (!ip6_packet_match(skb, indev, outdev, &e->ipv6,
+		    &mtpar.thoff, &mtpar.fragoff, &hotdrop) ||
+		    IP6T_MATCH_ITERATE(e, do_match, skb, &mtpar) != 0) {
+			e = ip6t_next_entry(e);
+			continue;
+		}
 
-			if (IP6T_MATCH_ITERATE(e, do_match, skb, &mtpar) != 0)
-				goto no_match;
+		ADD_COUNTER(e->counters,
+			    ntohs(ipv6_hdr(skb)->payload_len) +
+			    sizeof(struct ipv6hdr), 1);
 
-			ADD_COUNTER(e->counters,
-				    ntohs(ipv6_hdr(skb)->payload_len) +
-				    sizeof(struct ipv6hdr), 1);
-
-			t = ip6t_get_target(e);
-			IP_NF_ASSERT(t->u.kernel.target);
+		t = ip6t_get_target(e);
+		IP_NF_ASSERT(t->u.kernel.target);
 
 #if defined(CONFIG_NETFILTER_XT_TARGET_TRACE) || \
     defined(CONFIG_NETFILTER_XT_TARGET_TRACE_MODULE)
-			/* The packet is traced: log it */
-			if (unlikely(skb->nf_trace))
-				trace_packet(skb, hook, in, out,
-					     table->name, private, e);
+		/* The packet is traced: log it */
+		if (unlikely(skb->nf_trace))
+			trace_packet(skb, hook, in, out,
+				     table->name, private, e);
 #endif
-			/* Standard target? */
-			if (!t->u.kernel.target->target) {
-				int v;
+		/* Standard target? */
+		if (!t->u.kernel.target->target) {
+			int v;
 
-				v = ((struct ip6t_standard_target *)t)->verdict;
-				if (v < 0) {
-					/* Pop from stack? */
-					if (v != IP6T_RETURN) {
-						verdict = (unsigned)(-v) - 1;
-						break;
-					}
-					e = back;
-					back = get_entry(table_base,
-							 back->comefrom);
-					continue;
-				}
-				if (table_base + v != (void *)e + e->next_offset
-				    && !(e->ipv6.flags & IP6T_F_GOTO)) {
-					/* Save old back ptr in next entry */
-					struct ip6t_entry *next
-						= (void *)e + e->next_offset;
-					next->comefrom
-						= (void *)back - table_base;
-					/* set back pointer to next entry */
-					back = next;
-				}
-
-				e = get_entry(table_base, v);
-			} else {
-				/* Targets which reenter must return
-				   abs. verdicts */
-				tgpar.target   = t->u.kernel.target;
-				tgpar.targinfo = t->data;
-
-#ifdef CONFIG_NETFILTER_DEBUG
-				((struct ip6t_entry *)table_base)->comefrom
-					= 0xeeeeeeec;
-#endif
-				verdict = t->u.kernel.target->target(skb,
-								     &tgpar);
-
-#ifdef CONFIG_NETFILTER_DEBUG
-				if (((struct ip6t_entry *)table_base)->comefrom
-				    != 0xeeeeeeec
-				    && verdict == IP6T_CONTINUE) {
-					printk("Target %s reentered!\n",
-					       t->u.kernel.target->name);
-					verdict = NF_DROP;
-				}
-				((struct ip6t_entry *)table_base)->comefrom
-					= 0x57acc001;
-#endif
-				if (verdict == IP6T_CONTINUE)
-					e = (void *)e + e->next_offset;
-				else
-					/* Verdict */
+			v = ((struct ip6t_standard_target *)t)->verdict;
+			if (v < 0) {
+				/* Pop from stack? */
+				if (v != IP6T_RETURN) {
+					verdict = (unsigned)(-v) - 1;
 					break;
+				}
+				e = back;
+				back = get_entry(table_base, back->comefrom);
+				continue;
 			}
-		} else {
+			if (table_base + v != ip6t_next_entry(e)
+			    && !(e->ipv6.flags & IP6T_F_GOTO)) {
+				/* Save old back ptr in next entry */
+				struct ip6t_entry *next = ip6t_next_entry(e);
+				next->comefrom = (void *)back - table_base;
+				/* set back pointer to next entry */
+				back = next;
+			}
 
-		no_match:
-			e = (void *)e + e->next_offset;
+			e = get_entry(table_base, v);
+			continue;
 		}
+
+		/* Targets which reenter must return
+		   abs. verdicts */
+		tgpar.target   = t->u.kernel.target;
+		tgpar.targinfo = t->data;
+
+#ifdef CONFIG_NETFILTER_DEBUG
+		tb_comefrom = 0xeeeeeeec;
+#endif
+		verdict = t->u.kernel.target->target(skb, &tgpar);
+
+#ifdef CONFIG_NETFILTER_DEBUG
+		if (tb_comefrom != 0xeeeeeeec && verdict == IP6T_CONTINUE) {
+			printk("Target %s reentered!\n",
+			       t->u.kernel.target->name);
+			verdict = NF_DROP;
+		}
+		tb_comefrom = 0x57acc001;
+#endif
+		if (verdict == IP6T_CONTINUE)
+			e = ip6t_next_entry(e);
+		else
+			/* Verdict */
+			break;
 	} while (!hotdrop);
 
 #ifdef CONFIG_NETFILTER_DEBUG
-	((struct ip6t_entry *)table_base)->comefrom = NETFILTER_LINK_POISON;
+	tb_comefrom = NETFILTER_LINK_POISON;
 #endif
-	read_unlock_bh(&table->lock);
+	xt_info_rdunlock_bh();
 
 #ifdef DEBUG_ALLOW_ALL
 	return NF_ACCEPT;
@@ -483,6 +473,8 @@ ip6t_do_table(struct sk_buff *skb,
 		return NF_DROP;
 	else return verdict;
 #endif
+
+#undef tb_comefrom
 }
 
 /* Figures out from what hook each rule can be called: returns 0 if
@@ -934,9 +926,12 @@ get_counters(const struct xt_table_info *t,
 	/* Instead of clearing (by a previous call to memset())
 	 * the counters and using adds, we set the counters
 	 * with data used by 'current' CPU
-	 * We dont care about preemption here.
+	 *
+	 * Bottom half has to be disabled to prevent deadlock
+	 * if new softirq were to run and call ipt_do_table
 	 */
-	curcpu = raw_smp_processor_id();
+	local_bh_disable();
+	curcpu = smp_processor_id();
 
 	i = 0;
 	IP6T_ENTRY_ITERATE(t->entries[curcpu],
@@ -949,19 +944,22 @@ get_counters(const struct xt_table_info *t,
 		if (cpu == curcpu)
 			continue;
 		i = 0;
+		xt_info_wrlock(cpu);
 		IP6T_ENTRY_ITERATE(t->entries[cpu],
 				  t->size,
 				  add_entry_to_counter,
 				  counters,
 				  &i);
+		xt_info_wrunlock(cpu);
 	}
+	local_bh_enable();
 }
 
 static struct xt_counters *alloc_counters(struct xt_table *table)
 {
 	unsigned int countersize;
 	struct xt_counters *counters;
-	const struct xt_table_info *private = table->private;
+	struct xt_table_info *private = table->private;
 
 	/* We need atomic snapshot of counters: rest doesn't change
 	   (other than comefrom, which userspace doesn't care
@@ -972,10 +970,7 @@ static struct xt_counters *alloc_counters(struct xt_table *table)
 	if (counters == NULL)
 		return ERR_PTR(-ENOMEM);
 
-	/* First, sum counters... */
-	write_lock_bh(&table->lock);
 	get_counters(private, counters);
-	write_unlock_bh(&table->lock);
 
 	return counters;
 }
@@ -1273,8 +1268,9 @@ __do_replace(struct net *net, const char *name, unsigned int valid_hooks,
 	    (newinfo->number <= oldinfo->initial_entries))
 		module_put(t->me);
 
-	/* Get the old counters. */
+	/* Get the old counters, and synchronize with replace */
 	get_counters(oldinfo, counters);
+
 	/* Decrease module usage counts and free resource */
 	loc_cpu_old_entry = oldinfo->entries[raw_smp_processor_id()];
 	IP6T_ENTRY_ITERATE(loc_cpu_old_entry, oldinfo->size, cleanup_entry,
@@ -1346,20 +1342,11 @@ do_replace(struct net *net, void __user *user, unsigned int len)
 
 /* We're lazy, and add to the first CPU; overflow works its fey magic
  * and everything is OK. */
-static inline int
+static int
 add_counter_to_entry(struct ip6t_entry *e,
 		     const struct xt_counters addme[],
 		     unsigned int *i)
 {
-#if 0
-	duprintf("add_counter: Entry %u %lu/%lu + %lu/%lu\n",
-		 *i,
-		 (long unsigned int)e->counters.pcnt,
-		 (long unsigned int)e->counters.bcnt,
-		 (long unsigned int)addme[*i].pcnt,
-		 (long unsigned int)addme[*i].bcnt);
-#endif
-
 	ADD_COUNTER(e->counters, addme[*i].bcnt, addme[*i].pcnt);
 
 	(*i)++;
@@ -1370,7 +1357,7 @@ static int
 do_add_counters(struct net *net, void __user *user, unsigned int len,
 		int compat)
 {
-	unsigned int i;
+	unsigned int i, curcpu;
 	struct xt_counters_info tmp;
 	struct xt_counters *paddc;
 	unsigned int num_counters;
@@ -1426,7 +1413,8 @@ do_add_counters(struct net *net, void __user *user, unsigned int len,
 		goto free;
 	}
 
-	write_lock_bh(&t->lock);
+
+	local_bh_disable();
 	private = t->private;
 	if (private->number != num_counters) {
 		ret = -EINVAL;
@@ -1435,14 +1423,18 @@ do_add_counters(struct net *net, void __user *user, unsigned int len,
 
 	i = 0;
 	/* Choose the copy that is on our node */
-	loc_cpu_entry = private->entries[raw_smp_processor_id()];
+	curcpu = smp_processor_id();
+	xt_info_wrlock(curcpu);
+	loc_cpu_entry = private->entries[curcpu];
 	IP6T_ENTRY_ITERATE(loc_cpu_entry,
 			  private->size,
 			  add_counter_to_entry,
 			  paddc,
 			  &i);
+	xt_info_wrunlock(curcpu);
+
  unlock_up_free:
-	write_unlock_bh(&t->lock);
+	local_bh_enable();
 	xt_table_unlock(t);
 	module_put(t->me);
  free:
@@ -2199,7 +2191,7 @@ static bool icmp6_checkentry(const struct xt_mtchk_param *par)
 static struct xt_target ip6t_standard_target __read_mostly = {
 	.name		= IP6T_STANDARD_TARGET,
 	.targetsize	= sizeof(int),
-	.family		= AF_INET6,
+	.family		= NFPROTO_IPV6,
 #ifdef CONFIG_COMPAT
 	.compatsize	= sizeof(compat_int_t),
 	.compat_from_user = compat_standard_from_user,
@@ -2211,7 +2203,7 @@ static struct xt_target ip6t_error_target __read_mostly = {
 	.name		= IP6T_ERROR_TARGET,
 	.target		= ip6t_error,
 	.targetsize	= IP6T_FUNCTION_MAXNAMELEN,
-	.family		= AF_INET6,
+	.family		= NFPROTO_IPV6,
 };
 
 static struct nf_sockopt_ops ip6t_sockopts = {
@@ -2237,17 +2229,17 @@ static struct xt_match icmp6_matchstruct __read_mostly = {
 	.matchsize	= sizeof(struct ip6t_icmp),
 	.checkentry	= icmp6_checkentry,
 	.proto		= IPPROTO_ICMPV6,
-	.family		= AF_INET6,
+	.family		= NFPROTO_IPV6,
 };
 
 static int __net_init ip6_tables_net_init(struct net *net)
 {
-	return xt_proto_init(net, AF_INET6);
+	return xt_proto_init(net, NFPROTO_IPV6);
 }
 
 static void __net_exit ip6_tables_net_exit(struct net *net)
 {
-	xt_proto_fini(net, AF_INET6);
+	xt_proto_fini(net, NFPROTO_IPV6);
 }
 
 static struct pernet_operations ip6_tables_net_ops = {

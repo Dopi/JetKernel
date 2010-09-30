@@ -129,6 +129,8 @@ static int set_system(const struct dmi_system_id *id)
 		screen_info.lfb_width = info->width;
 	if (screen_info.lfb_height == 0)
 		screen_info.lfb_height = info->height;
+	if (screen_info.orig_video_isVGA == 0)
+		screen_info.orig_video_isVGA = VIDEO_TYPE_EFI;
 
 	return 0;
 }
@@ -208,12 +210,15 @@ static int __init efifb_probe(struct platform_device *dev)
 	unsigned int size_total;
 	int request_succeeded = 0;
 
-	printk(KERN_INFO "efifb: probing for efifb\n");
-
 	if (!screen_info.lfb_depth)
 		screen_info.lfb_depth = 32;
 	if (!screen_info.pages)
 		screen_info.pages = 1;
+	if (!screen_info.lfb_base) {
+		printk(KERN_DEBUG "efifb: invalid framebuffer address\n");
+		return -ENODEV;
+	}
+	printk(KERN_INFO "efifb: probing for efifb\n");
 
 	/* just assume they're all unset if any are */
 	if (!screen_info.blue_size) {
@@ -275,6 +280,9 @@ static int __init efifb_probe(struct platform_device *dev)
 	info->pseudo_palette = info->par;
 	info->par = NULL;
 
+	info->aperture_base = efifb_fix.smem_start;
+	info->aperture_size = size_total;
+
 	info->screen_base = ioremap(efifb_fix.smem_start, efifb_fix.smem_len);
 	if (!info->screen_base) {
 		printk(KERN_ERR "efifb: abort, cannot ioremap video memory "
@@ -332,7 +340,7 @@ static int __init efifb_probe(struct platform_device *dev)
 	info->fbops = &efifb_ops;
 	info->var = efifb_defined;
 	info->fix = efifb_fix;
-	info->flags = FBINFO_FLAG_DEFAULT;
+	info->flags = FBINFO_FLAG_DEFAULT | FBINFO_MISC_FIRMWARE;
 
 	if ((err = fb_alloc_cmap(&info->cmap, 256, 0)) < 0) {
 		printk(KERN_ERR "efifb: cannot allocate colormap\n");
@@ -374,9 +382,10 @@ static int __init efifb_init(void)
 	int ret;
 	char *option = NULL;
 
+	dmi_check_system(dmi_system_table);
+
 	if (screen_info.orig_video_isVGA != VIDEO_TYPE_EFI)
 		return -ENODEV;
-	dmi_check_system(dmi_system_table);
 
 	if (fb_get_options("efifb", &option))
 		return -ENODEV;

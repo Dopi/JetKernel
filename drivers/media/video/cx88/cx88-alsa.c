@@ -745,7 +745,7 @@ static int __devinit snd_cx88_create(struct snd_card *card,
 		return err;
 	}
 
-	if (!pci_dma_supported(pci,DMA_32BIT_MASK)) {
+	if (!pci_dma_supported(pci,DMA_BIT_MASK(32))) {
 		dprintk(0, "%s/1: Oops: no 32bit PCI DMA ???\n",core->name);
 		err = -EIO;
 		cx88_core_put(core,pci);
@@ -803,9 +803,10 @@ static int __devinit cx88_audio_initdev(struct pci_dev *pci,
 		return (-ENOENT);
 	}
 
-	card = snd_card_new(index[devno], id[devno], THIS_MODULE, sizeof(snd_cx88_card_t));
-	if (!card)
-		return (-ENOMEM);
+	err = snd_card_create(index[devno], id[devno], THIS_MODULE,
+			      sizeof(snd_cx88_card_t), &card);
+	if (err < 0)
+		return err;
 
 	card->private_free = snd_cx88_dev_free;
 
@@ -870,7 +871,7 @@ static struct pci_driver cx88_audio_pci_driver = {
 	.name     = "cx88_audio",
 	.id_table = cx88_audio_pci_tbl,
 	.probe    = cx88_audio_initdev,
-	.remove   = cx88_audio_finidev,
+	.remove   = __devexit_p(cx88_audio_finidev),
 };
 
 /****************************************************************************
@@ -880,7 +881,7 @@ static struct pci_driver cx88_audio_pci_driver = {
 /*
  * module init
  */
-static int cx88_audio_init(void)
+static int __init cx88_audio_init(void)
 {
 	printk(KERN_INFO "cx2388x alsa driver version %d.%d.%d loaded\n",
 	       (CX88_VERSION_CODE >> 16) & 0xff,
@@ -896,9 +897,8 @@ static int cx88_audio_init(void)
 /*
  * module remove
  */
-static void cx88_audio_fini(void)
+static void __exit cx88_audio_fini(void)
 {
-
 	pci_unregister_driver(&cx88_audio_pci_driver);
 }
 

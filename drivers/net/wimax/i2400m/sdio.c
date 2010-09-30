@@ -70,8 +70,21 @@
 static int ioe_timeout = 2;
 module_param(ioe_timeout, int, 0);
 
-/* Our firmware file name */
-#define I2400MS_FW_FILE_NAME "i2400m-fw-sdio-" I2400M_FW_VERSION ".sbcf"
+/* Our firmware file name list */
+static const char *i2400ms_bus_fw_names[] = {
+#define I2400MS_FW_FILE_NAME "i2400m-fw-sdio-1.3.sbcf"
+	I2400MS_FW_FILE_NAME,
+	NULL
+};
+
+
+static const struct i2400m_poke_table i2400ms_pokes[] = {
+	I2400M_FW_POKE(0x6BE260, 0x00000088),
+	I2400M_FW_POKE(0x080550, 0x00000005),
+	I2400M_FW_POKE(0xAE0000, 0x00000000),
+	I2400M_FW_POKE(0x000000, 0x00000000), /* MUST be 0 terminated or bad
+					       * things will happen */
+};
 
 /*
  * Enable the SDIO function
@@ -143,19 +156,14 @@ int i2400ms_bus_dev_start(struct i2400m *i2400m)
 
 	d_fnstart(3, dev, "(i2400m %p)\n", i2400m);
 	msleep(200);
-	result = i2400ms_rx_setup(i2400ms);
-	if (result < 0)
-		goto error_rx_setup;
 	result = i2400ms_tx_setup(i2400ms);
 	if (result < 0)
 		goto error_tx_setup;
 	d_fnend(3, dev, "(i2400m %p) = %d\n", i2400m, result);
 	return result;
 
-	i2400ms_tx_release(i2400ms);
 error_tx_setup:
-	i2400ms_rx_release(i2400ms);
-error_rx_setup:
+	i2400ms_tx_release(i2400ms);
 	d_fnend(3, dev, "(i2400m %p) = void\n", i2400m);
 	return result;
 }
@@ -169,7 +177,6 @@ void i2400ms_bus_dev_stop(struct i2400m *i2400m)
 	struct device *dev = &func->dev;
 
 	d_fnstart(3, dev, "(i2400m %p)\n", i2400m);
-	i2400ms_rx_release(i2400ms);
 	i2400ms_tx_release(i2400ms);
 	d_fnend(3, dev, "(i2400m %p) = void\n", i2400m);
 }
@@ -250,21 +257,21 @@ error_kzalloc:
 static
 int i2400ms_bus_reset(struct i2400m *i2400m, enum i2400m_reset_type rt)
 {
-	int result;
+	int result = 0;
 	struct i2400ms *i2400ms =
 		container_of(i2400m, struct i2400ms, i2400m);
 	struct device *dev = i2400m_dev(i2400m);
 	static const __le32 i2400m_WARM_BOOT_BARKER[4] = {
-		__constant_cpu_to_le32(I2400M_WARM_RESET_BARKER),
-		__constant_cpu_to_le32(I2400M_WARM_RESET_BARKER),
-		__constant_cpu_to_le32(I2400M_WARM_RESET_BARKER),
-		__constant_cpu_to_le32(I2400M_WARM_RESET_BARKER),
+		cpu_to_le32(I2400M_WARM_RESET_BARKER),
+		cpu_to_le32(I2400M_WARM_RESET_BARKER),
+		cpu_to_le32(I2400M_WARM_RESET_BARKER),
+		cpu_to_le32(I2400M_WARM_RESET_BARKER),
 	};
 	static const __le32 i2400m_COLD_BOOT_BARKER[4] = {
-		__constant_cpu_to_le32(I2400M_COLD_RESET_BARKER),
-		__constant_cpu_to_le32(I2400M_COLD_RESET_BARKER),
-		__constant_cpu_to_le32(I2400M_COLD_RESET_BARKER),
-		__constant_cpu_to_le32(I2400M_COLD_RESET_BARKER),
+		cpu_to_le32(I2400M_COLD_RESET_BARKER),
+		cpu_to_le32(I2400M_COLD_RESET_BARKER),
+		cpu_to_le32(I2400M_COLD_RESET_BARKER),
+		cpu_to_le32(I2400M_COLD_RESET_BARKER),
 	};
 
 	if (rt == I2400M_RT_WARM)
@@ -275,8 +282,25 @@ int i2400ms_bus_reset(struct i2400m *i2400m, enum i2400m_reset_type rt)
 					       sizeof(i2400m_COLD_BOOT_BARKER));
 	else if (rt == I2400M_RT_BUS) {
 do_bus_reset:
-		dev_err(dev, "FIXME: SDIO bus reset not implemented\n");
-		result = rt == I2400M_RT_WARM ? -ENODEV : -ENOSYS;
+		/* call netif_tx_disable() before sending IOE disable,
+		 * so that all the tx from network layer are stopped
+		 * while IOE is being reset. Make sure it is called
+		 * only after register_netdev() was issued.
+		 */
+		if (i2400m->wimax_dev.net_dev->reg_state == NETREG_REGISTERED)
+			netif_tx_disable(i2400m->wimax_dev.net_dev);
+
+		i2400ms_rx_release(i2400ms);
+		sdio_claim_host(i2400ms->func);
+		sdio_disable_func(i2400ms->func);
+		sdio_release_host(i2400ms->func);
+
+		/* Wait for the device to settle */
+		msleep(40);
+
+		result = i2400ms_enable_function(i2400ms->func);
+		if (result >= 0)
+			i2400ms_rx_setup(i2400ms);
 	} else
 		BUG();
 	if (result < 0 && rt != I2400M_RT_BUS) {
@@ -399,10 +423,22 @@ int i2400ms_probe(struct sdio_func *func,
 	i2400m->bus_dev_stop = i2400ms_bus_dev_stop;
 	i2400m->bus_tx_kick = i2400ms_bus_tx_kick;
 	i2400m->bus_reset = i2400ms_bus_reset;
+	/* The iwmc3200-wimax sometimes requires the driver to try
+	 * hard when we paint it into a corner. */
+	i2400m->bus_bm_retries = I3200_BOOT_RETRIES;
 	i2400m->bus_bm_cmd_send = i2400ms_bus_bm_cmd_send;
 	i2400m->bus_bm_wait_for_ack = i2400ms_bus_bm_wait_for_ack;
-	i2400m->bus_fw_name = I2400MS_FW_FILE_NAME;
+	i2400m->bus_fw_names = i2400ms_bus_fw_names;
 	i2400m->bus_bm_mac_addr_impaired = 1;
+	i2400m->bus_bm_pokes_table = &i2400ms_pokes[0];
+
+	sdio_claim_host(func);
+	result = sdio_set_block_size(func, I2400MS_BLK_SIZE);
+	sdio_release_host(func);
+	if (result < 0) {
+		dev_err(dev, "Failed to set block size: %d\n", result);
+		goto error_set_blk_size;
+	}
 
 	result = i2400ms_enable_function(i2400ms->func);
 	if (result < 0) {
@@ -410,13 +446,9 @@ int i2400ms_probe(struct sdio_func *func,
 		goto error_func_enable;
 	}
 
-	sdio_claim_host(func);
-	result = sdio_set_block_size(func, I2400MS_BLK_SIZE);
-	if (result < 0) {
-		dev_err(dev, "Failed to set block size: %d\n", result);
-		goto error_set_blk_size;
-	}
-	sdio_release_host(func);
+	result = i2400ms_rx_setup(i2400ms);
+	if (result < 0)
+		goto error_rx_setup;
 
 	result = i2400m_setup(i2400m, I2400M_BRI_NO_REBOOT);
 	if (result < 0) {
@@ -435,12 +467,14 @@ int i2400ms_probe(struct sdio_func *func,
 error_debugfs_add:
 	i2400m_release(i2400m);
 error_setup:
-	sdio_set_drvdata(func, NULL);
+	i2400ms_rx_release(i2400ms);
+error_rx_setup:
 	sdio_claim_host(func);
-error_set_blk_size:
 	sdio_disable_func(func);
 	sdio_release_host(func);
 error_func_enable:
+error_set_blk_size:
+	sdio_set_drvdata(func, NULL);
 	free_netdev(net_dev);
 error_alloc_netdev:
 	return result;
@@ -457,6 +491,7 @@ void i2400ms_remove(struct sdio_func *func)
 
 	d_fnstart(3, dev, "SDIO func %p\n", func);
 	debugfs_remove_recursive(i2400ms->debugfs_dentry);
+	i2400ms_rx_release(i2400ms);
 	i2400m_release(i2400m);
 	sdio_set_drvdata(func, NULL);
 	sdio_claim_host(func);

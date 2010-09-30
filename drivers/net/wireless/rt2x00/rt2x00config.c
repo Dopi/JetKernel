@@ -1,5 +1,5 @@
 /*
-	Copyright (C) 2004 - 2008 rt2x00 SourceForge Project
+	Copyright (C) 2004 - 2009 rt2x00 SourceForge Project
 	<http://rt2x00.serialmonkey.com>
 
 	This program is free software; you can redistribute it and/or modify
@@ -32,7 +32,7 @@
 void rt2x00lib_config_intf(struct rt2x00_dev *rt2x00dev,
 			   struct rt2x00_intf *intf,
 			   enum nl80211_iftype type,
-			   u8 *mac, u8 *bssid)
+			   const u8 *mac, const u8 *bssid)
 {
 	struct rt2x00intf_conf conf;
 	unsigned int flags = 0;
@@ -42,6 +42,8 @@ void rt2x00lib_config_intf(struct rt2x00_dev *rt2x00dev,
 	switch (type) {
 	case NL80211_IFTYPE_ADHOC:
 	case NL80211_IFTYPE_AP:
+	case NL80211_IFTYPE_MESH_POINT:
+	case NL80211_IFTYPE_WDS:
 		conf.sync = TSF_SYNC_BEACON;
 		break;
 	case NL80211_IFTYPE_STATION:
@@ -104,6 +106,10 @@ void rt2x00lib_config_erp(struct rt2x00_dev *rt2x00dev,
 	}
 
 	erp.basic_rates = bss_conf->basic_rates;
+	erp.beacon_int = bss_conf->beacon_int;
+
+	/* Update global beacon interval time, this is needed for PS support */
+	rt2x00dev->beacon_int = bss_conf->beacon_int;
 
 	rt2x00dev->ops->lib->config_erp(rt2x00dev, &erp);
 }
@@ -152,8 +158,7 @@ void rt2x00lib_config_antenna(struct rt2x00_dev *rt2x00dev,
 	 */
 	rt2x00dev->ops->lib->config_ant(rt2x00dev, ant);
 
-	rt2x00lib_reset_link_tuner(rt2x00dev);
-	rt2x00_reset_link_ant_rssi(&rt2x00dev->link);
+	rt2x00link_reset_tuner(rt2x00dev, true);
 
 	memcpy(active, ant, sizeof(*ant));
 
@@ -172,6 +177,11 @@ void rt2x00lib_config(struct rt2x00_dev *rt2x00dev,
 	libconf.conf = conf;
 
 	if (ieee80211_flags & IEEE80211_CONF_CHANGE_CHANNEL) {
+		if (conf_is_ht40(conf))
+			__set_bit(CONFIG_CHANNEL_HT40, &rt2x00dev->flags);
+		else
+			__clear_bit(CONFIG_CHANNEL_HT40, &rt2x00dev->flags);
+
 		memcpy(&libconf.rf,
 		       &rt2x00dev->spec.channels[conf->channel->hw_value],
 		       sizeof(libconf.rf));
@@ -191,7 +201,7 @@ void rt2x00lib_config(struct rt2x00_dev *rt2x00dev,
 	 * which means we need to reset the link tuner.
 	 */
 	if (ieee80211_flags & IEEE80211_CONF_CHANGE_CHANNEL)
-		rt2x00lib_reset_link_tuner(rt2x00dev);
+		rt2x00link_reset_tuner(rt2x00dev, false);
 
 	rt2x00dev->curr_band = conf->channel->band;
 	rt2x00dev->tx_power = conf->power_level;

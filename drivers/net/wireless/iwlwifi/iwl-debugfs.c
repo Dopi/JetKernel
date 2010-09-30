@@ -2,7 +2,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2008 Intel Corporation. All rights reserved.
+ * Copyright(c) 2008 - 2009 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -58,6 +58,14 @@
 #define DEBUGFS_ADD_BOOL(name, parent, ptr) do {                        \
 	dbgfs->dbgfs_##parent##_files.file_##name =                     \
 	debugfs_create_bool(#name, 0644, dbgfs->dir_##parent, ptr);     \
+	if (IS_ERR(dbgfs->dbgfs_##parent##_files.file_##name)		\
+			|| !dbgfs->dbgfs_##parent##_files.file_##name)	\
+		goto err;                                               \
+} while (0)
+
+#define DEBUGFS_ADD_X32(name, parent, ptr) do {                        \
+	dbgfs->dbgfs_##parent##_files.file_##name =                     \
+	debugfs_create_x32(#name, 0444, dbgfs->dir_##parent, ptr);     \
 	if (IS_ERR(dbgfs->dbgfs_##parent##_files.file_##name)		\
 			|| !dbgfs->dbgfs_##parent##_files.file_##name)	\
 		goto err;                                               \
@@ -164,10 +172,6 @@ static ssize_t iwl_dbgfs_sram_read(struct file *file,
 	struct iwl_priv *priv = (struct iwl_priv *)file->private_data;
 	const size_t bufsz = sizeof(buf);
 
-	printk(KERN_DEBUG "offset is: 0x%x\tlen is: 0x%x\n",
-	priv->dbgfs->sram_offset, priv->dbgfs->sram_len);
-
-	iwl_grab_nic_access(priv);
 	for (i = priv->dbgfs->sram_len; i > 0; i -= 4) {
 		val = iwl_read_targ_mem(priv, priv->dbgfs->sram_offset + \
 					priv->dbgfs->sram_len - i);
@@ -187,7 +191,6 @@ static ssize_t iwl_dbgfs_sram_read(struct file *file,
 		pos += scnprintf(buf + pos, bufsz - pos, "0x%08x ", val);
 	}
 	pos += scnprintf(buf + pos, bufsz - pos, "\n");
-	iwl_release_nic_access(priv);
 
 	ret = simple_read_from_buffer(user_buf, count, ppos, buf, pos);
 	return ret;
@@ -287,7 +290,7 @@ static ssize_t iwl_dbgfs_stations_read(struct file *file, char __user *user_buf,
 	return ret;
 }
 
-static ssize_t iwl_dbgfs_eeprom_read(struct file *file,
+static ssize_t iwl_dbgfs_nvm_read(struct file *file,
 				       char __user *user_buf,
 				       size_t count,
 				       loff_t *ppos)
@@ -301,18 +304,25 @@ static ssize_t iwl_dbgfs_eeprom_read(struct file *file,
 	buf_size = 4 * eeprom_len + 256;
 
 	if (eeprom_len % 16) {
-		IWL_ERROR("EEPROM size is not multiple of 16.\n");
+		IWL_ERR(priv, "NVM size is not multiple of 16.\n");
 		return -ENODATA;
+	}
+
+	ptr = priv->eeprom;
+	if (!ptr) {
+		IWL_ERR(priv, "Invalid EEPROM/OTP memory\n");
+		return -ENOMEM;
 	}
 
 	/* 4 characters for byte 0xYY */
 	buf = kzalloc(buf_size, GFP_KERNEL);
 	if (!buf) {
-		IWL_ERROR("Can not allocate Buffer\n");
+		IWL_ERR(priv, "Can not allocate Buffer\n");
 		return -ENOMEM;
 	}
-
-	ptr = priv->eeprom;
+	pos += scnprintf(buf + pos, buf_size - pos, "NVM Type: %s\n",
+			(priv->nvm_device_type == NVM_DEVICE_TYPE_OTP)
+			? "OTP" : "EEPROM");
 	for (ofs = 0 ; ofs < eeprom_len ; ofs += 16) {
 		pos += scnprintf(buf + pos, buf_size - pos, "0x%.4x ", ofs);
 		hex_dump_to_buffer(ptr + ofs, 16 , 16, 2, buf + pos,
@@ -365,69 +375,207 @@ static ssize_t iwl_dbgfs_channels_read(struct file *file, char __user *user_buf,
 
 	buf = kzalloc(bufsz, GFP_KERNEL);
 	if (!buf) {
-		IWL_ERROR("Can not allocate Buffer\n");
+		IWL_ERR(priv, "Can not allocate Buffer\n");
 		return -ENOMEM;
 	}
 
 	supp_band = iwl_get_hw_mode(priv, IEEE80211_BAND_2GHZ);
-	channels = supp_band->channels;
+	if (supp_band) {
+		channels = supp_band->channels;
 
-	pos += scnprintf(buf + pos, bufsz - pos,
-			"Displaying %d channels in 2.4GHz band 802.11bg):\n",
-			 supp_band->n_channels);
-
-	for (i = 0; i < supp_band->n_channels; i++)
 		pos += scnprintf(buf + pos, bufsz - pos,
-				"%d: %ddBm: BSS%s%s, %s.\n",
-				ieee80211_frequency_to_channel(
-				channels[i].center_freq),
-				channels[i].max_power,
-				channels[i].flags & IEEE80211_CHAN_RADAR ?
-				" (IEEE 802.11h required)" : "",
-				(!(channels[i].flags & IEEE80211_CHAN_NO_IBSS)
-				|| (channels[i].flags &
-				IEEE80211_CHAN_RADAR)) ? "" :
-				", IBSS",
-				channels[i].flags &
-				IEEE80211_CHAN_PASSIVE_SCAN ?
-				"passive only" : "active/passive");
+				"Displaying %d channels in 2.4GHz band 802.11bg):\n",
+				supp_band->n_channels);
 
+		for (i = 0; i < supp_band->n_channels; i++)
+			pos += scnprintf(buf + pos, bufsz - pos,
+					"%d: %ddBm: BSS%s%s, %s.\n",
+					ieee80211_frequency_to_channel(
+					channels[i].center_freq),
+					channels[i].max_power,
+					channels[i].flags & IEEE80211_CHAN_RADAR ?
+					" (IEEE 802.11h required)" : "",
+					((channels[i].flags & IEEE80211_CHAN_NO_IBSS)
+					|| (channels[i].flags &
+					IEEE80211_CHAN_RADAR)) ? "" :
+					", IBSS",
+					channels[i].flags &
+					IEEE80211_CHAN_PASSIVE_SCAN ?
+					"passive only" : "active/passive");
+	}
 	supp_band = iwl_get_hw_mode(priv, IEEE80211_BAND_5GHZ);
-	channels = supp_band->channels;
+	if (supp_band) {
+		channels = supp_band->channels;
+
+		pos += scnprintf(buf + pos, bufsz - pos,
+				"Displaying %d channels in 5.2GHz band (802.11a)\n",
+				supp_band->n_channels);
+
+		for (i = 0; i < supp_band->n_channels; i++)
+			pos += scnprintf(buf + pos, bufsz - pos,
+					"%d: %ddBm: BSS%s%s, %s.\n",
+					ieee80211_frequency_to_channel(
+					channels[i].center_freq),
+					channels[i].max_power,
+					channels[i].flags & IEEE80211_CHAN_RADAR ?
+					" (IEEE 802.11h required)" : "",
+					((channels[i].flags & IEEE80211_CHAN_NO_IBSS)
+					|| (channels[i].flags &
+					IEEE80211_CHAN_RADAR)) ? "" :
+					", IBSS",
+					channels[i].flags &
+					IEEE80211_CHAN_PASSIVE_SCAN ?
+					"passive only" : "active/passive");
+	}
+	ret = simple_read_from_buffer(user_buf, count, ppos, buf, pos);
+	kfree(buf);
+	return ret;
+}
+
+static ssize_t iwl_dbgfs_status_read(struct file *file,
+						char __user *user_buf,
+						size_t count, loff_t *ppos) {
+
+	struct iwl_priv *priv = (struct iwl_priv *)file->private_data;
+	char buf[512];
+	int pos = 0;
+	const size_t bufsz = sizeof(buf);
+
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_HCMD_ACTIVE:\t %d\n",
+		test_bit(STATUS_HCMD_ACTIVE, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_HCMD_SYNC_ACTIVE: %d\n",
+		test_bit(STATUS_HCMD_SYNC_ACTIVE, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_INT_ENABLED:\t %d\n",
+		test_bit(STATUS_INT_ENABLED, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_RF_KILL_HW:\t %d\n",
+		test_bit(STATUS_RF_KILL_HW, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_INIT:\t\t %d\n",
+		test_bit(STATUS_INIT, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_ALIVE:\t\t %d\n",
+		test_bit(STATUS_ALIVE, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_READY:\t\t %d\n",
+		test_bit(STATUS_READY, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_TEMPERATURE:\t %d\n",
+		test_bit(STATUS_TEMPERATURE, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_GEO_CONFIGURED:\t %d\n",
+		test_bit(STATUS_GEO_CONFIGURED, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_EXIT_PENDING:\t %d\n",
+		test_bit(STATUS_EXIT_PENDING, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_STATISTICS:\t %d\n",
+		test_bit(STATUS_STATISTICS, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_SCANNING:\t %d\n",
+		test_bit(STATUS_SCANNING, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_SCAN_ABORTING:\t %d\n",
+		test_bit(STATUS_SCAN_ABORTING, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_SCAN_HW:\t\t %d\n",
+		test_bit(STATUS_SCAN_HW, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_POWER_PMI:\t %d\n",
+		test_bit(STATUS_POWER_PMI, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_FW_ERROR:\t %d\n",
+		test_bit(STATUS_FW_ERROR, &priv->status));
+	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_MODE_PENDING:\t %d\n",
+		test_bit(STATUS_MODE_PENDING, &priv->status));
+	return simple_read_from_buffer(user_buf, count, ppos, buf, pos);
+}
+
+static ssize_t iwl_dbgfs_interrupt_read(struct file *file,
+					char __user *user_buf,
+					size_t count, loff_t *ppos) {
+
+	struct iwl_priv *priv = (struct iwl_priv *)file->private_data;
+	int pos = 0;
+	int cnt = 0;
+	char *buf;
+	int bufsz = 24 * 64; /* 24 items * 64 char per item */
+	ssize_t ret;
+
+	buf = kzalloc(bufsz, GFP_KERNEL);
+	if (!buf) {
+		IWL_ERR(priv, "Can not allocate Buffer\n");
+		return -ENOMEM;
+	}
 
 	pos += scnprintf(buf + pos, bufsz - pos,
-			"Displaying %d channels in 5.2GHz band (802.11a)\n",
-			supp_band->n_channels);
+			"Interrupt Statistics Report:\n");
 
-	for (i = 0; i < supp_band->n_channels; i++)
+	pos += scnprintf(buf + pos, bufsz - pos, "HW Error:\t\t\t %u\n",
+		priv->isr_stats.hw);
+	pos += scnprintf(buf + pos, bufsz - pos, "SW Error:\t\t\t %u\n",
+		priv->isr_stats.sw);
+	if (priv->isr_stats.sw > 0) {
 		pos += scnprintf(buf + pos, bufsz - pos,
-				"%d: %ddBm: BSS%s%s, %s.\n",
-				ieee80211_frequency_to_channel(
-				channels[i].center_freq),
-				channels[i].max_power,
-				channels[i].flags & IEEE80211_CHAN_RADAR ?
-				" (IEEE 802.11h required)" : "",
-				((channels[i].flags & IEEE80211_CHAN_NO_IBSS)
-				|| (channels[i].flags &
-				IEEE80211_CHAN_RADAR)) ? "" :
-				", IBSS",
-				channels[i].flags &
-				IEEE80211_CHAN_PASSIVE_SCAN ?
-				"passive only" : "active/passive");
+			"\tLast Restarting Code:  0x%X\n",
+			priv->isr_stats.sw_err);
+	}
+#ifdef CONFIG_IWLWIFI_DEBUG
+	pos += scnprintf(buf + pos, bufsz - pos, "Frame transmitted:\t\t %u\n",
+		priv->isr_stats.sch);
+	pos += scnprintf(buf + pos, bufsz - pos, "Alive interrupt:\t\t %u\n",
+		priv->isr_stats.alive);
+#endif
+	pos += scnprintf(buf + pos, bufsz - pos,
+		"HW RF KILL switch toggled:\t %u\n",
+		priv->isr_stats.rfkill);
+
+	pos += scnprintf(buf + pos, bufsz - pos, "CT KILL:\t\t\t %u\n",
+		priv->isr_stats.ctkill);
+
+	pos += scnprintf(buf + pos, bufsz - pos, "Wakeup Interrupt:\t\t %u\n",
+		priv->isr_stats.wakeup);
+
+	pos += scnprintf(buf + pos, bufsz - pos,
+		"Rx command responses:\t\t %u\n",
+		priv->isr_stats.rx);
+	for (cnt = 0; cnt < REPLY_MAX; cnt++) {
+		if (priv->isr_stats.rx_handlers[cnt] > 0)
+			pos += scnprintf(buf + pos, bufsz - pos,
+				"\tRx handler[%36s]:\t\t %u\n",
+				get_cmd_string(cnt),
+				priv->isr_stats.rx_handlers[cnt]);
+	}
+
+	pos += scnprintf(buf + pos, bufsz - pos, "Tx/FH interrupt:\t\t %u\n",
+		priv->isr_stats.tx);
+
+	pos += scnprintf(buf + pos, bufsz - pos, "Unexpected INTA:\t\t %u\n",
+		priv->isr_stats.unhandled);
 
 	ret = simple_read_from_buffer(user_buf, count, ppos, buf, pos);
 	kfree(buf);
 	return ret;
 }
 
+static ssize_t iwl_dbgfs_interrupt_write(struct file *file,
+					 const char __user *user_buf,
+					 size_t count, loff_t *ppos)
+{
+	struct iwl_priv *priv = file->private_data;
+	char buf[8];
+	int buf_size;
+	u32 reset_flag;
+
+	memset(buf, 0, sizeof(buf));
+	buf_size = min(count, sizeof(buf) -  1);
+	if (copy_from_user(buf, user_buf, buf_size))
+		return -EFAULT;
+	if (sscanf(buf, "%x", &reset_flag) != 1)
+		return -EFAULT;
+	if (reset_flag == 0)
+		iwl_clear_isr_stats(priv);
+
+	return count;
+}
+
 
 DEBUGFS_READ_WRITE_FILE_OPS(sram);
 DEBUGFS_WRITE_FILE_OPS(log_event);
-DEBUGFS_READ_FILE_OPS(eeprom);
+DEBUGFS_READ_FILE_OPS(nvm);
 DEBUGFS_READ_FILE_OPS(stations);
 DEBUGFS_READ_FILE_OPS(rx_statistics);
 DEBUGFS_READ_FILE_OPS(tx_statistics);
 DEBUGFS_READ_FILE_OPS(channels);
+DEBUGFS_READ_FILE_OPS(status);
+DEBUGFS_READ_WRITE_FILE_OPS(interrupt);
 
 /*
  * Create the debugfs files and directories
@@ -455,13 +603,15 @@ int iwl_dbgfs_register(struct iwl_priv *priv, const char *name)
 
 	DEBUGFS_ADD_DIR(data, dbgfs->dir_drv);
 	DEBUGFS_ADD_DIR(rf, dbgfs->dir_drv);
-	DEBUGFS_ADD_FILE(eeprom, data);
+	DEBUGFS_ADD_FILE(nvm, data);
 	DEBUGFS_ADD_FILE(sram, data);
 	DEBUGFS_ADD_FILE(log_event, data);
 	DEBUGFS_ADD_FILE(stations, data);
 	DEBUGFS_ADD_FILE(rx_statistics, data);
 	DEBUGFS_ADD_FILE(tx_statistics, data);
 	DEBUGFS_ADD_FILE(channels, data);
+	DEBUGFS_ADD_FILE(status, data);
+	DEBUGFS_ADD_FILE(interrupt, data);
 	DEBUGFS_ADD_BOOL(disable_sensitivity, rf, &priv->disable_sens_cal);
 	DEBUGFS_ADD_BOOL(disable_chain_noise, rf,
 			 &priv->disable_chain_noise_cal);
@@ -469,7 +619,7 @@ int iwl_dbgfs_register(struct iwl_priv *priv, const char *name)
 	return 0;
 
 err:
-	IWL_ERROR("Can't open the debugfs directory\n");
+	IWL_ERR(priv, "Can't open the debugfs directory\n");
 	iwl_dbgfs_unregister(priv);
 	return ret;
 }
@@ -484,13 +634,15 @@ void iwl_dbgfs_unregister(struct iwl_priv *priv)
 	if (!priv->dbgfs)
 		return;
 
-	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_data_files.file_eeprom);
+	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_data_files.file_nvm);
 	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_data_files.file_rx_statistics);
 	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_data_files.file_tx_statistics);
 	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_data_files.file_sram);
 	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_data_files.file_log_event);
 	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_data_files.file_stations);
 	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_data_files.file_channels);
+	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_data_files.file_status);
+	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_data_files.file_interrupt);
 	DEBUGFS_REMOVE(priv->dbgfs->dir_data);
 	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_rf_files.file_disable_sensitivity);
 	DEBUGFS_REMOVE(priv->dbgfs->dbgfs_rf_files.file_disable_chain_noise);

@@ -266,6 +266,12 @@ static inline u64 min_vruntime(u64 min_vruntime, u64 vruntime)
 	return min_vruntime;
 }
 
+static inline int entity_before(struct sched_entity *a,
+				struct sched_entity *b)
+{
+	return (s64)(a->vruntime - b->vruntime) < 0;
+}
+
 static inline s64 entity_key(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 	return se->vruntime - cfs_rq->min_vruntime;
@@ -430,12 +436,13 @@ static u64 sched_slice(struct cfs_rq *cfs_rq, struct sched_entity *se)
 
 	for_each_sched_entity(se) {
 		struct load_weight *load;
+		struct load_weight lw;
 
 		cfs_rq = cfs_rq_of(se);
 		load = &cfs_rq->load;
 
 		if (unlikely(!se->on_rq)) {
-			struct load_weight lw = cfs_rq->load;
+			lw = cfs_rq->load;
 
 			update_load_add(&lw, se->load.weight);
 			load = &lw;
@@ -604,9 +611,13 @@ account_entity_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 static void enqueue_sleeper(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 #ifdef CONFIG_SCHEDSTATS
+	struct task_struct *tsk = NULL;
+
+	if (entity_is_task(se))
+		tsk = task_of(se);
+
 	if (se->sleep_start) {
 		u64 delta = rq_of(cfs_rq)->clock - se->sleep_start;
-		struct task_struct *tsk = task_of(se);
 
 		if ((s64)delta < 0)
 			delta = 0;
@@ -617,11 +628,11 @@ static void enqueue_sleeper(struct cfs_rq *cfs_rq, struct sched_entity *se)
 		se->sleep_start = 0;
 		se->sum_sleep_runtime += delta;
 
-		account_scheduler_latency(tsk, delta >> 10, 1);
+		if (tsk)
+			account_scheduler_latency(tsk, delta >> 10, 1);
 	}
 	if (se->block_start) {
 		u64 delta = rq_of(cfs_rq)->clock - se->block_start;
-		struct task_struct *tsk = task_of(se);
 
 		if ((s64)delta < 0)
 			delta = 0;
@@ -632,17 +643,19 @@ static void enqueue_sleeper(struct cfs_rq *cfs_rq, struct sched_entity *se)
 		se->block_start = 0;
 		se->sum_sleep_runtime += delta;
 
-		/*
-		 * Blocking time is in units of nanosecs, so shift by 20 to
-		 * get a milliseconds-range estimation of the amount of
-		 * time that the task spent sleeping:
-		 */
-		if (unlikely(prof_on == SLEEP_PROFILING)) {
-
-			profile_hits(SLEEP_PROFILING, (void *)get_wchan(tsk),
-				     delta >> 20);
+		if (tsk) {
+			/*
+			 * Blocking time is in units of nanosecs, so shift by
+			 * 20 to get a milliseconds-range estimation of the
+			 * amount of time that the task spent sleeping:
+			 */
+			if (unlikely(prof_on == SLEEP_PROFILING)) {
+				profile_hits(SLEEP_PROFILING,
+						(void *)get_wchan(tsk),
+						delta >> 20);
+			}
+			account_scheduler_latency(tsk, delta >> 10, 0);
 		}
-		account_scheduler_latency(tsk, delta >> 10, 0);
 	}
 #endif
 }
@@ -686,7 +699,8 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int initial)
 			 * all of which have the same weight.
 			 */
 			if (sched_feat(NORMALIZED_SLEEPER) &&
-					task_of(se)->policy != SCHED_IDLE)
+					(!entity_is_task(se) ||
+					 task_of(se)->policy != SCHED_IDLE))
 				thresh = calc_delta_fair(thresh, se);
 
 			vruntime -= thresh;
@@ -1015,7 +1029,7 @@ static void yield_task_fair(struct rq *rq)
 	/*
 	 * Already in the rightmost position?
 	 */
-	if (unlikely(!rightmost || rightmost->vruntime < se->vruntime))
+	if (unlikely(!rightmost || entity_before(rightmost, se)))
 		return;
 
 	/*
@@ -1314,16 +1328,63 @@ out:
 }
 #endif /* CONFIG_SMP */
 
-static unsigned long wakeup_gran(struct sched_entity *se)
+/*
+ * Adaptive granularity
+ *
+ * se->avg_wakeup gives the average time a task runs until it does a wakeup,
+ * with the limit of wakeup_gran -- when it never does a wakeup.
+ *
+ * So the smaller avg_wakeup is the faster we want this task to preempt,
+ * but we don't want to treat the preemptee unfairly and therefore allow it
+ * to run for at least the amount of time we'd like to run.
+ *
+ * NOTE: we use 2*avg_wakeup to increase the probability of actually doing one
+ *
+ * NOTE: we use *nr_running to scale with load, this nicely matches the
+ *       degrading latency on load.
+ */
+static unsigned long
+adaptive_gran(struct sched_entity *curr, struct sched_entity *se)
+{
+	u64 this_run = curr->sum_exec_runtime - curr->prev_sum_exec_runtime;
+	u64 expected_wakeup = 2*se->avg_wakeup * cfs_rq_of(se)->nr_running;
+	u64 gran = 0;
+
+	if (this_run < expected_wakeup)
+		gran = expected_wakeup - this_run;
+
+	return min_t(s64, gran, sysctl_sched_wakeup_granularity);
+}
+
+static unsigned long
+wakeup_gran(struct sched_entity *curr, struct sched_entity *se)
 {
 	unsigned long gran = sysctl_sched_wakeup_granularity;
 
+	if (cfs_rq_of(curr)->curr && sched_feat(ADAPTIVE_GRAN))
+		gran = adaptive_gran(curr, se);
+
 	/*
-	 * More easily preempt - nice tasks, while not making it harder for
-	 * + nice tasks.
+	 * Since its curr running now, convert the gran from real-time
+	 * to virtual-time in his units.
 	 */
-	if (!sched_feat(ASYM_GRAN) || se->load.weight > NICE_0_LOAD)
-		gran = calc_delta_fair(sysctl_sched_wakeup_granularity, se);
+	if (sched_feat(ASYM_GRAN)) {
+		/*
+		 * By using 'se' instead of 'curr' we penalize light tasks, so
+		 * they get preempted easier. That is, if 'se' < 'curr' then
+		 * the resulting gran will be larger, therefore penalizing the
+		 * lighter, if otoh 'se' > 'curr' then the resulting gran will
+		 * be smaller, again penalizing the lighter task.
+		 *
+		 * This is especially important for buddies when the leftmost
+		 * task is higher priority than the buddy.
+		 */
+		if (unlikely(se->load.weight != NICE_0_LOAD))
+			gran = calc_delta_fair(gran, se);
+	} else {
+		if (unlikely(curr->load.weight != NICE_0_LOAD))
+			gran = calc_delta_fair(gran, curr);
+	}
 
 	return gran;
 }
@@ -1350,7 +1411,7 @@ wakeup_preempt_entity(struct sched_entity *curr, struct sched_entity *se)
 	if (vdiff <= 0)
 		return -1;
 
-	gran = wakeup_gran(curr);
+	gran = wakeup_gran(curr, se);
 	if (vdiff > gran)
 		return 1;
 
@@ -1440,17 +1501,10 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int sync)
 
 	find_matching_se(&se, &pse);
 
-	while (se) {
-		BUG_ON(!pse);
+	BUG_ON(!pse);
 
-		if (wakeup_preempt_entity(se, pse) == 1) {
-			resched_task(curr);
-			break;
-		}
-
-		se = parent_entity(se);
-		pse = parent_entity(pse);
-	}
+	if (wakeup_preempt_entity(se, pse) == 1)
+		resched_task(curr);
 }
 
 static struct task_struct *pick_next_task_fair(struct rq *rq)
@@ -1671,7 +1725,7 @@ static void task_new_fair(struct rq *rq, struct task_struct *p)
 
 	/* 'curr' will be NULL if the child belongs to a different group */
 	if (sysctl_sched_child_runs_first && this_cpu == task_cpu(p) &&
-			curr && curr->vruntime < se->vruntime) {
+			curr && entity_before(curr, se)) {
 		/*
 		 * Upon rescheduling, sched_class::put_prev_task() will place
 		 * 'current' within the tree based on its new key value.

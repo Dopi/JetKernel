@@ -73,8 +73,6 @@ static char *version =
    or override something. */
 #include <linux/module.h>
 
-#define PRINTK(x) printk x
-
 /*
   Sources:
 
@@ -167,6 +165,17 @@ writereg(struct net_device *dev, int portno, int value)
 {
 	nubus_writew(swab16(value), dev->mem_start + portno);
 }
+
+static const struct net_device_ops mac89x0_netdev_ops = {
+	.ndo_open		= net_open,
+	.ndo_stop		= net_close,
+	.ndo_start_xmit		= net_send_packet,
+	.ndo_get_stats		= net_get_stats,
+	.ndo_set_multicast_list	= set_multicast_list,
+	.ndo_set_mac_address	= set_mac_address,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_change_mtu		= eth_change_mtu,
+};
 
 /* Probe for the CS8900 card in slot E.  We won't bother looking
    anywhere else until we have a really good reason to do so. */
@@ -280,12 +289,7 @@ struct net_device * __init mac89x0_probe(int unit)
 
 	printk(" IRQ %d ADDR %pM\n", dev->irq, dev->dev_addr);
 
-	dev->open		= net_open;
-	dev->stop		= net_close;
-	dev->hard_start_xmit = net_send_packet;
-	dev->get_stats	= net_get_stats;
-	dev->set_multicast_list = &set_multicast_list;
-	dev->set_mac_address = &set_mac_address;
+	dev->netdev_ops		= &mac89x0_netdev_ops;
 
 	err = register_netdev(dev);
 	if (err)
@@ -396,7 +400,7 @@ net_send_packet(struct sk_buff *skb, struct net_device *dev)
 		/* Gasp!  It hasn't.  But that shouldn't happen since
 		   we're waiting for TxOk, so return 1 and requeue this packet. */
 		local_irq_restore(flags);
-		return 1;
+		return NETDEV_TX_BUSY;
 	}
 
 	/* Write the contents of the packet */

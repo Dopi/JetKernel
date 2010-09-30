@@ -162,8 +162,8 @@ be_set_coalesce(struct net_device *netdev, struct ethtool_coalesce *coalesce)
 		return -EINVAL;
 
 	adapter->max_rx_coal = coalesce->rx_max_coalesced_frames;
-	if (adapter->max_rx_coal > MAX_SKB_FRAGS)
-		adapter->max_rx_coal = MAX_SKB_FRAGS - 1;
+	if (adapter->max_rx_coal > BE_MAX_FRAGS_PER_FRAME)
+		adapter->max_rx_coal = BE_MAX_FRAGS_PER_FRAME;
 
 	/* if AIC is being turned on now, start with an EQD of 0 */
 	if (rx_eq->enable_aic == 0 &&
@@ -319,7 +319,7 @@ be_get_pauseparam(struct net_device *netdev, struct ethtool_pauseparam *ecmd)
 
 	be_cmd_get_flow_control(&adapter->ctrl, &ecmd->tx_pause,
 		&ecmd->rx_pause);
-	ecmd->autoneg = AUTONEG_ENABLE;
+	ecmd->autoneg = 0;
 }
 
 static int
@@ -328,7 +328,7 @@ be_set_pauseparam(struct net_device *netdev, struct ethtool_pauseparam *ecmd)
 	struct be_adapter *adapter = netdev_priv(netdev);
 	int status;
 
-	if (ecmd->autoneg != AUTONEG_ENABLE)
+	if (ecmd->autoneg != 0)
 		return -EINVAL;
 
 	status = be_cmd_set_flow_control(&adapter->ctrl, ecmd->tx_pause,

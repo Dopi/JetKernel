@@ -46,24 +46,24 @@ void __iomem *__ioremap(unsigned long phys_addr, unsigned long size,
 		return NULL;
 
 	/*
-	 * If we're on an SH7751 or SH7780 PCI controller, PCI memory is
-	 * mapped at the end of the address space (typically 0xfd000000)
-	 * in a non-translatable area, so mapping through page tables for
-	 * this area is not only pointless, but also fundamentally
-	 * broken. Just return the physical address instead.
+	 * If we're in the fixed PCI memory range, mapping through page
+	 * tables is not only pointless, but also fundamentally broken.
+	 * Just return the physical address instead.
 	 *
 	 * For boards that map a small PCI memory aperture somewhere in
 	 * P1/P2 space, ioremap() will already do the right thing,
 	 * and we'll never get this far.
 	 */
-	if (is_pci_memaddr(phys_addr) && is_pci_memaddr(last_addr))
+	if (is_pci_memory_fixed_range(phys_addr, size))
 		return (void __iomem *)phys_addr;
 
+#if !defined(CONFIG_PMB_FIXED)
 	/*
 	 * Don't allow anybody to remap normal RAM that we're using..
 	 */
 	if (phys_addr < virt_to_phys(high_memory))
 		return NULL;
+#endif
 
 	/*
 	 * Mappings have to be page-aligned
@@ -81,7 +81,7 @@ void __iomem *__ioremap(unsigned long phys_addr, unsigned long size,
 	area->phys_addr = phys_addr;
 	orig_addr = addr = (unsigned long)area->addr;
 
-#ifdef CONFIG_32BIT
+#ifdef CONFIG_PMB
 	/*
 	 * First try to remap through the PMB once a valid VMA has been
 	 * established. Smaller allocations (or the rest of the size
@@ -119,10 +119,12 @@ void __iounmap(void __iomem *addr)
 	unsigned long seg = PXSEG(vaddr);
 	struct vm_struct *p;
 
-	if (seg < P3SEG || seg >= P3_ADDR_MAX || is_pci_memaddr(vaddr))
+	if (seg < P3SEG || vaddr >= P3_ADDR_MAX)
+		return;
+	if (is_pci_memory_fixed_range(vaddr, 0))
 		return;
 
-#ifdef CONFIG_32BIT
+#ifdef CONFIG_PMB
 	/*
 	 * Purge any PMB entries that may have been established for this
 	 * mapping, then proceed with conventional VMA teardown.

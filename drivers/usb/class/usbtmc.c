@@ -367,13 +367,13 @@ static ssize_t usbtmc_read(struct file *filp, char __user *buf,
 {
 	struct usbtmc_device_data *data;
 	struct device *dev;
-	unsigned long int n_characters;
+	u32 n_characters;
 	u8 *buffer;
 	int actual;
-	int done;
-	int remaining;
+	size_t done;
+	size_t remaining;
 	int retval;
-	int this_part;
+	size_t this_part;
 
 	/* Get pointer to private data structure */
 	data = filp->private_data;
@@ -455,6 +455,18 @@ static ssize_t usbtmc_read(struct file *filp, char __user *buf,
 			       (buffer[6] << 16) +
 			       (buffer[7] << 24);
 
+		/* Ensure the instrument doesn't lie about it */
+		if(n_characters > actual - 12) {
+			dev_err(dev, "Device lies about message size: %zu > %zu\n", n_characters, actual - 12);
+			n_characters = actual - 12;
+		}
+
+		/* Ensure the instrument doesn't send more back than requested */
+		if(n_characters > this_part) {
+			dev_err(dev, "Device returns more than requested: %zu > %zu\n", done + n_characters, done + this_part);
+			n_characters = this_part;
+		}
+
 		/* Copy buffer to user space */
 		if (copy_to_user(buf + done, &buffer[12], n_characters)) {
 			/* There must have been an addressing problem */
@@ -465,6 +477,8 @@ static ssize_t usbtmc_read(struct file *filp, char __user *buf,
 		done += n_characters;
 		if (n_characters < USBTMC_SIZE_IOBUFFER)
 			remaining = 0;
+		else
+			remaining -= n_characters;
 	}
 
 	/* Update file position value */
@@ -531,10 +545,16 @@ static ssize_t usbtmc_write(struct file *filp, const char __user *buf,
 		n_bytes = roundup(12 + this_part, 4);
 		memset(buffer + 12 + this_part, 0, n_bytes - (12 + this_part));
 
-		retval = usb_bulk_msg(data->usb_dev,
-				      usb_sndbulkpipe(data->usb_dev,
-						      data->bulk_out),
-				      buffer, n_bytes, &actual, USBTMC_TIMEOUT);
+		do {
+			retval = usb_bulk_msg(data->usb_dev,
+					      usb_sndbulkpipe(data->usb_dev,
+							      data->bulk_out),
+					      buffer, n_bytes,
+					      &actual, USBTMC_TIMEOUT);
+			if (retval != 0)
+				break;
+			n_bytes -= actual;
+		} while (n_bytes);
 
 		data->bTag_last_write = data->bTag;
 		data->bTag++;
@@ -751,7 +771,7 @@ static int get_capabilities(struct usbtmc_device_data *data)
 {
 	struct device *dev = &data->usb_dev->dev;
 	char *buffer;
-	int rv;
+	int rv = 0;
 
 	buffer = kmalloc(0x18, GFP_KERNEL);
 	if (!buffer)
@@ -763,7 +783,7 @@ static int get_capabilities(struct usbtmc_device_data *data)
 			     0, 0, buffer, 0x18, USBTMC_TIMEOUT);
 	if (rv < 0) {
 		dev_err(dev, "usb_control_msg returned %d\n", rv);
-		return rv;
+		goto err_out;
 	}
 
 	dev_dbg(dev, "GET_CAPABILITIES returned %x\n", buffer[0]);
@@ -773,7 +793,8 @@ static int get_capabilities(struct usbtmc_device_data *data)
 	dev_dbg(dev, "USB488 device capabilities are %x\n", buffer[15]);
 	if (buffer[0] != USBTMC_STATUS_SUCCESS) {
 		dev_err(dev, "GET_CAPABILITIES returned %x\n", buffer[0]);
-		return -EPERM;
+		rv = -EPERM;
+		goto err_out;
 	}
 
 	data->capabilities.interface_capabilities = buffer[4];
@@ -781,8 +802,9 @@ static int get_capabilities(struct usbtmc_device_data *data)
 	data->capabilities.usb488_interface_capabilities = buffer[14];
 	data->capabilities.usb488_device_capabilities = buffer[15];
 
+err_out:
 	kfree(buffer);
-	return 0;
+	return rv;
 }
 
 #define capability_attribute(name)					\

@@ -140,7 +140,7 @@ _xfs_filestream_pick_ag(
 	xfs_extlen_t	minlen)
 {
 	int		err, trylock, nscan;
-	xfs_extlen_t	delta, longest, need, free, minfree, maxfree = 0;
+	xfs_extlen_t	longest, free, minfree, maxfree = 0;
 	xfs_agnumber_t	ag, max_ag = NULLAGNUMBER;
 	struct xfs_perag *pag;
 
@@ -186,12 +186,7 @@ _xfs_filestream_pick_ag(
 			goto next_ag;
 		}
 
-		need = XFS_MIN_FREELIST_PAG(pag, mp);
-		delta = need > pag->pagf_flcount ? need - pag->pagf_flcount : 0;
-		longest = (pag->pagf_longest > delta) ?
-		          (pag->pagf_longest - delta) :
-		          (pag->pagf_flcount > 0 || pag->pagf_longest > 0);
-
+		longest = xfs_alloc_longest_free_extent(mp, pag);
 		if (((minlen && longest >= minlen) ||
 		     (!minlen && pag->pagf_freeblks >= minfree)) &&
 		    (!pag->pagf_metadata || !(flags & XFS_PICK_USERDATA) ||
@@ -547,10 +542,8 @@ xfs_filestream_associate(
 	 * waiting for the lock because someone else is waiting on the lock we
 	 * hold and we cannot drop that as we are in a transaction here.
 	 *
-	 * Lucky for us, this inversion is rarely a problem because it's a
-	 * directory inode that we are trying to lock here and that means the
-	 * only place that matters is xfs_sync_inodes() and SYNC_DELWRI is
-	 * used. i.e. freeze, remount-ro, quotasync or unmount.
+	 * Lucky for us, this inversion is not a problem because it's a
+	 * directory inode that we are trying to lock here.
 	 *
 	 * So, if we can't get the iolock without sleeping then just give up
 	 */

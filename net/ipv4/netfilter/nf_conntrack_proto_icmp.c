@@ -82,18 +82,10 @@ static int icmp_packet(struct nf_conn *ct,
 		       u_int8_t pf,
 		       unsigned int hooknum)
 {
-	/* Try to delete connection immediately after all replies:
-	   won't actually vanish as we still have skb, and del_timer
-	   means this will only run once even if count hits zero twice
-	   (theoretically possible with SMP) */
-	if (CTINFO2DIR(ctinfo) == IP_CT_DIR_REPLY) {
-		if (atomic_dec_and_test(&ct->proto.icmp.count))
-			nf_ct_kill_acct(ct, ctinfo, skb);
-	} else {
-		atomic_inc(&ct->proto.icmp.count);
-		nf_conntrack_event_cache(IPCT_PROTOINFO_VOLATILE, ct);
-		nf_ct_refresh_acct(ct, ctinfo, skb, nf_ct_icmp_timeout);
-	}
+	/* Do not immediately delete the connection after the first
+	   successful reply to avoid excessive conntrackd traffic
+	   and also to handle correctly ICMP echo reply duplicates. */
+	nf_ct_refresh_acct(ct, ctinfo, skb, nf_ct_icmp_timeout);
 
 	return NF_ACCEPT;
 }
@@ -117,7 +109,6 @@ static bool icmp_new(struct nf_conn *ct, const struct sk_buff *skb,
 		nf_ct_dump_tuple_ip(&ct->tuplehash[0].tuple);
 		return false;
 	}
-	atomic_set(&ct->proto.icmp.count, 0);
 	return true;
 }
 
@@ -262,6 +253,11 @@ static int icmp_nlattr_to_tuple(struct nlattr *tb[],
 
 	return 0;
 }
+
+static int icmp_nlattr_tuple_size(void)
+{
+	return nla_policy_len(icmp_nla_policy, CTA_PROTO_MAX + 1);
+}
 #endif
 
 #ifdef CONFIG_SYSCTL
@@ -309,6 +305,7 @@ struct nf_conntrack_l4proto nf_conntrack_l4proto_icmp __read_mostly =
 	.me			= NULL,
 #if defined(CONFIG_NF_CT_NETLINK) || defined(CONFIG_NF_CT_NETLINK_MODULE)
 	.tuple_to_nlattr	= icmp_tuple_to_nlattr,
+	.nlattr_tuple_size	= icmp_nlattr_tuple_size,
 	.nlattr_to_tuple	= icmp_nlattr_to_tuple,
 	.nla_policy		= icmp_nla_policy,
 #endif

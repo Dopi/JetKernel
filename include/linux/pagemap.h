@@ -22,9 +22,7 @@ enum mapping_flags {
 	AS_EIO		= __GFP_BITS_SHIFT + 0,	/* IO error on async write */
 	AS_ENOSPC	= __GFP_BITS_SHIFT + 1,	/* ENOSPC on async write */
 	AS_MM_ALL_LOCKS	= __GFP_BITS_SHIFT + 2,	/* under mm_take_all_locks() */
-#ifdef CONFIG_UNEVICTABLE_LRU
 	AS_UNEVICTABLE	= __GFP_BITS_SHIFT + 3,	/* e.g., ramdisk, SHM_LOCK */
-#endif
 };
 
 static inline void mapping_set_error(struct address_space *mapping, int error)
@@ -36,8 +34,6 @@ static inline void mapping_set_error(struct address_space *mapping, int error)
 			set_bit(AS_EIO, &mapping->flags);
 	}
 }
-
-#ifdef CONFIG_UNEVICTABLE_LRU
 
 static inline void mapping_set_unevictable(struct address_space *mapping)
 {
@@ -55,14 +51,6 @@ static inline int mapping_unevictable(struct address_space *mapping)
 		return test_bit(AS_UNEVICTABLE, &mapping->flags);
 	return !!mapping;
 }
-#else
-static inline void mapping_set_unevictable(struct address_space *mapping) { }
-static inline void mapping_clear_unevictable(struct address_space *mapping) { }
-static inline int mapping_unevictable(struct address_space *mapping)
-{
-	return 0;
-}
-#endif
 
 static inline gfp_t mapping_gfp_mask(struct address_space * mapping)
 {
@@ -382,6 +370,11 @@ static inline void wait_on_page_writeback(struct page *page)
 }
 
 extern void end_page_writeback(struct page *page);
+
+/*
+ * Add an arbitrary waiter to a page's wait queue
+ */
+extern void add_page_wait_queue(struct page *page, wait_queue_t *waiter);
 
 /*
  * Fault a userspace page into pagetables.  Return non-zero on a fault.

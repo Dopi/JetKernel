@@ -100,6 +100,9 @@ struct intel_sdvo_preferred_input_timing_args {
     u16 clock;
     u16 width;
     u16 height;
+    u8	interlace:1;
+    u8	scaled:1;
+    u8	pad:6;
 } __attribute__((packed));
 
 /* I2C registers for SDVO */
@@ -712,6 +715,7 @@ struct intel_sdvo_enhancements_arg {
   #define SDVO_HBUF_TX_ONCE	(2 << 6)
   #define SDVO_HBUF_TX_VSYNC	(3 << 6)
 #define SDVO_CMD_GET_AUDIO_TX_INFO	0x9c
+#define SDVO_NEED_TO_STALL  (1 << 7)
 
 struct intel_sdvo_encode{
     u8 dvi_rev;

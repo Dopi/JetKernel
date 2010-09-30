@@ -17,7 +17,7 @@
 #include <linux/rtc-v3020.h>
 #include <video/mbxfb.h>
 
-#include <mach/mfp-pxa27x.h>
+#include <mach/pxa27x.h>
 #include <mach/ohci.h>
 #include <mach/mmc.h>
 
@@ -334,6 +334,10 @@ static inline void cmx270_init_mmc(void) {}
 void __init cmx270_init(void)
 {
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(cmx270_pin_config));
+
+#ifdef CONFIG_PM
+	pxa27x_set_pwrmode(PWRMODE_DEEPSLEEP);
+#endif
 
 	cmx270_init_rtc();
 	cmx270_init_mmc();

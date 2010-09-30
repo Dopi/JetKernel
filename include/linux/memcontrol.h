@@ -56,7 +56,7 @@ extern void mem_cgroup_move_lists(struct page *page,
 				  enum lru_list from, enum lru_list to);
 extern void mem_cgroup_uncharge_page(struct page *page);
 extern void mem_cgroup_uncharge_cache_page(struct page *page);
-extern int mem_cgroup_shrink_usage(struct page *page,
+extern int mem_cgroup_shmem_charge_fallback(struct page *page,
 			struct mm_struct *mm, gfp_t gfp_mask);
 
 extern unsigned long mem_cgroup_isolate_pages(unsigned long nr_to_scan,
@@ -75,7 +75,7 @@ int mm_match_cgroup(const struct mm_struct *mm, const struct mem_cgroup *cgroup)
 {
 	struct mem_cgroup *mem;
 	rcu_read_lock();
-	mem = mem_cgroup_from_task((mm)->owner);
+	mem = mem_cgroup_from_task(rcu_dereference((mm)->owner));
 	rcu_read_unlock();
 	return cgroup == mem;
 }
@@ -88,15 +88,13 @@ extern void mem_cgroup_end_migration(struct mem_cgroup *mem,
 /*
  * For memory reclaim.
  */
-extern int mem_cgroup_calc_mapped_ratio(struct mem_cgroup *mem);
-extern long mem_cgroup_reclaim_imbalance(struct mem_cgroup *mem);
-
 extern int mem_cgroup_get_reclaim_priority(struct mem_cgroup *mem);
 extern void mem_cgroup_note_reclaim_priority(struct mem_cgroup *mem,
 							int priority);
 extern void mem_cgroup_record_reclaim_priority(struct mem_cgroup *mem,
 							int priority);
 int mem_cgroup_inactive_anon_is_low(struct mem_cgroup *memcg);
+int mem_cgroup_inactive_file_is_low(struct mem_cgroup *memcg);
 unsigned long mem_cgroup_zone_nr_pages(struct mem_cgroup *memcg,
 				       struct zone *zone,
 				       enum lru_list lru);
@@ -104,6 +102,8 @@ struct zone_reclaim_stat *mem_cgroup_get_reclaim_stat(struct mem_cgroup *memcg,
 						      struct zone *zone);
 struct zone_reclaim_stat*
 mem_cgroup_get_reclaim_stat_from_page(struct page *page);
+extern void mem_cgroup_print_oom_info(struct mem_cgroup *memcg,
+					struct task_struct *p);
 
 #ifdef CONFIG_CGROUP_MEM_RES_CTLR_SWAP
 extern int do_swap_account;
@@ -117,7 +117,7 @@ static inline bool mem_cgroup_disabled(void)
 }
 
 extern bool mem_cgroup_oom_called(struct task_struct *task);
-
+void mem_cgroup_update_mapped_file_stat(struct page *page, int val);
 #else /* CONFIG_CGROUP_MEM_RES_CTLR */
 struct mem_cgroup;
 
@@ -156,7 +156,7 @@ static inline void mem_cgroup_uncharge_cache_page(struct page *page)
 {
 }
 
-static inline int mem_cgroup_shrink_usage(struct page *page,
+static inline int mem_cgroup_shmem_charge_fallback(struct page *page,
 			struct mm_struct *mm, gfp_t gfp_mask)
 {
 	return 0;
@@ -209,16 +209,6 @@ static inline void mem_cgroup_end_migration(struct mem_cgroup *mem,
 {
 }
 
-static inline int mem_cgroup_calc_mapped_ratio(struct mem_cgroup *mem)
-{
-	return 0;
-}
-
-static inline int mem_cgroup_reclaim_imbalance(struct mem_cgroup *mem)
-{
-	return 0;
-}
-
 static inline int mem_cgroup_get_reclaim_priority(struct mem_cgroup *mem)
 {
 	return 0;
@@ -250,6 +240,12 @@ mem_cgroup_inactive_anon_is_low(struct mem_cgroup *memcg)
 	return 1;
 }
 
+static inline int
+mem_cgroup_inactive_file_is_low(struct mem_cgroup *memcg)
+{
+	return 1;
+}
+
 static inline unsigned long
 mem_cgroup_zone_nr_pages(struct mem_cgroup *memcg, struct zone *zone,
 			 enum lru_list lru)
@@ -268,6 +264,16 @@ static inline struct zone_reclaim_stat*
 mem_cgroup_get_reclaim_stat_from_page(struct page *page)
 {
 	return NULL;
+}
+
+static inline void
+mem_cgroup_print_oom_info(struct mem_cgroup *memcg, struct task_struct *p)
+{
+}
+
+static inline void mem_cgroup_update_mapped_file_stat(struct page *page,
+							int val)
+{
 }
 
 #endif /* CONFIG_CGROUP_MEM_CONT */

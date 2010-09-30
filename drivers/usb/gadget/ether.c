@@ -156,7 +156,7 @@ static struct usb_device_descriptor device_desc = {
 	.bLength =		sizeof device_desc,
 	.bDescriptorType =	USB_DT_DEVICE,
 
-	.bcdUSB =		__constant_cpu_to_le16 (0x0200),
+	.bcdUSB =		cpu_to_le16 (0x0200),
 
 	.bDeviceClass =		USB_CLASS_COMM,
 	.bDeviceSubClass =	0,
@@ -167,8 +167,8 @@ static struct usb_device_descriptor device_desc = {
 	 * we support.  (As does bNumConfigurations.)  These values can
 	 * also be overridden by module parameters.
 	 */
-	.idVendor =		__constant_cpu_to_le16 (CDC_VENDOR_NUM),
-	.idProduct =		__constant_cpu_to_le16 (CDC_PRODUCT_NUM),
+	.idVendor =		cpu_to_le16 (CDC_VENDOR_NUM),
+	.idProduct =		cpu_to_le16 (CDC_PRODUCT_NUM),
 	/* .bcdDevice = f(hardware) */
 	/* .iManufacturer = DYNAMIC */
 	/* .iProduct = DYNAMIC */
@@ -293,15 +293,16 @@ static int __init eth_bind(struct usb_composite_dev *cdev)
 		/* CDC Subset */
 		eth_config_driver.label = "CDC Subset/SAFE";
 
-		device_desc.idVendor = cpu_to_le16(SIMPLE_VENDOR_NUM),
-		device_desc.idProduct = cpu_to_le16(SIMPLE_PRODUCT_NUM),
-		device_desc.bDeviceClass = USB_CLASS_VENDOR_SPEC;
+		device_desc.idVendor = cpu_to_le16(SIMPLE_VENDOR_NUM);
+		device_desc.idProduct = cpu_to_le16(SIMPLE_PRODUCT_NUM);
+		if (!has_rndis())
+			device_desc.bDeviceClass = USB_CLASS_VENDOR_SPEC;
 	}
 
 	if (has_rndis()) {
 		/* RNDIS plus ECM-or-Subset */
-		device_desc.idVendor = cpu_to_le16(RNDIS_VENDOR_NUM),
-		device_desc.idProduct = cpu_to_le16(RNDIS_PRODUCT_NUM),
+		device_desc.idVendor = cpu_to_le16(RNDIS_VENDOR_NUM);
+		device_desc.idProduct = cpu_to_le16(RNDIS_PRODUCT_NUM);
 		device_desc.bNumConfigurations = 2;
 	}
 
@@ -318,7 +319,7 @@ static int __init eth_bind(struct usb_composite_dev *cdev)
 				gadget->name,
 				eth_config_driver.label);
 		device_desc.bcdDevice =
-			__constant_cpu_to_le16(0x0300 | 0x0099);
+			cpu_to_le16(0x0300 | 0x0099);
 	}
 
 

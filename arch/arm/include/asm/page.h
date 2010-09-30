@@ -12,7 +12,7 @@
 
 /* PAGE_SHIFT determines the page size */
 #define PAGE_SHIFT		12
-#define PAGE_SIZE		(1UL << PAGE_SHIFT)
+#define PAGE_SIZE		(_AC(1,UL) << PAGE_SHIFT)
 #define PAGE_MASK		(~(PAGE_SIZE-1))
 
 #ifndef __ASSEMBLY__
@@ -73,6 +73,14 @@
 #  define MULTI_USER 1
 # else
 #  define _USER feroceon
+# endif
+#endif
+
+#ifdef CONFIG_CPU_COPY_FA
+# ifdef _USER
+#  define MULTI_USER 1
+# else
+#  define _USER fa
 # endif
 #endif
 
@@ -194,13 +202,6 @@ typedef struct page *pgtable_t;
 	(((current->personality & READ_IMPLIES_EXEC) ? VM_EXEC : 0) | \
 	 VM_READ | VM_WRITE | VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
 
-/*
- * With EABI on ARMv5 and above we must have 64-bit aligned slab pointers.
- */
-#if defined(CONFIG_AEABI) && (__LINUX_ARM_ARCH__ >= 5)
-#define ARCH_SLAB_MINALIGN 8
-#endif
-
-#include <asm-generic/page.h>
+#include <asm-generic/getorder.h>
 
 #endif

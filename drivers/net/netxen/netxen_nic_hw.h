@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003 - 2006 NetXen, Inc.
+ * Copyright (C) 2003 - 2009 NetXen, Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or
@@ -22,12 +22,9 @@
  *
  * Contact Information:
  *    info@netxen.com
- * NetXen,
- * 3965 Freedom Circle, Fourth floor,
- * Santa Clara, CA 95054
- *
- *
- * Structures, enums, and macros for the MAC
+ * NetXen Inc,
+ * 18922 Forge Drive
+ * Cupertino, CA 95014-0701
  *
  */
 
@@ -39,60 +36,13 @@
 /* Hardware memory size of 128 meg */
 #define NETXEN_MEMADDR_MAX (128 * 1024 * 1024)
 
-#ifndef readq
-static inline u64 readq(void __iomem * addr)
-{
-	return readl(addr) | (((u64) readl(addr + 4)) << 32LL);
-}
-#endif
-
-#ifndef writeq
-static inline void writeq(u64 val, void __iomem * addr)
-{
-	writel(((u32) (val)), (addr));
-	writel(((u32) (val >> 32)), (addr + 4));
-}
-#endif
-
-static inline void netxen_nic_hw_block_write64(u64 __iomem * data_ptr,
-					       u64 __iomem * addr,
-					       int num_words)
-{
-	int num;
-	for (num = 0; num < num_words; num++) {
-		writeq(readq((void __iomem *)data_ptr), addr);
-		addr++;
-		data_ptr++;
-	}
-}
-
-static inline void netxen_nic_hw_block_read64(u64 __iomem * data_ptr,
-					      u64 __iomem * addr, int num_words)
-{
-	int num;
-	for (num = 0; num < num_words; num++) {
-		writeq(readq((void __iomem *)addr), data_ptr);
-		addr++;
-		data_ptr++;
-	}
-
-}
-
 struct netxen_adapter;
 
 #define NETXEN_PCI_MAPSIZE_BYTES  (NETXEN_PCI_MAPSIZE << 20)
 
-struct netxen_port;
 void netxen_nic_set_link_parameters(struct netxen_adapter *adapter);
-void netxen_nic_flash_print(struct netxen_adapter *adapter);
-
-typedef u8 netxen_ethernet_macaddr_t[6];
 
 /* Nibble or Byte mode for phy interface (GbE mode only) */
-typedef enum {
-	NETXEN_NIU_10_100_MB = 0,
-	NETXEN_NIU_1000_MB
-} netxen_niu_gbe_ifmode_t;
 
 #define _netxen_crb_get_bit(var, bit)  ((var >> bit) & 0x1)
 
@@ -147,33 +97,6 @@ typedef enum {
 		_netxen_crb_get_bit((config_word), 5)
 #define netxen_gb_get_soft_reset(config_word)	\
 		_netxen_crb_get_bit((config_word), 31)
-
-/*
- * NIU GB MAC Config Register 1 (applies to GB0, GB1, GB2, GB3)
- *
- *	Bit 0	    : duplex => 1:full duplex mode, 0:half duplex
- *	Bit 1	    : crc_enable => 1:append CRC to xmit frames, 0:dont append
- *	Bit 2	    : padshort => 1:pad short frames and add CRC, 0:dont pad
- *	Bit 4	    : checklength => 1:check framelen with actual,0:dont check
- *	Bit 5	    : hugeframes => 1:allow oversize xmit frames, 0:dont allow
- *	Bits 8-9    : intfmode => 01:nibble (10/100), 10:byte (1000)
- *	Bits 12-15  : preamblelen => preamble field length in bytes, default 7
- */
-
-#define netxen_gb_set_duplex(config_word)	\
-		((config_word) |= 1 << 0)
-#define netxen_gb_set_crc_enable(config_word)	\
-		((config_word) |= 1 << 1)
-#define netxen_gb_set_padshort(config_word)	\
-		((config_word) |= 1 << 2)
-#define netxen_gb_set_checklength(config_word)	\
-		((config_word) |= 1 << 4)
-#define netxen_gb_set_hugeframes(config_word)	\
-		((config_word) |= 1 << 5)
-#define netxen_gb_set_preamblelen(config_word, val)	\
-		((config_word) |= ((val) << 12) & 0xF000)
-#define netxen_gb_set_intfmode(config_word, val)		\
-		((config_word) |= ((val) << 8) & 0x300)
 
 #define netxen_gb_get_stationaddress_low(config_word) ((config_word) >> 16)
 
@@ -277,30 +200,28 @@ typedef enum {
 /*
  * PHY-Specific MII control/status registers.
  */
-typedef enum {
-	NETXEN_NIU_GB_MII_MGMT_ADDR_CONTROL = 0,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_STATUS = 1,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_PHY_ID_0 = 2,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_PHY_ID_1 = 3,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_AUTONEG = 4,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_LNKPART = 5,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_AUTONEG_MORE = 6,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_NEXTPAGE_XMIT = 7,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_LNKPART_NEXTPAGE = 8,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_1000BT_CONTROL = 9,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_1000BT_STATUS = 10,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_EXTENDED_STATUS = 15,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_PHY_CONTROL = 16,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_PHY_STATUS = 17,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_INT_ENABLE = 18,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_INT_STATUS = 19,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_PHY_CONTROL_MORE = 20,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_RECV_ERROR_COUNT = 21,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_LED_CONTROL = 24,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_LED_OVERRIDE = 25,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_PHY_CONTROL_MORE_YET = 26,
-	NETXEN_NIU_GB_MII_MGMT_ADDR_PHY_STATUS_MORE = 27
-} netxen_niu_phy_register_t;
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_CONTROL		0
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_STATUS		1
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_PHY_ID_0		2
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_PHY_ID_1		3
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_AUTONEG		4
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_LNKPART		5
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_AUTONEG_MORE	6
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_NEXTPAGE_XMIT	7
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_LNKPART_NEXTPAGE	8
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_1000BT_CONTROL	9
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_1000BT_STATUS	10
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_EXTENDED_STATUS	15
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_PHY_CONTROL		16
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_PHY_STATUS		17
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_INT_ENABLE		18
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_INT_STATUS		19
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_PHY_CONTROL_MORE	20
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_RECV_ERROR_COUNT	21
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_LED_CONTROL		24
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_LED_OVERRIDE	25
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_PHY_CONTROL_MORE_YET	26
+#define NETXEN_NIU_GB_MII_MGMT_ADDR_PHY_STATUS_MORE	27
 
 /*
  * PHY-Specific Status Register (reg 17).
@@ -471,14 +392,6 @@ int netxen_niu_set_promiscuous_mode(struct netxen_adapter *adapter,
 				    u32 mode);
 int netxen_niu_xg_set_promiscuous_mode(struct netxen_adapter *adapter,
 				       u32 mode);
-
-/* set the MAC address for a given MAC */
-int netxen_niu_macaddr_set(struct netxen_adapter *adapter,
-			   netxen_ethernet_macaddr_t addr);
-
-/* XG version */
-int netxen_niu_xg_macaddr_set(struct netxen_adapter *adapter,
-			      netxen_ethernet_macaddr_t addr);
 
 /* Generic enable for GbE ports. Will detect the speed of the link. */
 int netxen_niu_gbe_init_port(struct netxen_adapter *adapter, int port);

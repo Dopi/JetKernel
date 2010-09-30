@@ -10,6 +10,7 @@
 #define _ASM_IRQ_H
 
 #include <linux/linkage.h>
+#include <linux/smp.h>
 
 #include <asm/mipsmtregs.h>
 
@@ -49,7 +50,7 @@ static inline void smtc_im_ack_irq(unsigned int irq)
 #ifdef CONFIG_MIPS_MT_SMTC_IRQAFF
 #include <linux/cpumask.h>
 
-extern void plat_set_irq_affinity(unsigned int irq,
+extern int plat_set_irq_affinity(unsigned int irq,
 				  const struct cpumask *affinity);
 extern void smtc_forward_irq(unsigned int irq);
 
@@ -66,7 +67,7 @@ extern void smtc_forward_irq(unsigned int irq);
  */
 #define IRQ_AFFINITY_HOOK(irq)						\
 do {									\
-    if (!cpu_isset(smp_processor_id(), irq_desc[irq].affinity)) {	\
+    if (!cpumask_test_cpu(smp_processor_id(), irq_desc[irq].affinity)) {\
 	smtc_forward_irq(irq);						\
 	irq_exit();							\
 	return;								\

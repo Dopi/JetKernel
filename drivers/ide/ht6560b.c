@@ -44,7 +44,12 @@
  *    bit3 (0x08): "1" 3 cycle time, "0" 2 cycle time	      (?)
  */
 #define HT_CONFIG_PORT	  0x3e6
-#define HT_CONFIG(drivea) (u8)(((drivea)->drive_data & 0xff00) >> 8)
+
+static inline u8 HT_CONFIG(ide_drive_t *drive)
+{
+	return ((unsigned long)ide_get_drivedata(drive) & 0xff00) >> 8;
+}
+
 /*
  * FIFO + PREFETCH (both a/b-model)
  */
@@ -90,7 +95,11 @@
  * Active Time for each drive. Smaller value gives higher speed.
  * In case of failures you should probably fall back to a higher value.
  */
-#define HT_TIMING(drivea) (u8)((drivea)->drive_data & 0x00ff)
+static inline u8 HT_TIMING(ide_drive_t *drive)
+{
+	return (unsigned long)ide_get_drivedata(drive) & 0x00ff;
+}
+
 #define HT_TIMING_DEFAULT 0xff
 
 /*
@@ -103,7 +112,7 @@
 /*
  * This routine is invoked from ide.c to prepare for access to a given drive.
  */
-static void ht6560b_selectproc (ide_drive_t *drive)
+static void ht6560b_dev_select(ide_drive_t *drive)
 {
 	ide_hwif_t *hwif = drive->hwif;
 	unsigned long flags;
@@ -143,6 +152,8 @@ static void ht6560b_selectproc (ide_drive_t *drive)
 #endif
 	}
 	local_irq_restore(flags);
+
+	outb(drive->select | ATA_DEVICE_OBS, hwif->io_ports.device_addr);
 }
 
 /*
@@ -240,22 +251,26 @@ static DEFINE_SPINLOCK(ht6560b_lock);
  */
 static void ht_set_prefetch(ide_drive_t *drive, u8 state)
 {
-	unsigned long flags;
+	unsigned long flags, config;
 	int t = HT_PREFETCH_MODE << 8;
 
 	spin_lock_irqsave(&ht6560b_lock, flags);
+
+	config = (unsigned long)ide_get_drivedata(drive);
 
 	/*
 	 *  Prefetch mode and unmask irq seems to conflict
 	 */
 	if (state) {
-		drive->drive_data |= t;   /* enable prefetch mode */
+		config |= t;   /* enable prefetch mode */
 		drive->dev_flags |= IDE_DFLAG_NO_UNMASK;
 		drive->dev_flags &= ~IDE_DFLAG_UNMASK;
 	} else {
-		drive->drive_data &= ~t;  /* disable prefetch mode */
+		config &= ~t;  /* disable prefetch mode */
 		drive->dev_flags &= ~IDE_DFLAG_NO_UNMASK;
 	}
+
+	ide_set_drivedata(drive, (void *)config);
 
 	spin_unlock_irqrestore(&ht6560b_lock, flags);
 
@@ -266,7 +281,7 @@ static void ht_set_prefetch(ide_drive_t *drive, u8 state)
 
 static void ht6560b_set_pio_mode(ide_drive_t *drive, const u8 pio)
 {
-	unsigned long flags;
+	unsigned long flags, config;
 	u8 timing;
 	
 	switch (pio) {
@@ -279,8 +294,10 @@ static void ht6560b_set_pio_mode(ide_drive_t *drive, const u8 pio)
 	timing = ht_pio2timings(drive, pio);
 
 	spin_lock_irqsave(&ht6560b_lock, flags);
-	drive->drive_data &= 0xff00;
-	drive->drive_data |= timing;
+	config = (unsigned long)ide_get_drivedata(drive);
+	config &= 0xff00;
+	config |= timing;
+	ide_set_drivedata(drive, (void *)config);
 	spin_unlock_irqrestore(&ht6560b_lock, flags);
 
 #ifdef DEBUG
@@ -297,7 +314,7 @@ static void __init ht6560b_init_dev(ide_drive_t *drive)
 	if (hwif->channel)
 		t |= (HT_SECONDARY_IF << 8);
 
-	drive->drive_data = t;
+	ide_set_drivedata(drive, (void *)t);
 }
 
 static int probe_ht6560b;
@@ -305,15 +322,29 @@ static int probe_ht6560b;
 module_param_named(probe, probe_ht6560b, bool, 0);
 MODULE_PARM_DESC(probe, "probe for HT6560B chipset");
 
+static const struct ide_tp_ops ht6560b_tp_ops = {
+	.exec_command		= ide_exec_command,
+	.read_status		= ide_read_status,
+	.read_altstatus		= ide_read_altstatus,
+	.write_devctl		= ide_write_devctl,
+
+	.dev_select		= ht6560b_dev_select,
+	.tf_load		= ide_tf_load,
+	.tf_read		= ide_tf_read,
+
+	.input_data		= ide_input_data,
+	.output_data		= ide_output_data,
+};
+
 static const struct ide_port_ops ht6560b_port_ops = {
 	.init_dev		= ht6560b_init_dev,
 	.set_pio_mode		= ht6560b_set_pio_mode,
-	.selectproc		= ht6560b_selectproc,
 };
 
 static const struct ide_port_info ht6560b_port_info __initdata = {
 	.name			= DRV_NAME,
 	.chipset		= ide_ht6560b,
+	.tp_ops 		= &ht6560b_tp_ops,
 	.port_ops		= &ht6560b_port_ops,
 	.host_flags		= IDE_HFLAG_SERIALIZE | /* is this needed? */
 				  IDE_HFLAG_NO_DMA |

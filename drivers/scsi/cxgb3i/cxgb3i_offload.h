@@ -16,7 +16,7 @@
 #define _CXGB3I_OFFLOAD_H
 
 #include <linux/skbuff.h>
-#include <net/tcp.h>
+#include <linux/in.h>
 
 #include "common.h"
 #include "adapter.h"
@@ -135,6 +135,7 @@ enum c3cn_flags {
 	C3CN_ABORT_RPL_PENDING,	/* expecting an abort reply */
 	C3CN_TX_DATA_SENT,	/* already sent a TX_DATA WR */
 	C3CN_ACTIVE_CLOSE_NEEDED,	/* need to be closed */
+	C3CN_OFFLOAD_DOWN	/* offload function off */
 };
 
 /**
@@ -147,16 +148,17 @@ enum c3cn_flags {
  * @cdev:	t3cdev adapter
  * @client:	CPL client pointer
  * @ports:	array of adapter ports
- * @sport_map_next: next index into the port map
- * @sport_map:	source port map
+ * @sport_next: next port
+ * @sport_conn:	source port connection
  */
 struct cxgb3i_sdev_data {
 	struct list_head list;
 	struct t3cdev *cdev;
 	struct cxgb3_client *client;
 	struct adap_ports ports;
-	unsigned int sport_map_next;
-	unsigned long sport_map[0];
+	spinlock_t lock;
+	unsigned int sport_next;
+	struct s3_conn *sport_conn[0];
 };
 #define NDEV2CDATA(ndev) (*(struct cxgb3i_sdev_data **)&(ndev)->ec_ptr)
 #define CXGB3_SDEV_DATA(cdev) NDEV2CDATA((cdev)->lldev)
@@ -167,7 +169,8 @@ void cxgb3i_sdev_add(struct t3cdev *, struct cxgb3_client *);
 void cxgb3i_sdev_remove(struct t3cdev *);
 
 struct s3_conn *cxgb3i_c3cn_create(void);
-int cxgb3i_c3cn_connect(struct s3_conn *, struct sockaddr_in *);
+int cxgb3i_c3cn_connect(struct net_device *, struct s3_conn *,
+			struct sockaddr_in *);
 void cxgb3i_c3cn_rx_credits(struct s3_conn *, int);
 int cxgb3i_c3cn_send_pdus(struct s3_conn *, struct sk_buff *);
 void cxgb3i_c3cn_release(struct s3_conn *);

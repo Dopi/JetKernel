@@ -52,6 +52,51 @@ ACPI_MODULE_NAME("nswalk")
  *
  * FUNCTION:    acpi_ns_get_next_node
  *
+ * PARAMETERS:  parent_node         - Parent node whose children we are
+ *                                    getting
+ *              child_node          - Previous child that was found.
+ *                                    The NEXT child will be returned
+ *
+ * RETURN:      struct acpi_namespace_node - Pointer to the NEXT child or NULL if
+ *                                    none is found.
+ *
+ * DESCRIPTION: Return the next peer node within the namespace.  If Handle
+ *              is valid, Scope is ignored.  Otherwise, the first node
+ *              within Scope is returned.
+ *
+ ******************************************************************************/
+struct acpi_namespace_node *acpi_ns_get_next_node(struct acpi_namespace_node
+						  *parent_node,
+						  struct acpi_namespace_node
+						  *child_node)
+{
+	ACPI_FUNCTION_ENTRY();
+
+	if (!child_node) {
+
+		/* It's really the parent's _scope_ that we want */
+
+		return parent_node->child;
+	}
+
+	/*
+	 * Get the next node.
+	 *
+	 * If we are at the end of this peer list, return NULL
+	 */
+	if (child_node->flags & ANOBJ_END_OF_PEER_LIST) {
+		return NULL;
+	}
+
+	/* Otherwise just return the next peer */
+
+	return child_node->peer;
+}
+
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ns_get_next_node_typed
+ *
  * PARAMETERS:  Type                - Type of node to be searched for
  *              parent_node         - Parent node whose children we are
  *                                    getting
@@ -66,26 +111,21 @@ ACPI_MODULE_NAME("nswalk")
  *              within Scope is returned.
  *
  ******************************************************************************/
-struct acpi_namespace_node *acpi_ns_get_next_node(acpi_object_type type, struct acpi_namespace_node
-						  *parent_node, struct acpi_namespace_node
-						  *child_node)
+
+struct acpi_namespace_node *acpi_ns_get_next_node_typed(acpi_object_type type,
+							struct
+							acpi_namespace_node
+							*parent_node,
+							struct
+							acpi_namespace_node
+							*child_node)
 {
 	struct acpi_namespace_node *next_node = NULL;
 
 	ACPI_FUNCTION_ENTRY();
 
-	if (!child_node) {
+	next_node = acpi_ns_get_next_node(parent_node, child_node);
 
-		/* It's really the parent's _scope_ that we want */
-
-		next_node = parent_node->child;
-	}
-
-	else {
-		/* Start search at the NEXT node */
-
-		next_node = acpi_ns_get_next_valid_node(child_node);
-	}
 
 	/* If any type is OK, we are done */
 
@@ -135,8 +175,8 @@ struct acpi_namespace_node *acpi_ns_get_next_node(acpi_object_type type, struct 
  *              starting (and ending) at the node specified by start_handle.
  *              The user_function is called whenever a node that matches
  *              the type parameter is found.  If the user function returns
- *              a non-zero value, the search is terminated immediately and this
- *              value is returned to the caller.
+ *              a non-zero value, the search is terminated immediately and
+ *              this value is returned to the caller.
  *
  *              The point of this procedure is to provide a generic namespace
  *              walk routine that can be called from multiple places to
@@ -186,9 +226,7 @@ acpi_ns_walk_namespace(acpi_object_type type,
 		/* Get the next node in this scope.  Null if not found */
 
 		status = AE_OK;
-		child_node =
-		    acpi_ns_get_next_node(ACPI_TYPE_ANY, parent_node,
-					  child_node);
+		child_node = acpi_ns_get_next_node(parent_node, child_node);
 		if (child_node) {
 
 			/* Found next child, get the type if we are not searching for ANY */
@@ -200,10 +238,10 @@ acpi_ns_walk_namespace(acpi_object_type type,
 			/*
 			 * Ignore all temporary namespace nodes (created during control
 			 * method execution) unless told otherwise. These temporary nodes
-			 * can cause a race condition because they can be deleted during the
-			 * execution of the user function (if the namespace is unlocked before
-			 * invocation of the user function.) Only the debugger namespace dump
-			 * will examine the temporary nodes.
+			 * can cause a race condition because they can be deleted during
+			 * the execution of the user function (if the namespace is
+			 * unlocked before invocation of the user function.) Only the
+			 * debugger namespace dump will examine the temporary nodes.
 			 */
 			if ((child_node->flags & ANOBJ_TEMPORARY) &&
 			    !(flags & ACPI_NS_WALK_TEMP_NODES)) {
@@ -269,8 +307,7 @@ acpi_ns_walk_namespace(acpi_object_type type,
 			 * function has specified that the maximum depth has been reached.
 			 */
 			if ((level < max_depth) && (status != AE_CTRL_DEPTH)) {
-				if (acpi_ns_get_next_node
-				    (ACPI_TYPE_ANY, child_node, NULL)) {
+				if (child_node->child) {
 
 					/* There is at least one child of this node, visit it */
 

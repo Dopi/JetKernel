@@ -114,6 +114,10 @@ extern int pci_domain_nr(struct pci_bus *bus);
 /* Decide whether to display the domain number in /proc */
 extern int pci_proc_domain(struct pci_bus *bus);
 
+/* MSI arch hooks */
+#define arch_setup_msi_irqs arch_setup_msi_irqs
+#define arch_teardown_msi_irqs arch_teardown_msi_irqs
+#define arch_msi_check_device arch_msi_check_device
 
 struct vm_area_struct;
 /* Map a range of PCI memory or I/O space for a device into user space */
@@ -190,19 +194,6 @@ extern void pcibios_resource_to_bus(struct pci_dev *dev,
 extern void pcibios_bus_to_resource(struct pci_dev *dev,
 			struct resource *res,
 			struct pci_bus_region *region);
-
-static inline struct resource *pcibios_select_root(struct pci_dev *pdev,
-			struct resource *res)
-{
-	struct resource *root = NULL;
-
-	if (res->flags & IORESOURCE_IO)
-		root = &ioport_resource;
-	if (res->flags & IORESOURCE_MEM)
-		root = &iomem_resource;
-
-	return root;
-}
 
 extern void pcibios_claim_one_bus(struct pci_bus *b);
 

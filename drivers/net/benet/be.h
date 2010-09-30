@@ -35,7 +35,21 @@
 #define DRV_VER			"2.0.348"
 #define DRV_NAME		"be2net"
 #define BE_NAME			"ServerEngines BladeEngine2 10Gbps NIC"
+#define OC_NAME			"Emulex OneConnect 10Gbps NIC"
 #define DRV_DESC		BE_NAME "Driver"
+
+#define BE_VENDOR_ID 		0x19a2
+#define BE_DEVICE_ID1		0x211
+#define OC_DEVICE_ID1		0x700
+#define OC_DEVICE_ID2		0x701
+
+static inline char *nic_name(struct pci_dev *pdev)
+{
+	if (pdev->device == OC_DEVICE_ID1 || pdev->device == OC_DEVICE_ID2)
+		return OC_NAME;
+	else
+		return BE_NAME;
+}
 
 /* Number of bytes of an RX frame that are copied to skb->data */
 #define BE_HDR_LEN 		64
@@ -51,7 +65,7 @@
 #define TX_CQ_LEN		1024
 #define RX_Q_LEN		1024	/* Does not support any other value */
 #define RX_CQ_LEN		1024
-#define MCC_Q_LEN		64	/* total size not to exceed 8 pages */
+#define MCC_Q_LEN		128	/* total size not to exceed 8 pages */
 #define MCC_CQ_LEN		256
 
 #define BE_NAPI_WEIGHT		64
@@ -59,7 +73,7 @@
 #define RX_FRAGS_REFILL_WM	(RX_Q_LEN - MAX_RX_POST)
 
 #define BE_MAX_LRO_DESCRIPTORS  16
-#define BE_MAX_FRAGS_PER_FRAME  16
+#define BE_MAX_FRAGS_PER_FRAME  (min((u32) 16, (u32) MAX_SKB_FRAGS))
 
 struct be_dma_mem {
 	void *va;
@@ -77,6 +91,61 @@ struct be_queue_info {
 	atomic_t used;	/* Number of valid elements in the queue */
 };
 
+static inline u32 MODULO(u16 val, u16 limit)
+{
+	BUG_ON(limit & (limit - 1));
+	return val & (limit - 1);
+}
+
+static inline void index_adv(u16 *index, u16 val, u16 limit)
+{
+	*index = MODULO((*index + val), limit);
+}
+
+static inline void index_inc(u16 *index, u16 limit)
+{
+	*index = MODULO((*index + 1), limit);
+}
+
+static inline void *queue_head_node(struct be_queue_info *q)
+{
+	return q->dma_mem.va + q->head * q->entry_size;
+}
+
+static inline void *queue_tail_node(struct be_queue_info *q)
+{
+	return q->dma_mem.va + q->tail * q->entry_size;
+}
+
+static inline void queue_head_inc(struct be_queue_info *q)
+{
+	index_inc(&q->head, q->len);
+}
+
+static inline void queue_tail_inc(struct be_queue_info *q)
+{
+	index_inc(&q->tail, q->len);
+}
+
+
+struct be_eq_obj {
+	struct be_queue_info q;
+	char desc[32];
+
+	/* Adaptive interrupt coalescing (AIC) info */
+	bool enable_aic;
+	u16 min_eqd;		/* in usecs */
+	u16 max_eqd;		/* in usecs */
+	u16 cur_eqd;		/* in usecs */
+
+	struct napi_struct napi;
+};
+
+struct be_mcc_obj {
+	struct be_queue_info q;
+	struct be_queue_info cq;
+};
+
 struct be_ctrl_info {
 	u8 __iomem *csr;
 	u8 __iomem *db;		/* Door Bell */
@@ -84,11 +153,20 @@ struct be_ctrl_info {
 	int pci_func;
 
 	/* Mbox used for cmd request/response */
-	spinlock_t cmd_lock;	/* For serializing cmds to BE card */
+	spinlock_t mbox_lock;	/* For serializing mbox cmds to BE card */
 	struct be_dma_mem mbox_mem;
 	/* Mbox mem is adjusted to align to 16 bytes. The allocated addr
 	 * is stored for freeing purpose */
 	struct be_dma_mem mbox_mem_alloced;
+
+	/* MCC Rings */
+	struct be_mcc_obj mcc_obj;
+	spinlock_t mcc_lock;	/* For serializing mcc cmds to BE card */
+	spinlock_t mcc_cq_lock;
+
+	/* MCC Async callback */
+	void (*async_cb)(void *adapter, bool link_up);
+	void *adapter_ctxt;
 };
 
 #include "be_cmds.h"
@@ -100,9 +178,9 @@ struct be_drvr_stats {
 	u32 be_tx_wrbs;		/* number of tx WRBs used */
 	u32 be_tx_events;	/* number of tx completion events  */
 	u32 be_tx_compl;	/* number of tx completion entries processed */
-	u64 be_tx_jiffies;
-	ulong be_tx_bytes;
-	ulong be_tx_bytes_prev;
+	ulong be_tx_jiffies;
+	u64 be_tx_bytes;
+	u64 be_tx_bytes_prev;
 	u32 be_tx_rate;
 
 	u32 cache_barrier[16];
@@ -113,9 +191,9 @@ struct be_drvr_stats {
 	u32 be_rx_compl;	/* number of rx completion entries processed */
 	u32 be_lro_hgram_data[8];	/* histogram of LRO data packets */
 	u32 be_lro_hgram_ack[8];	/* histogram of LRO ACKs */
-	u64 be_rx_jiffies;
-	ulong be_rx_bytes;
-	ulong be_rx_bytes_prev;
+	ulong be_rx_jiffies;
+	u64 be_rx_bytes;
+	u64 be_rx_bytes_prev;
 	u32 be_rx_rate;
 	/* number of non ether type II frames dropped where
 	 * frame len > length field of Mac Hdr */
@@ -134,19 +212,6 @@ struct be_stats_obj {
 	struct be_drvr_stats drvr_stats;
 	struct net_device_stats net_stats;
 	struct be_dma_mem cmd;
-};
-
-struct be_eq_obj {
-	struct be_queue_info q;
-	char desc[32];
-
-	/* Adaptive interrupt coalescing (AIC) info */
-	bool enable_aic;
-	u16 min_eqd;		/* in usecs */
-	u16 max_eqd;		/* in usecs */
-	u16 cur_eqd;		/* in usecs */
-
-	struct napi_struct napi;
 };
 
 struct be_tx_obj {
@@ -211,8 +276,9 @@ struct be_adapter {
 	u32 if_handle;		/* Used to configure filtering */
 	u32 pmac_id;		/* MAC addr handle used by BE card */
 
-	struct be_link_info link;
+	bool link_up;
 	u32 port_num;
+	bool promiscuous;
 };
 
 extern struct ethtool_ops be_ethtool_ops;
@@ -220,22 +286,6 @@ extern struct ethtool_ops be_ethtool_ops;
 #define drvr_stats(adapter)		(&adapter->stats.drvr_stats)
 
 #define BE_SET_NETDEV_OPS(netdev, ops)	(netdev->netdev_ops = ops)
-
-static inline u32 MODULO(u16 val, u16 limit)
-{
-	BUG_ON(limit & (limit - 1));
-	return val & (limit - 1);
-}
-
-static inline void index_adv(u16 *index, u16 val, u16 limit)
-{
-	*index = MODULO((*index + val), limit);
-}
-
-static inline void index_inc(u16 *index, u16 limit)
-{
-	*index = MODULO((*index + 1), limit);
-}
 
 #define PAGE_SHIFT_4K		12
 #define PAGE_SIZE_4K		(1 << PAGE_SHIFT_4K)
@@ -325,4 +375,6 @@ static inline u8 is_udp_pkt(struct sk_buff *skb)
 	return val;
 }
 
+extern void be_cq_notify(struct be_ctrl_info *ctrl, u16 qid, bool arm,
+		u16 num_popped);
 #endif				/* BE_H */

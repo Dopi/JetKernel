@@ -100,6 +100,7 @@ ENTRY(vfp_support_entry)
 	beq	no_old_VFP_process
 	VFPFSTMIA r4, r5		@ save the working registers
 	VFPFMRX	r5, FPSCR		@ current status
+#ifndef CONFIG_CPU_FEROCEON
 	tst	r1, #FPEXC_EX		@ is there additional state to save?
 	beq	1f
 	VFPFMRX	r6, FPINST		@ FPINST (only if FPEXC.EX is set)
@@ -107,6 +108,7 @@ ENTRY(vfp_support_entry)
 	beq	1f
 	VFPFMRX	r8, FPINST2		@ FPINST2 if needed (and present)
 1:
+#endif
 	stmia	r4, {r1, r5, r6, r8}	@ save FPEXC, FPSCR, FPINST, FPINST2
 					@ and point r4 at the word at the
 					@ start of the register dump
@@ -119,6 +121,7 @@ no_old_VFP_process:
 	VFPFLDMIA r10, r5		@ reload the working registers while
 					@ FPEXC is in a safe state
 	ldmia	r10, {r1, r5, r6, r8}	@ load FPEXC, FPSCR, FPINST, FPINST2
+#ifndef CONFIG_CPU_FEROCEON
 	tst	r1, #FPEXC_EX		@ is there additional state to restore?
 	beq	1f
 	VFPFMXR	FPINST, r6		@ restore FPINST (only if FPEXC.EX is set)
@@ -126,6 +129,7 @@ no_old_VFP_process:
 	beq	1f
 	VFPFMXR	FPINST2, r8		@ FPINST2 if needed (and present)
 1:
+#endif
 	VFPFMXR	FPSCR, r5		@ restore status
 
 check_for_exception:
@@ -137,6 +141,12 @@ check_for_exception:
 	VFPFMXR	FPEXC, r1		@ restore FPEXC last
 	sub	r2, r2, #4
 	str	r2, [sp, #S_PC]		@ retry the instruction
+#ifdef CONFIG_PREEMPT
+	get_thread_info	r10
+	ldr	r4, [r10, #TI_PREEMPT]	@ get preempt count
+	sub	r11, r4, #1		@ decrement it
+	str	r11, [r10, #TI_PREEMPT]
+#endif
 	mov	pc, r9			@ we think we have handled things
 
 
@@ -155,6 +165,12 @@ look_for_VFP_exceptions:
 	@ not recognised by VFP
 
 	DBGSTR	"not VFP"
+#ifdef CONFIG_PREEMPT
+	get_thread_info	r10
+	ldr	r4, [r10, #TI_PREEMPT]	@ get preempt count
+	sub	r11, r4, #1		@ decrement it
+	str	r11, [r10, #TI_PREEMPT]
+#endif
 	mov	pc, lr
 
 process_exception:
@@ -172,7 +188,6 @@ process_exception:
 					@ retry the faulted instruction
 ENDPROC(vfp_support_entry)
 
-#if defined(CONFIG_SMP) || defined(CONFIG_PM)
 ENTRY(vfp_save_state)
 	@ Save the current VFP state
 	@ r0 - save location
@@ -190,7 +205,6 @@ ENTRY(vfp_save_state)
 	stmia	r0, {r1, r2, r3, r12}	@ save FPEXC, FPSCR, FPINST, FPINST2
 	mov	pc, lr
 ENDPROC(vfp_save_state)
-#endif
 
 last_VFP_context_address:
 	.word	last_VFP_context

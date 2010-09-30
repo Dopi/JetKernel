@@ -176,8 +176,10 @@ META_COLLECTOR(var_dev)
 
 META_COLLECTOR(int_vlan_tag)
 {
-	unsigned short uninitialized_var(tag);
-	if (vlan_get_tag(skb, &tag) < 0)
+	unsigned short tag;
+
+	tag = vlan_tx_tag_get(skb);
+	if (!tag && __vlan_get_tag(skb, &tag))
 		*err = -1;
 	else
 		dst->value = tag;
@@ -244,11 +246,11 @@ META_COLLECTOR(int_tcindex)
 
 META_COLLECTOR(int_rtclassid)
 {
-	if (unlikely(skb->dst == NULL))
+	if (unlikely(skb_dst(skb) == NULL))
 		*err = -1;
 	else
 #ifdef CONFIG_NET_CLS_ROUTE
-		dst->value = skb->dst->tclassid;
+		dst->value = skb_dst(skb)->tclassid;
 #else
 		dst->value = 0;
 #endif
@@ -256,10 +258,10 @@ META_COLLECTOR(int_rtclassid)
 
 META_COLLECTOR(int_rtiif)
 {
-	if (unlikely(skb->rtable == NULL))
+	if (unlikely(skb_rtable(skb) == NULL))
 		*err = -1;
 	else
-		dst->value = skb->rtable->fl.iif;
+		dst->value = skb_rtable(skb)->fl.iif;
 }
 
 /**************************************************************************
@@ -347,13 +349,13 @@ META_COLLECTOR(int_sk_type)
 META_COLLECTOR(int_sk_rmem_alloc)
 {
 	SKIP_NONLOCAL(skb);
-	dst->value = atomic_read(&skb->sk->sk_rmem_alloc);
+	dst->value = sk_rmem_alloc_get(skb->sk);
 }
 
 META_COLLECTOR(int_sk_wmem_alloc)
 {
 	SKIP_NONLOCAL(skb);
-	dst->value = atomic_read(&skb->sk->sk_wmem_alloc);
+	dst->value = sk_wmem_alloc_get(skb->sk);
 }
 
 META_COLLECTOR(int_sk_omem_alloc)

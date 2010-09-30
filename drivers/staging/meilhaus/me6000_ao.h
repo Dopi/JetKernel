@@ -27,7 +27,6 @@
 #ifndef _ME6000_AO_H_
 #define _ME6000_AO_H_
 
-#include <linux/version.h>
 #include "mesubdevice.h"
 #include "mecirc_buf.h"
 #include "meioctl.h"
@@ -160,11 +159,7 @@ typedef struct me6000_ao_subdevice {
 	wait_queue_head_t wait_queue;			/**< Wait queue to put on tasks waiting for data to arrive. */
 
 	struct workqueue_struct *me6000_workqueue;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20)
-	struct work_struct ao_control_task;
-#else
 	struct delayed_work ao_control_task;
-#endif
 
 	volatile int ao_control_task_flag;		/**< Flag controling reexecuting of control task */
 

@@ -110,23 +110,17 @@ static void txx9spi_cs_func(struct spi_device *spi, struct txx9spi *c,
 	ndelay(cs_delay);	/* CS Setup Time / CS Recovery Time */
 }
 
-/* the spi->mode bits understood by this driver: */
-#define MODEBITS	(SPI_CS_HIGH|SPI_CPOL|SPI_CPHA)
-
 static int txx9spi_setup(struct spi_device *spi)
 {
 	struct txx9spi *c = spi_master_get_devdata(spi->master);
 	u8 bits_per_word;
-
-	if (spi->mode & ~MODEBITS)
-		return -EINVAL;
 
 	if (!spi->max_speed_hz
 			|| spi->max_speed_hz > c->max_speed_hz
 			|| spi->max_speed_hz < c->min_speed_hz)
 		return -EINVAL;
 
-	bits_per_word = spi->bits_per_word ? : 8;
+	bits_per_word = spi->bits_per_word;
 	if (bits_per_word != 8 && bits_per_word != 16)
 		return -EINVAL;
 
@@ -404,7 +398,8 @@ static int __init txx9spi_probe(struct platform_device *dev)
 	if (ret)
 		goto exit;
 
-	c->workqueue = create_singlethread_workqueue(master->dev.parent->bus_id);
+	c->workqueue = create_singlethread_workqueue(
+				dev_name(master->dev.parent));
 	if (!c->workqueue)
 		goto exit_busy;
 	c->last_chipselect = -1;
@@ -412,6 +407,9 @@ static int __init txx9spi_probe(struct platform_device *dev)
 	dev_info(&dev->dev, "at %#llx, irq %d, %dMHz\n",
 		 (unsigned long long)res->start, irq,
 		 (c->baseclk + 500000) / 1000000);
+
+	/* the spi->mode bits understood by this driver: */
+	master->mode_bits = SPI_CS_HIGH | SPI_CPOL | SPI_CPHA;
 
 	master->bus_num = dev->id;
 	master->setup = txx9spi_setup;

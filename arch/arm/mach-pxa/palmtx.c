@@ -27,20 +27,21 @@
 #include <linux/gpio.h>
 #include <linux/wm97xx_batt.h>
 #include <linux/power_supply.h>
+#include <linux/usb/gpio_vbus.h>
 
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 
+#include <mach/pxa27x.h>
 #include <mach/audio.h>
 #include <mach/palmtx.h>
 #include <mach/mmc.h>
 #include <mach/pxafb.h>
-#include <mach/pxa-regs.h>
-#include <mach/mfp-pxa27x.h>
 #include <mach/irda.h>
 #include <mach/pxa27x_keypad.h>
 #include <mach/udc.h>
+#include <mach/palmasoc.h>
 
 #include "generic.h"
 #include "devices.h"
@@ -65,6 +66,8 @@ static unsigned long palmtx_pin_config[] __initdata = {
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
 	GPIO31_AC97_SYNC,
+	GPIO89_AC97_SYSCLK,
+	GPIO95_AC97_nRESET,
 
 	/* IrDA */
 	GPIO40_GPIO,	/* ir disable */
@@ -76,7 +79,7 @@ static unsigned long palmtx_pin_config[] __initdata = {
 
 	/* USB */
 	GPIO13_GPIO,	/* usb detect */
-	GPIO95_GPIO,	/* usb power */
+	GPIO93_GPIO,	/* usb power */
 
 	/* PCMCIA */
 	GPIO48_nPOE,
@@ -94,10 +97,10 @@ static unsigned long palmtx_pin_config[] __initdata = {
 	GPIO116_GPIO,	/* wifi ready */
 
 	/* MATRIX KEYPAD */
-	GPIO100_KP_MKIN_0,
-	GPIO101_KP_MKIN_1,
-	GPIO102_KP_MKIN_2,
-	GPIO97_KP_MKIN_3,
+	GPIO100_KP_MKIN_0 | WAKEUP_ON_LEVEL_HIGH,
+	GPIO101_KP_MKIN_1 | WAKEUP_ON_LEVEL_HIGH,
+	GPIO102_KP_MKIN_2 | WAKEUP_ON_LEVEL_HIGH,
+	GPIO97_KP_MKIN_3 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO103_KP_MKOUT_0,
 	GPIO104_KP_MKOUT_1,
 	GPIO105_KP_MKOUT_2,
@@ -123,6 +126,10 @@ static unsigned long palmtx_pin_config[] __initdata = {
 	GPIO75_LCD_LCLK,
 	GPIO76_LCD_PCLK,
 	GPIO77_LCD_BIAS,
+
+	/* FFUART */
+	GPIO34_FFUART_RXD,
+	GPIO39_FFUART_TXD,
 
 	/* MISC. */
 	GPIO10_GPIO,	/* hotsync button */
@@ -357,11 +364,18 @@ static struct pxaficp_platform_data palmtx_ficp_platform_data = {
 /******************************************************************************
  * UDC
  ******************************************************************************/
-static struct pxa2xx_udc_mach_info palmtx_udc_info __initdata = {
+static struct gpio_vbus_mach_info palmtx_udc_info = {
 	.gpio_vbus		= GPIO_NR_PALMTX_USB_DETECT_N,
 	.gpio_vbus_inverted	= 1,
-	.gpio_pullup		= GPIO_NR_PALMTX_USB_POWER,
-	.gpio_pullup_inverted	= 0,
+	.gpio_pullup		= GPIO_NR_PALMTX_USB_PULLUP,
+};
+
+static struct platform_device palmtx_gpio_vbus = {
+	.name	= "gpio-vbus",
+	.id	= -1,
+	.dev	= {
+		.platform_data	= &palmtx_udc_info,
+	},
 };
 
 /******************************************************************************
@@ -434,6 +448,25 @@ static struct wm97xx_batt_info wm97xx_batt_pdata = {
 };
 
 /******************************************************************************
+ * aSoC audio
+ ******************************************************************************/
+static struct palm27x_asoc_info palmtx_asoc_pdata = {
+	.jack_gpio	= GPIO_NR_PALMTX_EARPHONE_DETECT,
+};
+
+static pxa2xx_audio_ops_t palmtx_ac97_pdata = {
+	.reset_gpio	= 95,
+};
+
+static struct platform_device palmtx_asoc = {
+	.name = "palm27x-asoc",
+	.id   = -1,
+	.dev  = {
+		.platform_data = &palmtx_asoc_pdata,
+	},
+};
+
+/******************************************************************************
  * Framebuffer
  ******************************************************************************/
 static struct pxafb_mode_info palmtx_lcd_modes[] = {
@@ -460,6 +493,21 @@ static struct pxafb_mach_info palmtx_lcd_screen = {
 };
 
 /******************************************************************************
+ * Power management - standby
+ ******************************************************************************/
+static void __init palmtx_pm_init(void)
+{
+	static u32 resume[] = {
+		0xe3a00101,	/* mov	r0,	#0x40000000 */
+		0xe380060f,	/* orr	r0, r0, #0x00f00000 */
+		0xe590f008,	/* ldr	pc, [r0, #0x08] */
+	};
+
+	/* copy the bootloader */
+	memcpy(phys_to_virt(PALMTX_STR_BASE), resume, sizeof(resume));
+}
+
+/******************************************************************************
  * Machine init
  ******************************************************************************/
 static struct platform_device *devices[] __initdata = {
@@ -468,6 +516,8 @@ static struct platform_device *devices[] __initdata = {
 #endif
 	&palmtx_backlight,
 	&power_supply,
+	&palmtx_asoc,
+	&palmtx_gpio_vbus,
 };
 
 static struct map_desc palmtx_io_desc[] __initdata = {
@@ -488,9 +538,9 @@ static void __init palmtx_map_io(void)
 /* setup udc GPIOs initial state */
 static void __init palmtx_udc_init(void)
 {
-	if (!gpio_request(GPIO_NR_PALMTX_USB_POWER, "UDC Vbus")) {
-		gpio_direction_output(GPIO_NR_PALMTX_USB_POWER, 1);
-		gpio_free(GPIO_NR_PALMTX_USB_POWER);
+	if (!gpio_request(GPIO_NR_PALMTX_USB_PULLUP, "UDC Vbus")) {
+		gpio_direction_output(GPIO_NR_PALMTX_USB_PULLUP, 1);
+		gpio_free(GPIO_NR_PALMTX_USB_PULLUP);
 	}
 }
 
@@ -499,11 +549,11 @@ static void __init palmtx_init(void)
 {
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(palmtx_pin_config));
 
+	palmtx_pm_init();
 	set_pxa_fb_info(&palmtx_lcd_screen);
 	pxa_set_mci_info(&palmtx_mci_platform_data);
 	palmtx_udc_init();
-	pxa_set_udc_info(&palmtx_udc_info);
-	pxa_set_ac97_info(NULL);
+	pxa_set_ac97_info(&palmtx_ac97_pdata);
 	pxa_set_ficp_info(&palmtx_ficp_platform_data);
 	pxa_set_keypad_info(&palmtx_keypad_platform_data);
 	wm97xx_bat_set_pdata(&wm97xx_batt_pdata);

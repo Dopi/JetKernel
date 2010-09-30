@@ -461,7 +461,7 @@ static void sunhv_console_write_paged(struct console *con, const char *s, unsign
 					break;
 				udelay(1);
 			}
-			if (limit <= 0)
+			if (limit < 0)
 				break;
 			page_bytes -= written;
 			ra += written;
@@ -566,7 +566,7 @@ static int __devinit hv_probe(struct of_device *op, const struct of_device_id *m
 		goto out_free_con_read_page;
 
 	sunserial_console_match(&sunhv_console, op->node,
-				&sunhv_reg, port->line);
+				&sunhv_reg, port->line, false);
 
 	err = uart_add_one_port(&sunhv_reg, port);
 	if (err)

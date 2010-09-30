@@ -10,6 +10,8 @@
  *		 Stefan Bader <shbader@de.ibm.com>
  */
 
+#define KMSG_COMPONENT "tape"
+
 #include <linux/fs.h>
 #include <linux/module.h>
 #include <linux/blkdev.h>
@@ -22,8 +24,6 @@
 #define TAPE_DBF_AREA	tape_core_dbf
 
 #include "tape.h"
-
-#define PRINTK_HEADER "TAPE_BLOCK: "
 
 #define TAPEBLOCK_MAX_SEC	100
 #define TAPEBLOCK_MIN_REQUEUE	3
@@ -74,13 +74,6 @@ tapeblock_trigger_requeue(struct tape_device *device)
  * Post finished request.
  */
 static void
-tapeblock_end_request(struct request *req, int error)
-{
-	if (blk_end_request(req, error, blk_rq_bytes(req)))
-		BUG();
-}
-
-static void
 __tapeblock_end_request(struct tape_request *ccw_req, void *data)
 {
 	struct tape_device *device;
@@ -90,17 +83,17 @@ __tapeblock_end_request(struct tape_request *ccw_req, void *data)
 
 	device = ccw_req->device;
 	req = (struct request *) data;
-	tapeblock_end_request(req, (ccw_req->rc == 0) ? 0 : -EIO);
+	blk_end_request_all(req, (ccw_req->rc == 0) ? 0 : -EIO);
 	if (ccw_req->rc == 0)
 		/* Update position. */
 		device->blk_data.block_position =
-			(req->sector + req->nr_sectors) >> TAPEBLOCK_HSEC_S2B;
+		  (blk_rq_pos(req) + blk_rq_sectors(req)) >> TAPEBLOCK_HSEC_S2B;
 	else
 		/* We lost the position information due to an error. */
 		device->blk_data.block_position = -1;
 	device->discipline->free_bread(ccw_req);
 	if (!list_empty(&device->req_queue) ||
-	    elv_next_request(device->blk_data.request_queue))
+	    blk_peek_request(device->blk_data.request_queue))
 		tapeblock_trigger_requeue(device);
 }
 
@@ -118,7 +111,7 @@ tapeblock_start_request(struct tape_device *device, struct request *req)
 	ccw_req = device->discipline->bread(device, req);
 	if (IS_ERR(ccw_req)) {
 		DBF_EVENT(1, "TBLOCK: bread failed\n");
-		tapeblock_end_request(req, -EIO);
+		blk_end_request_all(req, -EIO);
 		return PTR_ERR(ccw_req);
 	}
 	ccw_req->callback = __tapeblock_end_request;
@@ -131,7 +124,7 @@ tapeblock_start_request(struct tape_device *device, struct request *req)
 		 * Start/enqueueing failed. No retries in
 		 * this case.
 		 */
-		tapeblock_end_request(req, -EIO);
+		blk_end_request_all(req, -EIO);
 		device->discipline->free_bread(ccw_req);
 	}
 
@@ -169,19 +162,16 @@ tapeblock_requeue(struct work_struct *work) {
 	spin_lock_irq(&device->blk_data.request_queue_lock);
 	while (
 		!blk_queue_plugged(queue) &&
-		elv_next_request(queue)   &&
+		(req = blk_fetch_request(queue)) &&
 		nr_queued < TAPEBLOCK_MIN_REQUEUE
 	) {
-		req = elv_next_request(queue);
 		if (rq_data_dir(req) == WRITE) {
 			DBF_EVENT(1, "TBLOCK: Rejecting write request\n");
-			blkdev_dequeue_request(req);
 			spin_unlock_irq(&device->blk_data.request_queue_lock);
-			tapeblock_end_request(req, -EIO);
+			blk_end_request_all(req, -EIO);
 			spin_lock_irq(&device->blk_data.request_queue_lock);
 			continue;
 		}
-		blkdev_dequeue_request(req);
 		nr_queued++;
 		spin_unlock_irq(&device->blk_data.request_queue_lock);
 		rc = tapeblock_start_request(device, req);
@@ -232,7 +222,7 @@ tapeblock_setup_device(struct tape_device * device)
 	if (rc)
 		goto cleanup_queue;
 
-	blk_queue_hardsect_size(blkdat->request_queue, TAPEBLOCK_HSEC_SIZE);
+	blk_queue_logical_block_size(blkdat->request_queue, TAPEBLOCK_HSEC_SIZE);
 	blk_queue_max_sectors(blkdat->request_queue, TAPEBLOCK_MAX_SEC);
 	blk_queue_max_phys_segments(blkdat->request_queue, -1L);
 	blk_queue_max_hw_segments(blkdat->request_queue, -1L);
@@ -279,8 +269,6 @@ tapeblock_cleanup_device(struct tape_device *device)
 	tape_put_device(device);
 
 	if (!device->blk_data.disk) {
-		PRINT_ERR("(%s): No gendisk to clean up!\n",
-			dev_name(&device->cdev->dev));
 		goto cleanup_queue;
 	}
 
@@ -314,7 +302,8 @@ tapeblock_revalidate_disk(struct gendisk *disk)
 	if (!device->blk_data.medium_changed)
 		return 0;
 
-	PRINT_INFO("Detecting media size...\n");
+	dev_info(&device->cdev->dev, "Determining the size of the recorded "
+		"area...\n");
 	rc = tape_mtop(device, MTFSFM, 1);
 	if (rc)
 		return rc;
@@ -341,7 +330,8 @@ tapeblock_revalidate_disk(struct gendisk *disk)
 	device->bof = rc;
 	nr_of_blks -= rc;
 
-	PRINT_INFO("Found %i blocks on media\n", nr_of_blks);
+	dev_info(&device->cdev->dev, "The size of the recorded area is %i "
+		"blocks\n", nr_of_blks);
 	set_capacity(device->blk_data.disk,
 		nr_of_blks*(TAPEBLOCK_HSEC_SIZE/512));
 
@@ -376,8 +366,8 @@ tapeblock_open(struct block_device *bdev, fmode_t mode)
 
 	if (device->required_tapemarks) {
 		DBF_EVENT(2, "TBLOCK: missing tapemarks\n");
-		PRINT_ERR("TBLOCK: Refusing to open tape with missing"
-			" end of file marks.\n");
+		dev_warn(&device->cdev->dev, "Opening the tape failed because"
+			" of missing end-of-file marks\n");
 		rc = -EPERM;
 		goto put_device;
 	}
@@ -452,7 +442,6 @@ tapeblock_ioctl(
 			rc = -EINVAL;
 			break;
 		default:
-			PRINT_WARN("invalid ioctl 0x%x\n", command);
 			rc = -EINVAL;
 	}
 
@@ -474,7 +463,6 @@ tapeblock_init(void)
 
 	if (tapeblock_major == 0)
 		tapeblock_major = rc;
-	PRINT_INFO("tape gets major %d for block device\n", tapeblock_major);
 	return 0;
 }
 

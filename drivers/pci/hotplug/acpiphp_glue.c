@@ -32,12 +32,11 @@
 
 /*
  * Lifetime rules for pci_dev:
- *  - The one in acpiphp_func has its refcount elevated by pci_get_slot()
- *    when the driver is loaded or when an insertion event occurs.  It loses
- *    a refcount when its ejected or the driver unloads.
  *  - The one in acpiphp_bridge has its refcount elevated by pci_get_slot()
  *    when the bridge is scanned and it loses a refcount when the bridge
  *    is removed.
+ *  - When a P2P bridge is present, we elevate the refcount on the subordinate
+ *    bus. It loses the refcount when the the driver unloads.
  */
 
 #include <linux/init.h>
@@ -128,6 +127,7 @@ register_slot(acpi_handle handle, u32 lvl, void *context, void **rv)
 	unsigned long long adr, sun;
 	int device, function, retval;
 	struct pci_bus *pbus = bridge->pci_bus;
+	struct pci_dev *pdev;
 
 	if (!acpi_pci_check_ejectable(pbus, handle) && !is_dock_device(handle))
 		return AE_OK;
@@ -211,10 +211,10 @@ register_slot(acpi_handle handle, u32 lvl, void *context, void **rv)
 	newfunc->slot = slot;
 	list_add_tail(&newfunc->sibling, &slot->funcs);
 
-	/* associate corresponding pci_dev */
-	newfunc->pci_dev = pci_get_slot(pbus, PCI_DEVFN(device, function));
-	if (newfunc->pci_dev) {
+	pdev = pci_get_slot(pbus, PCI_DEVFN(device, function));
+	if (pdev) {
 		slot->flags |= (SLOT_ENABLED | SLOT_POWEREDON);
+		pci_dev_put(pdev);
 	}
 
 	if (is_dock_device(handle)) {
@@ -440,6 +440,12 @@ static void add_p2p_bridge(acpi_handle *handle, struct pci_dev *pci_dev)
 		goto err;
 	}
 
+	/*
+	 * Grab a ref to the subordinate PCI bus in case the bus is
+	 * removed via PCI core logical hotplug. The ref pins the bus
+	 * (which we access during module unload).
+	 */
+	get_device(&bridge->pci_bus->dev);
 	spin_lock_init(&bridge->res_lock);
 
 	init_bridge_misc(bridge);
@@ -609,7 +615,6 @@ static void cleanup_bridge(struct acpiphp_bridge *bridge)
 				if (ACPI_FAILURE(status))
 					err("failed to remove notify handler\n");
 			}
-			pci_dev_put(func->pci_dev);
 			list_del(list);
 			kfree(func);
 		}
@@ -618,6 +623,12 @@ static void cleanup_bridge(struct acpiphp_bridge *bridge)
 		kfree(slot);
 		slot = next;
 	}
+
+	/*
+	 * Only P2P bridges have a pci_dev
+	 */
+	if (bridge->pci_dev)
+		put_device(&bridge->pci_bus->dev);
 
 	pci_dev_put(bridge->pci_dev);
 	list_del(&bridge->list);
@@ -667,18 +678,9 @@ static void remove_bridge(acpi_handle handle)
 
 static struct pci_dev * get_apic_pci_info(acpi_handle handle)
 {
-	struct acpi_pci_id id;
-	struct pci_bus *bus;
 	struct pci_dev *dev;
 
-	if (ACPI_FAILURE(acpi_get_pci_id(handle, &id)))
-		return NULL;
-
-	bus = pci_find_bus(id.segment, id.bus);
-	if (!bus)
-		return NULL;
-
-	dev = pci_get_slot(bus, PCI_DEVFN(id.device, id.function));
+	dev = acpi_get_pci_dev(handle);
 	if (!dev)
 		return NULL;
 
@@ -1087,22 +1089,24 @@ static int __ref enable_device(struct acpiphp_slot *slot)
 	pci_enable_bridges(bus);
 	pci_bus_add_devices(bus);
 
-	/* associate pci_dev to our representation */
 	list_for_each (l, &slot->funcs) {
 		func = list_entry(l, struct acpiphp_func, sibling);
-		func->pci_dev = pci_get_slot(bus, PCI_DEVFN(slot->device,
-							func->function));
-		if (!func->pci_dev)
+		dev = pci_get_slot(bus, PCI_DEVFN(slot->device,
+						  func->function));
+		if (!dev)
 			continue;
 
-		if (func->pci_dev->hdr_type != PCI_HEADER_TYPE_BRIDGE &&
-		    func->pci_dev->hdr_type != PCI_HEADER_TYPE_CARDBUS)
+		if (dev->hdr_type != PCI_HEADER_TYPE_BRIDGE &&
+		    dev->hdr_type != PCI_HEADER_TYPE_CARDBUS) {
+			pci_dev_put(dev);
 			continue;
+		}
 
 		status = find_p2p_bridge(func->handle, (u32)1, bus, NULL);
 		if (ACPI_FAILURE(status))
 			warn("find_p2p_bridge failed (error code = 0x%x)\n",
 				status);
+		pci_dev_put(dev);
 	}
 
 	slot->flags |= SLOT_ENABLED;
@@ -1128,17 +1132,14 @@ static void disable_bridges(struct pci_bus *bus)
  */
 static int disable_device(struct acpiphp_slot *slot)
 {
-	int retval = 0;
 	struct acpiphp_func *func;
-	struct list_head *l;
+	struct pci_dev *pdev;
 
 	/* is this slot already disabled? */
 	if (!(slot->flags & SLOT_ENABLED))
 		goto err_exit;
 
-	list_for_each (l, &slot->funcs) {
-		func = list_entry(l, struct acpiphp_func, sibling);
-
+	list_for_each_entry(func, &slot->funcs, sibling) {
 		if (func->bridge) {
 			/* cleanup p2p bridges under this P2P bridge */
 			cleanup_p2p_bridge(func->bridge->handle,
@@ -1146,35 +1147,28 @@ static int disable_device(struct acpiphp_slot *slot)
 			func->bridge = NULL;
 		}
 
-		if (func->pci_dev) {
-			pci_stop_bus_device(func->pci_dev);
-			if (func->pci_dev->subordinate) {
-				disable_bridges(func->pci_dev->subordinate);
-				pci_disable_device(func->pci_dev);
+		pdev = pci_get_slot(slot->bridge->pci_bus,
+				    PCI_DEVFN(slot->device, func->function));
+		if (pdev) {
+			pci_stop_bus_device(pdev);
+			if (pdev->subordinate) {
+				disable_bridges(pdev->subordinate);
+				pci_disable_device(pdev);
 			}
+			pci_remove_bus_device(pdev);
+			pci_dev_put(pdev);
 		}
 	}
 
-	list_for_each (l, &slot->funcs) {
-		func = list_entry(l, struct acpiphp_func, sibling);
-
+	list_for_each_entry(func, &slot->funcs, sibling) {
 		acpiphp_unconfigure_ioapics(func->handle);
 		acpiphp_bus_trim(func->handle);
-		/* try to remove anyway.
-		 * acpiphp_bus_add might have been failed */
-
-		if (!func->pci_dev)
-			continue;
-
-		pci_remove_bus_device(func->pci_dev);
-		pci_dev_put(func->pci_dev);
-		func->pci_dev = NULL;
 	}
 
 	slot->flags &= (~SLOT_ENABLED);
 
- err_exit:
-	return retval;
+err_exit:
+	return 0;
 }
 
 
@@ -1393,19 +1387,16 @@ static void acpiphp_sanitize_bus(struct pci_bus *bus)
 /* Program resources in newly inserted bridge */
 static int acpiphp_configure_bridge (acpi_handle handle)
 {
-	struct acpi_pci_id pci_id;
+	struct pci_dev *dev;
 	struct pci_bus *bus;
 
-	if (ACPI_FAILURE(acpi_get_pci_id(handle, &pci_id))) {
+	dev = acpi_get_pci_dev(handle);
+	if (!dev) {
 		err("cannot get PCI domain and bus number for bridge\n");
 		return -EINVAL;
 	}
-	bus = pci_find_bus(pci_id.segment, pci_id.bus);
-	if (!bus) {
-		err("cannot find bus %d:%d\n",
-				pci_id.segment, pci_id.bus);
-		return -EINVAL;
-	}
+
+	bus = dev->bus;
 
 	pci_bus_size_bridges(bus);
 	pci_bus_assign_resources(bus);
@@ -1413,6 +1404,7 @@ static int acpiphp_configure_bridge (acpi_handle handle)
 	acpiphp_set_hpp_values(handle, bus);
 	pci_enable_bridges(bus);
 	acpiphp_configure_ioapics(handle);
+	pci_dev_put(dev);
 	return 0;
 }
 
@@ -1628,7 +1620,7 @@ find_root_bridges(acpi_handle handle, u32 lvl, void *context, void **rv)
 {
 	int *count = (int *)context;
 
-	if (acpi_root_bridge(handle)) {
+	if (acpi_is_root_bridge(handle)) {
 		acpi_install_notify_handler(handle, ACPI_SYSTEM_NOTIFY,
 				handle_hotplug_event_bridge, NULL);
 			(*count)++;

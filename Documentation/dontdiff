@@ -62,7 +62,6 @@ aic7*reg_print.c*
 aic7*seq.h*
 aicasm
 aicdb.h*
-asm
 asm-offsets.h
 asm_offsets.h
 autoconf.h*
@@ -153,7 +152,6 @@ piggy.gz
 piggyback
 pnmtologo
 ppc_defs.h*
-promcon_tbl.c
 pss_boot.h
 qconf
 raid6altivec*.c

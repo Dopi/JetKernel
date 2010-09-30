@@ -48,8 +48,21 @@ static struct file_system_type anon_inode_fs_type = {
 	.get_sb		= anon_inodefs_get_sb,
 	.kill_sb	= kill_anon_super,
 };
-static struct dentry_operations anon_inodefs_dentry_operations = {
+static const struct dentry_operations anon_inodefs_dentry_operations = {
 	.d_delete	= anon_inodefs_delete_dentry,
+};
+
+/*
+ * nop .set_page_dirty method so that people can use .page_mkwrite on
+ * anon inodes.
+ */
+static int anon_set_page_dirty(struct page *page)
+{
+	return 0;
+};
+
+static const struct address_space_operations anon_aops = {
+	.set_page_dirty = anon_set_page_dirty,
 };
 
 /**
@@ -150,6 +163,8 @@ static struct inode *anon_inode_mkinode(void)
 		return ERR_PTR(-ENOMEM);
 
 	inode->i_fop = &anon_inode_fops;
+
+	inode->i_mapping->a_ops = &anon_aops;
 
 	/*
 	 * Mark the inode dirty from the very beginning,

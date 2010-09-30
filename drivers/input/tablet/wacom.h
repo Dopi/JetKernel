@@ -11,7 +11,7 @@
  *  Copyright (c) 2000 Daniel Egger		<egger@suse.de>
  *  Copyright (c) 2001 Frederic Lepied		<flepied@mandrakesoft.com>
  *  Copyright (c) 2004 Panagiotis Issaris	<panagiotis.issaris@mech.kuleuven.ac.be>
- *  Copyright (c) 2002-2008 Ping Cheng		<pingc@wacom.com>
+ *  Copyright (c) 2002-2009 Ping Cheng		<pingc@wacom.com>
  *
  *  ChangeLog:
  *      v0.1 (vp)  - Initial release
@@ -67,6 +67,8 @@
  *      v1.47 (pc) - Added support for Bamboo
  *      v1.48 (pc) - Added support for Bamboo1, BambooFun, and Cintiq 12WX
  *      v1.49 (pc) - Added support for USB Tablet PC (0x90, 0x93, and 0x9A)
+ *      v1.50 (pc) - Fixed a TabletPC touch bug in 2.6.28
+ *      v1.51 (pc) - Added support for Intuos4
  */
 
 /*
@@ -87,7 +89,7 @@
 /*
  * Version Information
  */
-#define DRIVER_VERSION "v1.49"
+#define DRIVER_VERSION "v1.51"
 #define DRIVER_AUTHOR "Vojtech Pavlik <vojtech@ucw.cz>"
 #define DRIVER_DESC "USB Wacom Graphire and Wacom Intuos tablet driver"
 #define DRIVER_LICENSE "GPL"
@@ -127,6 +129,8 @@ extern void input_dev_g(struct input_dev *input_dev, struct wacom_wac *wacom_wac
 extern void input_dev_i3s(struct input_dev *input_dev, struct wacom_wac *wacom_wac);
 extern void input_dev_i3(struct input_dev *input_dev, struct wacom_wac *wacom_wac);
 extern void input_dev_i(struct input_dev *input_dev, struct wacom_wac *wacom_wac);
+extern void input_dev_i4s(struct input_dev *input_dev, struct wacom_wac *wacom_wac);
+extern void input_dev_i4(struct input_dev *input_dev, struct wacom_wac *wacom_wac);
 extern void input_dev_pl(struct input_dev *input_dev, struct wacom_wac *wacom_wac);
 extern void input_dev_pt(struct input_dev *input_dev, struct wacom_wac *wacom_wac);
 extern void input_dev_mo(struct input_dev *input_dev, struct wacom_wac *wacom_wac);

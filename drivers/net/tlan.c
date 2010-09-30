@@ -570,7 +570,7 @@ static int __devinit TLan_probe1(struct pci_dev *pdev,
 
 		priv->adapter = &board_info[ent->driver_data];
 
-		rc = pci_set_dma_mask(pdev, DMA_32BIT_MASK);
+		rc = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
 		if (rc) {
 			printk(KERN_ERR "TLAN: No suitable PCI mapping available.\n");
 			goto err_out_free_dev;
@@ -1111,7 +1111,7 @@ static int TLan_StartTx( struct sk_buff *skb, struct net_device *dev )
 			  dev->name, priv->txHead, priv->txTail );
 		netif_stop_queue(dev);
 		priv->txBusyCount++;
-		return 1;
+		return NETDEV_TX_BUSY;
 	}
 
 	tail_list->forward = 0;

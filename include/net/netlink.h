@@ -230,6 +230,7 @@ extern int		nla_validate(struct nlattr *head, int len, int maxtype,
 extern int		nla_parse(struct nlattr *tb[], int maxtype,
 				  struct nlattr *head, int len,
 				  const struct nla_policy *policy);
+extern int		nla_policy_len(const struct nla_policy *, int);
 extern struct nlattr *	nla_find(struct nlattr *head, int len, int attrtype);
 extern size_t		nla_strlcpy(char *dst, const struct nlattr *nla,
 				    size_t dstsize);
@@ -936,6 +937,15 @@ static inline u64 nla_get_u64(const struct nlattr *nla)
 	nla_memcpy(&tmp, nla, sizeof(tmp));
 
 	return tmp;
+}
+
+/**
+ * nla_get_be64 - return payload of __be64 attribute
+ * @nla: __be64 netlink attribute
+ */
+static inline __be64 nla_get_be64(const struct nlattr *nla)
+{
+	return *(__be64 *) nla_data(nla);
 }
 
 /**

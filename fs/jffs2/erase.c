@@ -270,19 +270,21 @@ static inline void jffs2_remove_node_refs_from_ino_list(struct jffs2_sb_info *c,
 	D2({
 		int i=0;
 		struct jffs2_raw_node_ref *this;
-		printk(KERN_DEBUG "After remove_node_refs_from_ino_list: \n" KERN_DEBUG);
+		printk(KERN_DEBUG "After remove_node_refs_from_ino_list: \n");
 
 		this = ic->nodes;
 
+		printk(KERN_DEBUG);
 		while(this) {
-			printk( "0x%08x(%d)->", ref_offset(this), ref_flags(this));
+			printk(KERN_CONT "0x%08x(%d)->",
+			       ref_offset(this), ref_flags(this));
 			if (++i == 5) {
-				printk("\n" KERN_DEBUG);
+				printk(KERN_DEBUG);
 				i=0;
 			}
 			this = this->next_in_ino;
 		}
-		printk("\n");
+		printk(KERN_CONT "\n");
 	});
 
 	switch (ic->class) {
@@ -480,13 +482,6 @@ static void jffs2_mark_erased_block(struct jffs2_sb_info *c, struct jffs2_eraseb
 	return;
 
 filebad:
-	mutex_lock(&c->erase_free_sem);
-	spin_lock(&c->erase_completion_lock);
-	/* Stick it on a list (any list) so erase_failed can take it
-	   right off again.  Silly, but shouldn't happen often. */
-	list_move(&jeb->list, &c->erasing_list);
-	spin_unlock(&c->erase_completion_lock);
-	mutex_unlock(&c->erase_free_sem);
 	jffs2_erase_failed(c, jeb, bad_offset);
 	return;
 

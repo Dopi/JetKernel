@@ -90,7 +90,7 @@ struct machdep_calls {
 	void		(*tce_flush)(struct iommu_table *tbl);
 
 	void __iomem *	(*ioremap)(phys_addr_t addr, unsigned long size,
-				   unsigned long flags);
+				   unsigned long flags, void *caller);
 	void		(*iounmap)(volatile void __iomem *token);
 
 #ifdef CONFIG_PM
@@ -110,6 +110,10 @@ struct machdep_calls {
 	void		(*show_percpuinfo)(struct seq_file *m, int i);
 
 	void		(*init_IRQ)(void);
+
+	/* Return an irq, or NO_IRQ to indicate there are none pending.
+	 * If for some reason there is no irq, but the interrupt
+	 * shouldn't be counted as spurious, return NO_IRQ_IGNORE. */
 	unsigned int	(*get_irq)(void);
 #ifdef CONFIG_KEXEC
 	void		(*kexec_cpu_down)(int crash_shutdown, int secondary);
@@ -327,8 +331,6 @@ extern void __devinit smp_generic_take_timebase(void);
  */
 /* Print a boot progress message. */
 void ppc64_boot_msg(unsigned int src, const char *msg);
-/* Print a termination message (print only -- does not stop the kernel) */
-void ppc64_terminate_msg(unsigned int src, const char *msg);
 
 static inline void log_error(char *buf, unsigned int err_type, int fatal)
 {

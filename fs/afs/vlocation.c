@@ -65,6 +65,8 @@ static int afs_vlocation_access_vl_by_name(struct afs_vlocation *vl,
 				goto out;
 			goto rotate;
 		case -ENOMEDIUM:
+		case -EKEYREJECTED:
+		case -EKEYEXPIRED:
 			goto out;
 		default:
 			ret = -EIO;
@@ -281,9 +283,8 @@ static void afs_vlocation_apply_update(struct afs_vlocation *vl,
 
 	vl->vldb = *vldb;
 
-#ifdef AFS_CACHING_SUPPORT
-	/* update volume entry in local cache */
-	cachefs_update_cookie(vl->cache);
+#ifdef CONFIG_AFS_FSCACHE
+	fscache_update_cookie(vl->cache);
 #endif
 }
 
@@ -304,11 +305,9 @@ static int afs_vlocation_fill_in_record(struct afs_vlocation *vl,
 	memset(&vldb, 0, sizeof(vldb));
 
 	/* see if we have an in-cache copy (will set vl->valid if there is) */
-#ifdef AFS_CACHING_SUPPORT
-	cachefs_acquire_cookie(cell->cache,
-			       &afs_volume_cache_index_def,
-			       vlocation,
-			       &vl->cache);
+#ifdef CONFIG_AFS_FSCACHE
+	vl->cache = fscache_acquire_cookie(vl->cell->cache,
+					   &afs_vlocation_cache_index_def, vl);
 #endif
 
 	if (vl->valid) {
@@ -420,6 +419,11 @@ fill_in_record:
 	spin_unlock(&vl->lock);
 	wake_up(&vl->waitq);
 
+	/* update volume entry in local cache */
+#ifdef CONFIG_AFS_FSCACHE
+	fscache_update_cookie(vl->cache);
+#endif
+
 	/* schedule for regular updates */
 	afs_vlocation_queue_for_updates(vl);
 	goto success;
@@ -465,7 +469,7 @@ found_in_memory:
 	spin_unlock(&vl->lock);
 
 success:
-	_leave(" = %p",vl);
+	_leave(" = %p", vl);
 	return vl;
 
 error_abandon:
@@ -523,10 +527,9 @@ static void afs_vlocation_destroy(struct afs_vlocation *vl)
 {
 	_enter("%p", vl);
 
-#ifdef AFS_CACHING_SUPPORT
-	cachefs_relinquish_cookie(vl->cache, 0);
+#ifdef CONFIG_AFS_FSCACHE
+	fscache_relinquish_cookie(vl->cache, 0);
 #endif
-
 	afs_put_cell(vl->cell);
 	kfree(vl);
 }

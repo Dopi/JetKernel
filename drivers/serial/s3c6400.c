@@ -102,6 +102,7 @@ static struct s3c24xx_uart_info s3c6400_uart_inf = {
 	.name		= "Samsung S3C6400 UART",
 	.type		= PORT_S3C6400,
 	.fifosize	= 64,
+	.has_divslot	= 1,
 	.rx_fifomask	= S3C2440_UFSTAT_RXMASK,
 	.rx_fifoshift	= S3C2440_UFSTAT_RXSHIFT,
 	.rx_fifofull	= S3C2440_UFSTAT_RXFULL,
@@ -121,25 +122,25 @@ static int s3c6400_serial_probe(struct platform_device *dev)
 	return s3c24xx_serial_probe(dev, &s3c6400_uart_inf);
 }
 
-static struct platform_driver s3c6400_serial_drv = {
+static struct platform_driver s3c6400_serial_driver = {
 	.probe		= s3c6400_serial_probe,
-	.remove		= s3c24xx_serial_remove,
+	.remove		= __devexit_p(s3c24xx_serial_remove),
 	.driver		= {
 		.name	= "s3c6400-uart",
 		.owner	= THIS_MODULE,
 	},
 };
 
-s3c24xx_console_init(&s3c6400_serial_drv, &s3c6400_uart_inf);
+s3c24xx_console_init(&s3c6400_serial_driver, &s3c6400_uart_inf);
 
 static int __init s3c6400_serial_init(void)
 {
-	return s3c24xx_serial_init(&s3c6400_serial_drv, &s3c6400_uart_inf);
+	return s3c24xx_serial_init(&s3c6400_serial_driver, &s3c6400_uart_inf);
 }
 
 static void __exit s3c6400_serial_exit(void)
 {
-	platform_driver_unregister(&s3c6400_serial_drv);
+	platform_driver_unregister(&s3c6400_serial_driver);
 }
 
 module_init(s3c6400_serial_init);

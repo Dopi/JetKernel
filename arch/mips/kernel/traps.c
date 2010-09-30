@@ -1277,8 +1277,7 @@ static void *set_vi_srs_handler(int n, vi_handler_t addr, int srs)
 	u32 *w;
 	unsigned char *b;
 
-	if (!cpu_has_veic && !cpu_has_vint)
-		BUG();
+	BUG_ON(!cpu_has_veic && !cpu_has_vint);
 
 	if (addr == NULL) {
 		handler = (unsigned long) do_default_vi;
@@ -1503,7 +1502,7 @@ void __cpuinit per_cpu_trap_init(void)
 			 status_set);
 
 	if (cpu_has_mips_r2) {
-		unsigned int enable = 0x0000000f;
+		unsigned int enable = 0x0000000f | cpu_hwrena_impl_bits;
 
 		if (!noulri && cpu_has_userlocal)
 			enable |= (1 << 29);
@@ -1511,16 +1510,14 @@ void __cpuinit per_cpu_trap_init(void)
 		write_c0_hwrena(enable);
 	}
 
-#ifdef CONFIG_CPU_CAVIUM_OCTEON
-	write_c0_hwrena(0xc000000f); /* Octeon has register 30 and 31 */
-#endif
-
 #ifdef CONFIG_MIPS_MT_SMTC
 	if (!secondaryTC) {
 #endif /* CONFIG_MIPS_MT_SMTC */
 
 	if (cpu_has_veic || cpu_has_vint) {
+		unsigned long sr = set_c0_status(ST0_BEV);
 		write_c0_ebase(ebase);
+		write_c0_status(sr);
 		/* Setting vector spacing enables EI/VI mode  */
 		change_c0_intctl(0x3e0, VECTORSPACING);
 	}
@@ -1602,8 +1599,6 @@ void __cpuinit set_uncached_handler(unsigned long offset, void *addr,
 #ifdef CONFIG_64BIT
 	unsigned long uncached_ebase = TO_UNCAC(ebase);
 #endif
-	if (cpu_has_mips_r2)
-		uncached_ebase += (read_c0_ebase() & 0x3ffff000);
 
 	if (!addr)
 		panic(panic_null_cerr);
@@ -1635,9 +1630,11 @@ void __init trap_init(void)
 		return;	/* Already done */
 #endif
 
-	if (cpu_has_veic || cpu_has_vint)
-		ebase = (unsigned long) alloc_bootmem_low_pages(0x200 + VECTORSPACING*64);
-	else {
+	if (cpu_has_veic || cpu_has_vint) {
+		unsigned long size = 0x200 + VECTORSPACING*64;
+		ebase = (unsigned long)
+			__alloc_bootmem(size, 1 << fls(size), 0);
+	} else {
 		ebase = CAC_BASE;
 		if (cpu_has_mips_r2)
 			ebase += (read_c0_ebase() & 0x3ffff000);

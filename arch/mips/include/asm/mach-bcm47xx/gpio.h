@@ -31,24 +31,31 @@ static inline void gpio_set_value(unsigned gpio, int value)
 
 static inline int gpio_direction_input(unsigned gpio)
 {
-	return ssb_gpio_outen(&ssb_bcm47xx, 1 << gpio, 0);
+	ssb_gpio_outen(&ssb_bcm47xx, 1 << gpio, 0);
+	return 0;
 }
 
 static inline int gpio_direction_output(unsigned gpio, int value)
 {
-	return ssb_gpio_outen(&ssb_bcm47xx, 1 << gpio, 1 << gpio);
+	/* first set the gpio out value */
+	ssb_gpio_out(&ssb_bcm47xx, 1 << gpio, value ? 1 << gpio : 0);
+	/* then set the gpio mode */
+	ssb_gpio_outen(&ssb_bcm47xx, 1 << gpio, 1 << gpio);
+	return 0;
 }
 
-static int gpio_intmask(unsigned gpio, int value)
+static inline int gpio_intmask(unsigned gpio, int value)
 {
-	return ssb_gpio_intmask(&ssb_bcm47xx, 1 << gpio,
-				value ? 1 << gpio : 0);
+	ssb_gpio_intmask(&ssb_bcm47xx, 1 << gpio,
+			 value ? 1 << gpio : 0);
+	return 0;
 }
 
-static int gpio_polarity(unsigned gpio, int value)
+static inline int gpio_polarity(unsigned gpio, int value)
 {
-	return ssb_gpio_polarity(&ssb_bcm47xx, 1 << gpio,
-				 value ? 1 << gpio : 0);
+	ssb_gpio_polarity(&ssb_bcm47xx, 1 << gpio,
+			  value ? 1 << gpio : 0);
+	return 0;
 }
 
 

@@ -69,11 +69,10 @@ static int debug;
 
 /* Function prototypes */
 static int  kobil_startup(struct usb_serial *serial);
-static void kobil_shutdown(struct usb_serial *serial);
+static void kobil_release(struct usb_serial *serial);
 static int  kobil_open(struct tty_struct *tty,
 			struct usb_serial_port *port, struct file *filp);
-static void kobil_close(struct tty_struct *tty, struct usb_serial_port *port,
-			struct file *filp);
+static void kobil_close(struct usb_serial_port *port);
 static int  kobil_write(struct tty_struct *tty, struct usb_serial_port *port,
 			 const unsigned char *buf, int count);
 static int  kobil_write_room(struct tty_struct *tty);
@@ -86,7 +85,7 @@ static void kobil_read_int_callback(struct urb *urb);
 static void kobil_write_callback(struct urb *purb);
 static void kobil_set_termios(struct tty_struct *tty,
 			struct usb_serial_port *port, struct ktermios *old);
-
+static void kobil_init_termios(struct tty_struct *tty);
 
 static struct usb_device_id id_table [] = {
 	{ USB_DEVICE(KOBIL_VENDOR_ID, KOBIL_ADAPTER_B_PRODUCT_ID) },
@@ -118,9 +117,10 @@ static struct usb_serial_driver kobil_device = {
 	.id_table =		id_table,
 	.num_ports =		1,
 	.attach =		kobil_startup,
-	.shutdown =		kobil_shutdown,
+	.release =		kobil_release,
 	.ioctl =		kobil_ioctl,
 	.set_termios =		kobil_set_termios,
+	.init_termios =		kobil_init_termios,
 	.tiocmget =		kobil_tiocmget,
 	.tiocmset =		kobil_tiocmset,
 	.open =			kobil_open,
@@ -202,19 +202,24 @@ static int kobil_startup(struct usb_serial *serial)
 }
 
 
-static void kobil_shutdown(struct usb_serial *serial)
+static void kobil_release(struct usb_serial *serial)
 {
 	int i;
 	dbg("%s - port %d", __func__, serial->port[0]->number);
 
-	for (i = 0; i < serial->num_ports; ++i) {
-		while (serial->port[i]->port.count > 0)
-			kobil_close(NULL, serial->port[i], NULL);
+	for (i = 0; i < serial->num_ports; ++i)
 		kfree(usb_get_serial_port_data(serial->port[i]));
-		usb_set_serial_port_data(serial->port[i], NULL);
-	}
 }
 
+static void kobil_init_termios(struct tty_struct *tty)
+{
+	/* Default to echo off and other sane device settings */
+	tty->termios->c_lflag = 0;
+	tty->termios->c_lflag &= ~(ISIG | ICANON | ECHO | IEXTEN | XCASE);
+	tty->termios->c_iflag = IGNBRK | IGNPAR | IXOFF;
+	/* do NOT translate CR to CR-NL (0x0A -> 0x0A 0x0D) */
+	tty->termios->c_oflag &= ~ONLCR;
+}
 
 static int kobil_open(struct tty_struct *tty,
 			struct usb_serial_port *port, struct file *filp)
@@ -231,22 +236,6 @@ static int kobil_open(struct tty_struct *tty,
 	/* someone sets the dev to 0 if the close method has been called */
 	port->interrupt_in_urb->dev = port->serial->dev;
 
-
-	/* force low_latency on so that our tty_push actually forces
-	 * the data through, otherwise it is scheduled, and with high
-	 * data rates (like with OHCI) data can get lost.
-	 */
-	if (tty) {
-		tty->low_latency = 1;
-
-		/* Default to echo off and other sane device settings */
-		tty->termios->c_lflag = 0;
-		tty->termios->c_lflag &= ~(ISIG | ICANON | ECHO | IEXTEN |
-								 XCASE);
-		tty->termios->c_iflag = IGNBRK | IGNPAR | IXOFF;
-		/* do NOT translate CR to CR-NL (0x0A -> 0x0A 0x0D) */
-		tty->termios->c_oflag &= ~ONLCR;
-	}
 	/* allocate memory for transfer buffer */
 	transfer_buffer = kzalloc(transfer_buffer_length, GFP_KERNEL);
 	if (!transfer_buffer)
@@ -352,11 +341,11 @@ static int kobil_open(struct tty_struct *tty,
 }
 
 
-static void kobil_close(struct tty_struct *tty,
-			struct usb_serial_port *port, struct file *filp)
+static void kobil_close(struct usb_serial_port *port)
 {
 	dbg("%s - port %d", __func__, port->number);
 
+	/* FIXME: Add rts/dtr methods */
 	if (port->write_urb) {
 		usb_kill_urb(port->write_urb);
 		usb_free_urb(port->write_urb);

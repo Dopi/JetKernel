@@ -140,10 +140,10 @@
 
 
 static const __le32 i2400m_ACK_BARKER[4] = {
-	__constant_cpu_to_le32(I2400M_ACK_BARKER),
-	__constant_cpu_to_le32(I2400M_ACK_BARKER),
-	__constant_cpu_to_le32(I2400M_ACK_BARKER),
-	__constant_cpu_to_le32(I2400M_ACK_BARKER)
+	cpu_to_le32(I2400M_ACK_BARKER),
+	cpu_to_le32(I2400M_ACK_BARKER),
+	cpu_to_le32(I2400M_ACK_BARKER),
+	cpu_to_le32(I2400M_ACK_BARKER)
 };
 
 
@@ -397,7 +397,7 @@ static int i2400m_download_chunk(struct i2400m *i2400m, const void *chunk,
 				 unsigned int direct, unsigned int do_csum)
 {
 	int ret;
-	size_t chunk_len = ALIGN(__chunk_len, I2400M_PL_PAD);
+	size_t chunk_len = ALIGN(__chunk_len, I2400M_PL_ALIGN);
 	struct device *dev = i2400m_dev(i2400m);
 	struct {
 		struct i2400m_bootrom_header cmd;
@@ -483,7 +483,7 @@ ssize_t i2400m_dnload_bcf(struct i2400m *i2400m,
 		if (offset + section_size > bcf_len) {
 			dev_err(dev, "fw %s: bad section #%zu, "
 				"end (@%zu) beyond EOF (@%zu)\n",
-				i2400m->bus_fw_name, section,
+				i2400m->fw_name, section,
 				offset + section_size,  bcf_len);
 			ret = -EINVAL;
 			goto error_section_beyond_eof;
@@ -493,7 +493,7 @@ ssize_t i2400m_dnload_bcf(struct i2400m *i2400m,
 				    &ack, sizeof(ack), I2400M_BM_CMD_RAW);
 		if (ret < 0) {
 			dev_err(dev, "fw %s: section #%zu (@%zu %zu B) "
-				"failed %d\n", i2400m->bus_fw_name, section,
+				"failed %d\n", i2400m->fw_name, section,
 				offset, sizeof(*bh) + data_size, (int) ret);
 			goto error_send;
 		}
@@ -532,14 +532,14 @@ int i2400m_dnload_finalize(struct i2400m *i2400m,
 	cmd = (void *) bcf + offset;
 	if (i2400m->sboot == 0) {
 		struct i2400m_bootrom_header jump_ack;
-		d_printf(3, dev, "unsecure boot, jumping to 0x%08x\n",
+		d_printf(1, dev, "unsecure boot, jumping to 0x%08x\n",
 			le32_to_cpu(cmd->target_addr));
 		i2400m_brh_set_opcode(cmd, I2400M_BRH_JUMP);
 		cmd->data_size = 0;
 		ret = i2400m_bm_cmd(i2400m, cmd, sizeof(*cmd),
 				    &jump_ack, sizeof(jump_ack), 0);
 	} else {
-		d_printf(3, dev, "secure boot, jumping to 0x%08x\n",
+		d_printf(1, dev, "secure boot, jumping to 0x%08x\n",
 			 le32_to_cpu(cmd->target_addr));
 		cmd_buf = i2400m->bm_cmd_buf;
 		memcpy(&cmd_buf->cmd, cmd, sizeof(*cmd));
@@ -696,8 +696,7 @@ error_dev_gone:
 	return result;
 
 error_timeout:
-	dev_err(dev, "Timed out waiting for reboot ack, resetting\n");
-	i2400m->bus_reset(i2400m, I2400M_RT_BUS);
+	dev_err(dev, "Timed out waiting for reboot ack\n");
 	result = -ETIMEDOUT;
 	goto exit_timeout;
 }
@@ -770,40 +769,21 @@ error_read_mac:
 static
 int i2400m_dnload_init_nonsigned(struct i2400m *i2400m)
 {
-#define POKE(a, d) {					\
-	.address = __constant_cpu_to_le32(a),		\
-	.data = __constant_cpu_to_le32(d)		\
-}
-	static const struct {
-		__le32 address;
-		__le32 data;
-	} i2400m_pokes[] = {
-		POKE(0x081A58, 0xA7810230),
-		POKE(0x080040, 0x00000000),
-		POKE(0x080048, 0x00000082),
-		POKE(0x08004C, 0x0000081F),
-		POKE(0x080054, 0x00000085),
-		POKE(0x080058, 0x00000180),
-		POKE(0x08005C, 0x00000018),
-		POKE(0x080060, 0x00000010),
-		POKE(0x080574, 0x00000001),
-		POKE(0x080550, 0x00000005),
-		POKE(0xAE0000, 0x00000000),
-	};
-#undef POKE
-	unsigned i;
-	int ret;
+	unsigned i = 0;
+	int ret = 0;
 	struct device *dev = i2400m_dev(i2400m);
-
-	dev_warn(dev, "WARNING!!! non-signed boot UNTESTED PATH!\n");
-
 	d_fnstart(5, dev, "(i2400m %p)\n", i2400m);
-	for (i = 0; i < ARRAY_SIZE(i2400m_pokes); i++) {
-		ret = i2400m_download_chunk(i2400m, &i2400m_pokes[i].data,
-					    sizeof(i2400m_pokes[i].data),
-					    i2400m_pokes[i].address, 1, 1);
-		if (ret < 0)
-			break;
+	if (i2400m->bus_bm_pokes_table) {
+		while (i2400m->bus_bm_pokes_table[i].address) {
+			ret = i2400m_download_chunk(
+				i2400m,
+				&i2400m->bus_bm_pokes_table[i].data,
+				sizeof(i2400m->bus_bm_pokes_table[i].data),
+				i2400m->bus_bm_pokes_table[i].address, 1, 1);
+			if (ret < 0)
+				break;
+			i++;
+		}
 	}
 	d_fnend(5, dev, "(i2400m %p) = %d\n", i2400m, ret);
 	return ret;
@@ -874,7 +854,7 @@ int i2400m_dnload_init(struct i2400m *i2400m, const struct i2400m_bcf_hdr *bcf)
 		if (result < 0)
 			dev_err(dev, "fw %s: non-signed download "
 				"initialization failed: %d\n",
-				i2400m->bus_fw_name, result);
+				i2400m->fw_name, result);
 	} else if (i2400m->sboot == 0
 		 && (module_id & I2400M_BCF_MOD_ID_POKES)) {
 		/* non-signed boot process with pokes, nothing to do */
@@ -886,7 +866,7 @@ int i2400m_dnload_init(struct i2400m *i2400m, const struct i2400m_bcf_hdr *bcf)
 		if (result < 0)
 			dev_err(dev, "fw %s: signed boot download "
 				"initialization failed: %d\n",
-				i2400m->bus_fw_name, result);
+				i2400m->fw_name, result);
 	}
 	return result;
 }
@@ -915,7 +895,7 @@ int i2400m_fw_check(struct i2400m *i2400m,
 	if (bcf_size < sizeof(*bcf)) {	/* big enough header? */
 		dev_err(dev, "firmware %s too short: "
 			"%zu B vs %zu (at least) expected\n",
-			i2400m->bus_fw_name, bcf_size, sizeof(*bcf));
+			i2400m->fw_name, bcf_size, sizeof(*bcf));
 		goto error;
 	}
 
@@ -931,7 +911,7 @@ int i2400m_fw_check(struct i2400m *i2400m,
 	if (bcf_size != size) {		/* annoyingly paranoid */
 		dev_err(dev, "firmware %s: bad size, got "
 			"%zu B vs %u expected\n",
-			i2400m->bus_fw_name, bcf_size, size);
+			i2400m->fw_name, bcf_size, size);
 		goto error;
 	}
 
@@ -943,7 +923,7 @@ int i2400m_fw_check(struct i2400m *i2400m,
 
 	if (module_type != 6) {		/* built for the right hardware? */
 		dev_err(dev, "bad fw %s: unexpected module type 0x%x; "
-			"aborting\n", i2400m->bus_fw_name, module_type);
+			"aborting\n", i2400m->fw_name, module_type);
 		goto error;
 	}
 
@@ -951,10 +931,10 @@ int i2400m_fw_check(struct i2400m *i2400m,
 	result = 0;
 	if (module_vendor != 0x8086)
 		dev_err(dev, "bad fw %s? unexpected vendor 0x%04x\n",
-			i2400m->bus_fw_name, module_vendor);
+			i2400m->fw_name, module_vendor);
 	if (date < 0x20080300)
 		dev_err(dev, "bad fw %s? build date too old %08x\n",
-			i2400m->bus_fw_name, date);
+			i2400m->fw_name, date);
 error:
 	return result;
 }
@@ -980,11 +960,12 @@ int i2400m_fw_dnload(struct i2400m *i2400m, const struct i2400m_bcf_hdr *bcf,
 {
 	int ret = 0;
 	struct device *dev = i2400m_dev(i2400m);
-	int count = I2400M_BOOT_RETRIES;
+	int count = i2400m->bus_bm_retries;
 
 	d_fnstart(5, dev, "(i2400m %p bcf %p size %zu)\n",
 		  i2400m, bcf, bcf_size);
 	i2400m->boot_mode = 1;
+	wmb();		/* Make sure other readers see it */
 hw_reboot:
 	if (count-- == 0) {
 		ret = -ERESTARTSYS;
@@ -1016,7 +997,7 @@ hw_reboot:
 		goto error_dev_rebooted;
 	if (ret < 0) {
 		dev_err(dev, "fw %s: download failed: %d\n",
-			i2400m->bus_fw_name, ret);
+			i2400m->fw_name, ret);
 		goto error_dnload_bcf;
 	}
 
@@ -1026,13 +1007,14 @@ hw_reboot:
 	if (ret < 0) {
 		dev_err(dev, "fw %s: "
 			"download finalization failed: %d\n",
-			i2400m->bus_fw_name, ret);
+			i2400m->fw_name, ret);
 		goto error_dnload_finalize;
 	}
 
 	d_printf(2, dev, "fw %s successfully uploaded\n",
-		 i2400m->bus_fw_name);
+		 i2400m->fw_name);
 	i2400m->boot_mode = 0;
+	wmb();		/* Make sure i2400m_msg_to_dev() sees boot_mode */
 error_dnload_finalize:
 error_dnload_bcf:
 error_dnload_init:
@@ -1067,28 +1049,41 @@ error_dev_rebooted:
  */
 int i2400m_dev_bootstrap(struct i2400m *i2400m, enum i2400m_bri flags)
 {
-	int ret = 0;
+	int ret = 0, itr = 0;
 	struct device *dev = i2400m_dev(i2400m);
 	const struct firmware *fw;
 	const struct i2400m_bcf_hdr *bcf;	/* Firmware data */
+	const char *fw_name;
 
 	d_fnstart(5, dev, "(i2400m %p)\n", i2400m);
-	/* Load firmware files to memory. */
-	ret = request_firmware(&fw, i2400m->bus_fw_name, dev);
-	if (ret) {
-		dev_err(dev, "fw %s: request failed: %d\n",
-			i2400m->bus_fw_name, ret);
-		goto error_fw_req;
-	}
-	bcf = (void *) fw->data;
 
+	/* Load firmware files to memory. */
+	itr = 0;
+	while(1) {
+		fw_name = i2400m->bus_fw_names[itr];
+		if (fw_name == NULL) {
+			dev_err(dev, "Could not find a usable firmware image\n");
+			ret = -ENOENT;
+			goto error_no_fw;
+		}
+		ret = request_firmware(&fw, fw_name, dev);
+		if (ret == 0)
+			break;		/* got it */
+		if (ret < 0)
+			dev_err(dev, "fw %s: cannot load file: %d\n",
+				fw_name, ret);
+		itr++;
+	}
+
+	bcf = (void *) fw->data;
+	i2400m->fw_name = fw_name;
 	ret = i2400m_fw_check(i2400m, bcf, fw->size);
 	if (ret < 0)
 		goto error_fw_bad;
 	ret = i2400m_fw_dnload(i2400m, bcf, fw->size, flags);
 error_fw_bad:
 	release_firmware(fw);
-error_fw_req:
+error_no_fw:
 	d_fnend(5, dev, "(i2400m %p) = %d\n", i2400m, ret);
 	return ret;
 }

@@ -6,6 +6,9 @@
 #include <linux/sched.h>
 #include <asm/uaccess.h>
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/kmem.h>
+
 /**
  * kstrdup - allocate space for and copy an existing string
  * @s: the string to duplicate
@@ -68,6 +71,36 @@ void *kmemdup(const void *src, size_t len, gfp_t gfp)
 	return p;
 }
 EXPORT_SYMBOL(kmemdup);
+
+/**
+ * memdup_user - duplicate memory region from user space
+ *
+ * @src: source address in user space
+ * @len: number of bytes to copy
+ *
+ * Returns an ERR_PTR() on failure.
+ */
+void *memdup_user(const void __user *src, size_t len)
+{
+	void *p;
+
+	/*
+	 * Always use GFP_KERNEL, since copy_from_user() can sleep and
+	 * cause pagefault, which makes it pointless to use GFP_NOFS
+	 * or GFP_ATOMIC.
+	 */
+	p = kmalloc_track_caller(len, GFP_KERNEL);
+	if (!p)
+		return ERR_PTR(-ENOMEM);
+
+	if (copy_from_user(p, src, len)) {
+		kfree(p);
+		return ERR_PTR(-EFAULT);
+	}
+
+	return p;
+}
+EXPORT_SYMBOL(memdup_user);
 
 /**
  * __krealloc - like krealloc() but don't free @p.
@@ -135,6 +168,10 @@ EXPORT_SYMBOL(krealloc);
  *
  * The memory of the object @p points to is zeroed before freed.
  * If @p is %NULL, kzfree() does nothing.
+ *
+ * Note: this function zeroes the whole allocated buffer which can be a good
+ * deal bigger than the requested buffer size passed to kmalloc(). So be
+ * careful when using this function in performance sensitive code.
  */
 void kzfree(const void *p)
 {
@@ -192,6 +229,30 @@ void arch_pick_mmap_layout(struct mm_struct *mm)
 }
 #endif
 
+/**
+ * get_user_pages_fast() - pin user pages in memory
+ * @start:	starting user address
+ * @nr_pages:	number of pages from start to pin
+ * @write:	whether pages will be written to
+ * @pages:	array that receives pointers to the pages pinned.
+ *		Should be at least nr_pages long.
+ *
+ * Returns number of pages pinned. This may be fewer than the number
+ * requested. If nr_pages is 0 or negative, returns 0. If no pages
+ * were pinned, returns -errno.
+ *
+ * get_user_pages_fast provides equivalent functionality to get_user_pages,
+ * operating on current and current->mm, with force=0 and vma=NULL. However
+ * unlike get_user_pages, it must be called without mmap_sem held.
+ *
+ * get_user_pages_fast may take mmap_sem and page table locks, so no
+ * assumptions can be made about lack of locking. get_user_pages_fast is to be
+ * implemented in a way that is advantageous (vs get_user_pages()) when the
+ * user memory area is already faulted in and present in ptes. However if the
+ * pages have to be faulted in, it may turn out to be slightly slower so
+ * callers need to carefully consider what to use. On many architectures,
+ * get_user_pages_fast simply falls back to get_user_pages.
+ */
 int __attribute__((weak)) get_user_pages_fast(unsigned long start,
 				int nr_pages, int write, struct page **pages)
 {
@@ -206,3 +267,11 @@ int __attribute__((weak)) get_user_pages_fast(unsigned long start,
 	return ret;
 }
 EXPORT_SYMBOL_GPL(get_user_pages_fast);
+
+/* Tracepoints definitions. */
+EXPORT_TRACEPOINT_SYMBOL(kmalloc);
+EXPORT_TRACEPOINT_SYMBOL(kmem_cache_alloc);
+EXPORT_TRACEPOINT_SYMBOL(kmalloc_node);
+EXPORT_TRACEPOINT_SYMBOL(kmem_cache_alloc_node);
+EXPORT_TRACEPOINT_SYMBOL(kfree);
+EXPORT_TRACEPOINT_SYMBOL(kmem_cache_free);

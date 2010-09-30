@@ -2,8 +2,14 @@
 # Multimedia device configuration
 #
 
-menu "Multimedia devices"
+menuconfig MEDIA_SUPPORT
+	tristate "Multimedia support"
 	depends on HAS_IOMEM
+	help
+	  If you want to use Video for Linux, DVB for Linux, or DAB adapters,
+	  enable this option and other options below.
+
+if MEDIA_SUPPORT
 
 comment "Multimedia core support"
 
@@ -117,7 +123,7 @@ source "drivers/media/dvb/Kconfig"
 config DAB
 	boolean "DAB adapters"
 	---help---
-	  Allow selecting support for for Digital Audio Broadcasting (DAB)
+	  Allow selecting support for Digital Audio Broadcasting (DAB)
 	  Receiver adapters.
 
 if DAB
@@ -136,4 +142,4 @@ config USB_DABUSB
 	  module will be called dabusb.
 endif # DAB
 
-endmenu
+endif # MEDIA_SUPPORT

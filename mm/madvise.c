@@ -112,14 +112,6 @@ static long madvise_willneed(struct vm_area_struct * vma,
 	if (!file)
 		return -EBADF;
 
-	/*
-	 * Page cache readahead assumes page cache pages are order-0 which
-	 * is not the case for hugetlbfs. Do not give a bad return value
-	 * but ignore the advice.
-	 */
-	if (vma->vm_flags & VM_HUGETLB)
-		return 0;
-
 	if (file->f_mapping->a_ops->get_xip_mem) {
 		/* no bad return value, but ignore advice */
 		return 0;
@@ -131,8 +123,7 @@ static long madvise_willneed(struct vm_area_struct * vma,
 		end = vma->vm_end;
 	end = ((end - vma->vm_start) >> PAGE_SHIFT) + vma->vm_pgoff;
 
-	force_page_cache_readahead(file->f_mapping,
-			file, start, max_sane_readahead(end - start));
+	force_page_cache_readahead(file->f_mapping, file, start, end - start);
 	return 0;
 }
 
@@ -247,12 +238,30 @@ madvise_vma(struct vm_area_struct *vma, struct vm_area_struct **prev,
 		break;
 
 	default:
-		error = -EINVAL;
+		BUG();
 		break;
 	}
 	return error;
 }
 
+static int
+madvise_behavior_valid(int behavior)
+{
+	switch (behavior) {
+	case MADV_DOFORK:
+	case MADV_DONTFORK:
+	case MADV_NORMAL:
+	case MADV_SEQUENTIAL:
+	case MADV_RANDOM:
+	case MADV_REMOVE:
+	case MADV_WILLNEED:
+	case MADV_DONTNEED:
+		return 1;
+
+	default:
+		return 0;
+	}
+}
 /*
  * The madvise(2) system call.
  *
@@ -297,6 +306,9 @@ SYSCALL_DEFINE3(madvise, unsigned long, start, size_t, len_in, int, behavior)
 	int error = -EINVAL;
 	int write;
 	size_t len;
+
+	if (!madvise_behavior_valid(behavior))
+		return error;
 
 	write = madvise_need_mmap_write(behavior);
 	if (write)

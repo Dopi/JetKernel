@@ -50,6 +50,7 @@ struct bf5xx_i2s_port {
 	u16 tcr2;
 	u16 rcr2;
 	int counter;
+	int configured;
 };
 
 static struct bf5xx_i2s_port bf5xx_i2s;
@@ -168,7 +169,7 @@ static int bf5xx_i2s_hw_params(struct snd_pcm_substream *substream,
 		break;
 	}
 
-	if (bf5xx_i2s.counter == 1) {
+	if (!bf5xx_i2s.configured) {
 		/*
 		 * TX and RX are not independent,they are enabled at the
 		 * same time, even if only one side is running. So, we
@@ -177,6 +178,7 @@ static int bf5xx_i2s_hw_params(struct snd_pcm_substream *substream,
 		 *
 		 * CPU DAI:slave mode.
 		 */
+		bf5xx_i2s.configured = 1;
 		ret = sport_config_rx(sport_handle, bf5xx_i2s.rcr1,
 				      bf5xx_i2s.rcr2, 0, 0);
 		if (ret) {
@@ -200,6 +202,9 @@ static void bf5xx_i2s_shutdown(struct snd_pcm_substream *substream,
 {
 	pr_debug("%s enter\n", __func__);
 	bf5xx_i2s.counter--;
+	/* No active stream, SPORT is allowed to be configured again. */
+	if (!bf5xx_i2s.counter)
+		bf5xx_i2s.configured = 0;
 }
 
 static int bf5xx_i2s_probe(struct platform_device *pdev,
@@ -244,8 +249,7 @@ static int bf5xx_i2s_suspend(struct snd_soc_dai *dai)
 	return 0;
 }
 
-static int bf5xx_i2s_resume(struct platform_device *pdev,
-			    struct snd_soc_dai *dai)
+static int bf5xx_i2s_resume(struct snd_soc_dai *dai)
 {
 	int ret;
 	struct sport_device *sport =
@@ -287,6 +291,13 @@ static int bf5xx_i2s_resume(struct platform_device *pdev,
 #define BF5XX_I2S_FORMATS (SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S24_LE |\
 	SNDRV_PCM_FMTBIT_S32_LE)
 
+static struct snd_soc_dai_ops bf5xx_i2s_dai_ops = {
+	.startup	= bf5xx_i2s_startup,
+	.shutdown	= bf5xx_i2s_shutdown,
+	.hw_params	= bf5xx_i2s_hw_params,
+	.set_fmt	= bf5xx_i2s_set_dai_fmt,
+};
+
 struct snd_soc_dai bf5xx_i2s_dai = {
 	.name = "bf5xx-i2s",
 	.id = 0,
@@ -304,12 +315,7 @@ struct snd_soc_dai bf5xx_i2s_dai = {
 		.channels_max = 2,
 		.rates = BF5XX_I2S_RATES,
 		.formats = BF5XX_I2S_FORMATS,},
-	.ops = {
-		.startup   = bf5xx_i2s_startup,
-		.shutdown  = bf5xx_i2s_shutdown,
-		.hw_params = bf5xx_i2s_hw_params,
-		.set_fmt = bf5xx_i2s_set_dai_fmt,
-	},
+	.ops = &bf5xx_i2s_dai_ops,
 };
 EXPORT_SYMBOL_GPL(bf5xx_i2s_dai);
 

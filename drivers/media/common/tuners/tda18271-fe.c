@@ -595,13 +595,13 @@ static int tda18271_rf_tracking_filters_init(struct dvb_frontend *fe, u32 freq)
 		case RF2:
 			map[i].rf_a1 = (prog_cal[RF2] - prog_tab[RF2] -
 					prog_cal[RF1] + prog_tab[RF1]) /
-				((rf_freq[RF2] - rf_freq[RF1]) / 1000);
+				(s32)((rf_freq[RF2] - rf_freq[RF1]) / 1000);
 			map[i].rf2   = rf_freq[RF2] / 1000;
 			break;
 		case RF3:
 			map[i].rf_a2 = (prog_cal[RF3] - prog_tab[RF3] -
 					prog_cal[RF2] + prog_tab[RF2]) /
-				((rf_freq[RF3] - rf_freq[RF2]) / 1000);
+				(s32)((rf_freq[RF3] - rf_freq[RF2]) / 1000);
 			map[i].rf_b2 = prog_cal[RF2] - prog_tab[RF2];
 			map[i].rf3   = rf_freq[RF3] / 1000;
 			break;
@@ -818,6 +818,38 @@ fail:
 	return ret;
 }
 
+/* ------------------------------------------------------------------ */
+
+static int tda18271_agc(struct dvb_frontend *fe)
+{
+	struct tda18271_priv *priv = fe->tuner_priv;
+	int ret = 0;
+
+	switch (priv->config) {
+	case 0:
+		/* no LNA */
+		tda_dbg("no agc configuration provided\n");
+		break;
+	case 3:
+		/* switch with GPIO of saa713x */
+		tda_dbg("invoking callback\n");
+		if (fe->callback)
+			ret = fe->callback(priv->i2c_props.adap->algo_data,
+					   DVB_FRONTEND_COMPONENT_TUNER,
+					   TDA18271_CALLBACK_CMD_AGC_ENABLE,
+					   priv->mode);
+		break;
+	case 1:
+	case 2:
+	default:
+		/* n/a - currently not supported */
+		tda_err("unsupported configuration: %d\n", priv->config);
+		ret = -EINVAL;
+		break;
+	}
+	return ret;
+}
+
 static int tda18271_tune(struct dvb_frontend *fe,
 			 struct tda18271_std_map_item *map, u32 freq, u32 bw)
 {
@@ -826,6 +858,10 @@ static int tda18271_tune(struct dvb_frontend *fe,
 
 	tda_dbg("freq = %d, ifc = %d, bw = %d, agc_mode = %d, std = %d\n",
 		freq, map->if_freq, bw, map->agc_mode, map->std);
+
+	ret = tda18271_agc(fe);
+	if (tda_fail(ret))
+		tda_warn("failed to configure agc\n");
 
 	ret = tda18271_init(fe);
 	if (tda_fail(ret))
@@ -927,12 +963,12 @@ static int tda18271_set_analog_params(struct dvb_frontend *fe,
 	struct tda18271_std_map_item *map;
 	char *mode;
 	int ret;
-	u32 freq = params->frequency * 62500;
+	u32 freq = params->frequency * 125 *
+		((params->mode == V4L2_TUNER_RADIO) ? 1 : 1000) / 2;
 
 	priv->mode = TDA18271_ANALOG;
 
 	if (params->mode == V4L2_TUNER_RADIO) {
-		freq = freq / 1000;
 		map = &std_map->fm_radio;
 		mode = "fm";
 	} else if (params->std & V4L2_STD_MN) {
@@ -1159,6 +1195,7 @@ struct dvb_frontend *tda18271_attach(struct dvb_frontend *fe, u8 addr,
 		/* new tuner instance */
 		priv->gate = (cfg) ? cfg->gate : TDA18271_GATE_AUTO;
 		priv->role = (cfg) ? cfg->role : TDA18271_MASTER;
+		priv->config = (cfg) ? cfg->config : 0;
 		priv->cal_initialized = false;
 		mutex_init(&priv->lock);
 

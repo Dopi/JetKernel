@@ -140,7 +140,7 @@ static irqreturn_t cpm_i2c_interrupt(int irq, void *dev_id)
 
 	dev_dbg(&adap->dev, "Interrupt: %x\n", i);
 
-	wake_up_interruptible(&cpm->i2c_wait);
+	wake_up(&cpm->i2c_wait);
 
 	return i ? IRQ_HANDLED : IRQ_NONE;
 }
@@ -364,12 +364,12 @@ static int cpm_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 		dev_dbg(&adap->dev, "test ready.\n");
 		pmsg = &msgs[tptr];
 		if (pmsg->flags & I2C_M_RD)
-			ret = wait_event_interruptible_timeout(cpm->i2c_wait,
+			ret = wait_event_timeout(cpm->i2c_wait,
 				(in_be16(&tbdf[tptr].cbd_sc) & BD_SC_NAK) ||
 				!(in_be16(&rbdf[rptr].cbd_sc) & BD_SC_EMPTY),
 				1 * HZ);
 		else
-			ret = wait_event_interruptible_timeout(cpm->i2c_wait,
+			ret = wait_event_timeout(cpm->i2c_wait,
 				!(in_be16(&tbdf[tptr].cbd_sc) & BD_SC_READY),
 				1 * HZ);
 		if (ret == 0) {
@@ -531,16 +531,16 @@ static int __devinit cpm_i2c_setup(struct cpm_i2c *cpm)
 	rbdf = cpm->rbase;
 
 	for (i = 0; i < CPM_MAXBD; i++) {
-		cpm->rxbuf[i] = dma_alloc_coherent(
-			NULL, CPM_MAX_READ + 1, &cpm->rxdma[i], GFP_KERNEL);
+		cpm->rxbuf[i] = dma_alloc_coherent(&cpm->ofdev->dev,
+						   CPM_MAX_READ + 1,
+						   &cpm->rxdma[i], GFP_KERNEL);
 		if (!cpm->rxbuf[i]) {
 			ret = -ENOMEM;
 			goto out_muram;
 		}
 		out_be32(&rbdf[i].cbd_bufaddr, ((cpm->rxdma[i] + 1) & ~1));
 
-		cpm->txbuf[i] = (unsigned char *)dma_alloc_coherent(
-			NULL, CPM_MAX_READ + 1, &cpm->txdma[i], GFP_KERNEL);
+		cpm->txbuf[i] = (unsigned char *)dma_alloc_coherent(&cpm->ofdev->dev, CPM_MAX_READ + 1, &cpm->txdma[i], GFP_KERNEL);
 		if (!cpm->txbuf[i]) {
 			ret = -ENOMEM;
 			goto out_muram;
@@ -585,10 +585,10 @@ static int __devinit cpm_i2c_setup(struct cpm_i2c *cpm)
 out_muram:
 	for (i = 0; i < CPM_MAXBD; i++) {
 		if (cpm->rxbuf[i])
-			dma_free_coherent(NULL, CPM_MAX_READ + 1,
+			dma_free_coherent(&cpm->ofdev->dev, CPM_MAX_READ + 1,
 				cpm->rxbuf[i], cpm->rxdma[i]);
 		if (cpm->txbuf[i])
-			dma_free_coherent(NULL, CPM_MAX_READ + 1,
+			dma_free_coherent(&cpm->ofdev->dev, CPM_MAX_READ + 1,
 				cpm->txbuf[i], cpm->txdma[i]);
 	}
 	cpm_muram_free(cpm->dp_addr);
@@ -619,9 +619,9 @@ static void cpm_i2c_shutdown(struct cpm_i2c *cpm)
 
 	/* Free all memory */
 	for (i = 0; i < CPM_MAXBD; i++) {
-		dma_free_coherent(NULL, CPM_MAX_READ + 1,
+		dma_free_coherent(&cpm->ofdev->dev, CPM_MAX_READ + 1,
 			cpm->rxbuf[i], cpm->rxdma[i]);
-		dma_free_coherent(NULL, CPM_MAX_READ + 1,
+		dma_free_coherent(&cpm->ofdev->dev, CPM_MAX_READ + 1,
 			cpm->txbuf[i], cpm->txdma[i]);
 	}
 

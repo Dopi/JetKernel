@@ -589,7 +589,7 @@ static int get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	}
 
 	cmd->port = (cmd->supported & SUPPORTED_TP) ? PORT_TP : PORT_FIBRE;
-	cmd->phy_address = p->phy->addr;
+	cmd->phy_address = p->phy->mdio.prtad;
 	cmd->transceiver = XCVR_EXTERNAL;
 	cmd->autoneg = p->link_config.autoneg;
 	cmd->maxtxpkt = 0;
@@ -849,39 +849,9 @@ static const struct ethtool_ops t1_ethtool_ops = {
 static int t1_ioctl(struct net_device *dev, struct ifreq *req, int cmd)
 {
 	struct adapter *adapter = dev->ml_priv;
-	struct mii_ioctl_data *data = if_mii(req);
+	struct mdio_if_info *mdio = &adapter->port[dev->if_port].phy->mdio;
 
-	switch (cmd) {
-	case SIOCGMIIPHY:
-		data->phy_id = adapter->port[dev->if_port].phy->addr;
-		/* FALLTHRU */
-	case SIOCGMIIREG: {
-		struct cphy *phy = adapter->port[dev->if_port].phy;
-		u32 val;
-
-		if (!phy->mdio_read)
-			return -EOPNOTSUPP;
-		phy->mdio_read(adapter, data->phy_id, 0, data->reg_num & 0x1f,
-			       &val);
-		data->val_out = val;
-		break;
-	}
-	case SIOCSMIIREG: {
-		struct cphy *phy = adapter->port[dev->if_port].phy;
-
-		if (!capable(CAP_NET_ADMIN))
-		    return -EPERM;
-		if (!phy->mdio_write)
-			return -EOPNOTSUPP;
-		phy->mdio_write(adapter, data->phy_id, 0, data->reg_num & 0x1f,
-			        data->val_in);
-		break;
-	}
-
-	default:
-		return -EOPNOTSUPP;
-	}
-	return 0;
+	return mdio_mii_ioctl(mdio, if_mii(req), cmd);
 }
 
 static int t1_change_mtu(struct net_device *dev, int new_mtu)
@@ -1056,17 +1026,17 @@ static int __devinit init_one(struct pci_dev *pdev,
 		goto out_disable_pdev;
 	}
 
-	if (!pci_set_dma_mask(pdev, DMA_64BIT_MASK)) {
+	if (!pci_set_dma_mask(pdev, DMA_BIT_MASK(64))) {
 		pci_using_dac = 1;
 
-		if (pci_set_consistent_dma_mask(pdev, DMA_64BIT_MASK)) {
+		if (pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(64))) {
 			CH_ERR("%s: unable to obtain 64-bit DMA for "
 			       "consistent allocations\n", pci_name(pdev));
 			err = -ENODEV;
 			goto out_disable_pdev;
 		}
 
-	} else if ((err = pci_set_dma_mask(pdev, DMA_32BIT_MASK)) != 0) {
+	} else if ((err = pci_set_dma_mask(pdev, DMA_BIT_MASK(32))) != 0) {
 		CH_ERR("%s: no usable DMA configuration\n", pci_name(pdev));
 		goto out_disable_pdev;
 	}

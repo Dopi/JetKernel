@@ -938,8 +938,7 @@ acpi_ut_walk_package_tree(union acpi_operand_object * source_object,
 		if ((!this_source_obj) ||
 		    (ACPI_GET_DESCRIPTOR_TYPE(this_source_obj) !=
 		     ACPI_DESC_TYPE_OPERAND)
-		    || (ACPI_GET_OBJECT_TYPE(this_source_obj) !=
-			ACPI_TYPE_PACKAGE)) {
+		    || (this_source_obj->common.type != ACPI_TYPE_PACKAGE)) {
 			status =
 			    walk_callback(ACPI_COPY_TYPE_SIMPLE,
 					  this_source_obj, state, context);
@@ -1034,11 +1033,12 @@ acpi_error(const char *module_name, u32 line_number, const char *format, ...)
 {
 	va_list args;
 
-	acpi_os_printf("ACPI Error (%s-%04d): ", module_name, line_number);
+	acpi_os_printf("ACPI Error: ");
 
 	va_start(args, format);
 	acpi_os_vprintf(format, args);
-	acpi_os_printf(" [%X]\n", ACPI_CA_VERSION);
+	acpi_os_printf(" %8.8X %s-%u\n", ACPI_CA_VERSION, module_name,
+		       line_number);
 	va_end(args);
 }
 
@@ -1048,12 +1048,12 @@ acpi_exception(const char *module_name,
 {
 	va_list args;
 
-	acpi_os_printf("ACPI Exception (%s-%04d): %s, ", module_name,
-		       line_number, acpi_format_exception(status));
+	acpi_os_printf("ACPI Exception: %s, ", acpi_format_exception(status));
 
 	va_start(args, format);
 	acpi_os_vprintf(format, args);
-	acpi_os_printf(" [%X]\n", ACPI_CA_VERSION);
+	acpi_os_printf(" %8.8X %s-%u\n", ACPI_CA_VERSION, module_name,
+		       line_number);
 	va_end(args);
 }
 
@@ -1062,11 +1062,12 @@ acpi_warning(const char *module_name, u32 line_number, const char *format, ...)
 {
 	va_list args;
 
-	acpi_os_printf("ACPI Warning (%s-%04d): ", module_name, line_number);
+	acpi_os_printf("ACPI Warning: ");
 
 	va_start(args, format);
 	acpi_os_vprintf(format, args);
-	acpi_os_printf(" [%X]\n", ACPI_CA_VERSION);
+	acpi_os_printf(" %8.8X %s-%u\n", ACPI_CA_VERSION, module_name,
+		       line_number);
 	va_end(args);
 }
 
@@ -1075,10 +1076,6 @@ acpi_info(const char *module_name, u32 line_number, const char *format, ...)
 {
 	va_list args;
 
-	/*
-	 * Removed module_name, line_number, and acpica version, not needed
-	 * for info output
-	 */
 	acpi_os_printf("ACPI: ");
 
 	va_start(args, format);

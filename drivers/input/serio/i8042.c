@@ -10,6 +10,7 @@
  * the Free Software Foundation.
  */
 
+#include <linux/types.h>
 #include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
@@ -712,22 +713,43 @@ static int i8042_controller_check(void)
 static int i8042_controller_selftest(void)
 {
 	unsigned char param;
+	int i = 0;
 
 	if (!i8042_reset)
 		return 0;
 
-	if (i8042_command(&param, I8042_CMD_CTL_TEST)) {
-		printk(KERN_ERR "i8042.c: i8042 controller self test timeout.\n");
-		return -ENODEV;
-	}
+	/*
+	 * We try this 5 times; on some really fragile systems this does not
+	 * take the first time...
+	 */
+	do {
 
-	if (param != I8042_RET_CTL_TEST) {
+		if (i8042_command(&param, I8042_CMD_CTL_TEST)) {
+			printk(KERN_ERR "i8042.c: i8042 controller self test timeout.\n");
+			return -ENODEV;
+		}
+
+		if (param == I8042_RET_CTL_TEST)
+			return 0;
+
 		printk(KERN_ERR "i8042.c: i8042 controller selftest failed. (%#x != %#x)\n",
-			 param, I8042_RET_CTL_TEST);
-		return -EIO;
-	}
+			param, I8042_RET_CTL_TEST);
+		msleep(50);
+	} while (i++ < 5);
 
+#ifdef CONFIG_X86
+	/*
+	 * On x86, we don't fail entire i8042 initialization if controller
+	 * reset fails in hopes that keyboard port will still be functional
+	 * and user will still get a working keyboard. This is especially
+	 * important on netbooks. On other arches we trust hardware more.
+	 */
+	printk(KERN_INFO
+		"i8042: giving up on controller selftest, continuing anyway...\n");
 	return 0;
+#else
+	return -EIO;
+#endif
 }
 
 /*
@@ -900,6 +922,9 @@ static void i8042_dritek_enable(void)
 #endif
 
 #ifdef CONFIG_PM
+
+static bool i8042_suspended;
+
 /*
  * Here we try to restore the original BIOS settings. We only want to
  * do that once, when we really suspend, not when we taking memory
@@ -909,12 +934,11 @@ static void i8042_dritek_enable(void)
 
 static int i8042_suspend(struct platform_device *dev, pm_message_t state)
 {
-	if (dev->dev.power.power_state.event != state.event) {
-		if (state.event == PM_EVENT_SUSPEND)
-			i8042_controller_reset();
+	if (!i8042_suspended && state.event == PM_EVENT_SUSPEND)
+		i8042_controller_reset();
 
-		dev->dev.power.power_state = state;
-	}
+	i8042_suspended = state.event == PM_EVENT_SUSPEND ||
+			  state.event == PM_EVENT_FREEZE;
 
 	return 0;
 }
@@ -931,7 +955,7 @@ static int i8042_resume(struct platform_device *dev)
 /*
  * Do not bother with restoring state if we haven't suspened yet
  */
-	if (dev->dev.power.power_state.event == PM_EVENT_ON)
+	if (!i8042_suspended)
 		return 0;
 
 	error = i8042_controller_check();
@@ -977,9 +1001,8 @@ static int i8042_resume(struct platform_device *dev)
 	if (i8042_ports[I8042_KBD_PORT_NO].serio)
 		i8042_enable_kbd_port();
 
+	i8042_suspended = false;
 	i8042_interrupt(0, NULL);
-
-	dev->dev.power.power_state = PMSG_ON;
 
 	return 0;
 }

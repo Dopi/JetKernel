@@ -360,8 +360,7 @@ static void ub_cmd_build_block(struct ub_dev *sc, struct ub_lun *lun,
 static void ub_cmd_build_packet(struct ub_dev *sc, struct ub_lun *lun,
     struct ub_scsi_cmd *cmd, struct ub_request *urq);
 static void ub_rw_cmd_done(struct ub_dev *sc, struct ub_scsi_cmd *cmd);
-static void ub_end_rq(struct request *rq, unsigned int status,
-    unsigned int cmd_len);
+static void ub_end_rq(struct request *rq, unsigned int status);
 static int ub_rw_cmd_retry(struct ub_dev *sc, struct ub_lun *lun,
     struct ub_request *urq, struct ub_scsi_cmd *cmd);
 static int ub_submit_scsi(struct ub_dev *sc, struct ub_scsi_cmd *cmd);
@@ -391,7 +390,7 @@ static int ub_probe_lun(struct ub_dev *sc, int lnum);
  */
 #ifdef CONFIG_USB_LIBUSUAL
 
-#define ub_usb_ids  storage_usb_ids
+#define ub_usb_ids  usb_storage_usb_ids
 #else
 
 static struct usb_device_id ub_usb_ids[] = {
@@ -627,7 +626,7 @@ static void ub_request_fn(struct request_queue *q)
 	struct ub_lun *lun = q->queuedata;
 	struct request *rq;
 
-	while ((rq = elv_next_request(q)) != NULL) {
+	while ((rq = blk_peek_request(q)) != NULL) {
 		if (ub_request_fn_1(lun, rq) != 0) {
 			blk_stop_queue(q);
 			break;
@@ -643,14 +642,14 @@ static int ub_request_fn_1(struct ub_lun *lun, struct request *rq)
 	int n_elem;
 
 	if (atomic_read(&sc->poison)) {
-		blkdev_dequeue_request(rq);
-		ub_end_rq(rq, DID_NO_CONNECT << 16, blk_rq_bytes(rq));
+		blk_start_request(rq);
+		ub_end_rq(rq, DID_NO_CONNECT << 16);
 		return 0;
 	}
 
 	if (lun->changed && !blk_pc_request(rq)) {
-		blkdev_dequeue_request(rq);
-		ub_end_rq(rq, SAM_STAT_CHECK_CONDITION, blk_rq_bytes(rq));
+		blk_start_request(rq);
+		ub_end_rq(rq, SAM_STAT_CHECK_CONDITION);
 		return 0;
 	}
 
@@ -660,7 +659,7 @@ static int ub_request_fn_1(struct ub_lun *lun, struct request *rq)
 		return -1;
 	memset(cmd, 0, sizeof(struct ub_scsi_cmd));
 
-	blkdev_dequeue_request(rq);
+	blk_start_request(rq);
 
 	urq = &lun->urq;
 	memset(urq, 0, sizeof(struct ub_request));
@@ -702,7 +701,7 @@ static int ub_request_fn_1(struct ub_lun *lun, struct request *rq)
 
 drop:
 	ub_put_cmd(lun, cmd);
-	ub_end_rq(rq, DID_ERROR << 16, blk_rq_bytes(rq));
+	ub_end_rq(rq, DID_ERROR << 16);
 	return 0;
 }
 
@@ -723,11 +722,11 @@ static void ub_cmd_build_block(struct ub_dev *sc, struct ub_lun *lun,
 	/*
 	 * build the command
 	 *
-	 * The call to blk_queue_hardsect_size() guarantees that request
+	 * The call to blk_queue_logical_block_size() guarantees that request
 	 * is aligned, but it is given in terms of 512 byte units, always.
 	 */
-	block = rq->sector >> lun->capacity.bshift;
-	nblks = rq->nr_sectors >> lun->capacity.bshift;
+	block = blk_rq_pos(rq) >> lun->capacity.bshift;
+	nblks = blk_rq_sectors(rq) >> lun->capacity.bshift;
 
 	cmd->cdb[0] = (cmd->dir == UB_DIR_READ)? READ_10: WRITE_10;
 	/* 10-byte uses 4 bytes of LBA: 2147483648KB, 2097152MB, 2048GB */
@@ -739,7 +738,7 @@ static void ub_cmd_build_block(struct ub_dev *sc, struct ub_lun *lun,
 	cmd->cdb[8] = nblks;
 	cmd->cdb_len = 10;
 
-	cmd->len = rq->nr_sectors * 512;
+	cmd->len = blk_rq_bytes(rq);
 }
 
 static void ub_cmd_build_packet(struct ub_dev *sc, struct ub_lun *lun,
@@ -747,7 +746,7 @@ static void ub_cmd_build_packet(struct ub_dev *sc, struct ub_lun *lun,
 {
 	struct request *rq = urq->rq;
 
-	if (rq->data_len == 0) {
+	if (blk_rq_bytes(rq) == 0) {
 		cmd->dir = UB_DIR_NONE;
 	} else {
 		if (rq_data_dir(rq) == WRITE)
@@ -762,7 +761,7 @@ static void ub_cmd_build_packet(struct ub_dev *sc, struct ub_lun *lun,
 	memcpy(&cmd->cdb, rq->cmd, rq->cmd_len);
 	cmd->cdb_len = rq->cmd_len;
 
-	cmd->len = rq->data_len;
+	cmd->len = blk_rq_bytes(rq);
 
 	/*
 	 * To reapply this to every URB is not as incorrect as it looks.
@@ -777,16 +776,15 @@ static void ub_rw_cmd_done(struct ub_dev *sc, struct ub_scsi_cmd *cmd)
 	struct ub_request *urq = cmd->back;
 	struct request *rq;
 	unsigned int scsi_status;
-	unsigned int cmd_len;
 
 	rq = urq->rq;
 
 	if (cmd->error == 0) {
 		if (blk_pc_request(rq)) {
-			if (cmd->act_len >= rq->data_len)
-				rq->data_len = 0;
+			if (cmd->act_len >= rq->resid_len)
+				rq->resid_len = 0;
 			else
-				rq->data_len -= cmd->act_len;
+				rq->resid_len -= cmd->act_len;
 			scsi_status = 0;
 		} else {
 			if (cmd->act_len != cmd->len) {
@@ -818,17 +816,14 @@ static void ub_rw_cmd_done(struct ub_dev *sc, struct ub_scsi_cmd *cmd)
 
 	urq->rq = NULL;
 
-	cmd_len = cmd->len;
 	ub_put_cmd(lun, cmd);
-	ub_end_rq(rq, scsi_status, cmd_len);
+	ub_end_rq(rq, scsi_status);
 	blk_start_queue(lun->disk->queue);
 }
 
-static void ub_end_rq(struct request *rq, unsigned int scsi_status,
-    unsigned int cmd_len)
+static void ub_end_rq(struct request *rq, unsigned int scsi_status)
 {
 	int error;
-	long rqlen;
 
 	if (scsi_status == 0) {
 		error = 0;
@@ -836,12 +831,7 @@ static void ub_end_rq(struct request *rq, unsigned int scsi_status,
 		error = -EIO;
 		rq->errors = scsi_status;
 	}
-	rqlen = blk_rq_bytes(rq);    /* Oddly enough, this is the residue. */
-	if (__blk_end_request(rq, error, cmd_len)) {
-		printk(KERN_WARNING DRV_NAME
-		    ": __blk_end_request blew, %s-cmd total %u rqlen %ld\n",
-		    blk_pc_request(rq)? "pc": "fs", cmd_len, rqlen);
-	}
+	__blk_end_request_all(rq, error);
 }
 
 static int ub_rw_cmd_retry(struct ub_dev *sc, struct ub_lun *lun,
@@ -1025,6 +1015,7 @@ static void ub_scsi_urb_compl(struct ub_dev *sc, struct ub_scsi_cmd *cmd)
 {
 	struct urb *urb = &sc->work_urb;
 	struct bulk_cs_wrap *bcs;
+	int endp;
 	int len;
 	int rc;
 
@@ -1032,6 +1023,10 @@ static void ub_scsi_urb_compl(struct ub_dev *sc, struct ub_scsi_cmd *cmd)
 		ub_state_done(sc, cmd, -ENODEV);
 		return;
 	}
+
+	endp = usb_pipeendpoint(sc->last_pipe);
+	if (usb_pipein(sc->last_pipe))
+		endp |= USB_DIR_IN;
 
 	if (cmd->state == UB_CMDST_CLEAR) {
 		if (urb->status == -EPIPE) {
@@ -1048,9 +1043,7 @@ static void ub_scsi_urb_compl(struct ub_dev *sc, struct ub_scsi_cmd *cmd)
 		 * We ignore the result for the halt clear.
 		 */
 
-		/* reset the endpoint toggle */
-		usb_settoggle(sc->dev, usb_pipeendpoint(sc->last_pipe),
-			usb_pipeout(sc->last_pipe), 0);
+		usb_reset_endpoint(sc->dev, endp);
 
 		ub_state_sense(sc, cmd);
 
@@ -1065,9 +1058,7 @@ static void ub_scsi_urb_compl(struct ub_dev *sc, struct ub_scsi_cmd *cmd)
 		 * We ignore the result for the halt clear.
 		 */
 
-		/* reset the endpoint toggle */
-		usb_settoggle(sc->dev, usb_pipeendpoint(sc->last_pipe),
-			usb_pipeout(sc->last_pipe), 0);
+		usb_reset_endpoint(sc->dev, endp);
 
 		ub_state_stat(sc, cmd);
 
@@ -1082,9 +1073,7 @@ static void ub_scsi_urb_compl(struct ub_dev *sc, struct ub_scsi_cmd *cmd)
 		 * We ignore the result for the halt clear.
 		 */
 
-		/* reset the endpoint toggle */
-		usb_settoggle(sc->dev, usb_pipeendpoint(sc->last_pipe),
-			usb_pipeout(sc->last_pipe), 0);
+		usb_reset_endpoint(sc->dev, endp);
 
 		ub_state_stat_counted(sc, cmd);
 
@@ -1760,7 +1749,7 @@ static int ub_bd_revalidate(struct gendisk *disk)
 	ub_revalidate(lun->udev, lun);
 
 	/* XXX Support sector size switching like in sr.c */
-	blk_queue_hardsect_size(disk->queue, lun->capacity.bsize);
+	blk_queue_logical_block_size(disk->queue, lun->capacity.bsize);
 	set_capacity(disk, lun->capacity.nsec);
 	// set_disk_ro(sdkp->disk, lun->readonly);
 
@@ -2119,8 +2108,7 @@ static int ub_probe_clear_stall(struct ub_dev *sc, int stalled_pipe)
 	del_timer_sync(&timer);
 	usb_kill_urb(&sc->work_urb);
 
-	/* reset the endpoint toggle */
-	usb_settoggle(sc->dev, endp, usb_pipeout(sc->last_pipe), 0);
+	usb_reset_endpoint(sc->dev, endp);
 
 	return 0;
 }
@@ -2146,10 +2134,9 @@ static int ub_get_pipes(struct ub_dev *sc, struct usb_device *dev,
 		ep = &altsetting->endpoint[i].desc;
 
 		/* Is it a BULK endpoint? */
-		if ((ep->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK)
-				== USB_ENDPOINT_XFER_BULK) {
+		if (usb_endpoint_xfer_bulk(ep)) {
 			/* BULK in or out? */
-			if (ep->bEndpointAddress & USB_DIR_IN) {
+			if (usb_endpoint_dir_in(ep)) {
 				if (ep_in == NULL)
 					ep_in = ep;
 			} else {
@@ -2168,9 +2155,9 @@ static int ub_get_pipes(struct ub_dev *sc, struct usb_device *dev,
 	sc->send_ctrl_pipe = usb_sndctrlpipe(dev, 0);
 	sc->recv_ctrl_pipe = usb_rcvctrlpipe(dev, 0);
 	sc->send_bulk_pipe = usb_sndbulkpipe(dev,
-		ep_out->bEndpointAddress & USB_ENDPOINT_NUMBER_MASK);
+		usb_endpoint_num(ep_out));
 	sc->recv_bulk_pipe = usb_rcvbulkpipe(dev, 
-		ep_in->bEndpointAddress & USB_ENDPOINT_NUMBER_MASK);
+		usb_endpoint_num(ep_in));
 
 	return 0;
 }
@@ -2337,7 +2324,7 @@ static int ub_probe_lun(struct ub_dev *sc, int lnum)
 	blk_queue_max_phys_segments(q, UB_MAX_REQ_SG);
 	blk_queue_segment_boundary(q, 0xffffffff);	/* Dubious. */
 	blk_queue_max_sectors(q, UB_MAX_SECTORS);
-	blk_queue_hardsect_size(q, lun->capacity.bsize);
+	blk_queue_logical_block_size(q, lun->capacity.bsize);
 
 	lun->disk = disk;
 	q->queuedata = lun;

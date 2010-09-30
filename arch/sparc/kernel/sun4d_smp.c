@@ -150,7 +150,7 @@ void __cpuinit smp4d_callin(void)
 	spin_lock_irqsave(&sun4d_imsk_lock, flags);
 	cc_set_imsk(cc_get_imsk() & ~0x4000); /* Allow PIL 14 as well */
 	spin_unlock_irqrestore(&sun4d_imsk_lock, flags);
-	cpu_set(cpuid, cpu_online_map);
+	set_cpu_online(cpuid, true);
 
 }
 
@@ -162,9 +162,6 @@ extern void cpu_panic(void);
  */
  
 extern struct linux_prom_registers smp_penguin_ctable;
-extern unsigned long trapbase_cpu1[];
-extern unsigned long trapbase_cpu2[];
-extern unsigned long trapbase_cpu3[];
 
 void __init smp4d_boot_cpus(void)
 {
@@ -228,32 +225,12 @@ void __init smp4d_smp_done(void)
 	/* setup cpu list for irq rotation */
 	first = 0;
 	prev = &first;
-	for (i = 0; i < NR_CPUS; i++)
-		if (cpu_online(i)) {
-			*prev = i;
-			prev = &cpu_data(i).next;
-		}
+	for_each_online_cpu(i) {
+		*prev = i;
+		prev = &cpu_data(i).next;
+	}
 	*prev = first;
 	local_flush_cache_all();
-
-	/* Free unneeded trap tables */
-	ClearPageReserved(virt_to_page(trapbase_cpu1));
-	init_page_count(virt_to_page(trapbase_cpu1));
-	free_page((unsigned long)trapbase_cpu1);
-	totalram_pages++;
-	num_physpages++;
-
-	ClearPageReserved(virt_to_page(trapbase_cpu2));
-	init_page_count(virt_to_page(trapbase_cpu2));
-	free_page((unsigned long)trapbase_cpu2);
-	totalram_pages++;
-	num_physpages++;
-
-	ClearPageReserved(virt_to_page(trapbase_cpu3));
-	init_page_count(virt_to_page(trapbase_cpu3));
-	free_page((unsigned long)trapbase_cpu3);
-	totalram_pages++;
-	num_physpages++;
 
 	/* Ok, they are spinning and ready to go. */
 	smp_processors_ready = 1;

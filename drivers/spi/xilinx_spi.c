@@ -158,9 +158,6 @@ static int xilinx_spi_setup_transfer(struct spi_device *spi,
 	return 0;
 }
 
-/* the spi->mode bits understood by this driver: */
-#define MODEBITS (SPI_CPOL | SPI_CPHA)
-
 static int xilinx_spi_setup(struct spi_device *spi)
 {
 	struct spi_bitbang *bitbang;
@@ -170,21 +167,9 @@ static int xilinx_spi_setup(struct spi_device *spi)
 	xspi = spi_master_get_devdata(spi->master);
 	bitbang = &xspi->bitbang;
 
-	if (!spi->bits_per_word)
-		spi->bits_per_word = 8;
-
-	if (spi->mode & ~MODEBITS) {
-		dev_err(&spi->dev, "%s, unsupported mode bits %x\n",
-			__func__, spi->mode & ~MODEBITS);
-		return -EINVAL;
-	}
-
 	retval = xilinx_spi_setup_transfer(spi, NULL);
 	if (retval < 0)
 		return retval;
-
-	dev_dbg(&spi->dev, "%s, mode %d, %u bits/w, %u nsec/bit\n",
-		__func__, spi->mode & MODEBITS, spi->bits_per_word, 0);
 
 	return 0;
 }
@@ -333,6 +318,9 @@ static int __init xilinx_spi_of_probe(struct of_device *ofdev,
 		goto put_master;
 	}
 
+	/* the spi->mode bits understood by this driver: */
+	master->mode_bits = SPI_CPOL | SPI_CPHA;
+
 	xspi = spi_master_get_devdata(master);
 	xspi->bitbang.master = spi_master_get(master);
 	xspi->bitbang.chipselect = xilinx_spi_chipselect;
@@ -354,7 +342,7 @@ static int __init xilinx_spi_of_probe(struct of_device *ofdev,
 	if (xspi->regs == NULL) {
 		rc = -ENOMEM;
 		dev_warn(&ofdev->dev, "ioremap failure\n");
-		goto put_master;
+		goto release_mem;
 	}
 	xspi->irq = r_irq->start;
 
@@ -365,7 +353,7 @@ static int __init xilinx_spi_of_probe(struct of_device *ofdev,
 	prop = of_get_property(ofdev->node, "xlnx,num-ss-bits", &len);
 	if (!prop || len < sizeof(*prop)) {
 		dev_warn(&ofdev->dev, "no 'xlnx,num-ss-bits' property\n");
-		goto put_master;
+		goto unmap_io;
 	}
 	master->num_chipselect = *prop;
 
@@ -397,6 +385,8 @@ free_irq:
 	free_irq(xspi->irq, xspi);
 unmap_io:
 	iounmap(xspi->regs);
+release_mem:
+	release_mem_region(r_mem->start, resource_size(r_mem));
 put_master:
 	spi_master_put(master);
 	return rc;
@@ -406,6 +396,7 @@ static int __devexit xilinx_spi_remove(struct of_device *ofdev)
 {
 	struct xilinx_spi *xspi;
 	struct spi_master *master;
+	struct resource r_mem;
 
 	master = platform_get_drvdata(ofdev);
 	xspi = spi_master_get_devdata(master);
@@ -413,6 +404,8 @@ static int __devexit xilinx_spi_remove(struct of_device *ofdev)
 	spi_bitbang_stop(&xspi->bitbang);
 	free_irq(xspi->irq, xspi);
 	iounmap(xspi->regs);
+	if (!of_address_to_resource(ofdev->node, 0, &r_mem))
+		release_mem_region(r_mem.start, resource_size(&r_mem));
 	dev_set_drvdata(&ofdev->dev, 0);
 	spi_master_put(xspi->bitbang.master);
 

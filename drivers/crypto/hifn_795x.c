@@ -1882,7 +1882,7 @@ static void hifn_clear_rings(struct hifn_device *dev, int error)
 
 static void hifn_work(struct work_struct *work)
 {
-	struct delayed_work *dw = container_of(work, struct delayed_work, work);
+	struct delayed_work *dw = to_delayed_work(work);
 	struct hifn_device *dev = container_of(dw, struct hifn_device, work);
 	unsigned long flags;
 	int reset = 0;
@@ -2564,7 +2564,7 @@ static void hifn_tasklet_callback(unsigned long data)
 		hifn_process_queue(dev);
 }
 
-static int hifn_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+static int __devinit hifn_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	int err, i;
 	struct hifn_device *dev;
@@ -2575,7 +2575,7 @@ static int hifn_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		return err;
 	pci_set_master(pdev);
 
-	err = pci_set_dma_mask(pdev, DMA_32BIT_MASK);
+	err = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
 	if (err)
 		goto err_out_disable_pci_device;
 
@@ -2696,7 +2696,7 @@ err_out_disable_pci_device:
 	return err;
 }
 
-static void hifn_remove(struct pci_dev *pdev)
+static void __devexit hifn_remove(struct pci_dev *pdev)
 {
 	int i;
 	struct hifn_device *dev;
@@ -2744,7 +2744,7 @@ static struct pci_driver hifn_pci_driver = {
 	.remove   = __devexit_p(hifn_remove),
 };
 
-static int __devinit hifn_init(void)
+static int __init hifn_init(void)
 {
 	unsigned int freq;
 	int err;
@@ -2789,7 +2789,7 @@ static int __devinit hifn_init(void)
 	return 0;
 }
 
-static void __devexit hifn_fini(void)
+static void __exit hifn_fini(void)
 {
 	pci_unregister_driver(&hifn_pci_driver);
 

@@ -39,6 +39,14 @@ static int swsusp_page_is_free(struct page *);
 static void swsusp_set_page_forbidden(struct page *);
 static void swsusp_unset_page_forbidden(struct page *);
 
+/*
+ * Preferred image size in bytes (tunable via /sys/power/image_size).
+ * When it is set to N, swsusp will do its best to ensure the image
+ * size will not exceed N bytes, but if that is impossible, it will
+ * try to create the smallest image possible.
+ */
+unsigned long image_size = 500 * 1024 * 1024;
+
 /* List of PBEs needed for restoring the pages that were allocated before
  * the suspend and included in the suspend image, but have also been
  * allocated by the "resume" kernel, so their contents cannot be written
@@ -321,12 +329,9 @@ static int create_mem_extents(struct list_head *list, gfp_t gfp_mask)
 
 	INIT_LIST_HEAD(list);
 
-	for_each_zone(zone) {
+	for_each_populated_zone(zone) {
 		unsigned long zone_start, zone_end;
 		struct mem_extent *ext, *cur, *aux;
-
-		if (!populated_zone(zone))
-			continue;
 
 		zone_start = zone->zone_start_pfn;
 		zone_end = zone->zone_start_pfn + zone->spanned_pages;
@@ -804,8 +809,8 @@ static unsigned int count_free_highmem_pages(void)
 	struct zone *zone;
 	unsigned int cnt = 0;
 
-	for_each_zone(zone)
-		if (populated_zone(zone) && is_highmem(zone))
+	for_each_populated_zone(zone)
+		if (is_highmem(zone))
 			cnt += zone_page_state(zone, NR_FREE_PAGES);
 
 	return cnt;
@@ -843,7 +848,7 @@ static struct page *saveable_highmem_page(struct zone *zone, unsigned long pfn)
  *	pages.
  */
 
-unsigned int count_highmem_pages(void)
+static unsigned int count_highmem_pages(void)
 {
 	struct zone *zone;
 	unsigned int n = 0;
@@ -905,7 +910,7 @@ static struct page *saveable_page(struct zone *zone, unsigned long pfn)
  *	pages.
  */
 
-unsigned int count_data_pages(void)
+static unsigned int count_data_pages(void)
 {
 	struct zone *zone;
 	unsigned long pfn, max_zone_pfn;
@@ -1059,6 +1064,74 @@ void swsusp_free(void)
 	nr_meta_pages = 0;
 	restore_pblist = NULL;
 	buffer = NULL;
+}
+
+/**
+ *	swsusp_shrink_memory -  Try to free as much memory as needed
+ *
+ *	... but do not OOM-kill anyone
+ *
+ *	Notice: all userland should be stopped before it is called, or
+ *	livelock is possible.
+ */
+
+#define SHRINK_BITE	10000
+static inline unsigned long __shrink_memory(long tmp)
+{
+	if (tmp > SHRINK_BITE)
+		tmp = SHRINK_BITE;
+	return shrink_all_memory(tmp);
+}
+
+int swsusp_shrink_memory(void)
+{
+	long tmp;
+	struct zone *zone;
+	unsigned long pages = 0;
+	unsigned int i = 0;
+	char *p = "-\\|/";
+	struct timeval start, stop;
+
+	printk(KERN_INFO "PM: Shrinking memory...  ");
+	do_gettimeofday(&start);
+	do {
+		long size, highmem_size;
+
+		highmem_size = count_highmem_pages();
+		size = count_data_pages() + PAGES_FOR_IO + SPARE_PAGES;
+		tmp = size;
+		size += highmem_size;
+		for_each_populated_zone(zone) {
+			tmp += snapshot_additional_pages(zone);
+			if (is_highmem(zone)) {
+				highmem_size -=
+					zone_page_state(zone, NR_FREE_PAGES);
+			} else {
+				tmp -= zone_page_state(zone, NR_FREE_PAGES);
+				tmp += zone->lowmem_reserve[ZONE_NORMAL];
+			}
+		}
+
+		if (highmem_size < 0)
+			highmem_size = 0;
+
+		tmp += highmem_size;
+		if (tmp > 0) {
+			tmp = __shrink_memory(tmp);
+			if (!tmp)
+				return -ENOMEM;
+			pages += tmp;
+		} else if (size > image_size / PAGE_SIZE) {
+			tmp = __shrink_memory(size - (image_size / PAGE_SIZE));
+			pages += tmp;
+		}
+		printk("\b%c", p[i++%4]);
+	} while (tmp > 0);
+	do_gettimeofday(&stop);
+	printk("\bdone (%lu pages freed)\n", pages);
+	swsusp_show_speed(&start, &stop, pages, "Freed");
+
+	return 0;
 }
 
 #ifdef CONFIG_HIGHMEM

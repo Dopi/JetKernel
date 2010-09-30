@@ -125,8 +125,6 @@ static const char* cardname = DRV_NAME;
 #define NET_DEBUG 2
 #endif
 
-#undef DEBUG_IRQ
-
 static unsigned int mc32_debug = NET_DEBUG;
 
 /* The number of low I/O ports used by the ethercard. */
@@ -288,6 +286,18 @@ struct net_device *__init mc32_probe(int unit)
 	return ERR_PTR(-ENODEV);
 }
 
+static const struct net_device_ops netdev_ops = {
+	.ndo_open		= mc32_open,
+	.ndo_stop		= mc32_close,
+	.ndo_start_xmit		= mc32_send_packet,
+	.ndo_get_stats		= mc32_get_stats,
+	.ndo_set_multicast_list = mc32_set_multicast_list,
+	.ndo_tx_timeout		= mc32_timeout,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
 /**
  * mc32_probe1	-	Check a given slot for a board and test the card
  * @dev:  Device structure to fill in
@@ -339,15 +349,15 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 	/* Time to play MCA games */
 
 	if (mc32_debug  &&  version_printed++ == 0)
-		printk(KERN_DEBUG "%s", version);
+		pr_debug("%s", version);
 
-	printk(KERN_INFO "%s: %s found in slot %d:", dev->name, cardname, slot);
+	pr_info("%s: %s found in slot %d: ", dev->name, cardname, slot);
 
 	POS = mca_read_stored_pos(slot, 2);
 
 	if(!(POS&1))
 	{
-		printk(" disabled.\n");
+		pr_cont("disabled.\n");
 		return -ENODEV;
 	}
 
@@ -358,7 +368,7 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 	POS = mca_read_stored_pos(slot, 4);
 	if(!(POS&1))
 	{
-		printk("memory window disabled.\n");
+		pr_cont("memory window disabled.\n");
 		return -ENODEV;
 	}
 
@@ -367,7 +377,7 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 	i=(POS>>4)&3;
 	if(i==3)
 	{
-		printk("invalid memory window.\n");
+		pr_cont("invalid memory window.\n");
 		return -ENODEV;
 	}
 
@@ -380,11 +390,11 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 
 	if(!request_region(dev->base_addr, MC32_IO_EXTENT, cardname))
 	{
-		printk("io 0x%3lX, which is busy.\n", dev->base_addr);
+		pr_cont("io 0x%3lX, which is busy.\n", dev->base_addr);
 		return -EBUSY;
 	}
 
-	printk("io 0x%3lX irq %d mem 0x%lX (%dK)\n",
+	pr_cont("io 0x%3lX irq %d mem 0x%lX (%dK)\n",
 		dev->base_addr, dev->irq, dev->mem_start, i/1024);
 
 
@@ -404,7 +414,7 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 		dev->dev_addr[i] = mca_read_pos(slot,3);
 	}
 
-	printk("%s: Address %pM", dev->name, dev->dev_addr);
+	pr_info("%s: Address %pM ", dev->name, dev->dev_addr);
 
 	mca_write_pos(slot, 6, 0);
 	mca_write_pos(slot, 7, 0);
@@ -412,9 +422,9 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 	POS = mca_read_stored_pos(slot, 4);
 
 	if(POS&2)
-		printk(" : BNC port selected.\n");
+		pr_cont(": BNC port selected.\n");
 	else
-		printk(" : AUI port selected.\n");
+		pr_cont(": AUI port selected.\n");
 
 	POS=inb(dev->base_addr+HOST_CTRL);
 	POS|=HOST_CTRL_ATTN|HOST_CTRL_RESET;
@@ -435,7 +445,7 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 	err = request_irq(dev->irq, &mc32_interrupt, IRQF_SHARED | IRQF_SAMPLE_RANDOM, DRV_NAME, dev);
 	if (err) {
 		release_region(dev->base_addr, MC32_IO_EXTENT);
-		printk(KERN_ERR "%s: unable to get IRQ %d.\n", DRV_NAME, dev->irq);
+		pr_err("%s: unable to get IRQ %d.\n", DRV_NAME, dev->irq);
 		goto err_exit_ports;
 	}
 
@@ -451,7 +461,7 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 		i++;
 		if(i == 1000)
 		{
-			printk(KERN_ERR "%s: failed to boot adapter.\n", dev->name);
+			pr_err("%s: failed to boot adapter.\n", dev->name);
 			err = -ENODEV;
 			goto err_exit_irq;
 		}
@@ -463,10 +473,10 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 	if(base>0)
 	{
 		if(base < 0x0C)
-			printk(KERN_ERR "%s: %s%s.\n", dev->name, failures[base-1],
+			pr_err("%s: %s%s.\n", dev->name, failures[base-1],
 				base<0x0A?" test failure":"");
 		else
-			printk(KERN_ERR "%s: unknown failure %d.\n", dev->name, base);
+			pr_err("%s: unknown failure %d.\n", dev->name, base);
 		err = -ENODEV;
 		goto err_exit_irq;
 	}
@@ -482,7 +492,7 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 			udelay(50);
 			if(n>100)
 			{
-				printk(KERN_ERR "%s: mailbox read fail (%d).\n", dev->name, i);
+				pr_err("%s: mailbox read fail (%d).\n", dev->name, i);
 				err = -ENODEV;
 				goto err_exit_irq;
 			}
@@ -515,15 +525,10 @@ static int __init mc32_probe1(struct net_device *dev, int slot)
 	init_completion(&lp->execution_cmd);
 	init_completion(&lp->xceiver_cmd);
 
-	printk("%s: Firmware Rev %d. %d RX buffers, %d TX buffers. Base of 0x%08X.\n",
+	pr_info("%s: Firmware Rev %d. %d RX buffers, %d TX buffers. Base of 0x%08X.\n",
 		dev->name, lp->exec_box->data[12], lp->rx_len, lp->tx_len, lp->base);
 
-	dev->open		= mc32_open;
-	dev->stop		= mc32_close;
-	dev->hard_start_xmit	= mc32_send_packet;
-	dev->get_stats		= mc32_get_stats;
-	dev->set_multicast_list = mc32_set_multicast_list;
-	dev->tx_timeout		= mc32_timeout;
+	dev->netdev_ops		= &netdev_ops;
 	dev->watchdog_timeo	= HZ*5;	/* Board does all the work */
 	dev->ethtool_ops	= &netdev_ethtool_ops;
 
@@ -932,7 +937,7 @@ static int mc32_open(struct net_device *dev)
 	 */
 
 	if(mc32_command(dev, 8, descnumbuffs, 4)) {
-		printk("%s: %s rejected our buffer configuration!\n",
+		pr_info("%s: %s rejected our buffer configuration!\n",
 	 	       dev->name, cardname);
 		mc32_close(dev);
 		return -ENOBUFS;
@@ -988,7 +993,7 @@ static int mc32_open(struct net_device *dev)
 
 static void mc32_timeout(struct net_device *dev)
 {
-	printk(KERN_WARNING "%s: transmit timed out?\n", dev->name);
+	pr_warning("%s: transmit timed out?\n", dev->name);
 	/* Try to restart the adaptor. */
 	netif_wake_queue(dev);
 }
@@ -1025,7 +1030,7 @@ static int mc32_send_packet(struct sk_buff *skb, struct net_device *dev)
 	netif_stop_queue(dev);
 
 	if(atomic_read(&lp->tx_count)==0) {
-		return 1;
+		return NETDEV_TX_BUSY;
 	}
 
 	if (skb_padto(skb, ETH_ZLEN)) {
@@ -1328,11 +1333,9 @@ static irqreturn_t mc32_interrupt(int irq, void *dev_id)
 	{
 		status=inb(ioaddr+HOST_CMD);
 
-#ifdef DEBUG_IRQ
-		printk("Status TX%d RX%d EX%d OV%d BC%d\n",
+		pr_debug("Status TX%d RX%d EX%d OV%d BC%d\n",
 			(status&7), (status>>3)&7, (status>>6)&1,
 			(status>>7)&1, boguscount);
-#endif
 
 		switch(status&7)
 		{
@@ -1347,7 +1350,7 @@ static irqreturn_t mc32_interrupt(int irq, void *dev_id)
 				complete(&lp->xceiver_cmd);
 				break;
 			default:
-				printk("%s: strange tx ack %d\n", dev->name, status&7);
+				pr_notice("%s: strange tx ack %d\n", dev->name, status&7);
 		}
 		status>>=3;
 		switch(status&7)
@@ -1369,7 +1372,7 @@ static irqreturn_t mc32_interrupt(int irq, void *dev_id)
 				mc32_start_transceiver(dev);
 				break;
 			default:
-				printk("%s: strange rx ack %d\n",
+				pr_notice("%s: strange rx ack %d\n",
 					dev->name, status&7);
 		}
 		status>>=3;

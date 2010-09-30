@@ -94,9 +94,9 @@ acpi_ex_setup_region(union acpi_operand_object *obj_desc,
 
 	/* We must have a valid region */
 
-	if (ACPI_GET_OBJECT_TYPE(rgn_desc) != ACPI_TYPE_REGION) {
+	if (rgn_desc->common.type != ACPI_TYPE_REGION) {
 		ACPI_ERROR((AE_INFO, "Needed Region, found type %X (%s)",
-			    ACPI_GET_OBJECT_TYPE(rgn_desc),
+			    rgn_desc->common.type,
 			    acpi_ut_get_object_type_name(rgn_desc)));
 
 		return_ACPI_STATUS(AE_AML_OPERAND_TYPE);
@@ -228,7 +228,7 @@ acpi_ex_access_region(union acpi_operand_object *obj_desc,
 {
 	acpi_status status;
 	union acpi_operand_object *rgn_desc;
-	acpi_physical_address address;
+	u32 region_offset;
 
 	ACPI_FUNCTION_TRACE(ex_access_region);
 
@@ -249,7 +249,7 @@ acpi_ex_access_region(union acpi_operand_object *obj_desc,
 	 * 3) The current offset into the field
 	 */
 	rgn_desc = obj_desc->common_field.region_obj;
-	address = rgn_desc->region.address +
+	region_offset =
 	    obj_desc->common_field.base_byte_offset + field_datum_byte_offset;
 
 	if ((function & ACPI_IO_MASK) == ACPI_READ) {
@@ -266,16 +266,18 @@ acpi_ex_access_region(union acpi_operand_object *obj_desc,
 			      obj_desc->common_field.access_byte_width,
 			      obj_desc->common_field.base_byte_offset,
 			      field_datum_byte_offset, ACPI_CAST_PTR(void,
-								     address)));
+								     (rgn_desc->
+								      region.
+								      address +
+								      region_offset))));
 
 	/* Invoke the appropriate address_space/op_region handler */
 
-	status = acpi_ev_address_space_dispatch(rgn_desc, function,
-						address,
-						ACPI_MUL_8(obj_desc->
-							   common_field.
-							   access_byte_width),
-						value);
+	status =
+	    acpi_ev_address_space_dispatch(rgn_desc, function, region_offset,
+					   ACPI_MUL_8(obj_desc->common_field.
+						      access_byte_width),
+					   value);
 
 	if (ACPI_FAILURE(status)) {
 		if (status == AE_NOT_IMPLEMENTED) {
@@ -390,7 +392,7 @@ acpi_ex_field_datum_io(union acpi_operand_object *obj_desc,
 	 * index_field - Write to an Index Register, then read/write from/to a
 	 *               Data Register
 	 */
-	switch (ACPI_GET_OBJECT_TYPE(obj_desc)) {
+	switch (obj_desc->common.type) {
 	case ACPI_TYPE_BUFFER_FIELD:
 		/*
 		 * If the buffer_field arguments have not been previously evaluated,
@@ -527,7 +529,7 @@ acpi_ex_field_datum_io(union acpi_operand_object *obj_desc,
 	default:
 
 		ACPI_ERROR((AE_INFO, "Wrong object type in field I/O %X",
-			    ACPI_GET_OBJECT_TYPE(obj_desc)));
+			    obj_desc->common.type));
 		status = AE_AML_INTERNAL;
 		break;
 	}

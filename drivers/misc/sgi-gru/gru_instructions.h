@@ -19,8 +19,11 @@
 #ifndef __GRU_INSTRUCTIONS_H__
 #define __GRU_INSTRUCTIONS_H__
 
-#define gru_flush_cache_hook(p)
-#define gru_emulator_wait_hook(p, w)
+extern int gru_check_status_proc(void *cb);
+extern int gru_wait_proc(void *cb);
+extern void gru_wait_abort_proc(void *cb);
+
+
 
 /*
  * Architecture dependent functions
@@ -29,16 +32,16 @@
 #if defined(CONFIG_IA64)
 #include <linux/compiler.h>
 #include <asm/intrinsics.h>
-#define __flush_cache(p)		ia64_fc(p)
+#define __flush_cache(p)		ia64_fc((unsigned long)p)
 /* Use volatile on IA64 to ensure ordering via st4.rel */
-#define gru_ordered_store_int(p,v)					\
+#define gru_ordered_store_int(p, v)					\
 		do {							\
 			barrier();					\
 			*((volatile int *)(p)) = v; /* force st.rel */	\
 		} while (0)
 #elif defined(CONFIG_X86_64)
 #define __flush_cache(p)		clflush(p)
-#define gru_ordered_store_int(p,v)					\
+#define gru_ordered_store_int(p, v)					\
 		do {							\
 			barrier();					\
 			*(int *)p = v;					\
@@ -78,6 +81,8 @@ struct control_block_extended_exc_detail {
 	int		exopc;
 	long		exceptdet0;
 	int		exceptdet1;
+	int		cbrstate;
+	int		cbrexecstatus;
 };
 
 /*
@@ -104,7 +109,8 @@ struct gru_instruction_bits {
     unsigned char		reserved2: 2;
     unsigned char		istatus:   2;
     unsigned char		isubstatus:4;
-    unsigned char		reserved3: 2;
+    unsigned char		reserved3: 1;
+    unsigned char		tlb_fault_color: 1;
     /* DW 1 */
     unsigned long		idef4;		/* 42 bits: TRi1, BufSize */
     /* DW 2-6 */
@@ -247,17 +253,37 @@ struct gru_instruction {
 #define CBE_CAUSE_HA_RESPONSE_FATAL		(1 << 13)
 #define CBE_CAUSE_HA_RESPONSE_NON_FATAL		(1 << 14)
 #define CBE_CAUSE_ADDRESS_SPACE_DECODE_ERROR	(1 << 15)
-#define CBE_CAUSE_RESPONSE_DATA_ERROR		(1 << 16)
-#define CBE_CAUSE_PROTOCOL_STATE_DATA_ERROR	(1 << 17)
+#define CBE_CAUSE_PROTOCOL_STATE_DATA_ERROR	(1 << 16)
+#define CBE_CAUSE_RA_RESPONSE_DATA_ERROR	(1 << 17)
+#define CBE_CAUSE_HA_RESPONSE_DATA_ERROR	(1 << 18)
+
+/* CBE cbrexecstatus bits */
+#define CBR_EXS_ABORT_OCC_BIT			0
+#define CBR_EXS_INT_OCC_BIT			1
+#define CBR_EXS_PENDING_BIT			2
+#define CBR_EXS_QUEUED_BIT			3
+#define CBR_EXS_TLB_INVAL_BIT			4
+#define CBR_EXS_EXCEPTION_BIT			5
+
+#define CBR_EXS_ABORT_OCC			(1 << CBR_EXS_ABORT_OCC_BIT)
+#define CBR_EXS_INT_OCC				(1 << CBR_EXS_INT_OCC_BIT)
+#define CBR_EXS_PENDING				(1 << CBR_EXS_PENDING_BIT)
+#define CBR_EXS_QUEUED				(1 << CBR_EXS_QUEUED_BIT)
+#define CBR_TLB_INVAL				(1 << CBR_EXS_TLB_INVAL_BIT)
+#define CBR_EXS_EXCEPTION			(1 << CBR_EXS_EXCEPTION_BIT)
 
 /*
  * Exceptions are retried for the following cases. If any OTHER bits are set
  * in ecause, the exception is not retryable.
  */
-#define EXCEPTION_RETRY_BITS (CBE_CAUSE_RESPONSE_DATA_ERROR |		\
-			      CBE_CAUSE_RA_REQUEST_TIMEOUT |		\
+#define EXCEPTION_RETRY_BITS (CBE_CAUSE_EXECUTION_HW_ERROR |		\
 			      CBE_CAUSE_TLBHW_ERROR |			\
-			      CBE_CAUSE_HA_REQUEST_TIMEOUT)
+			      CBE_CAUSE_RA_REQUEST_TIMEOUT |		\
+			      CBE_CAUSE_RA_RESPONSE_NON_FATAL |		\
+			      CBE_CAUSE_HA_RESPONSE_NON_FATAL |		\
+			      CBE_CAUSE_RA_RESPONSE_DATA_ERROR |	\
+			      CBE_CAUSE_HA_RESPONSE_DATA_ERROR		\
+			      )
 
 /* Message queue head structure */
 union gru_mesqhead {
@@ -558,20 +584,19 @@ extern int gru_get_cb_exception_detail(void *cb,
 
 #define GRU_EXC_STR_SIZE		256
 
-extern int gru_check_status_proc(void *cb);
-extern int gru_wait_proc(void *cb);
-extern void gru_wait_abort_proc(void *cb);
 
 /*
  * Control block definition for checking status
  */
 struct gru_control_block_status {
 	unsigned int	icmd		:1;
-	unsigned int	unused1		:31;
+	unsigned int	ima		:3;
+	unsigned int	reserved0	:4;
+	unsigned int	unused1		:24;
 	unsigned int	unused2		:24;
 	unsigned int	istatus		:2;
 	unsigned int	isubstatus	:4;
-	unsigned int	inused3		:2;
+	unsigned int	unused3		:2;
 };
 
 /* Get CB status */
@@ -598,9 +623,11 @@ static inline int gru_get_cb_substatus(void *cb)
 	return cbs->isubstatus;
 }
 
-/* Check the status of a CB. If the CB is in UPM mode, call the
- * OS to handle the UPM status.
- * Returns the CB status field value (0 for normal completion)
+/*
+ * User interface to check an instruction status. UPM and exceptions
+ * are handled automatically. However, this function does NOT wait
+ * for an active instruction to complete.
+ *
  */
 static inline int gru_check_status(void *cb)
 {
@@ -608,34 +635,31 @@ static inline int gru_check_status(void *cb)
 	int ret;
 
 	ret = cbs->istatus;
-	if (ret == CBS_CALL_OS)
+	if (ret != CBS_ACTIVE)
 		ret = gru_check_status_proc(cb);
 	return ret;
 }
 
-/* Wait for CB to complete.
- * Returns the CB status field value (0 for normal completion)
+/*
+ * User interface (via inline function) to wait for an instruction
+ * to complete. Completion status (IDLE or EXCEPTION is returned
+ * to the user. Exception due to hardware errors are automatically
+ * retried before returning an exception.
+ *
  */
 static inline int gru_wait(void *cb)
 {
-	struct gru_control_block_status *cbs = (void *)cb;
-	int ret = cbs->istatus;
-
-	if (ret != CBS_IDLE)
-		ret = gru_wait_proc(cb);
-	return ret;
+	return gru_wait_proc(cb);
 }
 
-/* Wait for CB to complete. Aborts program if error. (Note: error does NOT
+/*
+ * Wait for CB to complete. Aborts program if error. (Note: error does NOT
  * mean TLB mis - only fatal errors such as memory parity error or user
  * bugs will cause termination.
  */
 static inline void gru_wait_abort(void *cb)
 {
-	struct gru_control_block_status *cbs = (void *)cb;
-
-	if (cbs->istatus != CBS_IDLE)
-		gru_wait_abort_proc(cb);
+	gru_wait_abort_proc(cb);
 }
 
 

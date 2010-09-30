@@ -50,6 +50,9 @@ config KVM_INTEL
 	  Provides support for KVM on Intel processors equipped with the VT
 	  extensions.
 
+	  To compile this as a module, choose M here: the module
+	  will be called kvm-intel.
+
 config KVM_AMD
 	tristate "KVM for AMD processors support"
 	depends on KVM
@@ -57,9 +60,13 @@ config KVM_AMD
 	  Provides support for KVM on AMD processors equipped with the AMD-V
 	  (SVM) extensions.
 
+	  To compile this as a module, choose M here: the module
+	  will be called kvm-amd.
+
 config KVM_TRACE
 	bool "KVM trace support"
-	depends on KVM && MARKERS && SYSFS
+	depends on KVM && SYSFS
+	select MARKERS
 	select RELAY
 	select DEBUG_FS
 	default n

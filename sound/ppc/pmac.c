@@ -299,7 +299,7 @@ static int snd_pmac_pcm_trigger(struct snd_pmac *chip, struct pmac_stream *rec,
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 		spin_lock(&chip->reg_lock);
 		rec->running = 0;
-		/*printk("stopped!!\n");*/
+		/*printk(KERN_DEBUG "stopped!!\n");*/
 		snd_pmac_dma_stop(rec);
 		for (i = 0, cp = rec->cmd.cmds; i < rec->nperiods; i++, cp++)
 			out_le16(&cp->command, DBDMA_STOP);
@@ -334,7 +334,7 @@ static snd_pcm_uframes_t snd_pmac_pcm_pointer(struct snd_pmac *chip,
 	}
 #endif
 	count += rec->cur_period * rec->period_size;
-	/*printk("pointer=%d\n", count);*/
+	/*printk(KERN_DEBUG "pointer=%d\n", count);*/
 	return bytes_to_frames(subs->runtime, count);
 }
 
@@ -486,7 +486,7 @@ static void snd_pmac_pcm_update(struct snd_pmac *chip, struct pmac_stream *rec)
 			if (! (stat & ACTIVE))
 				break;
 
-			/*printk("update frag %d\n", rec->cur_period);*/
+			/*printk(KERN_DEBUG "update frag %d\n", rec->cur_period);*/
 			st_le16(&cp->xfer_status, 0);
 			st_le16(&cp->req_count, rec->period_size);
 			/*st_le16(&cp->res_count, 0);*/
@@ -702,7 +702,7 @@ static struct snd_pcm_ops snd_pmac_capture_ops = {
 	.pointer =	snd_pmac_capture_pointer,
 };
 
-int __init snd_pmac_pcm_new(struct snd_pmac *chip)
+int __devinit snd_pmac_pcm_new(struct snd_pmac *chip)
 {
 	struct snd_pcm *pcm;
 	int err;
@@ -806,7 +806,7 @@ snd_pmac_ctrl_intr(int irq, void *devid)
 	struct snd_pmac *chip = devid;
 	int ctrl = in_le32(&chip->awacs->control);
 
-	/*printk("pmac: control interrupt.. 0x%x\n", ctrl);*/
+	/*printk(KERN_DEBUG "pmac: control interrupt.. 0x%x\n", ctrl);*/
 	if (ctrl & MASK_PORTCHG) {
 		/* do something when headphone is plugged/unplugged? */
 		if (chip->update_automute)
@@ -908,7 +908,7 @@ static int snd_pmac_dev_free(struct snd_device *device)
  * check the machine support byteswap (little-endian)
  */
 
-static void __init detect_byte_swap(struct snd_pmac *chip)
+static void __devinit detect_byte_swap(struct snd_pmac *chip)
 {
 	struct device_node *mio;
 
@@ -934,7 +934,7 @@ static void __init detect_byte_swap(struct snd_pmac *chip)
 /*
  * detect a sound chip
  */
-static int __init snd_pmac_detect(struct snd_pmac *chip)
+static int __devinit snd_pmac_detect(struct snd_pmac *chip)
 {
 	struct device_node *sound;
 	struct device_node *dn;
@@ -1033,7 +1033,8 @@ static int __init snd_pmac_detect(struct snd_pmac *chip)
 	}
 	if (of_device_is_compatible(sound, "tumbler")) {
 		chip->model = PMAC_TUMBLER;
-		chip->can_capture = machine_is_compatible("PowerMac4,2");
+		chip->can_capture = machine_is_compatible("PowerMac4,2")
+				|| machine_is_compatible("PowerBook4,1");
 		chip->can_duplex = 0;
 		// chip->can_byte_swap = 0; /* FIXME: check this */
 		chip->num_freqs = ARRAY_SIZE(tumbler_freqs);
@@ -1142,7 +1143,7 @@ static int pmac_hp_detect_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static struct snd_kcontrol_new auto_mute_controls[] __initdata = {
+static struct snd_kcontrol_new auto_mute_controls[] __devinitdata = {
 	{ .iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	  .name = "Auto Mute Switch",
 	  .info = snd_pmac_boolean_mono_info,
@@ -1157,7 +1158,7 @@ static struct snd_kcontrol_new auto_mute_controls[] __initdata = {
 	},
 };
 
-int __init snd_pmac_add_automute(struct snd_pmac *chip)
+int __devinit snd_pmac_add_automute(struct snd_pmac *chip)
 {
 	int err;
 	chip->auto_mute = 1;
@@ -1174,7 +1175,7 @@ int __init snd_pmac_add_automute(struct snd_pmac *chip)
 /*
  * create and detect a pmac chip record
  */
-int __init snd_pmac_new(struct snd_card *card, struct snd_pmac **chip_return)
+int __devinit snd_pmac_new(struct snd_card *card, struct snd_pmac **chip_return)
 {
 	struct snd_pmac *chip;
 	struct device_node *np;

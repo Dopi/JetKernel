@@ -47,7 +47,6 @@
 #include <linux/slab.h>
 #include <linux/sched.h>
 #include <linux/interrupt.h>
-#include <linux/version.h>
 
 #include "meids.h"
 #include "meerror.h"
@@ -228,6 +227,7 @@ me_device_t *me1400_pci_constructor(struct pci_dev *pci_device)
 
 	return (me_device_t *) me1400_device;
 }
+EXPORT_SYMBOL(me1400_pci_constructor);
 
 // Init and exit of module.
 
@@ -251,6 +251,3 @@ MODULE_AUTHOR
 MODULE_DESCRIPTION("Device Driver Module for Meilhaus ME-14xx devices");
 MODULE_SUPPORTED_DEVICE("Meilhaus ME-14xx MIO devices");
 MODULE_LICENSE("GPL");
-
-// Export the constructor.
-EXPORT_SYMBOL(me1400_pci_constructor);

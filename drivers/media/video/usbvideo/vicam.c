@@ -43,6 +43,7 @@
 #include <linux/vmalloc.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
+#include <linux/smp_lock.h>
 #include <linux/mutex.h>
 #include <linux/firmware.h>
 #include <linux/ihex.h>
@@ -191,7 +192,7 @@ initialize_camera(struct vicam_camera *cam)
 {
 	int err;
 	const struct ihex_binrec *rec;
-	const struct firmware *fw;
+	const struct firmware *uninitialized_var(fw);
 
 	err = request_ihex_firmware(&fw, "vicam/firmware.fw", &cam->udev->dev);
 	if (err) {

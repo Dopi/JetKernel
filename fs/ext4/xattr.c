@@ -490,7 +490,7 @@ ext4_xattr_release_block(handle_t *handle, struct inode *inode,
 		error = ext4_handle_dirty_metadata(handle, inode, bh);
 		if (IS_SYNC(inode))
 			ext4_handle_sync(handle);
-		DQUOT_FREE_BLOCK(inode, 1);
+		vfs_dq_free_block(inode, 1);
 		ea_bdebug(bh, "refcount now=%d; releasing",
 			  le32_to_cpu(BHDR(bh)->h_refcount));
 		if (ce)
@@ -784,7 +784,7 @@ inserted:
 				/* The old block is released after updating
 				   the inode. */
 				error = -EDQUOT;
-				if (DQUOT_ALLOC_BLOCK(inode, 1))
+				if (vfs_dq_alloc_block(inode, 1))
 					goto cleanup;
 				error = ext4_journal_get_write_access(handle,
 								      new_bh);
@@ -810,12 +810,23 @@ inserted:
 			get_bh(new_bh);
 		} else {
 			/* We need to allocate a new block */
-			ext4_fsblk_t goal = ext4_group_first_block_no(sb,
+			ext4_fsblk_t goal, block;
+
+			goal = ext4_group_first_block_no(sb,
 						EXT4_I(inode)->i_block_group);
-			ext4_fsblk_t block = ext4_new_meta_blocks(handle, inode,
+
+			/* non-extent files can't have physical blocks past 2^32 */
+			if (!(EXT4_I(inode)->i_flags & EXT4_EXTENTS_FL))
+				goal = goal & EXT4_MAX_BLOCK_FILE_PHYS;
+
+			block = ext4_new_meta_blocks(handle, inode,
 						  goal, NULL, &error);
 			if (error)
 				goto cleanup;
+
+			if (!(EXT4_I(inode)->i_flags & EXT4_EXTENTS_FL))
+				BUG_ON(block > EXT4_MAX_BLOCK_FILE_PHYS);
+
 			ea_idebug(inode, "creating block %d", block);
 
 			new_bh = sb_getblk(sb, block);
@@ -860,7 +871,7 @@ cleanup:
 	return error;
 
 cleanup_dquot:
-	DQUOT_FREE_BLOCK(inode, 1);
+	vfs_dq_free_block(inode, 1);
 	goto cleanup;
 
 bad_block:
@@ -977,6 +988,10 @@ ext4_xattr_set_handle(handle_t *handle, struct inode *inode, int name_index,
 	if (error)
 		goto cleanup;
 
+	error = ext4_journal_get_write_access(handle, is.iloc.bh);
+	if (error)
+		goto cleanup;
+
 	if (EXT4_I(inode)->i_state & EXT4_STATE_NEW) {
 		struct ext4_inode *raw_inode = ext4_raw_inode(&is.iloc);
 		memset(raw_inode, 0, EXT4_SB(inode->i_sb)->s_inode_size);
@@ -1002,9 +1017,6 @@ ext4_xattr_set_handle(handle_t *handle, struct inode *inode, int name_index,
 		if (flags & XATTR_CREATE)
 			goto cleanup;
 	}
-	error = ext4_journal_get_write_access(handle, is.iloc.bh);
-	if (error)
-		goto cleanup;
 	if (!value) {
 		if (!is.s.not_found)
 			error = ext4_xattr_ibody_set(handle, inode, &i, &is);

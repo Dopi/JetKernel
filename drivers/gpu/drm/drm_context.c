@@ -143,7 +143,7 @@ int drm_getsareactx(struct drm_device *dev, void *data,
 		    struct drm_file *file_priv)
 {
 	struct drm_ctx_priv_map *request = data;
-	struct drm_map *map;
+	struct drm_local_map *map;
 	struct drm_map_list *_entry;
 
 	mutex_lock(&dev->struct_mutex);
@@ -186,7 +186,7 @@ int drm_setsareactx(struct drm_device *dev, void *data,
 		    struct drm_file *file_priv)
 {
 	struct drm_ctx_priv_map *request = data;
-	struct drm_map *map = NULL;
+	struct drm_local_map *map = NULL;
 	struct drm_map_list *r_list = NULL;
 
 	mutex_lock(&dev->struct_mutex);
@@ -341,7 +341,7 @@ int drm_addctx(struct drm_device *dev, void *data,
 			}
 	}
 
-	ctx_entry = drm_alloc(sizeof(*ctx_entry), DRM_MEM_CTXLIST);
+	ctx_entry = kmalloc(sizeof(*ctx_entry), GFP_KERNEL);
 	if (!ctx_entry) {
 		DRM_DEBUG("out of memory\n");
 		return -ENOMEM;
@@ -456,7 +456,7 @@ int drm_rmctx(struct drm_device *dev, void *data,
 		list_for_each_entry_safe(pos, n, &dev->ctxlist, head) {
 			if (pos->handle == ctx->handle) {
 				list_del(&pos->head);
-				drm_free(pos, sizeof(*pos), DRM_MEM_CTXLIST);
+				kfree(pos);
 				--dev->ctx_count;
 			}
 		}

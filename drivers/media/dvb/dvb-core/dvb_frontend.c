@@ -543,6 +543,7 @@ restart:
 
 		if (kthread_should_stop() || dvb_frontend_is_exiting(fe)) {
 			/* got signal or quitting */
+			fepriv->exit = 1;
 			break;
 		}
 
@@ -656,6 +657,7 @@ restart:
 	}
 
 	fepriv->thread = NULL;
+	fepriv->exit = 0;
 	mb();
 
 	dvb_frontend_wakeup(fe);
@@ -1875,7 +1877,7 @@ static int dvb_frontend_release(struct inode *inode, struct file *file)
 	return ret;
 }
 
-static struct file_operations dvb_frontend_fops = {
+static const struct file_operations dvb_frontend_fops = {
 	.owner		= THIS_MODULE,
 	.ioctl		= dvb_generic_ioctl,
 	.poll		= dvb_frontend_poll,

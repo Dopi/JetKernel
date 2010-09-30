@@ -247,16 +247,17 @@ void die_if_kernel(char *str, struct pt_regs *regs, long err)
 
 	oops_in_progress = 1;
 
+	oops_enter();
+
 	/* Amuse the user in a SPARC fashion */
-	if (err) printk(
-KERN_CRIT "      _______________________________ \n"
-KERN_CRIT "     < Your System ate a SPARC! Gah! >\n"
-KERN_CRIT "      ------------------------------- \n"
-KERN_CRIT "             \\   ^__^\n"
-KERN_CRIT "              \\  (xx)\\_______\n"
-KERN_CRIT "                 (__)\\       )\\/\\\n"
-KERN_CRIT "                  U  ||----w |\n"
-KERN_CRIT "                     ||     ||\n");
+	if (err) printk(KERN_CRIT
+			"      _______________________________ \n"
+			"     < Your System ate a SPARC! Gah! >\n"
+			"      ------------------------------- \n"
+			"             \\   ^__^\n"
+			"                 (__)\\       )\\/\\\n"
+			"                  U  ||----w |\n"
+			"                     ||     ||\n");
 	
 	/* unlock the pdc lock if necessary */
 	pdc_emergency_unlock();
@@ -293,6 +294,7 @@ KERN_CRIT "                     ||     ||\n");
 		panic("Fatal exception");
 	}
 
+	oops_exit();
 	do_exit(SIGSEGV);
 }
 
@@ -494,7 +496,7 @@ void parisc_terminate(char *msg, struct pt_regs *regs, int code, unsigned long o
 	panic(msg);
 }
 
-void handle_interruption(int code, struct pt_regs *regs)
+void notrace handle_interruption(int code, struct pt_regs *regs)
 {
 	unsigned long fault_address = 0;
 	unsigned long fault_space = 0;
@@ -530,7 +532,7 @@ void handle_interruption(int code, struct pt_regs *regs)
 	  	/* Kill the user process later */
 	  	regs->iaoq[0] = 0 | 3;
 		regs->iaoq[1] = regs->iaoq[0] + 4;
-	 	regs->iasq[0] = regs->iasq[0] = regs->sr[7];
+	 	regs->iasq[0] = regs->iasq[1] = regs->sr[7];
 		regs->gr[0] &= ~PSW_B;
 		return;
 	}
@@ -794,7 +796,8 @@ void handle_interruption(int code, struct pt_regs *regs)
 		else
 			printk(KERN_DEBUG "User Fault (long pointer) (fault %d) ",
 			       code);
-		printk("pid=%d command='%s'\n", task_pid_nr(current), current->comm);
+		printk(KERN_CONT "pid=%d command='%s'\n",
+		       task_pid_nr(current), current->comm);
 		show_regs(regs);
 #endif
 		si.si_signo = SIGSEGV;

@@ -1,10 +1,9 @@
 /*
  * OMAP mailbox driver
  *
- * Copyright (C) 2006 Nokia Corporation. All rights reserved.
+ * Copyright (C) 2006-2009 Nokia Corporation. All rights reserved.
  *
- * Contact: Toshihiro Kobayashi <toshihiro.kobayashi@nokia.com>
- *		Restructured by Hiroshi DOYU <Hiroshi.DOYU@nokia.com>
+ * Contact: Hiroshi DOYU <Hiroshi.DOYU@nokia.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -22,20 +21,97 @@
  *
  */
 
-#include <linux/init.h>
 #include <linux/module.h>
-#include <linux/sched.h>
 #include <linux/interrupt.h>
 #include <linux/device.h>
-#include <linux/blkdev.h>
-#include <linux/err.h>
 #include <linux/delay.h>
-#include <linux/io.h>
+
 #include <mach/mailbox.h>
-#include "mailbox.h"
+
+static int enable_seq_bit;
+module_param(enable_seq_bit, bool, 0);
+MODULE_PARM_DESC(enable_seq_bit, "Enable sequence bit checking.");
 
 static struct omap_mbox *mboxes;
 static DEFINE_RWLOCK(mboxes_lock);
+
+/*
+ * Mailbox sequence bit API
+ */
+
+/* seq_rcv should be initialized with any value other than
+ * 0 and 1 << 31, to allow either value for the first
+ * message.  */
+static inline void mbox_seq_init(struct omap_mbox *mbox)
+{
+	if (!enable_seq_bit)
+		return;
+
+	/* any value other than 0 and 1 << 31 */
+	mbox->seq_rcv = 0xffffffff;
+}
+
+static inline void mbox_seq_toggle(struct omap_mbox *mbox, mbox_msg_t * msg)
+{
+	if (!enable_seq_bit)
+		return;
+
+	/* add seq_snd to msg */
+	*msg = (*msg & 0x7fffffff) | mbox->seq_snd;
+	/* flip seq_snd */
+	mbox->seq_snd ^= 1 << 31;
+}
+
+static inline int mbox_seq_test(struct omap_mbox *mbox, mbox_msg_t msg)
+{
+	mbox_msg_t seq;
+
+	if (!enable_seq_bit)
+		return 0;
+
+	seq = msg & (1 << 31);
+	if (seq == mbox->seq_rcv)
+		return -1;
+	mbox->seq_rcv = seq;
+	return 0;
+}
+
+/* Mailbox FIFO handle functions */
+static inline mbox_msg_t mbox_fifo_read(struct omap_mbox *mbox)
+{
+	return mbox->ops->fifo_read(mbox);
+}
+static inline void mbox_fifo_write(struct omap_mbox *mbox, mbox_msg_t msg)
+{
+	mbox->ops->fifo_write(mbox, msg);
+}
+static inline int mbox_fifo_empty(struct omap_mbox *mbox)
+{
+	return mbox->ops->fifo_empty(mbox);
+}
+static inline int mbox_fifo_full(struct omap_mbox *mbox)
+{
+	return mbox->ops->fifo_full(mbox);
+}
+
+/* Mailbox IRQ handle functions */
+static inline void enable_mbox_irq(struct omap_mbox *mbox, omap_mbox_irq_t irq)
+{
+	mbox->ops->enable_irq(mbox, irq);
+}
+static inline void disable_mbox_irq(struct omap_mbox *mbox, omap_mbox_irq_t irq)
+{
+	mbox->ops->disable_irq(mbox, irq);
+}
+static inline void ack_mbox_irq(struct omap_mbox *mbox, omap_mbox_irq_t irq)
+{
+	if (mbox->ops->ack_irq)
+		mbox->ops->ack_irq(mbox, irq);
+}
+static inline int is_mbox_irq(struct omap_mbox *mbox, omap_mbox_irq_t irq)
+{
+	return mbox->ops->is_irq(mbox, irq);
+}
 
 /* Mailbox Sequence Bit function */
 void omap_mbox_init_seq(struct omap_mbox *mbox)
@@ -71,24 +147,40 @@ static int __mbox_msg_send(struct omap_mbox *mbox, mbox_msg_t msg, void *arg)
 	return ret;
 }
 
+struct omap_msg_tx_data {
+	mbox_msg_t	msg;
+	void		*arg;
+};
+
+static void omap_msg_tx_end_io(struct request *rq, int error)
+{
+	kfree(rq->special);
+	__blk_put_request(rq->q, rq);
+}
+
 int omap_mbox_msg_send(struct omap_mbox *mbox, mbox_msg_t msg, void* arg)
 {
+	struct omap_msg_tx_data *tx_data;
 	struct request *rq;
 	struct request_queue *q = mbox->txq->queue;
-	int ret = 0;
+
+	tx_data = kmalloc(sizeof(*tx_data), GFP_ATOMIC);
+	if (unlikely(!tx_data))
+		return -ENOMEM;
 
 	rq = blk_get_request(q, WRITE, GFP_ATOMIC);
 	if (unlikely(!rq)) {
-		ret = -ENOMEM;
-		goto fail;
+		kfree(tx_data);
+		return -ENOMEM;
 	}
 
-	rq->data = (void *)msg;
-	blk_insert_request(q, rq, 0, arg);
+	tx_data->msg = msg;
+	tx_data->arg = arg;
+	rq->end_io = omap_msg_tx_end_io;
+	blk_insert_request(q, rq, 0, tx_data);
 
 	schedule_work(&mbox->txq->work);
- fail:
-	return ret;
+	return 0;
 }
 EXPORT_SYMBOL(omap_mbox_msg_send);
 
@@ -102,22 +194,28 @@ static void mbox_tx_work(struct work_struct *work)
 	struct request_queue *q = mbox->txq->queue;
 
 	while (1) {
+		struct omap_msg_tx_data *tx_data;
+
 		spin_lock(q->queue_lock);
-		rq = elv_next_request(q);
+		rq = blk_fetch_request(q);
 		spin_unlock(q->queue_lock);
 
 		if (!rq)
 			break;
 
-		ret = __mbox_msg_send(mbox, (mbox_msg_t) rq->data, rq->special);
+		tx_data = rq->special;
+
+		ret = __mbox_msg_send(mbox, tx_data->msg, tx_data->arg);
 		if (ret) {
 			enable_mbox_irq(mbox, IRQ_TX);
+			spin_lock(q->queue_lock);
+			blk_requeue_request(q, rq);
+			spin_unlock(q->queue_lock);
 			return;
 		}
 
 		spin_lock(q->queue_lock);
-		if (__blk_end_request(rq, 0, 0))
-			BUG();
+		__blk_end_request_all(rq, 0);
 		spin_unlock(q->queue_lock);
 	}
 }
@@ -136,22 +234,19 @@ static void mbox_rx_work(struct work_struct *work)
 	unsigned long flags;
 
 	if (mbox->rxq->callback == NULL) {
-		sysfs_notify(&mbox->dev.kobj, NULL, "mbox");
+		sysfs_notify(&mbox->dev->kobj, NULL, "mbox");
 		return;
 	}
 
 	while (1) {
 		spin_lock_irqsave(q->queue_lock, flags);
-		rq = elv_next_request(q);
+		rq = blk_fetch_request(q);
 		spin_unlock_irqrestore(q->queue_lock, flags);
 		if (!rq)
 			break;
 
-		msg = (mbox_msg_t) rq->data;
-
-		if (blk_end_request(rq, 0, 0))
-			BUG();
-
+		msg = (mbox_msg_t)rq->special;
+		blk_end_request_all(rq, 0);
 		mbox->rxq->callback((void *)msg);
 	}
 }
@@ -188,7 +283,6 @@ static void __mbox_rx_interrupt(struct omap_mbox *mbox)
 			goto nomem;
 
 		msg = mbox_fifo_read(mbox);
-		rq->data = (void *)msg;
 
 		if (unlikely(mbox_seq_test(mbox, msg))) {
 			pr_info("mbox: Illegal seq bit!(%08x)\n", msg);
@@ -196,7 +290,7 @@ static void __mbox_rx_interrupt(struct omap_mbox *mbox)
 				mbox->err_notify();
 		}
 
-		blk_insert_request(q, rq, 0, NULL);
+		blk_insert_request(q, rq, 0, (void *)msg);
 		if (mbox->ops->type == OMAP_MBOX_TYPE1)
 			break;
 	}
@@ -204,7 +298,7 @@ static void __mbox_rx_interrupt(struct omap_mbox *mbox)
 	/* no more messages in the fifo. clear IRQ source. */
 	ack_mbox_irq(mbox, IRQ_RX);
 	enable_mbox_irq(mbox, IRQ_RX);
-	nomem:
+nomem:
 	schedule_work(&mbox->rxq->work);
 }
 
@@ -253,16 +347,15 @@ omap_mbox_read(struct device *dev, struct device_attribute *attr, char *buf)
 
 	while (1) {
 		spin_lock_irqsave(q->queue_lock, flags);
-		rq = elv_next_request(q);
+		rq = blk_fetch_request(q);
 		spin_unlock_irqrestore(q->queue_lock, flags);
 
 		if (!rq)
 			break;
 
-		*p = (mbox_msg_t) rq->data;
+		*p = (mbox_msg_t)rq->special;
 
-		if (blk_end_request(rq, 0, 0))
-			BUG();
+		blk_end_request_all(rq, 0);
 
 		if (unlikely(mbox_seq_test(mbox, *p))) {
 			pr_info("mbox: Illegal seq bit!(%08x) ignored\n", *p);
@@ -286,7 +379,7 @@ static ssize_t mbox_show(struct class *class, char *buf)
 static CLASS_ATTR(mbox, S_IRUGO, mbox_show, NULL);
 
 static struct class omap_mbox_class = {
-	.name = "omap_mbox",
+	.name = "omap-mailbox",
 };
 
 static struct omap_mbox_queue *mbox_queue_alloc(struct omap_mbox *mbox,
@@ -333,21 +426,6 @@ static int omap_mbox_init(struct omap_mbox *mbox)
 			return ret;
 	}
 
-	mbox->dev.class = &omap_mbox_class;
-	dev_set_name(&mbox->dev, "%s", mbox->name);
-	dev_set_drvdata(&mbox->dev, mbox);
-
-	ret = device_register(&mbox->dev);
-	if (unlikely(ret))
-		goto fail_device_reg;
-
-	ret = device_create_file(&mbox->dev, &dev_attr_mbox);
-	if (unlikely(ret)) {
-		printk(KERN_ERR
-			"device_create_file failed: %d\n", ret);
-		goto fail_create_mbox;
-	}
-
 	ret = request_irq(mbox->irq, mbox_interrupt, IRQF_DISABLED,
 				mbox->name, mbox);
 	if (unlikely(ret)) {
@@ -377,10 +455,6 @@ static int omap_mbox_init(struct omap_mbox *mbox)
  fail_alloc_txq:
 	free_irq(mbox->irq, mbox);
  fail_request_irq:
-	device_remove_file(&mbox->dev, &dev_attr_mbox);
- fail_create_mbox:
-	device_unregister(&mbox->dev);
- fail_device_reg:
 	if (unlikely(mbox->ops->shutdown))
 		mbox->ops->shutdown(mbox);
 
@@ -393,8 +467,6 @@ static void omap_mbox_fini(struct omap_mbox *mbox)
 	mbox_queue_free(mbox->rxq);
 
 	free_irq(mbox->irq, mbox);
-	device_remove_file(&mbox->dev, &dev_attr_mbox);
-	class_unregister(&omap_mbox_class);
 
 	if (unlikely(mbox->ops->shutdown))
 		mbox->ops->shutdown(mbox);
@@ -440,7 +512,7 @@ void omap_mbox_put(struct omap_mbox *mbox)
 }
 EXPORT_SYMBOL(omap_mbox_put);
 
-int omap_mbox_register(struct omap_mbox *mbox)
+int omap_mbox_register(struct device *parent, struct omap_mbox *mbox)
 {
 	int ret = 0;
 	struct omap_mbox **tmp;
@@ -450,14 +522,31 @@ int omap_mbox_register(struct omap_mbox *mbox)
 	if (mbox->next)
 		return -EBUSY;
 
+	mbox->dev = device_create(&omap_mbox_class,
+				  parent, 0, mbox, "%s", mbox->name);
+	if (IS_ERR(mbox->dev))
+		return PTR_ERR(mbox->dev);
+
+	ret = device_create_file(mbox->dev, &dev_attr_mbox);
+	if (ret)
+		goto err_sysfs;
+
 	write_lock(&mboxes_lock);
 	tmp = find_mboxes(mbox->name);
-	if (*tmp)
+	if (*tmp) {
 		ret = -EBUSY;
-	else
-		*tmp = mbox;
+		write_unlock(&mboxes_lock);
+		goto err_find;
+	}
+	*tmp = mbox;
 	write_unlock(&mboxes_lock);
 
+	return 0;
+
+err_find:
+	device_remove_file(mbox->dev, &dev_attr_mbox);
+err_sysfs:
+	device_unregister(mbox->dev);
 	return ret;
 }
 EXPORT_SYMBOL(omap_mbox_register);
@@ -473,6 +562,8 @@ int omap_mbox_unregister(struct omap_mbox *mbox)
 			*tmp = mbox->next;
 			mbox->next = NULL;
 			write_unlock(&mboxes_lock);
+			device_remove_file(mbox->dev, &dev_attr_mbox);
+			device_unregister(mbox->dev);
 			return 0;
 		}
 		tmp = &(*tmp)->next;
@@ -501,4 +592,6 @@ static void __exit omap_mbox_class_exit(void)
 subsys_initcall(omap_mbox_class_init);
 module_exit(omap_mbox_class_exit);
 
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("omap mailbox: interrupt driven messaging");
+MODULE_AUTHOR("Toshihiro Kobayashi and Hiroshi DOYU");

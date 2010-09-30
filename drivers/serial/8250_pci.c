@@ -60,11 +60,12 @@ struct serial_private {
 
 static void moan_device(const char *str, struct pci_dev *dev)
 {
-	printk(KERN_WARNING "%s: %s\n"
-	       KERN_WARNING "Please send the output of lspci -vv, this\n"
-	       KERN_WARNING "message (0x%04x,0x%04x,0x%04x,0x%04x), the\n"
-	       KERN_WARNING "manufacturer and name of serial board or\n"
-	       KERN_WARNING "modem board to rmk+serial@arm.linux.org.uk.\n",
+	printk(KERN_WARNING
+	       "%s: %s\n"
+	       "Please send the output of lspci -vv, this\n"
+	       "message (0x%04x,0x%04x,0x%04x,0x%04x), the\n"
+	       "manufacturer and name of serial board or\n"
+	       "modem board to rmk+serial@arm.linux.org.uk.\n",
 	       pci_name(dev), str, dev->vendor, dev->device,
 	       dev->subsystem_vendor, dev->subsystem_device);
 }
@@ -306,6 +307,63 @@ static void __devexit pci_plx9050_exit(struct pci_dev *dev)
 	}
 }
 
+#define NI8420_INT_ENABLE_REG	0x38
+#define NI8420_INT_ENABLE_BIT	0x2000
+
+static void __devexit pci_ni8420_exit(struct pci_dev *dev)
+{
+	void __iomem *p;
+	unsigned long base, len;
+	unsigned int bar = 0;
+
+	if ((pci_resource_flags(dev, bar) & IORESOURCE_MEM) == 0) {
+		moan_device("no memory in bar", dev);
+		return;
+	}
+
+	base = pci_resource_start(dev, bar);
+	len =  pci_resource_len(dev, bar);
+	p = ioremap_nocache(base, len);
+	if (p == NULL)
+		return;
+
+	/* Disable the CPU Interrupt */
+	writel(readl(p + NI8420_INT_ENABLE_REG) & ~(NI8420_INT_ENABLE_BIT),
+	       p + NI8420_INT_ENABLE_REG);
+	iounmap(p);
+}
+
+
+/* MITE registers */
+#define MITE_IOWBSR1	0xc4
+#define MITE_IOWCR1	0xf4
+#define MITE_LCIMR1	0x08
+#define MITE_LCIMR2	0x10
+
+#define MITE_LCIMR2_CLR_CPU_IE	(1 << 30)
+
+static void __devexit pci_ni8430_exit(struct pci_dev *dev)
+{
+	void __iomem *p;
+	unsigned long base, len;
+	unsigned int bar = 0;
+
+	if ((pci_resource_flags(dev, bar) & IORESOURCE_MEM) == 0) {
+		moan_device("no memory in bar", dev);
+		return;
+	}
+
+	base = pci_resource_start(dev, bar);
+	len =  pci_resource_len(dev, bar);
+	p = ioremap_nocache(base, len);
+	if (p == NULL)
+		return;
+
+	/* Disable the CPU Interrupt */
+	writel(MITE_LCIMR2_CLR_CPU_IE, p + MITE_LCIMR2);
+	iounmap(p);
+}
+
 /* SBS Technologies Inc. PMC-OCTPRO and P-OCTAL cards */
 static int
 sbs_setup(struct serial_private *priv, const struct pciserial_board *board,
@@ -341,8 +399,7 @@ static int sbs_init(struct pci_dev *dev)
 {
 	u8 __iomem *p;
 
-	p = ioremap_nocache(pci_resource_start(dev, 0),
-						pci_resource_len(dev, 0));
+	p = pci_ioremap_bar(dev, 0);
 
 	if (p == NULL)
 		return -ENOMEM;
@@ -366,8 +423,7 @@ static void __devexit sbs_exit(struct pci_dev *dev)
 {
 	u8 __iomem *p;
 
-	p = ioremap_nocache(pci_resource_start(dev, 0),
-					pci_resource_len(dev, 0));
+	p = pci_ioremap_bar(dev, 0);
 	/* FIXME: What if resource_len < OCT_REG_CR_OFF */
 	if (p != NULL)
 		writeb(0, p + OCT_REG_CR_OFF);
@@ -597,11 +653,115 @@ static int pci_xircom_init(struct pci_dev *dev)
 	return 0;
 }
 
+static int pci_ni8420_init(struct pci_dev *dev)
+{
+	void __iomem *p;
+	unsigned long base, len;
+	unsigned int bar = 0;
+
+	if ((pci_resource_flags(dev, bar) & IORESOURCE_MEM) == 0) {
+		moan_device("no memory in bar", dev);
+		return 0;
+	}
+
+	base = pci_resource_start(dev, bar);
+	len =  pci_resource_len(dev, bar);
+	p = ioremap_nocache(base, len);
+	if (p == NULL)
+		return -ENOMEM;
+
+	/* Enable CPU Interrupt */
+	writel(readl(p + NI8420_INT_ENABLE_REG) | NI8420_INT_ENABLE_BIT,
+	       p + NI8420_INT_ENABLE_REG);
+
+	iounmap(p);
+	return 0;
+}
+
+#define MITE_IOWBSR1_WSIZE	0xa
+#define MITE_IOWBSR1_WIN_OFFSET	0x800
+#define MITE_IOWBSR1_WENAB	(1 << 7)
+#define MITE_LCIMR1_IO_IE_0	(1 << 24)
+#define MITE_LCIMR2_SET_CPU_IE	(1 << 31)
+#define MITE_IOWCR1_RAMSEL_MASK	0xfffffffe
+
+static int pci_ni8430_init(struct pci_dev *dev)
+{
+	void __iomem *p;
+	unsigned long base, len;
+	u32 device_window;
+	unsigned int bar = 0;
+
+	if ((pci_resource_flags(dev, bar) & IORESOURCE_MEM) == 0) {
+		moan_device("no memory in bar", dev);
+		return 0;
+	}
+
+	base = pci_resource_start(dev, bar);
+	len =  pci_resource_len(dev, bar);
+	p = ioremap_nocache(base, len);
+	if (p == NULL)
+		return -ENOMEM;
+
+	/* Set device window address and size in BAR0 */
+	device_window = ((base + MITE_IOWBSR1_WIN_OFFSET) & 0xffffff00)
+	                | MITE_IOWBSR1_WENAB | MITE_IOWBSR1_WSIZE;
+	writel(device_window, p + MITE_IOWBSR1);
+
+	/* Set window access to go to RAMSEL IO address space */
+	writel((readl(p + MITE_IOWCR1) & MITE_IOWCR1_RAMSEL_MASK),
+	       p + MITE_IOWCR1);
+
+	/* Enable IO Bus Interrupt 0 */
+	writel(MITE_LCIMR1_IO_IE_0, p + MITE_LCIMR1);
+
+	/* Enable CPU Interrupt */
+	writel(MITE_LCIMR2_SET_CPU_IE, p + MITE_LCIMR2);
+
+	iounmap(p);
+	return 0;
+}
+
+/* UART Port Control Register */
+#define NI8430_PORTCON	0x0f
+#define NI8430_PORTCON_TXVR_ENABLE	(1 << 3)
+
+static int
+pci_ni8430_setup(struct serial_private *priv,
+		 const struct pciserial_board *board,
+		 struct uart_port *port, int idx)
+{
+	void __iomem *p;
+	unsigned long base, len;
+	unsigned int bar, offset = board->first_offset;
+
+	if (idx >= board->num_ports)
+		return 1;
+
+	bar = FL_GET_BASE(board->flags);
+	offset += idx * board->uart_offset;
+
+	base = pci_resource_start(priv->dev, bar);
+	len =  pci_resource_len(priv->dev, bar);
+	p = ioremap_nocache(base, len);
+
+	/* enable the transciever */
+	writeb(readb(p + offset + NI8430_PORTCON) | NI8430_PORTCON_TXVR_ENABLE,
+	       p + offset + NI8430_PORTCON);
+
+	iounmap(p);
+
+	return setup_port(priv, port, bar, offset, board->reg_shift);
+}
+
+
 static int pci_netmos_init(struct pci_dev *dev)
 {
 	/* subdevice 0x00PS means <P> parallel, <S> serial */
 	unsigned int num_serial = dev->subsystem_device & 0xf;
 
+	if (dev->device == PCI_DEVICE_ID_NETMOS_9901)
+		return 0;
 	if (dev->subsystem_vendor == PCI_VENDOR_ID_IBM &&
 			dev->subsystem_device == 0x0299)
 		return 0;
@@ -612,8 +772,6 @@ static int pci_netmos_init(struct pci_dev *dev)
 }
 
 /*
- * ITE support by Niels de Vos <niels.devos@wincor-nixdorf.com>
- *
  * These chips are available with optionally one parallel port and up to
  * two serial ports. Unfortunately they all have the same product id.
  *
@@ -911,6 +1069,126 @@ static struct pci_serial_quirk pci_serial_quirks[] __refdata = {
 		.init		= pci_ite887x_init,
 		.setup		= pci_default_setup,
 		.exit		= __devexit_p(pci_ite887x_exit),
+	},
+	/*
+	 * National Instruments
+	 */
+	{
+		.vendor		= PCI_VENDOR_ID_NI,
+		.device		= PCI_DEVICE_ID_NI_PCI23216,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
+		.init		= pci_ni8420_init,
+		.setup		= pci_default_setup,
+		.exit		= __devexit_p(pci_ni8420_exit),
+	},
+	{
+		.vendor		= PCI_VENDOR_ID_NI,
+		.device		= PCI_DEVICE_ID_NI_PCI2328,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
+		.init		= pci_ni8420_init,
+		.setup		= pci_default_setup,
+		.exit		= __devexit_p(pci_ni8420_exit),
+	},
+	{
+		.vendor		= PCI_VENDOR_ID_NI,
+		.device		= PCI_DEVICE_ID_NI_PCI2324,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
+		.init		= pci_ni8420_init,
+		.setup		= pci_default_setup,
+		.exit		= __devexit_p(pci_ni8420_exit),
+	},
+	{
+		.vendor		= PCI_VENDOR_ID_NI,
+		.device		= PCI_DEVICE_ID_NI_PCI2322,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
+		.init		= pci_ni8420_init,
+		.setup		= pci_default_setup,
+		.exit		= __devexit_p(pci_ni8420_exit),
+	},
+	{
+		.vendor		= PCI_VENDOR_ID_NI,
+		.device		= PCI_DEVICE_ID_NI_PCI2324I,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
+		.init		= pci_ni8420_init,
+		.setup		= pci_default_setup,
+		.exit		= __devexit_p(pci_ni8420_exit),
+	},
+	{
+		.vendor		= PCI_VENDOR_ID_NI,
+		.device		= PCI_DEVICE_ID_NI_PCI2322I,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
+		.init		= pci_ni8420_init,
+		.setup		= pci_default_setup,
+		.exit		= __devexit_p(pci_ni8420_exit),
+	},
+	{
+		.vendor		= PCI_VENDOR_ID_NI,
+		.device		= PCI_DEVICE_ID_NI_PXI8420_23216,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
+		.init		= pci_ni8420_init,
+		.setup		= pci_default_setup,
+		.exit		= __devexit_p(pci_ni8420_exit),
+	},
+	{
+		.vendor		= PCI_VENDOR_ID_NI,
+		.device		= PCI_DEVICE_ID_NI_PXI8420_2328,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
+		.init		= pci_ni8420_init,
+		.setup		= pci_default_setup,
+		.exit		= __devexit_p(pci_ni8420_exit),
+	},
+	{
+		.vendor		= PCI_VENDOR_ID_NI,
+		.device		= PCI_DEVICE_ID_NI_PXI8420_2324,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
+		.init		= pci_ni8420_init,
+		.setup		= pci_default_setup,
+		.exit		= __devexit_p(pci_ni8420_exit),
+	},
+	{
+		.vendor		= PCI_VENDOR_ID_NI,
+		.device		= PCI_DEVICE_ID_NI_PXI8420_2322,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
+		.init		= pci_ni8420_init,
+		.setup		= pci_default_setup,
+		.exit		= __devexit_p(pci_ni8420_exit),
+	},
+	{
+		.vendor		= PCI_VENDOR_ID_NI,
+		.device		= PCI_DEVICE_ID_NI_PXI8422_2324,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
+		.init		= pci_ni8420_init,
+		.setup		= pci_default_setup,
+		.exit		= __devexit_p(pci_ni8420_exit),
+	},
+	{
+		.vendor		= PCI_VENDOR_ID_NI,
+		.device		= PCI_DEVICE_ID_NI_PXI8422_2322,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
+		.init		= pci_ni8420_init,
+		.setup		= pci_default_setup,
+		.exit		= __devexit_p(pci_ni8420_exit),
+	},
+	{
+		.vendor		= PCI_VENDOR_ID_NI,
+		.device		= PCI_ANY_ID,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
+		.init		= pci_ni8430_init,
+		.setup		= pci_ni8430_setup,
+		.exit		= __devexit_p(pci_ni8430_exit),
 	},
 	/*
 	 * Panacom
@@ -1216,6 +1494,7 @@ enum pci_board_num_t {
 	pbn_b1_2_115200,
 	pbn_b1_4_115200,
 	pbn_b1_8_115200,
+	pbn_b1_16_115200,
 
 	pbn_b1_1_921600,
 	pbn_b1_2_921600,
@@ -1225,6 +1504,9 @@ enum pci_board_num_t {
 	pbn_b1_2_1250000,
 
 	pbn_b1_bt_1_115200,
+	pbn_b1_bt_2_115200,
+	pbn_b1_bt_4_115200,
+
 	pbn_b1_bt_2_921600,
 
 	pbn_b1_1_1382400,
@@ -1279,7 +1561,12 @@ enum pci_board_num_t {
 	pbn_exar_XR17C152,
 	pbn_exar_XR17C154,
 	pbn_exar_XR17C158,
+	pbn_exar_ibm_saturn,
 	pbn_pasemi_1682M,
+	pbn_ni8430_2,
+	pbn_ni8430_4,
+	pbn_ni8430_8,
+	pbn_ni8430_16,
 };
 
 /*
@@ -1487,6 +1774,12 @@ static struct pciserial_board pci_boards[] __devinitdata = {
 		.base_baud	= 115200,
 		.uart_offset	= 8,
 	},
+	[pbn_b1_16_115200] = {
+		.flags		= FL_BASE1,
+		.num_ports	= 16,
+		.base_baud	= 115200,
+		.uart_offset	= 8,
+	},
 
 	[pbn_b1_1_921600] = {
 		.flags		= FL_BASE1,
@@ -1522,6 +1815,18 @@ static struct pciserial_board pci_boards[] __devinitdata = {
 	[pbn_b1_bt_1_115200] = {
 		.flags		= FL_BASE1|FL_BASE_BARS,
 		.num_ports	= 1,
+		.base_baud	= 115200,
+		.uart_offset	= 8,
+	},
+	[pbn_b1_bt_2_115200] = {
+		.flags		= FL_BASE1|FL_BASE_BARS,
+		.num_ports	= 2,
+		.base_baud	= 115200,
+		.uart_offset	= 8,
+	},
+	[pbn_b1_bt_4_115200] = {
+		.flags		= FL_BASE1|FL_BASE_BARS,
+		.num_ports	= 4,
 		.base_baud	= 115200,
 		.uart_offset	= 8,
 	},
@@ -1842,6 +2147,13 @@ static struct pciserial_board pci_boards[] __devinitdata = {
 		.base_baud	= 921600,
 		.uart_offset	= 0x200,
 	},
+	[pbn_exar_ibm_saturn] = {
+		.flags		= FL_BASE0,
+		.num_ports	= 1,
+		.base_baud	= 921600,
+		.uart_offset	= 0x200,
+	},
+
 	/*
 	 * PA Semi PWRficient PA6T-1682M on-chip UART
 	 */
@@ -1849,6 +2161,37 @@ static struct pciserial_board pci_boards[] __devinitdata = {
 		.flags		= FL_BASE0,
 		.num_ports	= 1,
 		.base_baud	= 8333333,
+	},
+	/*
+	 * National Instruments 843x
+	 */
+	[pbn_ni8430_16] = {
+		.flags		= FL_BASE0,
+		.num_ports	= 16,
+		.base_baud	= 3686400,
+		.uart_offset	= 0x10,
+		.first_offset	= 0x800,
+	},
+	[pbn_ni8430_8] = {
+		.flags		= FL_BASE0,
+		.num_ports	= 8,
+		.base_baud	= 3686400,
+		.uart_offset	= 0x10,
+		.first_offset	= 0x800,
+	},
+	[pbn_ni8430_4] = {
+		.flags		= FL_BASE0,
+		.num_ports	= 4,
+		.base_baud	= 3686400,
+		.uart_offset	= 0x10,
+		.first_offset	= 0x800,
+	},
+	[pbn_ni8430_2] = {
+		.flags		= FL_BASE0,
+		.num_ports	= 2,
+		.base_baud	= 3686400,
+		.uart_offset	= 0x10,
+		.first_offset	= 0x800,
 	},
 };
 
@@ -2314,6 +2657,9 @@ static struct pci_device_id serial_pci_tbl[] = {
 		PCI_SUBVENDOR_ID_CONNECT_TECH,
 		PCI_SUBDEVICE_ID_CONNECT_TECH_PCI_UART_8_485, 0, 0,
 		pbn_b0_8_1843200_200 },
+	{	PCI_VENDOR_ID_EXAR, PCI_DEVICE_ID_EXAR_XR17C152,
+		PCI_VENDOR_ID_IBM, PCI_SUBDEVICE_ID_IBM_SATURN_SERIAL_ONE_PORT,
+		0, 0, pbn_exar_ibm_saturn },
 
 	{	PCI_VENDOR_ID_SEALEVEL, PCI_DEVICE_ID_SEALEVEL_U530,
 		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
@@ -2442,6 +2788,9 @@ static struct pci_device_id serial_pci_tbl[] = {
 	{	PCI_VENDOR_ID_OXSEMI, 0x950a,
 		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
 		pbn_b0_2_1130000 },
+	{	PCI_VENDOR_ID_OXSEMI, PCI_DEVICE_ID_OXSEMI_C950,
+		PCI_VENDOR_ID_OXSEMI, PCI_SUBDEVICE_ID_OXSEMI_C950, 0, 0,
+		pbn_b0_1_921600 },
 	{	PCI_VENDOR_ID_OXSEMI, PCI_DEVICE_ID_OXSEMI_16PCI954,
 		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
 		pbn_b0_4_115200 },
@@ -3052,6 +3401,82 @@ static struct pci_device_id serial_pci_tbl[] = {
 		pbn_pasemi_1682M },
 
 	/*
+	 * National Instruments
+	 */
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PCI23216,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_b1_16_115200 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PCI2328,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_b1_8_115200 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PCI2324,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_b1_bt_4_115200 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PCI2322,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_b1_bt_2_115200 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PCI2324I,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_b1_bt_4_115200 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PCI2322I,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_b1_bt_2_115200 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PXI8420_23216,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_b1_16_115200 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PXI8420_2328,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_b1_8_115200 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PXI8420_2324,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_b1_bt_4_115200 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PXI8420_2322,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_b1_bt_2_115200 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PXI8422_2324,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_b1_bt_4_115200 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PXI8422_2322,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_b1_bt_2_115200 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PXI8430_2322,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_ni8430_2 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PCI8430_2322,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_ni8430_2 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PXI8430_2324,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_ni8430_4 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PCI8430_2324,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_ni8430_4 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PXI8430_2328,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_ni8430_8 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PCI8430_2328,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_ni8430_8 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PXI8430_23216,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_ni8430_16 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PCI8430_23216,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_ni8430_16 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PXI8432_2322,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_ni8430_2 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PCI8432_2322,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_ni8430_2 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PXI8432_2324,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_ni8430_4 },
+	{	PCI_VENDOR_ID_NI, PCI_DEVICE_ID_NI_PCI8432_2324,
+		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
+		pbn_ni8430_4 },
+
+	/*
 	* ADDI-DATA GmbH communication cards <info@addi-data.com>
 	*/
 	{	PCI_VENDOR_ID_ADDIDATA,
@@ -3145,6 +3570,10 @@ static struct pci_device_id serial_pci_tbl[] = {
 	{	PCI_VENDOR_ID_NETMOS, PCI_DEVICE_ID_NETMOS_9835,
 		PCI_VENDOR_ID_IBM, 0x0299,
 		0, 0, pbn_b0_bt_2_115200 },
+
+	{	PCI_VENDOR_ID_NETMOS, PCI_DEVICE_ID_NETMOS_9901,
+		0xA000, 0x1000,
+		0, 0, pbn_b0_1_115200 },
 
 	/*
 	 * These entries match devices with class COMMUNICATION_SERIAL,

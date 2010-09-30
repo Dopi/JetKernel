@@ -228,6 +228,9 @@ int __init omap_mmc_add(const char *name, int id, unsigned long base,
 	ret = platform_device_add(pdev);
 	if (ret)
 		goto fail;
+
+	/* return device handle to board setup code */
+	data->dev = &pdev->dev;
 	return 0;
 
 fail:
@@ -308,6 +311,8 @@ static void omap_init_wdt(void)
 		wdt_resources[0].start = 0x49016000; /* WDT2 */
 	else if (cpu_is_omap343x())
 		wdt_resources[0].start = 0x48314000; /* WDT2 */
+	else if (cpu_is_omap44xx())
+		wdt_resources[0].start = 0x4a314000;
 	else
 		return;
 

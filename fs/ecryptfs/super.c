@@ -27,6 +27,7 @@
 #include <linux/mount.h>
 #include <linux/key.h>
 #include <linux/seq_file.h>
+#include <linux/smp_lock.h>
 #include <linux/file.h>
 #include <linux/crypto.h>
 #include "ecryptfs_kernel.h"
@@ -120,9 +121,13 @@ static void ecryptfs_put_super(struct super_block *sb)
 {
 	struct ecryptfs_sb_info *sb_info = ecryptfs_superblock_to_private(sb);
 
+	lock_kernel();
+
 	ecryptfs_destroy_mount_crypt_stat(&sb_info->mount_crypt_stat);
 	kmem_cache_free(ecryptfs_sb_info_cache, sb_info);
 	ecryptfs_set_superblock_private(sb, NULL);
+
+	unlock_kernel();
 }
 
 /**
@@ -170,7 +175,10 @@ static int ecryptfs_show_options(struct seq_file *m, struct vfsmount *mnt)
 	list_for_each_entry(walker,
 			    &mount_crypt_stat->global_auth_tok_list,
 			    mount_crypt_stat_list) {
-		seq_printf(m, ",ecryptfs_sig=%s", walker->sig);
+		if (walker->flags & ECRYPTFS_AUTH_TOK_FNEK)
+			seq_printf(m, ",ecryptfs_fnek_sig=%s", walker->sig);
+		else
+			seq_printf(m, ",ecryptfs_sig=%s", walker->sig);
 	}
 	mutex_unlock(&mount_crypt_stat->global_auth_tok_list_mutex);
 
@@ -186,6 +194,8 @@ static int ecryptfs_show_options(struct seq_file *m, struct vfsmount *mnt)
 		seq_printf(m, ",ecryptfs_xattr_metadata");
 	if (mount_crypt_stat->flags & ECRYPTFS_ENCRYPTED_VIEW_ENABLED)
 		seq_printf(m, ",ecryptfs_encrypted_view");
+	if (mount_crypt_stat->flags & ECRYPTFS_UNLINK_SIGS)
+		seq_printf(m, ",ecryptfs_unlink_sigs");
 
 	return 0;
 }

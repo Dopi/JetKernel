@@ -14,16 +14,11 @@
 #include <linux/kernel.h>
 #include <linux/param.h>
 #include <linux/init.h>
-#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <asm/machdep.h>
 #include <asm/coldfire.h>
 #include <asm/mcfsim.h>
 #include <asm/mcfuart.h>
-
-/***************************************************************************/
-
-void coldfire_reset(void);
 
 /***************************************************************************/
 
@@ -49,8 +44,39 @@ static struct platform_device m520x_uart = {
 	.dev.platform_data	= m520x_uart_platform,
 };
 
+static struct resource m520x_fec_resources[] = {
+	{
+		.start		= MCF_MBAR + 0x30000,
+		.end		= MCF_MBAR + 0x30000 + 0x7ff,
+		.flags		= IORESOURCE_MEM,
+	},
+	{
+		.start		= 64 + 36,
+		.end		= 64 + 36,
+		.flags		= IORESOURCE_IRQ,
+	},
+	{
+		.start		= 64 + 40,
+		.end		= 64 + 40,
+		.flags		= IORESOURCE_IRQ,
+	},
+	{
+		.start		= 64 + 42,
+		.end		= 64 + 42,
+		.flags		= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device m520x_fec = {
+	.name			= "fec",
+	.id			= 0,
+	.num_resources		= ARRAY_SIZE(m520x_fec_resources),
+	.resource		= m520x_fec_resources,
+};
+
 static struct platform_device *m520x_devices[] __initdata = {
 	&m520x_uart,
+	&m520x_fec,
 };
 
 /***************************************************************************/
@@ -103,6 +129,30 @@ static void __init m520x_uarts_init(void)
 
 /***************************************************************************/
 
+static void __init m520x_fec_init(void)
+{
+	u32 imr;
+	u8 v;
+
+	/* Unmask FEC interrupts at ColdFire interrupt controller */
+	writeb(0x4, MCF_IPSBAR + MCFICM_INTC0 + MCFINTC_ICR0 + 36);
+	writeb(0x4, MCF_IPSBAR + MCFICM_INTC0 + MCFINTC_ICR0 + 40);
+	writeb(0x4, MCF_IPSBAR + MCFICM_INTC0 + MCFINTC_ICR0 + 42);
+
+	imr = readl(MCF_IPSBAR + MCFICM_INTC0 + MCFINTC_IMRH);
+	imr &= ~0x0001FFF0;
+	writel(imr, MCF_IPSBAR + MCFICM_INTC0 + MCFINTC_IMRH);
+
+	/* Set multi-function pins to ethernet mode */
+	v = readb(MCF_IPSBAR + MCF_GPIO_PAR_FEC);
+	writeb(v | 0xf0, MCF_IPSBAR + MCF_GPIO_PAR_FEC);
+
+	v = readb(MCF_IPSBAR + MCF_GPIO_PAR_FECI2C);
+	writeb(v | 0x0f, MCF_IPSBAR + MCF_GPIO_PAR_FECI2C);
+}
+
+/***************************************************************************/
+
 /*
  *  Program the vector to be an auto-vectored.
  */
@@ -114,10 +164,19 @@ void mcf_autovector(unsigned int vec)
 
 /***************************************************************************/
 
+static void m520x_cpu_reset(void)
+{
+	local_irq_disable();
+	__raw_writeb(MCF_RCR_SWRESET, MCF_RCR);
+}
+
+/***************************************************************************/
+
 void __init config_BSP(char *commandp, int size)
 {
-	mach_reset = coldfire_reset;
+	mach_reset = m520x_cpu_reset;
 	m520x_uarts_init();
+	m520x_fec_init();
 }
 
 /***************************************************************************/

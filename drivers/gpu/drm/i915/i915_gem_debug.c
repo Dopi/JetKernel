@@ -87,7 +87,7 @@ i915_gem_dump_object(struct drm_gem_object *obj, int len,
 			chunk_len = page_len - chunk;
 			if (chunk_len > 128)
 				chunk_len = 128;
-			i915_gem_dump_page(obj_priv->page_list[page],
+			i915_gem_dump_page(obj_priv->pages[page],
 					   chunk, chunk + chunk_len,
 					   obj_priv->gtt_offset +
 					   page * PAGE_SIZE,
@@ -105,12 +105,14 @@ i915_dump_lru(struct drm_device *dev, const char *where)
 	struct drm_i915_gem_object	*obj_priv;
 
 	DRM_INFO("active list %s {\n", where);
+	spin_lock(&dev_priv->mm.active_list_lock);
 	list_for_each_entry(obj_priv, &dev_priv->mm.active_list,
 			    list)
 	{
 		DRM_INFO("    %p: %08x\n", obj_priv,
 			 obj_priv->last_rendering_seqno);
 	}
+	spin_unlock(&dev_priv->mm.active_list_lock);
 	DRM_INFO("}\n");
 	DRM_INFO("flushing list %s {\n", where);
 	list_for_each_entry(obj_priv, &dev_priv->mm.flushing_list,
@@ -141,7 +143,7 @@ i915_gem_object_check_coherency(struct drm_gem_object *obj, int handle)
 	uint32_t *backing_map = NULL;
 	int bad_count = 0;
 
-	DRM_INFO("%s: checking coherency of object %p@0x%08x (%d, %dkb):\n",
+	DRM_INFO("%s: checking coherency of object %p@0x%08x (%d, %zdkb):\n",
 		 __func__, obj, obj_priv->gtt_offset, handle,
 		 obj->size / 1024);
 
@@ -155,7 +157,7 @@ i915_gem_object_check_coherency(struct drm_gem_object *obj, int handle)
 	for (page = 0; page < obj->size / PAGE_SIZE; page++) {
 		int i;
 
-		backing_map = kmap_atomic(obj_priv->page_list[page], KM_USER0);
+		backing_map = kmap_atomic(obj_priv->pages[page], KM_USER0);
 
 		if (backing_map == NULL) {
 			DRM_ERROR("failed to map backing page\n");

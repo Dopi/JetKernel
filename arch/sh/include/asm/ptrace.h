@@ -9,7 +9,7 @@
 struct pt_regs {
 	unsigned long long pc;
 	unsigned long long sr;
-	unsigned long long syscall_nr;
+	long long syscall_nr;
 	unsigned long long regs[63];
 	unsigned long long tregs[8];
 	unsigned long long pad[2];
@@ -102,6 +102,11 @@ struct pt_dspregs {
 #define	PTRACE_GETDSPREGS	55	/* DSP registers */
 #define	PTRACE_SETDSPREGS	56
 
+#define PT_TEXT_END_ADDR 	240
+#define PT_TEXT_ADDR 		244	/* &(struct user)->start_code */
+#define PT_DATA_ADDR 		248	/* &(struct user)->start_data */
+#define PT_TEXT_LEN		252
+
 #ifdef __KERNEL__
 #include <asm/addrspace.h>
 
@@ -119,18 +124,8 @@ struct task_struct;
 extern void user_enable_single_step(struct task_struct *);
 extern void user_disable_single_step(struct task_struct *);
 
-#ifdef CONFIG_SH_DSP
 #define task_pt_regs(task) \
-	((struct pt_regs *) (task_stack_page(task) + THREAD_SIZE \
-		 - sizeof(struct pt_dspregs) - sizeof(unsigned long)) - 1)
-#define task_pt_dspregs(task) \
-	((struct pt_dspregs *) (task_stack_page(task) + THREAD_SIZE \
-		 - sizeof(unsigned long)) - 1)
-#else
-#define task_pt_regs(task) \
-	((struct pt_regs *) (task_stack_page(task) + THREAD_SIZE \
-		 - sizeof(unsigned long)) - 1)
-#endif
+	((struct pt_regs *) (task_stack_page(task) + THREAD_SIZE) - 1)
 
 static inline unsigned long profile_pc(struct pt_regs *regs)
 {

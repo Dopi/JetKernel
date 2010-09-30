@@ -5,7 +5,6 @@
  * This file is released under the GPL.
  */
 
-#include "dm-bio-list.h"
 #include "dm-bio-record.h"
 
 #include <linux/init.h>
@@ -588,6 +587,9 @@ static void do_writes(struct mirror_set *ms, struct bio_list *writes)
 	int state;
 	struct bio *bio;
 	struct bio_list sync, nosync, recover, *this_list = NULL;
+	struct bio_list requeue;
+	struct dm_dirty_log *log = dm_rh_dirty_log(ms->rh);
+	region_t region;
 
 	if (!writes->head)
 		return;
@@ -598,10 +600,18 @@ static void do_writes(struct mirror_set *ms, struct bio_list *writes)
 	bio_list_init(&sync);
 	bio_list_init(&nosync);
 	bio_list_init(&recover);
+	bio_list_init(&requeue);
 
 	while ((bio = bio_list_pop(writes))) {
-		state = dm_rh_get_state(ms->rh,
-					dm_rh_bio_to_region(ms->rh, bio), 1);
+		region = dm_rh_bio_to_region(ms->rh, bio);
+
+		if (log->type->is_remote_recovering &&
+		    log->type->is_remote_recovering(log, region)) {
+			bio_list_add(&requeue, bio);
+			continue;
+		}
+
+		state = dm_rh_get_state(ms->rh, region, 1);
 		switch (state) {
 		case DM_RH_CLEAN:
 		case DM_RH_DIRTY:
@@ -621,13 +631,30 @@ static void do_writes(struct mirror_set *ms, struct bio_list *writes)
 	}
 
 	/*
+	 * Add bios that are delayed due to remote recovery
+	 * back on to the write queue
+	 */
+	if (unlikely(requeue.head)) {
+		spin_lock_irq(&ms->lock);
+		bio_list_merge(&ms->writes, &requeue);
+		spin_unlock_irq(&ms->lock);
+		delayed_wake(ms);
+	}
+
+	/*
 	 * Increment the pending counts for any regions that will
 	 * be written to (writes to recover regions are going to
 	 * be delayed).
 	 */
 	dm_rh_inc_pending(ms->rh, &sync);
 	dm_rh_inc_pending(ms->rh, &nosync);
-	ms->log_failure = dm_rh_flush(ms->rh) ? 1 : 0;
+
+	/*
+	 * If the flush fails on a previous call and succeeds here,
+	 * we must not reset the log_failure variable.  We need
+	 * userspace interaction to do that.
+	 */
+	ms->log_failure = dm_rh_flush(ms->rh) ? 1 : ms->log_failure;
 
 	/*
 	 * Dispatch io.
@@ -1263,9 +1290,23 @@ static int mirror_status(struct dm_target *ti, status_type_t type,
 	return 0;
 }
 
+static int mirror_iterate_devices(struct dm_target *ti,
+				  iterate_devices_callout_fn fn, void *data)
+{
+	struct mirror_set *ms = ti->private;
+	int ret = 0;
+	unsigned i;
+
+	for (i = 0; !ret && i < ms->nr_mirrors; i++)
+		ret = fn(ti, ms->mirror[i].dev,
+			 ms->mirror[i].offset, ti->len, data);
+
+	return ret;
+}
+
 static struct target_type mirror_target = {
 	.name	 = "mirror",
-	.version = {1, 0, 20},
+	.version = {1, 12, 0},
 	.module	 = THIS_MODULE,
 	.ctr	 = mirror_ctr,
 	.dtr	 = mirror_dtr,
@@ -1275,6 +1316,7 @@ static struct target_type mirror_target = {
 	.postsuspend = mirror_postsuspend,
 	.resume	 = mirror_resume,
 	.status	 = mirror_status,
+	.iterate_devices = mirror_iterate_devices,
 };
 
 static int __init dm_mirror_init(void)

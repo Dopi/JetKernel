@@ -3,8 +3,9 @@
 #
 
 ifdef CONFIG_FUNCTION_TRACER
-# Do not trace early boot code
+# Don't trace early setup code and tracing code
 CFLAGS_REMOVE_early.o = -pg
+CFLAGS_REMOVE_ftrace.o = -pg
 endif
 
 #
@@ -17,10 +18,12 @@ CFLAGS_smp.o	:= -Wno-nonnull
 #
 CFLAGS_ptrace.o		+= -DUTS_MACHINE='"$(UTS_MACHINE)"'
 
+CFLAGS_sysinfo.o += -Iinclude/math-emu -Iarch/s390/math-emu -w
+
 obj-y	:=  bitmap.o traps.o time.o process.o base.o early.o setup.o \
 	    processor.o sys_s390.o ptrace.o signal.o cpcmd.o ebcdic.o \
 	    s390_ext.o debug.o irq.o ipl.o dis.o diag.o mem_detect.o \
-	    vdso.o vtime.o
+	    vdso.o vtime.o sysinfo.o nmi.o sclp.o
 
 obj-y	+= $(if $(CONFIG_64BIT),entry64.o,entry.o)
 obj-y	+= $(if $(CONFIG_64BIT),reipl64.o,reipl.o)
@@ -39,6 +42,8 @@ obj-$(CONFIG_COMPAT)		+= compat_linux.o compat_signal.o \
 obj-$(CONFIG_STACKTRACE)	+= stacktrace.o
 obj-$(CONFIG_KPROBES)		+= kprobes.o
 obj-$(CONFIG_FUNCTION_TRACER)	+= mcount.o
+obj-$(CONFIG_DYNAMIC_FTRACE)	+= ftrace.o
+obj-$(CONFIG_FUNCTION_GRAPH_TRACER) += ftrace.o
 
 # Kexec part
 S390_KEXEC_OBJS := machine_kexec.o crash.o

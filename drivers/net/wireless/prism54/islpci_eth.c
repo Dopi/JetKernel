@@ -23,6 +23,7 @@
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/if_arp.h>
+#include <asm/byteorder.h>
 
 #include "prismcompat.h"
 #include "isl_38xx.h"
@@ -86,7 +87,6 @@ islpci_eth_transmit(struct sk_buff *skb, struct net_device *ndev)
 	unsigned long flags;
 	unsigned char wds_mac[6];
 	u32 curr_frag;
-	int err = 0;
 
 #if VERBOSE > SHOW_ERROR_MESSAGES
 	DEBUG(SHOW_FUNCTION_CALLS, "islpci_eth_transmit \n");
@@ -106,8 +106,6 @@ islpci_eth_transmit(struct sk_buff *skb, struct net_device *ndev)
 		isl38xx_w32_flush(priv->device_base, ISL38XX_DEV_INT_UPDATE,
 				  ISL38XX_DEV_INT_REG);
 		udelay(ISL38XX_WRITEIO_DELAY);
-
-		err = -EBUSY;
 		goto drop_free;
 	}
 	/* Check alignment and WDS frame formatting. The start of the packet should
@@ -151,7 +149,6 @@ islpci_eth_transmit(struct sk_buff *skb, struct net_device *ndev)
 			if (unlikely(newskb == NULL)) {
 				printk(KERN_ERR "%s: Cannot allocate skb\n",
 				       ndev->name);
-				err = -ENOMEM;
 				goto drop_free;
 			}
 			newskb_offset = (4 - (long) newskb->data) & 0x03;
@@ -196,8 +193,6 @@ islpci_eth_transmit(struct sk_buff *skb, struct net_device *ndev)
 	if (unlikely(pci_map_address == 0)) {
 		printk(KERN_WARNING "%s: cannot map buffer to PCI\n",
 		       ndev->name);
-
-		err = -EIO;
 		goto drop_free;
 	}
 	/* Place the fragment in the control block structure. */
@@ -230,8 +225,8 @@ islpci_eth_transmit(struct sk_buff *skb, struct net_device *ndev)
 
 	/* set the transmission time */
 	ndev->trans_start = jiffies;
-	priv->statistics.tx_packets++;
-	priv->statistics.tx_bytes += skb->len;
+	ndev->stats.tx_packets++;
+	ndev->stats.tx_bytes += skb->len;
 
 	/* trigger the device */
 	islpci_trigger(priv);
@@ -242,10 +237,10 @@ islpci_eth_transmit(struct sk_buff *skb, struct net_device *ndev)
 	return 0;
 
       drop_free:
-	priv->statistics.tx_dropped++;
+	ndev->stats.tx_dropped++;
 	spin_unlock_irqrestore(&priv->slock, flags);
 	dev_kfree_skb(skb);
-	return err;
+	return NETDEV_TX_OK;
 }
 
 static inline int
@@ -407,8 +402,8 @@ islpci_eth_receive(islpci_private *priv)
 		skb->protocol = eth_type_trans(skb, ndev);
 	}
 	skb->ip_summed = CHECKSUM_NONE;
-	priv->statistics.rx_packets++;
-	priv->statistics.rx_bytes += size;
+	ndev->stats.rx_packets++;
+	ndev->stats.rx_bytes += size;
 
 	/* deliver the skb to the network layer */
 #ifdef ISLPCI_ETH_DEBUG
@@ -471,8 +466,8 @@ islpci_eth_receive(islpci_private *priv)
 		wmb();
 
 		/* increment the driver read pointer */
-		add_le32p(&control_block->
-			  driver_curr_frag[ISL38XX_CB_RX_DATA_LQ], 1);
+		le32_add_cpu(&control_block->
+			     driver_curr_frag[ISL38XX_CB_RX_DATA_LQ], 1);
 	}
 
 	/* trigger the device */
@@ -496,10 +491,9 @@ void
 islpci_eth_tx_timeout(struct net_device *ndev)
 {
 	islpci_private *priv = netdev_priv(ndev);
-	struct net_device_stats *statistics = &priv->statistics;
 
 	/* increment the transmit error counter */
-	statistics->tx_errors++;
+	ndev->stats.tx_errors++;
 
 	if (!priv->reset_task_pending) {
 		printk(KERN_WARNING

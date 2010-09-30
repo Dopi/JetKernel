@@ -1,7 +1,7 @@
 #ifndef LINUX_B43_PHY_COMMON_H_
 #define LINUX_B43_PHY_COMMON_H_
 
-#include <linux/rfkill.h>
+#include <linux/types.h>
 
 struct b43_wldev;
 
@@ -159,7 +159,7 @@ struct b43_phy_operations {
 
 	/* Radio */
 	bool (*supports_hwpctl)(struct b43_wldev *dev);
-	void (*software_rfkill)(struct b43_wldev *dev, enum rfkill_state state);
+	void (*software_rfkill)(struct b43_wldev *dev, bool blocked);
 	void (*switch_analog)(struct b43_wldev *dev, bool on);
 	int (*switch_channel)(struct b43_wldev *dev, unsigned int new_channel);
 	unsigned int (*get_default_chan)(struct b43_wldev *dev);
@@ -245,8 +245,10 @@ struct b43_phy {
 	atomic_t txerr_cnt;
 
 #ifdef CONFIG_B43_DEBUG
-	/* PHY registers locked by b43_phy_lock()? */
+	/* PHY registers locked (w.r.t. firmware) */
 	bool phy_locked;
+	/* Radio registers locked (w.r.t. firmware) */
+	bool radio_locked;
 #endif /* B43_DEBUG */
 };
 
@@ -362,7 +364,7 @@ int b43_switch_channel(struct b43_wldev *dev, unsigned int new_channel);
 /**
  * b43_software_rfkill - Turn the radio ON or OFF in software.
  */
-void b43_software_rfkill(struct b43_wldev *dev, enum rfkill_state state);
+void b43_software_rfkill(struct b43_wldev *dev, bool blocked);
 
 /**
  * b43_phy_txpower_check - Check TX power output.

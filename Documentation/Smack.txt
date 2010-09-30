@@ -184,14 +184,17 @@ length. Single character labels using special characters, that being anything
 other than a letter or digit, are reserved for use by the Smack development
 team. Smack labels are unstructured, case sensitive, and the only operation
 ever performed on them is comparison for equality. Smack labels cannot
-contain unprintable characters or the "/" (slash) character.
+contain unprintable characters, the "/" (slash), the "\" (backslash), the "'"
+(quote) and '"' (double-quote) characters.
+Smack labels cannot begin with a '-', which is reserved for special options.
 
 There are some predefined labels:
 
-	_ Pronounced "floor", a single underscore character.
-	^ Pronounced "hat", a single circumflex character.
-	* Pronounced "star", a single asterisk character.
-	? Pronounced "huh", a single question mark character.
+	_ 	Pronounced "floor", a single underscore character.
+	^ 	Pronounced "hat", a single circumflex character.
+	* 	Pronounced "star", a single asterisk character.
+	? 	Pronounced "huh", a single question mark character.
+	@ 	Pronounced "Internet", a single at sign character.
 
 Every task on a Smack system is assigned a label. System tasks, such as
 init(8) and systems daemons, are run with the floor ("_") label. User tasks
@@ -412,6 +415,36 @@ sockets.
 	A privileged program may set this to match the label of another
 	task with which it hopes to communicate.
 
+Smack Netlabel Exceptions
+
+You will often find that your labeled application has to talk to the outside,
+unlabeled world. To do this there's a special file /smack/netlabel where you can
+add some exceptions in the form of :
+@IP1	   LABEL1 or
+@IP2/MASK  LABEL2
+
+It means that your application will have unlabeled access to @IP1 if it has
+write access on LABEL1, and access to the subnet @IP2/MASK if it has write
+access on LABEL2.
+
+Entries in the /smack/netlabel file are matched by longest mask first, like in
+classless IPv4 routing.
+
+A special label '@' and an option '-CIPSO' can be used there :
+@      means Internet, any application with any label has access to it
+-CIPSO means standard CIPSO networking
+
+If you don't know what CIPSO is and don't plan to use it, you can just do :
+echo 127.0.0.1 -CIPSO > /smack/netlabel
+echo 0.0.0.0/0 @      > /smack/netlabel
+
+If you use CIPSO on your 192.168.0.0/16 local network and need also unlabeled
+Internet access, you can have :
+echo 127.0.0.1      -CIPSO > /smack/netlabel
+echo 192.168.0.0/16 -CIPSO > /smack/netlabel
+echo 0.0.0.0/0      @      > /smack/netlabel
+
+
 Writing Applications for Smack
 
 There are three sorts of applications that will run on a Smack system. How an
@@ -491,3 +524,18 @@ Smack supports some mount options:
 
 These mount options apply to all file system types.
 
+Smack auditing
+
+If you want Smack auditing of security events, you need to set CONFIG_AUDIT
+in your kernel configuration.
+By default, all denied events will be audited. You can change this behavior by
+writing a single character to the /smack/logging file :
+0 : no logging
+1 : log denied (default)
+2 : log accepted
+3 : log denied & accepted
+
+Events are logged as 'key=value' pairs, for each event you at least will get
+the subjet, the object, the rights requested, the action, the kernel function
+that triggered the event, plus other pairs depending on the type of event
+audited.

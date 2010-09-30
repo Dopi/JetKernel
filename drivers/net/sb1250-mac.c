@@ -2039,9 +2039,9 @@ static irqreturn_t sbmac_intr(int irq,void *dev_instance)
 		sbdma_tx_process(sc,&(sc->sbm_txdma), 0);
 
 	if (isr & (M_MAC_INT_CHANNEL << S_MAC_RX_CH0)) {
-		if (netif_rx_schedule_prep(&sc->napi)) {
+		if (napi_schedule_prep(&sc->napi)) {
 			__raw_writeq(0, sc->sbm_imr);
-			__netif_rx_schedule(&sc->napi);
+			__napi_schedule(&sc->napi);
 			/* Depend on the exit from poll to reenable intr */
 		}
 		else {
@@ -2084,7 +2084,7 @@ static int sbmac_start_tx(struct sk_buff *skb, struct net_device *dev)
 		netif_stop_queue(dev);
 		spin_unlock_irqrestore(&sc->sbm_lock, flags);
 
-		return 1;
+		return NETDEV_TX_BUSY;
 	}
 
 	dev->trans_start = jiffies;
@@ -2271,6 +2271,21 @@ static int sb1250_change_mtu(struct net_device *_dev, int new_mtu)
 	return 0;
 }
 
+static const struct net_device_ops sbmac_netdev_ops = {
+	.ndo_open		= sbmac_open,
+	.ndo_stop		= sbmac_close,
+	.ndo_start_xmit		= sbmac_start_tx,
+	.ndo_set_multicast_list	= sbmac_set_rx_mode,
+	.ndo_tx_timeout		= sbmac_tx_timeout,
+	.ndo_do_ioctl		= sbmac_mii_ioctl,
+	.ndo_change_mtu		= sb1250_change_mtu,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_set_mac_address	= eth_mac_addr,
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	.ndo_poll_controller	= sbmac_netpoll,
+#endif
+};
+
 /**********************************************************************
  *  SBMAC_INIT(dev)
  *
@@ -2285,7 +2300,7 @@ static int sb1250_change_mtu(struct net_device *_dev, int new_mtu)
 
 static int sbmac_init(struct platform_device *pldev, long long base)
 {
-	struct net_device *dev = pldev->dev.driver_data;
+	struct net_device *dev = dev_get_drvdata(&pldev->dev);
 	int idx = pldev->id;
 	struct sbmac_softc *sc = netdev_priv(dev);
 	unsigned char *eaddr;
@@ -2299,7 +2314,7 @@ static int sbmac_init(struct platform_device *pldev, long long base)
 	eaddr = sc->sbm_hwaddr;
 
 	/*
-	 * Read the ethernet address.  The firwmare left this programmed
+	 * Read the ethernet address.  The firmware left this programmed
 	 * for us in the ethernet address register for each mac.
 	 */
 
@@ -2327,20 +2342,10 @@ static int sbmac_init(struct platform_device *pldev, long long base)
 
 	spin_lock_init(&(sc->sbm_lock));
 
-	dev->open               = sbmac_open;
-	dev->hard_start_xmit    = sbmac_start_tx;
-	dev->stop               = sbmac_close;
-	dev->set_multicast_list = sbmac_set_rx_mode;
-	dev->do_ioctl           = sbmac_mii_ioctl;
-	dev->tx_timeout         = sbmac_tx_timeout;
-	dev->watchdog_timeo     = TX_TIMEOUT;
+	dev->netdev_ops = &sbmac_netdev_ops;
+	dev->watchdog_timeo = TX_TIMEOUT;
 
 	netif_napi_add(dev, &sc->napi, sbmac_poll, 16);
-
-	dev->change_mtu         = sb1250_change_mtu;
-#ifdef CONFIG_NET_POLL_CONTROLLER
-	dev->poll_controller = sbmac_netpoll;
-#endif
 
 	dev->irq		= UNIT_INT(idx);
 
@@ -2478,7 +2483,7 @@ static int sbmac_mii_probe(struct net_device *dev)
 		return -ENXIO;
 	}
 
-	phy_dev = phy_connect(dev, phy_dev->dev.bus_id, &sbmac_mii_poll, 0,
+	phy_dev = phy_connect(dev, dev_name(&phy_dev->dev), &sbmac_mii_poll, 0,
 			      PHY_INTERFACE_MODE_GMII);
 	if (IS_ERR(phy_dev)) {
 		printk(KERN_ERR "%s: could not attach to PHY\n", dev->name);
@@ -2500,7 +2505,7 @@ static int sbmac_mii_probe(struct net_device *dev)
 
 	pr_info("%s: attached PHY driver [%s] (mii_bus:phy_addr=%s, irq=%d)\n",
 		dev->name, phy_dev->drv->name,
-		phy_dev->dev.bus_id, phy_dev->irq);
+		dev_name(&phy_dev->dev), phy_dev->irq);
 
 	sc->phy_dev = phy_dev;
 
@@ -2667,7 +2672,7 @@ static int sbmac_poll(struct napi_struct *napi, int budget)
 	sbdma_tx_process(sc, &(sc->sbm_txdma), 1);
 
 	if (work_done < budget) {
-		netif_rx_complete(napi);
+		napi_complete(napi);
 
 #ifdef CONFIG_SBMAC_COALESCE
 		__raw_writeq(((M_MAC_INT_EOP_COUNT | M_MAC_INT_EOP_TIMER) << S_MAC_TX_CH0) |
@@ -2697,7 +2702,7 @@ static int __init sbmac_probe(struct platform_device *pldev)
 	sbm_base = ioremap_nocache(res->start, res->end - res->start + 1);
 	if (!sbm_base) {
 		printk(KERN_ERR "%s: unable to map device registers\n",
-		       pldev->dev.bus_id);
+		       dev_name(&pldev->dev));
 		err = -ENOMEM;
 		goto out_out;
 	}
@@ -2708,7 +2713,7 @@ static int __init sbmac_probe(struct platform_device *pldev)
 	 * If we find a zero, skip this MAC.
 	 */
 	sbmac_orig_hwaddr = __raw_readq(sbm_base + R_MAC_ETHERNET_ADDR);
-	pr_debug("%s: %sconfiguring MAC at 0x%08Lx\n", pldev->dev.bus_id,
+	pr_debug("%s: %sconfiguring MAC at 0x%08Lx\n", dev_name(&pldev->dev),
 		 sbmac_orig_hwaddr ? "" : "not ", (long long)res->start);
 	if (sbmac_orig_hwaddr == 0) {
 		err = 0;
@@ -2721,12 +2726,12 @@ static int __init sbmac_probe(struct platform_device *pldev)
 	dev = alloc_etherdev(sizeof(struct sbmac_softc));
 	if (!dev) {
 		printk(KERN_ERR "%s: unable to allocate etherdev\n",
-		       pldev->dev.bus_id);
+		       dev_name(&pldev->dev));
 		err = -ENOMEM;
 		goto out_unmap;
 	}
 
-	pldev->dev.driver_data = dev;
+	dev_set_drvdata(&pldev->dev, dev);
 	SET_NETDEV_DEV(dev, &pldev->dev);
 
 	sc = netdev_priv(dev);
@@ -2751,7 +2756,7 @@ out_out:
 
 static int __exit sbmac_remove(struct platform_device *pldev)
 {
-	struct net_device *dev = pldev->dev.driver_data;
+	struct net_device *dev = dev_get_drvdata(&pldev->dev);
 	struct sbmac_softc *sc = netdev_priv(dev);
 
 	unregister_netdev(dev);

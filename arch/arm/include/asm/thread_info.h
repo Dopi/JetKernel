@@ -73,7 +73,7 @@ struct thread_info {
 	.task		= &tsk,						\
 	.exec_domain	= &default_exec_domain,				\
 	.flags		= 0,						\
-	.preempt_count	= 1,						\
+	.preempt_count	= INIT_PREEMPT_COUNT,				\
 	.addr_limit	= KERNEL_DS,					\
 	.cpu_domain	= domain_val(DOMAIN_USER, DOMAIN_MANAGER) |	\
 			  domain_val(DOMAIN_KERNEL, DOMAIN_MANAGER) |	\
@@ -99,6 +99,8 @@ static inline struct thread_info *current_thread_info(void)
 
 #define thread_saved_pc(tsk)	\
 	((unsigned long)(task_thread_info(tsk)->cpu_context.pc))
+#define thread_saved_sp(tsk)	\
+	((unsigned long)(task_thread_info(tsk)->cpu_context.sp))
 #define thread_saved_fp(tsk)	\
 	((unsigned long)(task_thread_info(tsk)->cpu_context.fp))
 
@@ -112,6 +114,8 @@ extern void iwmmxt_task_copy(struct thread_info *, void *);
 extern void iwmmxt_task_restore(struct thread_info *, void *);
 extern void iwmmxt_task_release(struct thread_info *);
 extern void iwmmxt_task_switch(struct thread_info *);
+
+extern void vfp_sync_state(struct thread_info *thread);
 
 #endif
 

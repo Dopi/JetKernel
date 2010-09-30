@@ -110,7 +110,7 @@ static void svc_release_skb(struct svc_rqst *rqstp)
 		rqstp->rq_xprt_ctxt = NULL;
 
 		dprintk("svc: service %p, releasing skb %p\n", rqstp, skb);
-		skb_free_datagram(svsk->sk_sk, skb);
+		skb_free_datagram_locked(svsk->sk_sk, skb);
 	}
 }
 
@@ -240,42 +240,76 @@ out:
 /*
  * Report socket names for nfsdfs
  */
-static int one_sock_name(char *buf, struct svc_sock *svsk)
+static int svc_one_sock_name(struct svc_sock *svsk, char *buf, int remaining)
 {
+	const struct sock *sk = svsk->sk_sk;
+	const char *proto_name = sk->sk_protocol == IPPROTO_UDP ?
+							"udp" : "tcp";
 	int len;
 
-	switch(svsk->sk_sk->sk_family) {
-	case AF_INET:
-		len = sprintf(buf, "ipv4 %s %pI4 %d\n",
-			      svsk->sk_sk->sk_protocol == IPPROTO_UDP ?
-			      "udp" : "tcp",
-			      &inet_sk(svsk->sk_sk)->rcv_saddr,
-			      inet_sk(svsk->sk_sk)->num);
+	switch (sk->sk_family) {
+	case PF_INET:
+		len = snprintf(buf, remaining, "ipv4 %s %pI4 %d\n",
+				proto_name,
+				&inet_sk(sk)->rcv_saddr,
+				inet_sk(sk)->num);
+		break;
+	case PF_INET6:
+		len = snprintf(buf, remaining, "ipv6 %s %pI6 %d\n",
+				proto_name,
+				&inet6_sk(sk)->rcv_saddr,
+				inet_sk(sk)->num);
 		break;
 	default:
-		len = sprintf(buf, "*unknown-%d*\n",
-			       svsk->sk_sk->sk_family);
+		len = snprintf(buf, remaining, "*unknown-%d*\n",
+				sk->sk_family);
+	}
+
+	if (len >= remaining) {
+		*buf = '\0';
+		return -ENAMETOOLONG;
 	}
 	return len;
 }
 
-int
-svc_sock_names(char *buf, struct svc_serv *serv, char *toclose)
+/**
+ * svc_sock_names - construct a list of listener names in a string
+ * @serv: pointer to RPC service
+ * @buf: pointer to a buffer to fill in with socket names
+ * @buflen: size of the buffer to be filled
+ * @toclose: pointer to '\0'-terminated C string containing the name
+ *		of a listener to be closed
+ *
+ * Fills in @buf with a '\n'-separated list of names of listener
+ * sockets.  If @toclose is not NULL, the socket named by @toclose
+ * is closed, and is not included in the output list.
+ *
+ * Returns positive length of the socket name string, or a negative
+ * errno value on error.
+ */
+int svc_sock_names(struct svc_serv *serv, char *buf, const size_t buflen,
+		   const char *toclose)
 {
 	struct svc_sock *svsk, *closesk = NULL;
 	int len = 0;
 
 	if (!serv)
 		return 0;
+
 	spin_lock_bh(&serv->sv_lock);
 	list_for_each_entry(svsk, &serv->sv_permsocks, sk_xprt.xpt_list) {
-		int onelen = one_sock_name(buf+len, svsk);
-		if (toclose && strcmp(toclose, buf+len) == 0)
+		int onelen = svc_one_sock_name(svsk, buf + len, buflen - len);
+		if (onelen < 0) {
+			len = onelen;
+			break;
+		}
+		if (toclose && strcmp(toclose, buf + len) == 0)
 			closesk = svsk;
 		else
 			len += onelen;
 	}
 	spin_unlock_bh(&serv->sv_lock);
+
 	if (closesk)
 		/* Should unregister with portmap, but you cannot
 		 * unregister just one protocol...
@@ -346,6 +380,7 @@ static void svc_sock_setbufsize(struct socket *sock, unsigned int snd,
 	sock->sk->sk_sndbuf = snd * 2;
 	sock->sk->sk_rcvbuf = rcv * 2;
 	sock->sk->sk_userlocks |= SOCK_SNDBUF_LOCK|SOCK_RCVBUF_LOCK;
+	sock->sk->sk_write_space(sock->sk);
 	release_sock(sock->sk);
 #endif
 }
@@ -385,6 +420,15 @@ static void svc_write_space(struct sock *sk)
 		       svsk);
 		wake_up_interruptible(sk->sk_sleep);
 	}
+}
+
+static void svc_tcp_write_space(struct sock *sk)
+{
+	struct socket *sock = sk->sk_socket;
+
+	if (sk_stream_wspace(sk) >= sk_stream_min_wspace(sk) && sock)
+		clear_bit(SOCK_NOSPACE, &sock->flags);
+	svc_write_space(sk);
 }
 
 /*
@@ -427,13 +471,14 @@ static int svc_udp_recvfrom(struct svc_rqst *rqstp)
 		long		all[SVC_PKTINFO_SPACE / sizeof(long)];
 	} buffer;
 	struct cmsghdr *cmh = &buffer.hdr;
-	int		err, len;
 	struct msghdr msg = {
 		.msg_name = svc_addr(rqstp),
 		.msg_control = cmh,
 		.msg_controllen = sizeof(buffer),
 		.msg_flags = MSG_DONTWAIT,
 	};
+	size_t len;
+	int err;
 
 	if (test_and_clear_bit(XPT_CHNGBUF, &svsk->sk_xprt.xpt_flags))
 	    /* udp sockets need large rcvbuf as all pending
@@ -465,8 +510,8 @@ static int svc_udp_recvfrom(struct svc_rqst *rqstp)
 		return -EAGAIN;
 	}
 	len = svc_addr_len(svc_addr(rqstp));
-	if (len < 0)
-		return len;
+	if (len == 0)
+		return -EAFNOSUPPORT;
 	rqstp->rq_addrlen = len;
 	if (skb->tstamp.tv64 == 0) {
 		skb->tstamp = ktime_get_real();
@@ -492,7 +537,7 @@ static int svc_udp_recvfrom(struct svc_rqst *rqstp)
 			printk("rpcsvc: received unknown control message:"
 			       "%d/%d\n",
 			       cmh->cmsg_level, cmh->cmsg_type);
-		skb_free_datagram(svsk->sk_sk, skb);
+		skb_free_datagram_locked(svsk->sk_sk, skb);
 		return 0;
 	}
 	svc_udp_get_dest_address(rqstp, cmh);
@@ -503,18 +548,18 @@ static int svc_udp_recvfrom(struct svc_rqst *rqstp)
 		if (csum_partial_copy_to_xdr(&rqstp->rq_arg, skb)) {
 			local_bh_enable();
 			/* checksum error */
-			skb_free_datagram(svsk->sk_sk, skb);
+			skb_free_datagram_locked(svsk->sk_sk, skb);
 			return 0;
 		}
 		local_bh_enable();
-		skb_free_datagram(svsk->sk_sk, skb);
+		skb_free_datagram_locked(svsk->sk_sk, skb);
 	} else {
 		/* we can use it in-place */
 		rqstp->rq_arg.head[0].iov_base = skb->data +
 			sizeof(struct udphdr);
 		rqstp->rq_arg.head[0].iov_len = len;
 		if (skb_checksum_complete(skb)) {
-			skb_free_datagram(svsk->sk_sk, skb);
+			skb_free_datagram_locked(svsk->sk_sk, skb);
 			return 0;
 		}
 		rqstp->rq_xprt_ctxt = skb;
@@ -980,25 +1025,16 @@ static void svc_tcp_prep_reply_hdr(struct svc_rqst *rqstp)
 static int svc_tcp_has_wspace(struct svc_xprt *xprt)
 {
 	struct svc_sock *svsk =	container_of(xprt, struct svc_sock, sk_xprt);
-	struct svc_serv	*serv = svsk->sk_xprt.xpt_server;
+	struct svc_serv *serv = svsk->sk_xprt.xpt_server;
 	int required;
-	int wspace;
 
-	/*
-	 * Set the SOCK_NOSPACE flag before checking the available
-	 * sock space.
-	 */
+	if (test_bit(XPT_LISTENER, &xprt->xpt_flags))
+		return 1;
+	required = atomic_read(&xprt->xpt_reserved) + serv->sv_max_mesg;
+	if (sk_stream_wspace(svsk->sk_sk) >= required)
+		return 1;
 	set_bit(SOCK_NOSPACE, &svsk->sk_sock->flags);
-	required = atomic_read(&svsk->sk_xprt.xpt_reserved) + serv->sv_max_mesg;
-	wspace = sk_stream_wspace(svsk->sk_sk);
-
-	if (wspace < sk_stream_min_wspace(svsk->sk_sk))
-		return 0;
-	if (required * 2 > wspace)
-		return 0;
-
-	clear_bit(SOCK_NOSPACE, &svsk->sk_sock->flags);
-	return 1;
+	return 0;
 }
 
 static struct svc_xprt *svc_tcp_create(struct svc_serv *serv,
@@ -1054,7 +1090,7 @@ static void svc_tcp_init(struct svc_sock *svsk, struct svc_serv *serv)
 		dprintk("setting up TCP socket for reading\n");
 		sk->sk_state_change = svc_tcp_state_change;
 		sk->sk_data_ready = svc_tcp_data_ready;
-		sk->sk_write_space = svc_write_space;
+		sk->sk_write_space = svc_tcp_write_space;
 
 		svsk->sk_reclen = 0;
 		svsk->sk_tcplen = 0;
@@ -1110,7 +1146,6 @@ static struct svc_sock *svc_setup_socket(struct svc_serv *serv,
 	struct svc_sock	*svsk;
 	struct sock	*inet;
 	int		pmap_register = !(flags & SVC_SOCK_ANONYMOUS);
-	int		val;
 
 	dprintk("svc: svc_setup_socket %p\n", sock);
 	if (!(svsk = kzalloc(sizeof(*svsk), GFP_KERNEL))) {
@@ -1122,7 +1157,7 @@ static struct svc_sock *svc_setup_socket(struct svc_serv *serv,
 
 	/* Register socket with portmapper */
 	if (*errp >= 0 && pmap_register)
-		*errp = svc_register(serv, inet->sk_protocol,
+		*errp = svc_register(serv, inet->sk_family, inet->sk_protocol,
 				     ntohs(inet_sk(inet)->sport));
 
 	if (*errp < 0) {
@@ -1143,27 +1178,25 @@ static struct svc_sock *svc_setup_socket(struct svc_serv *serv,
 	else
 		svc_tcp_init(svsk, serv);
 
-	/*
-	 * We start one listener per sv_serv.  We want AF_INET
-	 * requests to be automatically shunted to our AF_INET6
-	 * listener using a mapped IPv4 address.  Make sure
-	 * no-one starts an equivalent IPv4 listener, which
-	 * would steal our incoming connections.
-	 */
-	val = 0;
-	if (serv->sv_family == AF_INET6)
-		kernel_setsockopt(sock, SOL_IPV6, IPV6_V6ONLY,
-					(char *)&val, sizeof(val));
-
 	dprintk("svc: svc_setup_socket created %p (inet %p)\n",
 				svsk, svsk->sk_sk);
 
 	return svsk;
 }
 
-int svc_addsock(struct svc_serv *serv,
-		int fd,
-		char *name_return)
+/**
+ * svc_addsock - add a listener socket to an RPC service
+ * @serv: pointer to RPC service to which to add a new listener
+ * @fd: file descriptor of the new listener
+ * @name_return: pointer to buffer to fill in with name of listener
+ * @len: size of the buffer
+ *
+ * Fills in socket name and returns positive length of name if successful.
+ * Name is terminated with '\n'.  On error, returns a negative errno
+ * value.
+ */
+int svc_addsock(struct svc_serv *serv, const int fd, char *name_return,
+		const size_t len)
 {
 	int err = 0;
 	struct socket *so = sockfd_lookup(fd, &err);
@@ -1203,7 +1236,7 @@ int svc_addsock(struct svc_serv *serv,
 		sockfd_put(so);
 		return err;
 	}
-	return one_sock_name(name_return, svsk);
+	return svc_one_sock_name(svsk, name_return, len);
 }
 EXPORT_SYMBOL_GPL(svc_addsock);
 
@@ -1222,6 +1255,8 @@ static struct svc_xprt *svc_create_socket(struct svc_serv *serv,
 	struct sockaddr_storage addr;
 	struct sockaddr *newsin = (struct sockaddr *)&addr;
 	int		newlen;
+	int		family;
+	int		val;
 	RPC_IFDEBUG(char buf[RPC_MAX_ADDRBUFLEN]);
 
 	dprintk("svc: svc_create_socket(%s, %d, %s)\n",
@@ -1233,13 +1268,34 @@ static struct svc_xprt *svc_create_socket(struct svc_serv *serv,
 				"sockets supported\n");
 		return ERR_PTR(-EINVAL);
 	}
-	type = (protocol == IPPROTO_UDP)? SOCK_DGRAM : SOCK_STREAM;
 
-	error = sock_create_kern(sin->sa_family, type, protocol, &sock);
+	type = (protocol == IPPROTO_UDP)? SOCK_DGRAM : SOCK_STREAM;
+	switch (sin->sa_family) {
+	case AF_INET6:
+		family = PF_INET6;
+		break;
+	case AF_INET:
+		family = PF_INET;
+		break;
+	default:
+		return ERR_PTR(-EINVAL);
+	}
+
+	error = sock_create_kern(family, type, protocol, &sock);
 	if (error < 0)
 		return ERR_PTR(error);
 
 	svc_reclassify_socket(sock);
+
+	/*
+	 * If this is an PF_INET6 listener, we want to avoid
+	 * getting requests from IPv4 remotes.  Those should
+	 * be shunted to a PF_INET listener via rpcbind.
+	 */
+	val = 1;
+	if (family == PF_INET6)
+		kernel_setsockopt(sock, SOL_IPV6, IPV6_V6ONLY,
+					(char *)&val, sizeof(val));
 
 	if (type == SOCK_STREAM)
 		sock->sk->sk_reuse = 1;		/* allow address reuse */
@@ -1317,3 +1373,42 @@ static void svc_sock_free(struct svc_xprt *xprt)
 		sock_release(svsk->sk_sock);
 	kfree(svsk);
 }
+
+/*
+ * Create a svc_xprt.
+ *
+ * For internal use only (e.g. nfsv4.1 backchannel).
+ * Callers should typically use the xpo_create() method.
+ */
+struct svc_xprt *svc_sock_create(struct svc_serv *serv, int prot)
+{
+	struct svc_sock *svsk;
+	struct svc_xprt *xprt = NULL;
+
+	dprintk("svc: %s\n", __func__);
+	svsk = kzalloc(sizeof(*svsk), GFP_KERNEL);
+	if (!svsk)
+		goto out;
+
+	xprt = &svsk->sk_xprt;
+	if (prot == IPPROTO_TCP)
+		svc_xprt_init(&svc_tcp_class, xprt, serv);
+	else if (prot == IPPROTO_UDP)
+		svc_xprt_init(&svc_udp_class, xprt, serv);
+	else
+		BUG();
+out:
+	dprintk("svc: %s return %p\n", __func__, xprt);
+	return xprt;
+}
+EXPORT_SYMBOL_GPL(svc_sock_create);
+
+/*
+ * Destroy a svc_sock.
+ */
+void svc_sock_destroy(struct svc_xprt *xprt)
+{
+	if (xprt)
+		kfree(container_of(xprt, struct svc_sock, sk_xprt));
+}
+EXPORT_SYMBOL_GPL(svc_sock_destroy);

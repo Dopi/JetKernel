@@ -32,7 +32,6 @@
  *  smarter code in libata.
  *
  * TODO:
- * - IORDY fixes
  * - VDMA support
  */
 
@@ -234,8 +233,7 @@ static u8 sil_sata_udma_filter(ide_drive_t *drive)
  *	@pio: PIO mode number
  *
  *	Load the timing settings for this device mode into the
- *	controller. If we are in PIO mode 3 or 4 turn on IORDY
- *	monitoring (bit 9). The TF timing is bits 31:16
+ *	controller.
  */
 
 static void sil_set_pio_mode(ide_drive_t *drive, u8 pio)
@@ -276,13 +274,16 @@ static void sil_set_pio_mode(ide_drive_t *drive, u8 pio)
 	/* now set up IORDY */
 	speedp = sil_ioread16(dev, tfaddr - 2);
 	speedp &= ~0x200;
-	if (pio > 2)
-		speedp |= 0x200;
-	sil_iowrite16(dev, speedp, tfaddr - 2);
 
 	mode = sil_ioread8(dev, base + addr_mask);
 	mode &= ~(unit ? 0x30 : 0x03);
-	mode |= unit ? 0x10 : 0x01;
+
+	if (ide_pio_need_iordy(drive, pio)) {
+		speedp |= 0x200;
+		mode |= unit ? 0x10 : 0x01;
+	}
+
+	sil_iowrite16(dev, speedp, tfaddr - 2);
 	sil_iowrite8(dev, mode, base + addr_mask);
 }
 
@@ -337,24 +338,14 @@ static void sil_set_dma_mode(ide_drive_t *drive, const u8 speed)
 	sil_iowrite16(dev, ultra, ua);
 }
 
-/* returns 1 if dma irq issued, 0 otherwise */
-static int siimage_io_dma_test_irq(ide_drive_t *drive)
+static int sil_test_irq(ide_hwif_t *hwif)
 {
-	ide_hwif_t *hwif	= drive->hwif;
 	struct pci_dev *dev	= to_pci_dev(hwif->dev);
-	u8 dma_altstat		= 0;
 	unsigned long addr	= siimage_selreg(hwif, 1);
+	u8 val			= sil_ioread8(dev, addr);
 
-	/* return 1 if INTR asserted */
-	if (inb(hwif->dma_base + ATA_DMA_STATUS) & 4)
-		return 1;
-
-	/* return 1 if Device INTR asserted */
-	pci_read_config_byte(dev, addr, &dma_altstat);
-	if (dma_altstat & 8)
-		return 0;	/* return 1; */
-
-	return 0;
+	/* Return 1 if INTRQ asserted */
+	return (val & 8) ? 1 : 0;
 }
 
 /**
@@ -368,7 +359,6 @@ static int siimage_io_dma_test_irq(ide_drive_t *drive)
 static int siimage_mmio_dma_test_irq(ide_drive_t *drive)
 {
 	ide_hwif_t *hwif	= drive->hwif;
-	unsigned long addr	= siimage_selreg(hwif, 0x1);
 	void __iomem *sata_error_addr
 		= (void __iomem *)hwif->sata_scr[SATA_ERROR_OFFSET];
 
@@ -397,10 +387,6 @@ static int siimage_mmio_dma_test_irq(ide_drive_t *drive)
 	if (readb((void __iomem *)(hwif->dma_base + ATA_DMA_STATUS)) & 4)
 		return 1;
 
-	/* return 1 if Device INTR asserted */
-	if (readb((void __iomem *)addr) & 8)
-		return 0;	/* return 1; */
-
 	return 0;
 }
 
@@ -409,7 +395,7 @@ static int siimage_dma_test_irq(ide_drive_t *drive)
 	if (drive->hwif->host_flags & IDE_HFLAG_MMIO)
 		return siimage_mmio_dma_test_irq(drive);
 	else
-		return siimage_io_dma_test_irq(drive);
+		return ide_dma_test_irq(drive);
 }
 
 /**
@@ -451,8 +437,8 @@ static int sil_sata_reset_poll(ide_drive_t *drive)
 static void sil_sata_pre_reset(ide_drive_t *drive)
 {
 	if (drive->media == ide_disk) {
-		drive->special.b.set_geometry = 0;
-		drive->special.b.recalibrate = 0;
+		drive->special_flags &=
+			~(IDE_SFLAG_SET_GEOMETRY | IDE_SFLAG_RECALIBRATE);
 	}
 }
 
@@ -464,7 +450,7 @@ static void sil_sata_pre_reset(ide_drive_t *drive)
  *	to 133 MHz clocking if the system isn't already set up to do it.
  */
 
-static unsigned int init_chipset_siimage(struct pci_dev *dev)
+static int init_chipset_siimage(struct pci_dev *dev)
 {
 	struct ide_host *host = pci_get_drvdata(dev);
 	void __iomem *ioaddr = host->host_priv;
@@ -694,6 +680,7 @@ static const struct ide_port_ops sil_pata_port_ops = {
 	.set_pio_mode		= sil_set_pio_mode,
 	.set_dma_mode		= sil_set_dma_mode,
 	.quirkproc		= sil_quirkproc,
+	.test_irq		= sil_test_irq,
 	.udma_filter		= sil_pata_udma_filter,
 	.cable_detect		= sil_cable_detect,
 };
@@ -704,6 +691,7 @@ static const struct ide_port_ops sil_sata_port_ops = {
 	.reset_poll		= sil_sata_reset_poll,
 	.pre_reset		= sil_sata_pre_reset,
 	.quirkproc		= sil_quirkproc,
+	.test_irq		= sil_test_irq,
 	.udma_filter		= sil_sata_udma_filter,
 	.cable_detect		= sil_cable_detect,
 };
@@ -711,11 +699,10 @@ static const struct ide_port_ops sil_sata_port_ops = {
 static const struct ide_dma_ops sil_dma_ops = {
 	.dma_host_set		= ide_dma_host_set,
 	.dma_setup		= ide_dma_setup,
-	.dma_exec_cmd		= ide_dma_exec_cmd,
 	.dma_start		= ide_dma_start,
 	.dma_end		= ide_dma_end,
 	.dma_test_irq		= siimage_dma_test_irq,
-	.dma_timeout		= ide_dma_timeout,
+	.dma_timer_expiry	= ide_dma_sff_timer_expiry,
 	.dma_lost_irq		= ide_dma_lost_irq,
 	.dma_sff_read_status	= ide_dma_sff_read_status,
 };

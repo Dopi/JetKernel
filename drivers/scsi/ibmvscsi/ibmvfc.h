@@ -29,10 +29,14 @@
 #include "viosrp.h"
 
 #define IBMVFC_NAME	"ibmvfc"
-#define IBMVFC_DRIVER_VERSION		"1.0.4"
-#define IBMVFC_DRIVER_DATE		"(November 14, 2008)"
+#define IBMVFC_DRIVER_VERSION		"1.0.6"
+#define IBMVFC_DRIVER_DATE		"(May 28, 2009)"
 
 #define IBMVFC_DEFAULT_TIMEOUT	60
+#define IBMVFC_ADISC_CANCEL_TIMEOUT	45
+#define IBMVFC_ADISC_TIMEOUT		15
+#define IBMVFC_ADISC_PLUS_CANCEL_TIMEOUT	\
+		(IBMVFC_ADISC_TIMEOUT + IBMVFC_ADISC_CANCEL_TIMEOUT)
 #define IBMVFC_INIT_TIMEOUT		120
 #define IBMVFC_MAX_REQUESTS_DEFAULT	100
 
@@ -53,9 +57,10 @@
  * Ensure we have resources for ERP and initialization:
  * 1 for ERP
  * 1 for initialization
- * 1 for each discovery thread
+ * 1 for NPIV Logout
+ * 2 for each discovery thread
  */
-#define IBMVFC_NUM_INTERNAL_REQ	(1 + 1 + disc_threads)
+#define IBMVFC_NUM_INTERNAL_REQ	(1 + 1 + 1 + (disc_threads * 2))
 
 #define IBMVFC_MAD_SUCCESS		0x00
 #define IBMVFC_MAD_NOT_SUPPORTED	0xF1
@@ -123,6 +128,7 @@ enum ibmvfc_mad_types {
 	IBMVFC_IMPLICIT_LOGOUT	= 0x0040,
 	IBMVFC_PASSTHRU		= 0x0200,
 	IBMVFC_TMF_MAD		= 0x0100,
+	IBMVFC_NPIV_LOGOUT	= 0x0800,
 };
 
 struct ibmvfc_mad_common {
@@ -137,6 +143,10 @@ struct ibmvfc_mad_common {
 struct ibmvfc_npiv_login_mad {
 	struct ibmvfc_mad_common common;
 	struct srp_direct_buf buffer;
+}__attribute__((packed, aligned (8)));
+
+struct ibmvfc_npiv_logout_mad {
+	struct ibmvfc_mad_common common;
 }__attribute__((packed, aligned (8)));
 
 #define IBMVFC_MAX_NAME 256
@@ -197,7 +207,8 @@ struct ibmvfc_npiv_login_resp {
 #define IBMVFC_NATIVE_FC		0x01
 #define IBMVFC_CAN_FLUSH_ON_HALT	0x08
 	u32 reserved;
-	u64 capabilites;
+	u64 capabilities;
+#define IBMVFC_CAN_FLUSH_ON_HALT	0x08
 	u32 max_cmds;
 	u32 scsi_id_sz;
 	u64 max_dma_len;
@@ -537,9 +548,17 @@ struct ibmvfc_crq_queue {
 	dma_addr_t msg_token;
 };
 
+enum ibmvfc_ae_link_state {
+	IBMVFC_AE_LS_LINK_UP		= 0x01,
+	IBMVFC_AE_LS_LINK_BOUNCED	= 0x02,
+	IBMVFC_AE_LS_LINK_DOWN		= 0x04,
+	IBMVFC_AE_LS_LINK_DEAD		= 0x08,
+};
+
 struct ibmvfc_async_crq {
 	volatile u8 valid;
-	u8 pad[3];
+	u8 link_state;
+	u8 pad[2];
 	u32 pad2;
 	volatile u64 event;
 	volatile u64 scsi_id;
@@ -557,6 +576,7 @@ struct ibmvfc_async_crq_queue {
 union ibmvfc_iu {
 	struct ibmvfc_mad_common mad_common;
 	struct ibmvfc_npiv_login_mad npiv_login;
+	struct ibmvfc_npiv_logout_mad npiv_logout;
 	struct ibmvfc_discover_targets discover_targets;
 	struct ibmvfc_port_login plogi;
 	struct ibmvfc_process_login prli;
@@ -571,7 +591,6 @@ enum ibmvfc_target_action {
 	IBMVFC_TGT_ACTION_NONE = 0,
 	IBMVFC_TGT_ACTION_INIT,
 	IBMVFC_TGT_ACTION_INIT_WAIT,
-	IBMVFC_TGT_ACTION_ADD_RPORT,
 	IBMVFC_TGT_ACTION_DEL_RPORT,
 };
 
@@ -584,11 +603,15 @@ struct ibmvfc_target {
 	int target_id;
 	enum ibmvfc_target_action action;
 	int need_login;
+	int add_rport;
 	int init_retries;
+	int logo_rcvd;
+	u32 cancel_key;
 	struct ibmvfc_service_parms service_parms;
 	struct ibmvfc_service_parms service_parms_change;
 	struct fc_rport_identifiers ids;
 	void (*job_step) (struct ibmvfc_target *);
+	struct timer_list timer;
 	struct kref kref;
 };
 
@@ -621,6 +644,8 @@ struct ibmvfc_event_pool {
 
 enum ibmvfc_host_action {
 	IBMVFC_HOST_ACTION_NONE = 0,
+	IBMVFC_HOST_ACTION_LOGO,
+	IBMVFC_HOST_ACTION_LOGO_WAIT,
 	IBMVFC_HOST_ACTION_INIT,
 	IBMVFC_HOST_ACTION_INIT_WAIT,
 	IBMVFC_HOST_ACTION_QUERY,
@@ -629,7 +654,6 @@ enum ibmvfc_host_action {
 	IBMVFC_HOST_ACTION_ALLOC_TGTS,
 	IBMVFC_HOST_ACTION_TGT_INIT,
 	IBMVFC_HOST_ACTION_TGT_DEL_FAILED,
-	IBMVFC_HOST_ACTION_TGT_ADD,
 };
 
 enum ibmvfc_host_state {
@@ -672,9 +696,12 @@ struct ibmvfc_host {
 	int task_set;
 	int init_retries;
 	int discovery_threads;
+	int abort_threads;
 	int client_migrated;
 	int reinit;
 	int delay_init;
+	int scan_complete;
+	int logged_in;
 	int events_to_log;
 #define IBMVFC_AE_LINKUP	0x0001
 #define IBMVFC_AE_LINKDOWN	0x0002
@@ -684,6 +711,8 @@ struct ibmvfc_host {
 	char partition_name[97];
 	void (*job_step) (struct ibmvfc_host *);
 	struct task_struct *work_thread;
+	struct tasklet_struct tasklet;
+	struct work_struct rport_add_work_q;
 	wait_queue_head_t init_wait_q;
 	wait_queue_head_t work_wait_q;
 };
@@ -698,6 +727,12 @@ struct ibmvfc_host {
 
 #define tgt_err(t, fmt, ...)		\
 	dev_err((t)->vhost->dev, "%llX: " fmt, (t)->scsi_id, ##__VA_ARGS__)
+
+#define tgt_log(t, level, fmt, ...) \
+	do { \
+		if ((t)->vhost->log_level >= level) \
+			tgt_err(t, fmt, ##__VA_ARGS__); \
+	} while (0)
 
 #define ibmvfc_dbg(vhost, ...) \
 	DBG_CMD(dev_info((vhost)->dev, ##__VA_ARGS__))

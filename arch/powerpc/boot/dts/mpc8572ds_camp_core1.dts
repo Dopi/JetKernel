@@ -7,7 +7,7 @@
  *
  * Please note to add "-b 1" for core1's dts compiling.
  *
- * Copyright 2007, 2008 Freescale Semiconductor Inc.
+ * Copyright 2007-2009 Freescale Semiconductor Inc.
  *
  * This program is free software; you can redistribute  it and/or modify it
  * under  the terms of  the GNU General  Public License as published by the
@@ -58,7 +58,6 @@
 		device_type = "soc";
 		compatible = "simple-bus";
 		ranges = <0x0 0xffe00000 0x100000>;
-		reg = <0xffe00000 0x1000>;	// CCSRBAR & soc regs, remove once parse code for immrbase fixed
 		bus-frequency = <0>;		// Filled out by uboot.
 
 		L2: l2-cache-controller@20000 {
@@ -186,7 +185,7 @@
 			protected-sources = <
 			18 16 10 42 45 58	/* MEM L2 mdio serial crypto */
 			29 30 34 35 36 40	/* enet0 enet1 */
-			24 26 20 21 22 23	/* pcie0 pcie1 dma1 */
+			24 25 20 21 22 23	/* pci0 pci1 dma1 */
 			43			/* i2c */
 			0x1 0x2 0x3 0x4         /* pci slot */
 			0x9 0xa 0xb 0xc         /* usb */
@@ -196,7 +195,6 @@
 	};
 
 	pci2: pcie@ffe0a000 {
-		cell-index = <2>;
 		compatible = "fsl,mpc8548-pcie";
 		device_type = "pci";
 		#interrupt-cells = <1>;
@@ -228,7 +226,7 @@
 
 				  0x1000000 0x0 0x0
 				  0x1000000 0x0 0x0
-				  0x0 0x100000>;
+				  0x0 0x10000>;
 		};
 	};
 };

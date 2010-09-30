@@ -429,20 +429,12 @@ typedef unsigned long long acpi_integer;
 
 /* Data manipulation */
 
-#define ACPI_LOWORD(l)                  ((u16)(u32)(l))
-#define ACPI_HIWORD(l)                  ((u16)((((u32)(l)) >> 16) & 0xFFFF))
-#define ACPI_LOBYTE(l)                  ((u8)(u16)(l))
-#define ACPI_HIBYTE(l)                  ((u8)((((u16)(l)) >> 8) & 0xFF))
-
-/* Full 64-bit integer must be available on both 32-bit and 64-bit platforms */
-
-struct acpi_integer_overlay {
-	u32 lo_dword;
-	u32 hi_dword;
-};
-
-#define ACPI_LODWORD(integer)           (ACPI_CAST_PTR (struct acpi_integer_overlay, &integer)->lo_dword)
-#define ACPI_HIDWORD(integer)           (ACPI_CAST_PTR (struct acpi_integer_overlay, &integer)->hi_dword)
+#define ACPI_LOBYTE(integer)            ((u8)   (u16)(integer))
+#define ACPI_HIBYTE(integer)            ((u8) (((u16)(integer)) >> 8))
+#define ACPI_LOWORD(integer)            ((u16)  (u32)(integer))
+#define ACPI_HIWORD(integer)            ((u16)(((u32)(integer)) >> 16))
+#define ACPI_LODWORD(integer64)         ((u32)  (u64)(integer64))
+#define ACPI_HIDWORD(integer64)         ((u32)(((u64)(integer64)) >> 32))
 
 #define ACPI_SET_BIT(target,bit)        ((target) |= (bit))
 #define ACPI_CLEAR_BIT(target,bit)      ((target) &= ~(bit))
@@ -777,16 +769,24 @@ typedef u8 acpi_adr_space_type;
 #define ACPI_BITREG_SCI_ENABLE                  0x0E
 #define ACPI_BITREG_BUS_MASTER_RLD              0x0F
 #define ACPI_BITREG_GLOBAL_LOCK_RELEASE         0x10
-#define ACPI_BITREG_SLEEP_TYPE_A                0x11
-#define ACPI_BITREG_SLEEP_TYPE_B                0x12
-#define ACPI_BITREG_SLEEP_ENABLE                0x13
+#define ACPI_BITREG_SLEEP_TYPE                  0x11
+#define ACPI_BITREG_SLEEP_ENABLE                0x12
 
 /* PM2 Control register */
 
-#define ACPI_BITREG_ARB_DISABLE                 0x14
+#define ACPI_BITREG_ARB_DISABLE                 0x13
 
-#define ACPI_BITREG_MAX                         0x14
+#define ACPI_BITREG_MAX                         0x13
 #define ACPI_NUM_BITREG                         ACPI_BITREG_MAX + 1
+
+/* Status register values. A 1 clears a status bit. 0 = no effect */
+
+#define ACPI_CLEAR_STATUS                       1
+
+/* Enable and Control register values */
+
+#define ACPI_ENABLE_EVENT                       1
+#define ACPI_DISABLE_EVENT                      0
 
 /*
  * External ACPI object definition

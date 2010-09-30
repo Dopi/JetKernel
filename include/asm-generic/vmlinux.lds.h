@@ -1,3 +1,56 @@
+/*
+ * Helper macros to support writing architecture specific
+ * linker scripts.
+ *
+ * A minimal linker scripts has following content:
+ * [This is a sample, architectures may have special requiriements]
+ *
+ * OUTPUT_FORMAT(...)
+ * OUTPUT_ARCH(...)
+ * ENTRY(...)
+ * SECTIONS
+ * {
+ *	. = START;
+ *	__init_begin = .;
+ *	HEAD_TEXT_SECTION
+ *	INIT_TEXT_SECTION(PAGE_SIZE)
+ *	INIT_DATA_SECTION(...)
+ *	PERCPU(PAGE_SIZE)
+ *	__init_end = .;
+ *
+ *	_stext = .;
+ *	TEXT_SECTION = 0
+ *	_etext = .;
+ *
+ *      _sdata = .;
+ *	RO_DATA_SECTION(PAGE_SIZE)
+ *	RW_DATA_SECTION(...)
+ *	_edata = .;
+ *
+ *	EXCEPTION_TABLE(...)
+ *	NOTES
+ *
+ *	BSS_SECTION(0, 0, 0)
+ *	_end = .;
+ *
+ *	/DISCARD/ : {
+ *		EXIT_TEXT
+ *		EXIT_DATA
+ *		EXIT_CALL
+ *	}
+ *	STABS_DEBUG
+ *	DWARF_DEBUG
+ * }
+ *
+ * [__init_begin, __init_end] is the init section that may be freed after init
+ * [_stext, _etext] is the text section
+ * [_sdata, _edata] is the data section
+ *
+ * Some of the included output section have their own set of constants.
+ * Examples are: [__initramfs_start, __initramfs_end] for initramfs and
+ *               [__nosave_begin, __nosave_end] for the nosave data
+ */
+
 #ifndef LOAD_OFFSET
 #define LOAD_OFFSET 0
 #endif
@@ -61,10 +114,33 @@
 #define BRANCH_PROFILE()
 #endif
 
+#ifdef CONFIG_EVENT_TRACING
+#define FTRACE_EVENTS()	VMLINUX_SYMBOL(__start_ftrace_events) = .;	\
+			*(_ftrace_events)				\
+			VMLINUX_SYMBOL(__stop_ftrace_events) = .;
+#else
+#define FTRACE_EVENTS()
+#endif
+
+#ifdef CONFIG_TRACING
+#define TRACE_PRINTKS() VMLINUX_SYMBOL(__start___trace_bprintk_fmt) = .;      \
+			 *(__trace_printk_fmt) /* Trace_printk fmt' pointer */ \
+			 VMLINUX_SYMBOL(__stop___trace_bprintk_fmt) = .;
+#else
+#define TRACE_PRINTKS()
+#endif
+
+#ifdef CONFIG_FTRACE_SYSCALLS
+#define TRACE_SYSCALLS() VMLINUX_SYMBOL(__start_syscalls_metadata) = .;	\
+			 *(__syscalls_metadata)				\
+			 VMLINUX_SYMBOL(__stop_syscalls_metadata) = .;
+#else
+#define TRACE_SYSCALLS()
+#endif
+
 /* .data section */
 #define DATA_DATA							\
 	*(.data)							\
-	*(.data.init.refok)						\
 	*(.ref.data)							\
 	DEV_KEEP(init.data)						\
 	DEV_KEEP(exit.data)						\
@@ -80,10 +156,47 @@
 	VMLINUX_SYMBOL(__start___tracepoints) = .;			\
 	*(__tracepoints)						\
 	VMLINUX_SYMBOL(__stop___tracepoints) = .;			\
+	/* implement dynamic printk debug */				\
+	. = ALIGN(8);							\
+	VMLINUX_SYMBOL(__start___verbose) = .;                          \
+	*(__verbose)                                                    \
+	VMLINUX_SYMBOL(__stop___verbose) = .;				\
 	LIKELY_PROFILE()		       				\
-	BRANCH_PROFILE()
+	BRANCH_PROFILE()						\
+	TRACE_PRINTKS()							\
+	FTRACE_EVENTS()							\
+	TRACE_SYSCALLS()
 
-#define RO_DATA(align)							\
+/*
+ * Data section helpers
+ */
+#define NOSAVE_DATA							\
+	. = ALIGN(PAGE_SIZE);						\
+	VMLINUX_SYMBOL(__nosave_begin) = .;				\
+	*(.data.nosave)							\
+	. = ALIGN(PAGE_SIZE);						\
+	VMLINUX_SYMBOL(__nosave_end) = .;
+
+#define PAGE_ALIGNED_DATA(page_align)					\
+	. = ALIGN(page_align);						\
+	*(.data.page_aligned)
+
+#define READ_MOSTLY_DATA(align)						\
+	. = ALIGN(align);						\
+	*(.data.read_mostly)
+
+#define CACHELINE_ALIGNED_DATA(align)					\
+	. = ALIGN(align);						\
+	*(.data.cacheline_aligned)
+
+#define INIT_TASK_DATA(align)						\
+	. = ALIGN(align);						\
+	*(.data.init_task)
+
+/*
+ * Read only Data
+ */
+#define RO_DATA_SECTION(align)						\
 	. = ALIGN((align));						\
 	.rodata           : AT(ADDR(.rodata) - LOAD_OFFSET) {		\
 		VMLINUX_SYMBOL(__start_rodata) = .;			\
@@ -237,9 +350,10 @@
 	}								\
 	. = ALIGN((align));
 
-/* RODATA provided for backward compatibility.
+/* RODATA & RO_DATA provided for backward compatibility.
  * All archs are supposed to use RO_DATA() */
-#define RODATA RO_DATA(4096)
+#define RODATA          RO_DATA_SECTION(4096)
+#define RO_DATA(align)  RO_DATA_SECTION(align)
 
 #define SECURITY_INIT							\
 	.security_initcall.init : AT(ADDR(.security_initcall.init) - LOAD_OFFSET) { \
@@ -255,8 +369,6 @@
 		*(.text.hot)						\
 		*(.text)						\
 		*(.ref.text)						\
-		*(.text.init.refok)					\
-		*(.exit.text.refok)					\
 	DEV_KEEP(init.text)						\
 	DEV_KEEP(exit.text)						\
 	CPU_KEEP(init.text)						\
@@ -301,23 +413,51 @@
 /* Section used for early init (in .S files) */
 #define HEAD_TEXT  *(.head.text)
 
+#define HEAD_TEXT_SECTION							\
+	.head.text : AT(ADDR(.head.text) - LOAD_OFFSET) {		\
+		HEAD_TEXT						\
+	}
+
+/*
+ * Exception table
+ */
+#define EXCEPTION_TABLE(align)						\
+	. = ALIGN(align);						\
+	__ex_table : AT(ADDR(__ex_table) - LOAD_OFFSET) {		\
+		VMLINUX_SYMBOL(__start___ex_table) = .;			\
+		*(__ex_table)						\
+		VMLINUX_SYMBOL(__stop___ex_table) = .;			\
+	}
+
+/*
+ * Init task
+ */
+#define INIT_TASK_DATA_SECTION(align)					\
+	. = ALIGN(align);						\
+	.data.init_task : {						\
+		INIT_TASK_DATA(align)					\
+	}
+
+#ifdef CONFIG_CONSTRUCTORS
+#define KERNEL_CTORS()	. = ALIGN(8);			   \
+			VMLINUX_SYMBOL(__ctors_start) = .; \
+			*(.ctors)			   \
+			VMLINUX_SYMBOL(__ctors_end) = .;
+#else
+#define KERNEL_CTORS()
+#endif
+
 /* init and exit section handling */
 #define INIT_DATA							\
 	*(.init.data)							\
 	DEV_DISCARD(init.data)						\
-	DEV_DISCARD(init.rodata)					\
 	CPU_DISCARD(init.data)						\
-	CPU_DISCARD(init.rodata)					\
 	MEM_DISCARD(init.data)						\
-	MEM_DISCARD(init.rodata)					\
-	/* implement dynamic printk debug */				\
-	VMLINUX_SYMBOL(__start___verbose_strings) = .;                  \
-	*(__verbose_strings)                                            \
-	VMLINUX_SYMBOL(__stop___verbose_strings) = .;                   \
-	. = ALIGN(8);							\
-	VMLINUX_SYMBOL(__start___verbose) = .;                          \
-	*(__verbose)                                                    \
-	VMLINUX_SYMBOL(__stop___verbose) = .;
+	KERNEL_CTORS()							\
+	*(.init.rodata)							\
+	DEV_DISCARD(init.rodata)					\
+	CPU_DISCARD(init.rodata)					\
+	MEM_DISCARD(init.rodata)
 
 #define INIT_TEXT							\
 	*(.init.text)							\
@@ -340,9 +480,34 @@
 	CPU_DISCARD(exit.text)						\
 	MEM_DISCARD(exit.text)
 
-		/* DWARF debug sections.
-		Symbols in the DWARF debugging sections are relative to
-		the beginning of the section so we begin them at 0.  */
+#define EXIT_CALL							\
+	*(.exitcall.exit)
+
+/*
+ * bss (Block Started by Symbol) - uninitialized data
+ * zeroed during startup
+ */
+#define SBSS(sbss_align)						\
+	. = ALIGN(sbss_align);						\
+	.sbss : AT(ADDR(.sbss) - LOAD_OFFSET) {				\
+		*(.sbss)						\
+		*(.scommon)						\
+	}
+
+#define BSS(bss_align)							\
+	. = ALIGN(bss_align);						\
+	.bss : AT(ADDR(.bss) - LOAD_OFFSET) {				\
+		*(.bss.page_aligned)					\
+		*(.dynbss)						\
+		*(.bss)							\
+		*(COMMON)						\
+	}
+
+/*
+ * DWARF debug sections.
+ * Symbols in the DWARF debugging sections are relative to
+ * the beginning of the section so we begin them at 0.
+ */
 #define DWARF_DEBUG							\
 		/* DWARF 1 */						\
 		.debug          0 : { *(.debug) }			\
@@ -409,6 +574,12 @@
 		VMLINUX_SYMBOL(__stop_notes) = .;			\
 	}
 
+#define INIT_SETUP(initsetup_align)					\
+		. = ALIGN(initsetup_align);				\
+		VMLINUX_SYMBOL(__setup_start) = .;			\
+		*(.init.setup)						\
+		VMLINUX_SYMBOL(__setup_end) = .;
+
 #define INITCALLS							\
 	*(.initcallearly.init)						\
 	VMLINUX_SYMBOL(__early_initcall_end) = .;			\
@@ -430,12 +601,141 @@
   	*(.initcall7.init)						\
   	*(.initcall7s.init)
 
-#define PERCPU(align)							\
-	. = ALIGN(align);						\
-	VMLINUX_SYMBOL(__per_cpu_start) = .;				\
-	.data.percpu  : AT(ADDR(.data.percpu) - LOAD_OFFSET) {		\
+#define INIT_CALLS							\
+		VMLINUX_SYMBOL(__initcall_start) = .;			\
+		INITCALLS						\
+		VMLINUX_SYMBOL(__initcall_end) = .;
+
+#define CON_INITCALL							\
+		VMLINUX_SYMBOL(__con_initcall_start) = .;		\
+		*(.con_initcall.init)					\
+		VMLINUX_SYMBOL(__con_initcall_end) = .;
+
+#define SECURITY_INITCALL						\
+		VMLINUX_SYMBOL(__security_initcall_start) = .;		\
+		*(.security_initcall.init)				\
+		VMLINUX_SYMBOL(__security_initcall_end) = .;
+
+#ifdef CONFIG_BLK_DEV_INITRD
+#define INIT_RAM_FS							\
+	. = ALIGN(PAGE_SIZE);						\
+	VMLINUX_SYMBOL(__initramfs_start) = .;				\
+	*(.init.ramfs)							\
+	VMLINUX_SYMBOL(__initramfs_end) = .;
+#else
+#define INIT_RAM_FS
+#endif
+
+/**
+ * PERCPU_VADDR - define output section for percpu area
+ * @vaddr: explicit base address (optional)
+ * @phdr: destination PHDR (optional)
+ *
+ * Macro which expands to output section for percpu area.  If @vaddr
+ * is not blank, it specifies explicit base address and all percpu
+ * symbols will be offset from the given address.  If blank, @vaddr
+ * always equals @laddr + LOAD_OFFSET.
+ *
+ * @phdr defines the output PHDR to use if not blank.  Be warned that
+ * output PHDR is sticky.  If @phdr is specified, the next output
+ * section in the linker script will go there too.  @phdr should have
+ * a leading colon.
+ *
+ * Note that this macros defines __per_cpu_load as an absolute symbol.
+ * If there is no need to put the percpu section at a predetermined
+ * address, use PERCPU().
+ */
+#define PERCPU_VADDR(vaddr, phdr)					\
+	VMLINUX_SYMBOL(__per_cpu_load) = .;				\
+	.data.percpu vaddr : AT(VMLINUX_SYMBOL(__per_cpu_load)		\
+				- LOAD_OFFSET) {			\
+		VMLINUX_SYMBOL(__per_cpu_start) = .;			\
+		*(.data.percpu.first)					\
 		*(.data.percpu.page_aligned)				\
 		*(.data.percpu)						\
 		*(.data.percpu.shared_aligned)				\
-	}								\
-	VMLINUX_SYMBOL(__per_cpu_end) = .;
+		VMLINUX_SYMBOL(__per_cpu_end) = .;			\
+	} phdr								\
+	. = VMLINUX_SYMBOL(__per_cpu_load) + SIZEOF(.data.percpu);
+
+/**
+ * PERCPU - define output section for percpu area, simple version
+ * @align: required alignment
+ *
+ * Align to @align and outputs output section for percpu area.  This
+ * macro doesn't maniuplate @vaddr or @phdr and __per_cpu_load and
+ * __per_cpu_start will be identical.
+ *
+ * This macro is equivalent to ALIGN(align); PERCPU_VADDR( , ) except
+ * that __per_cpu_load is defined as a relative symbol against
+ * .data.percpu which is required for relocatable x86_32
+ * configuration.
+ */
+#define PERCPU(align)							\
+	. = ALIGN(align);						\
+	.data.percpu	: AT(ADDR(.data.percpu) - LOAD_OFFSET) {	\
+		VMLINUX_SYMBOL(__per_cpu_load) = .;			\
+		VMLINUX_SYMBOL(__per_cpu_start) = .;			\
+		*(.data.percpu.first)					\
+		*(.data.percpu.page_aligned)				\
+		*(.data.percpu)						\
+		*(.data.percpu.shared_aligned)				\
+		VMLINUX_SYMBOL(__per_cpu_end) = .;			\
+	}
+
+
+/*
+ * Definition of the high level *_SECTION macros
+ * They will fit only a subset of the architectures
+ */
+
+
+/*
+ * Writeable data.
+ * All sections are combined in a single .data section.
+ * The sections following CONSTRUCTORS are arranged so their
+ * typical alignment matches.
+ * A cacheline is typical/always less than a PAGE_SIZE so
+ * the sections that has this restriction (or similar)
+ * is located before the ones requiring PAGE_SIZE alignment.
+ * NOSAVE_DATA starts and ends with a PAGE_SIZE alignment which
+ * matches the requirment of PAGE_ALIGNED_DATA.
+ *
+ * use 0 as page_align if page_aligned data is not used */
+#define RW_DATA_SECTION(cacheline, pagealigned, inittask)		\
+	. = ALIGN(PAGE_SIZE);						\
+	.data : AT(ADDR(.data) - LOAD_OFFSET) {				\
+		INIT_TASK_DATA(inittask)				\
+		CACHELINE_ALIGNED_DATA(cacheline)			\
+		READ_MOSTLY_DATA(cacheline)				\
+		DATA_DATA						\
+		CONSTRUCTORS						\
+		NOSAVE_DATA						\
+		PAGE_ALIGNED_DATA(pagealigned)				\
+	}
+
+#define INIT_TEXT_SECTION(inittext_align)				\
+	. = ALIGN(inittext_align);					\
+	.init.text : AT(ADDR(.init.text) - LOAD_OFFSET) {		\
+		VMLINUX_SYMBOL(_sinittext) = .;				\
+		INIT_TEXT						\
+		VMLINUX_SYMBOL(_einittext) = .;				\
+	}
+
+#define INIT_DATA_SECTION(initsetup_align)				\
+	.init.data : AT(ADDR(.init.data) - LOAD_OFFSET) {		\
+		INIT_DATA						\
+		INIT_SETUP(initsetup_align)				\
+		INIT_CALLS						\
+		CON_INITCALL						\
+		SECURITY_INITCALL					\
+		INIT_RAM_FS						\
+	}
+
+#define BSS_SECTION(sbss_align, bss_align, stop_align)			\
+	. = ALIGN(sbss_align);						\
+	VMLINUX_SYMBOL(__bss_start) = .;				\
+	SBSS(sbss_align)						\
+	BSS(bss_align)							\
+	. = ALIGN(stop_align);						\
+	VMLINUX_SYMBOL(__bss_stop) = .;

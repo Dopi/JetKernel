@@ -279,28 +279,29 @@ static void _mpic_map_mmio(struct mpic *mpic, phys_addr_t phys_addr,
 }
 
 #ifdef CONFIG_PPC_DCR
-static void _mpic_map_dcr(struct mpic *mpic, struct mpic_reg_bank *rb,
+static void _mpic_map_dcr(struct mpic *mpic, struct device_node *node,
+			  struct mpic_reg_bank *rb,
 			  unsigned int offset, unsigned int size)
 {
 	const u32 *dbasep;
 
-	dbasep = of_get_property(mpic->irqhost->of_node, "dcr-reg", NULL);
+	dbasep = of_get_property(node, "dcr-reg", NULL);
 
-	rb->dhost = dcr_map(mpic->irqhost->of_node, *dbasep + offset, size);
+	rb->dhost = dcr_map(node, *dbasep + offset, size);
 	BUG_ON(!DCR_MAP_OK(rb->dhost));
 }
 
-static inline void mpic_map(struct mpic *mpic, phys_addr_t phys_addr,
-			    struct mpic_reg_bank *rb, unsigned int offset,
-			    unsigned int size)
+static inline void mpic_map(struct mpic *mpic, struct device_node *node,
+			    phys_addr_t phys_addr, struct mpic_reg_bank *rb,
+			    unsigned int offset, unsigned int size)
 {
 	if (mpic->flags & MPIC_USES_DCR)
-		_mpic_map_dcr(mpic, rb, offset, size);
+		_mpic_map_dcr(mpic, node, rb, offset, size);
 	else
 		_mpic_map_mmio(mpic, phys_addr, rb, offset, size);
 }
 #else /* CONFIG_PPC_DCR */
-#define mpic_map(m,p,b,o,s)	_mpic_map_mmio(m,p,b,o,s)
+#define mpic_map(m,n,p,b,o,s)	_mpic_map_mmio(m,p,b,o,s)
 #endif /* !CONFIG_PPC_DCR */
 
 
@@ -507,9 +508,8 @@ static void __init mpic_scan_ht_pics(struct mpic *mpic)
 	printk(KERN_INFO "mpic: Setting up HT PICs workarounds for U3/U4\n");
 
 	/* Allocate fixups array */
-	mpic->fixups = alloc_bootmem(128 * sizeof(struct mpic_irq_fixup));
+	mpic->fixups = kzalloc(128 * sizeof(*mpic->fixups), GFP_KERNEL);
 	BUG_ON(mpic->fixups == NULL);
-	memset(mpic->fixups, 0, 128 * sizeof(struct mpic_irq_fixup));
 
 	/* Init spinlock */
 	spin_lock_init(&mpic->fixup_lock);
@@ -566,9 +566,10 @@ static void __init mpic_scan_ht_pics(struct mpic *mpic)
 #ifdef CONFIG_SMP
 static int irq_choose_cpu(unsigned int virt_irq)
 {
-	cpumask_t mask = irq_desc[virt_irq].affinity;
+	cpumask_t mask;
 	int cpuid;
 
+	cpumask_copy(&mask, irq_desc[virt_irq].affinity);
 	if (cpus_equal(mask, CPU_MASK_ALL)) {
 		static int irq_rover;
 		static DEFINE_SPINLOCK(irq_rover_lock);
@@ -612,22 +613,22 @@ static int irq_choose_cpu(unsigned int virt_irq)
 #define mpic_irq_to_hw(virq)	((unsigned int)irq_map[virq].hwirq)
 
 /* Find an mpic associated with a given linux interrupt */
-static struct mpic *mpic_find(unsigned int irq, unsigned int *is_ipi)
+static struct mpic *mpic_find(unsigned int irq)
 {
-	unsigned int src = mpic_irq_to_hw(irq);
-	struct mpic *mpic;
-
 	if (irq < NUM_ISA_INTERRUPTS)
 		return NULL;
 
-	mpic = irq_desc[irq].chip_data;
-
-	if (is_ipi)
-		*is_ipi = (src >= mpic->ipi_vecs[0] &&
-			   src <= mpic->ipi_vecs[3]);
-
-	return mpic;
+	return irq_desc[irq].chip_data;
 }
+
+/* Determine if the linux irq is an IPI */
+static unsigned int mpic_is_ipi(struct mpic *mpic, unsigned int irq)
+{
+	unsigned int src = mpic_irq_to_hw(irq);
+
+	return (src >= mpic->ipi_vecs[0] && src <= mpic->ipi_vecs[3]);
+}
+
 
 /* Convert a cpu mask from logical to physical cpu numbers. */
 static inline u32 mpic_physmask(u32 cpumask)
@@ -806,7 +807,7 @@ static void mpic_end_ipi(unsigned int irq)
 
 #endif /* CONFIG_SMP */
 
-void mpic_set_affinity(unsigned int irq, const struct cpumask *cpumask)
+int mpic_set_affinity(unsigned int irq, const struct cpumask *cpumask)
 {
 	struct mpic *mpic = mpic_from_irq(irq);
 	unsigned int src = mpic_irq_to_hw(irq);
@@ -823,6 +824,8 @@ void mpic_set_affinity(unsigned int irq, const struct cpumask *cpumask)
 		mpic_irq_write(src, MPIC_INFO(IRQ_DESTINATION),
 			       mpic_physmask(cpus_addr(tmp)[0]));
 	}
+
+	return 0;
 }
 
 static unsigned int mpic_type_to_vecpri(struct mpic *mpic, unsigned int type)
@@ -1049,20 +1052,12 @@ struct mpic * __init mpic_alloc(struct device_node *node,
 	int		intvec_top;
 	u64		paddr = phys_addr;
 
-	mpic = alloc_bootmem(sizeof(struct mpic));
+	mpic = kzalloc(sizeof(struct mpic), GFP_KERNEL);
 	if (mpic == NULL)
 		return NULL;
-	
-	memset(mpic, 0, sizeof(struct mpic));
+
 	mpic->name = name;
 
-	mpic->irqhost = irq_alloc_host(node, IRQ_HOST_MAP_LINEAR,
-				       isu_size, &mpic_host_ops,
-				       flags & MPIC_LARGE_VECTORS ? 2048 : 256);
-	if (mpic->irqhost == NULL)
-		return NULL;
-
-	mpic->irqhost->host_data = mpic;
 	mpic->hc_irq = mpic_irq_chip;
 	mpic->hc_irq.typename = name;
 	if (flags & MPIC_PRIMARY)
@@ -1113,9 +1108,8 @@ struct mpic * __init mpic_alloc(struct device_node *node,
 			psize /= 4;
 			bits = intvec_top + 1;
 			mapsize = BITS_TO_LONGS(bits) * sizeof(unsigned long);
-			mpic->protected = alloc_bootmem(mapsize);
+			mpic->protected = kzalloc(mapsize, GFP_KERNEL);
 			BUG_ON(mpic->protected == NULL);
-			memset(mpic->protected, 0, mapsize);
 			for (i = 0; i < psize; i++) {
 				if (psrc[i] > intvec_top)
 					continue;
@@ -1156,8 +1150,8 @@ struct mpic * __init mpic_alloc(struct device_node *node,
 	}
 
 	/* Map the global registers */
-	mpic_map(mpic, paddr, &mpic->gregs, MPIC_INFO(GREG_BASE), 0x1000);
-	mpic_map(mpic, paddr, &mpic->tmregs, MPIC_INFO(TIMER_BASE), 0x1000);
+	mpic_map(mpic, node, paddr, &mpic->gregs, MPIC_INFO(GREG_BASE), 0x1000);
+	mpic_map(mpic, node, paddr, &mpic->tmregs, MPIC_INFO(TIMER_BASE), 0x1000);
 
 	/* Reset */
 	if (flags & MPIC_WANTS_RESET) {
@@ -1168,6 +1162,12 @@ struct mpic * __init mpic_alloc(struct device_node *node,
 		       & MPIC_GREG_GCONF_RESET)
 			mb();
 	}
+
+	/* CoreInt */
+	if (flags & MPIC_ENABLE_COREINT)
+		mpic_write(mpic->gregs, MPIC_INFO(GREG_GLOBAL_CONF_0),
+			   mpic_read(mpic->gregs, MPIC_INFO(GREG_GLOBAL_CONF_0))
+			   | MPIC_GREG_GCONF_COREINT);
 
 	if (flags & MPIC_ENABLE_MCK)
 		mpic_write(mpic->gregs, MPIC_INFO(GREG_GLOBAL_CONF_0),
@@ -1192,7 +1192,7 @@ struct mpic * __init mpic_alloc(struct device_node *node,
 
 	/* Map the per-CPU registers */
 	for (i = 0; i < mpic->num_cpus; i++) {
-		mpic_map(mpic, paddr, &mpic->cpuregs[i],
+		mpic_map(mpic, node, paddr, &mpic->cpuregs[i],
 			 MPIC_INFO(CPU_BASE) + i * MPIC_INFO(CPU_STRIDE),
 			 0x1000);
 	}
@@ -1200,11 +1200,20 @@ struct mpic * __init mpic_alloc(struct device_node *node,
 	/* Initialize main ISU if none provided */
 	if (mpic->isu_size == 0) {
 		mpic->isu_size = mpic->num_sources;
-		mpic_map(mpic, paddr, &mpic->isus[0],
+		mpic_map(mpic, node, paddr, &mpic->isus[0],
 			 MPIC_INFO(IRQ_BASE), MPIC_INFO(IRQ_STRIDE) * mpic->isu_size);
 	}
 	mpic->isu_shift = 1 + __ilog2(mpic->isu_size - 1);
 	mpic->isu_mask = (1 << mpic->isu_shift) - 1;
+
+	mpic->irqhost = irq_alloc_host(node, IRQ_HOST_MAP_LINEAR,
+				       isu_size ? isu_size : mpic->num_sources,
+				       &mpic_host_ops,
+				       flags & MPIC_LARGE_VECTORS ? 2048 : 256);
+	if (mpic->irqhost == NULL)
+		return NULL;
+
+	mpic->irqhost->host_data = mpic;
 
 	/* Display version */
 	switch (greg_feature & MPIC_GREG_FEATURE_VERSION_MASK) {
@@ -1245,8 +1254,10 @@ void __init mpic_assign_isu(struct mpic *mpic, unsigned int isu_num,
 
 	BUG_ON(isu_num >= MPIC_MAX_ISU);
 
-	mpic_map(mpic, paddr, &mpic->isus[isu_num], 0,
+	mpic_map(mpic, mpic->irqhost->of_node,
+		 paddr, &mpic->isus[isu_num], 0,
 		 MPIC_INFO(IRQ_STRIDE) * mpic->isu_size);
+
 	if ((isu_first + mpic->isu_size) > mpic->num_sources)
 		mpic->num_sources = isu_first + mpic->isu_size;
 }
@@ -1340,7 +1351,8 @@ void __init mpic_init(struct mpic *mpic)
 
 #ifdef CONFIG_PM
 	/* allocate memory to save mpic state */
-	mpic->save_data = alloc_bootmem(mpic->num_sources * sizeof(struct mpic_irq_save));
+	mpic->save_data = kmalloc(mpic->num_sources * sizeof(*mpic->save_data),
+				  GFP_KERNEL);
 	BUG_ON(mpic->save_data == NULL);
 #endif
 }
@@ -1372,8 +1384,7 @@ void __init mpic_set_serial_int(struct mpic *mpic, int enable)
 
 void mpic_irq_set_priority(unsigned int irq, unsigned int pri)
 {
-	unsigned int is_ipi;
-	struct mpic *mpic = mpic_find(irq, &is_ipi);
+	struct mpic *mpic = mpic_find(irq);
 	unsigned int src = mpic_irq_to_hw(irq);
 	unsigned long flags;
 	u32 reg;
@@ -1382,7 +1393,7 @@ void mpic_irq_set_priority(unsigned int irq, unsigned int pri)
 		return;
 
 	spin_lock_irqsave(&mpic_lock, flags);
-	if (is_ipi) {
+	if (mpic_is_ipi(mpic, irq)) {
 		reg = mpic_ipi_read(src - mpic->ipi_vecs[0]) &
 			~MPIC_VECPRI_PRIORITY_MASK;
 		mpic_ipi_write(src - mpic->ipi_vecs[0],
@@ -1522,6 +1533,34 @@ unsigned int mpic_get_irq(void)
 	BUG_ON(mpic == NULL);
 
 	return mpic_get_one_irq(mpic);
+}
+
+unsigned int mpic_get_coreint_irq(void)
+{
+#ifdef CONFIG_BOOKE
+	struct mpic *mpic = mpic_primary;
+	u32 src;
+
+	BUG_ON(mpic == NULL);
+
+	src = mfspr(SPRN_EPR);
+
+	if (unlikely(src == mpic->spurious_vec)) {
+		if (mpic->flags & MPIC_SPV_EOI)
+			mpic_eoi(mpic);
+		return NO_IRQ;
+	}
+	if (unlikely(mpic->protected && test_bit(src, mpic->protected))) {
+		if (printk_ratelimit())
+			printk(KERN_WARNING "%s: Got protected source %d !\n",
+			       mpic->name, (int)src);
+		return NO_IRQ;
+	}
+
+	return irq_linear_revmap(mpic->irqhost, src);
+#else
+	return NO_IRQ;
+#endif
 }
 
 unsigned int mpic_get_mcirq(void)

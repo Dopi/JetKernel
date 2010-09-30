@@ -32,14 +32,14 @@ MODULE_LICENSE("GPL");
 struct sd {
 	struct gspca_dev gspca_dev;		/* !! must be the first item */
 
-	__u8 packet[ISO_MAX_SIZE + 128];
-				 /* !! no more than 128 ff in an ISO packet */
-
 	unsigned char brightness;
 	unsigned char contrast;
 	unsigned char colors;
+	u8 quality;
+#define QUALITY_MIN 70
+#define QUALITY_MAX 95
+#define QUALITY_DEF 85
 
-	char qindex;
 	char subtype;
 #define AgfaCl20 0
 #define AiptekPocketDV 1
@@ -56,6 +56,8 @@ struct sd {
 #define Optimedia 12
 #define PalmPixDC85 13
 #define ToptroIndus 14
+
+	u8 *jpeg_hdr;
 };
 
 /* V4L2 controls supported by the driver */
@@ -629,7 +631,6 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	struct cam *cam;
 
 	cam = &gspca_dev->cam;
-	cam->epaddr = 0x01;
 	sd->subtype = id->driver_info;
 	if (sd->subtype != LogitechClickSmart310) {
 		cam->cam_mode = vga_mode;
@@ -638,10 +639,10 @@ static int sd_config(struct gspca_dev *gspca_dev,
 		cam->cam_mode = sif_mode;
 		cam->nmodes = ARRAY_SIZE(sif_mode);
 	}
-	sd->qindex = 5;
 	sd->brightness = BRIGHTNESS_DEF;
 	sd->contrast = CONTRAST_DEF;
 	sd->colors = COLOR_DEF;
+	sd->quality = QUALITY_DEF;
 	return 0;
 }
 
@@ -666,6 +667,14 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	int err;
 	__u8 Data;
 	__u8 xmult, ymult;
+
+	/* create the JPEG header */
+	sd->jpeg_hdr = kmalloc(JPEG_HDR_SZ, GFP_KERNEL);
+	if (!sd->jpeg_hdr)
+		return -ENOMEM;
+	jpeg_define(sd->jpeg_hdr, gspca_dev->height, gspca_dev->width,
+			0x22);		/* JPEG 411 */
+	jpeg_set_qual(sd->jpeg_hdr, sd->quality);
 
 	if (sd->subtype == LogitechClickSmart310) {
 		xmult = 0x16;
@@ -713,7 +722,8 @@ static int sd_start(struct gspca_dev *gspca_dev)
 		write_vector(gspca_dev, spca500_visual_defaults);
 		spca500_setmode(gspca_dev, xmult, ymult);
 		/* enable drop packet */
-		reg_w(gspca_dev, 0x00, 0x850a, 0x0001);
+		err = reg_w(gspca_dev, 0x00, 0x850a, 0x0001);
+		if (err < 0)
 			PDEBUG(D_ERR, "failed to enable drop packet");
 		reg_w(gspca_dev, 0x00, 0x8880, 3);
 		err = spca50x_setup_qtable(gspca_dev,
@@ -881,6 +891,13 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 		gspca_dev->usb_buf[0]);
 }
 
+static void sd_stop0(struct gspca_dev *gspca_dev)
+{
+	struct sd *sd = (struct sd *) gspca_dev;
+
+	kfree(sd->jpeg_hdr);
+}
+
 static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 			struct gspca_frame *frame,	/* target */
 			__u8 *data,			/* isoc packet */
@@ -888,7 +905,6 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 	int i;
-	__u8 *s, *d;
 	static __u8 ffd9[] = {0xff, 0xd9};
 
 /* frames are jpeg 4.1.1 without 0xff escape */
@@ -901,7 +917,8 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 					ffd9, 2);
 
 		/* put the JPEG header in the new frame */
-		jpeg_put_header(gspca_dev, frame, sd->qindex, 0x22);
+		gspca_frame_add(gspca_dev, FIRST_PACKET, frame,
+			sd->jpeg_hdr, JPEG_HDR_SZ);
 
 		data += SPCA500_OFFSET_DATA;
 		len -= SPCA500_OFFSET_DATA;
@@ -911,22 +928,19 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 	}
 
 	/* add 0x00 after 0xff */
-	for (i = len; --i >= 0; )
-		if (data[i] == 0xff)
-			break;
-	if (i < 0) {			/* no 0xff */
-		gspca_frame_add(gspca_dev, INTER_PACKET, frame, data, len);
-		return;
-	}
-	s = data;
-	d = sd->packet;
-	for (i = 0; i < len; i++) {
-		*d++ = *s++;
-		if (s[-1] == 0xff)
-			*d++ = 0x00;
-	}
-	gspca_frame_add(gspca_dev, INTER_PACKET, frame,
-			sd->packet, d - sd->packet);
+	i = 0;
+	do {
+		if (data[i] == 0xff) {
+			gspca_frame_add(gspca_dev, INTER_PACKET, frame,
+					data, i + 1);
+			len -= i;
+			data += i;
+			*data = 0x00;
+			i = 0;
+		}
+		i++;
+	} while (i < len);
+	gspca_frame_add(gspca_dev, INTER_PACKET, frame, data, len);
 }
 
 static void setbrightness(struct gspca_dev *gspca_dev)
@@ -937,16 +951,6 @@ static void setbrightness(struct gspca_dev *gspca_dev)
 			(__u8) (sd->brightness - 128));
 }
 
-static void getbrightness(struct gspca_dev *gspca_dev)
-{
-	struct sd *sd = (struct sd *) gspca_dev;
-	int ret;
-
-	ret = reg_r_12(gspca_dev, 0x00, 0x8167, 1);
-	if (ret >= 0)
-		sd->brightness = ret + 128;
-}
-
 static void setcontrast(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
@@ -954,31 +958,11 @@ static void setcontrast(struct gspca_dev *gspca_dev)
 	reg_w(gspca_dev, 0x00, 0x8168, sd->contrast);
 }
 
-static void getcontrast(struct gspca_dev *gspca_dev)
-{
-	struct sd *sd = (struct sd *) gspca_dev;
-	int ret;
-
-	ret = reg_r_12(gspca_dev, 0x0, 0x8168, 1);
-	if (ret >= 0)
-		sd->contrast = ret;
-}
-
 static void setcolors(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
 	reg_w(gspca_dev, 0x00, 0x8169, sd->colors);
-}
-
-static void getcolors(struct gspca_dev *gspca_dev)
-{
-	struct sd *sd = (struct sd *) gspca_dev;
-	int ret;
-
-	ret = reg_r_12(gspca_dev, 0x0, 0x8169, 1);
-	if (ret >= 0)
-		sd->colors = ret;
 }
 
 static int sd_setbrightness(struct gspca_dev *gspca_dev, __s32 val)
@@ -995,7 +979,6 @@ static int sd_getbrightness(struct gspca_dev *gspca_dev, __s32 *val)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	getbrightness(gspca_dev);
 	*val = sd->brightness;
 	return 0;
 }
@@ -1014,7 +997,6 @@ static int sd_getcontrast(struct gspca_dev *gspca_dev, __s32 *val)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	getcontrast(gspca_dev);
 	*val = sd->contrast;
 	return 0;
 }
@@ -1033,8 +1015,35 @@ static int sd_getcolors(struct gspca_dev *gspca_dev, __s32 *val)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	getcolors(gspca_dev);
 	*val = sd->colors;
+	return 0;
+}
+
+static int sd_set_jcomp(struct gspca_dev *gspca_dev,
+			struct v4l2_jpegcompression *jcomp)
+{
+	struct sd *sd = (struct sd *) gspca_dev;
+
+	if (jcomp->quality < QUALITY_MIN)
+		sd->quality = QUALITY_MIN;
+	else if (jcomp->quality > QUALITY_MAX)
+		sd->quality = QUALITY_MAX;
+	else
+		sd->quality = jcomp->quality;
+	if (gspca_dev->streaming)
+		jpeg_set_qual(sd->jpeg_hdr, sd->quality);
+	return 0;
+}
+
+static int sd_get_jcomp(struct gspca_dev *gspca_dev,
+			struct v4l2_jpegcompression *jcomp)
+{
+	struct sd *sd = (struct sd *) gspca_dev;
+
+	memset(jcomp, 0, sizeof *jcomp);
+	jcomp->quality = sd->quality;
+	jcomp->jpeg_markers = V4L2_JPEG_MARKER_DHT
+			| V4L2_JPEG_MARKER_DQT;
 	return 0;
 }
 
@@ -1047,7 +1056,10 @@ static struct sd_desc sd_desc = {
 	.init = sd_init,
 	.start = sd_start,
 	.stopN = sd_stopN,
+	.stop0 = sd_stop0,
 	.pkt_scan = sd_pkt_scan,
+	.get_jcomp = sd_get_jcomp,
+	.set_jcomp = sd_set_jcomp,
 };
 
 /* -- module initialisation -- */
@@ -1093,8 +1105,10 @@ static struct usb_driver sd_driver = {
 /* -- module insert / remove -- */
 static int __init sd_mod_init(void)
 {
-	if (usb_register(&sd_driver) < 0)
-		return -1;
+	int ret;
+	ret = usb_register(&sd_driver);
+	if (ret < 0)
+		return ret;
 	PDEBUG(D_PROBE, "registered");
 	return 0;
 }

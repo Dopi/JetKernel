@@ -31,6 +31,7 @@
 #include <asm/div64.h>
 
 #include "cx23885.h"
+#include "cimax2.h"
 
 MODULE_DESCRIPTION("Driver for cx23885 based TV cards");
 MODULE_AUTHOR("Steven Toth <stoth@linuxtv.org>");
@@ -791,6 +792,8 @@ static int cx23885_dev_setup(struct cx23885_dev *dev)
 	dev->pci_bus  = dev->pci->bus->number;
 	dev->pci_slot = PCI_SLOT(dev->pci->devfn);
 	dev->pci_irqmask = 0x001f00;
+	if (cx23885_boards[dev->board].cimax > 0)
+		dev->pci_irqmask |= 0x01800000; /* for CiMaxes */
 
 	/* External Master 1 Bus */
 	dev->i2c_bus[0].nr = 0;
@@ -872,7 +875,7 @@ static int cx23885_dev_setup(struct cx23885_dev *dev)
 	cx23885_i2c_register(&dev->i2c_bus[1]);
 	cx23885_i2c_register(&dev->i2c_bus[2]);
 	cx23885_card_setup(dev);
-	cx23885_call_i2c_clients(&dev->i2c_bus[0], TUNER_SET_STANDBY, NULL);
+	call_all(dev, tuner, s_standby);
 	cx23885_ir_init(dev);
 
 	if (cx23885_boards[dev->board].porta == CX23885_ANALOG_VIDEO) {
@@ -1643,7 +1646,9 @@ static irqreturn_t cx23885_irq(int irq, void *dev_id)
 	    (pci_status & PCI_MSK_VID_B) ||
 	    (pci_status & PCI_MSK_VID_A) ||
 	    (pci_status & PCI_MSK_AUD_INT) ||
-	    (pci_status & PCI_MSK_AUD_EXT)) {
+	    (pci_status & PCI_MSK_AUD_EXT) ||
+	    (pci_status & PCI_MSK_GPIO0) ||
+	    (pci_status & PCI_MSK_GPIO1)) {
 
 		if (pci_status & PCI_MSK_RISC_RD)
 			dprintk(7, " (PCI_MSK_RISC_RD   0x%08x)\n",
@@ -1685,6 +1690,22 @@ static irqreturn_t cx23885_irq(int irq, void *dev_id)
 			dprintk(7, " (PCI_MSK_AUD_EXT   0x%08x)\n",
 				PCI_MSK_AUD_EXT);
 
+		if (pci_status & PCI_MSK_GPIO0)
+			dprintk(7, " (PCI_MSK_GPIO0     0x%08x)\n",
+				PCI_MSK_GPIO0);
+
+		if (pci_status & PCI_MSK_GPIO1)
+			dprintk(7, " (PCI_MSK_GPIO1     0x%08x)\n",
+				PCI_MSK_GPIO1);
+	}
+
+	if (cx23885_boards[dev->board].cimax > 0 &&
+		((pci_status & PCI_MSK_GPIO0) ||
+			(pci_status & PCI_MSK_GPIO1))) {
+
+		if (cx23885_boards[dev->board].cimax > 0)
+			handled += netup_ci_slot_status(dev, pci_status);
+
 	}
 
 	if (ts1_status) {
@@ -1712,6 +1733,88 @@ out:
 	return IRQ_RETVAL(handled);
 }
 
+static inline int encoder_on_portb(struct cx23885_dev *dev)
+{
+	return cx23885_boards[dev->board].portb == CX23885_MPEG_ENCODER;
+}
+
+static inline int encoder_on_portc(struct cx23885_dev *dev)
+{
+	return cx23885_boards[dev->board].portc == CX23885_MPEG_ENCODER;
+}
+
+/* Mask represents 32 different GPIOs, GPIO's are split into multiple
+ * registers depending on the board configuration (and whether the
+ * 417 encoder (wi it's own GPIO's) are present. Each GPIO bit will
+ * be pushed into the correct hardware register, regardless of the
+ * physical location. Certain registers are shared so we sanity check
+ * and report errors if we think we're tampering with a GPIo that might
+ * be assigned to the encoder (and used for the host bus).
+ *
+ * GPIO  2 thru  0 - On the cx23885 bridge
+ * GPIO 18 thru  3 - On the cx23417 host bus interface
+ * GPIO 23 thru 19 - On the cx25840 a/v core
+ */
+void cx23885_gpio_set(struct cx23885_dev *dev, u32 mask)
+{
+	if (mask & 0x7)
+		cx_set(GP0_IO, mask & 0x7);
+
+	if (mask & 0x0007fff8) {
+		if (encoder_on_portb(dev) || encoder_on_portc(dev))
+			printk(KERN_ERR
+				"%s: Setting GPIO on encoder ports\n",
+				dev->name);
+		cx_set(MC417_RWD, (mask & 0x0007fff8) >> 3);
+	}
+
+	/* TODO: 23-19 */
+	if (mask & 0x00f80000)
+		printk(KERN_INFO "%s: Unsupported\n", dev->name);
+}
+
+void cx23885_gpio_clear(struct cx23885_dev *dev, u32 mask)
+{
+	if (mask & 0x00000007)
+		cx_clear(GP0_IO, mask & 0x7);
+
+	if (mask & 0x0007fff8) {
+		if (encoder_on_portb(dev) || encoder_on_portc(dev))
+			printk(KERN_ERR
+				"%s: Clearing GPIO moving on encoder ports\n",
+				dev->name);
+		cx_clear(MC417_RWD, (mask & 0x7fff8) >> 3);
+	}
+
+	/* TODO: 23-19 */
+	if (mask & 0x00f80000)
+		printk(KERN_INFO "%s: Unsupported\n", dev->name);
+}
+
+void cx23885_gpio_enable(struct cx23885_dev *dev, u32 mask, int asoutput)
+{
+	if ((mask & 0x00000007) && asoutput)
+		cx_set(GP0_IO, (mask & 0x7) << 16);
+	else if ((mask & 0x00000007) && !asoutput)
+		cx_clear(GP0_IO, (mask & 0x7) << 16);
+
+	if (mask & 0x0007fff8) {
+		if (encoder_on_portb(dev) || encoder_on_portc(dev))
+			printk(KERN_ERR
+				"%s: Enabling GPIO on encoder ports\n",
+				dev->name);
+	}
+
+	/* MC417_OEN is active low for output, write 1 for an input */
+	if ((mask & 0x0007fff8) && asoutput)
+		cx_clear(MC417_OEN, (mask & 0x7fff8) >> 3);
+
+	else if ((mask & 0x0007fff8) && !asoutput)
+		cx_set(MC417_OEN, (mask & 0x7fff8) >> 3);
+
+	/* TODO: 23-19 */
+}
+
 static int __devinit cx23885_initdev(struct pci_dev *pci_dev,
 				     const struct pci_device_id *pci_id)
 {
@@ -1722,16 +1825,20 @@ static int __devinit cx23885_initdev(struct pci_dev *pci_dev,
 	if (NULL == dev)
 		return -ENOMEM;
 
+	err = v4l2_device_register(&pci_dev->dev, &dev->v4l2_dev);
+	if (err < 0)
+		goto fail_free;
+
 	/* pci init */
 	dev->pci = pci_dev;
 	if (pci_enable_device(pci_dev)) {
 		err = -EIO;
-		goto fail_free;
+		goto fail_unreg;
 	}
 
 	if (cx23885_dev_setup(dev) < 0) {
 		err = -EINVAL;
-		goto fail_free;
+		goto fail_unreg;
 	}
 
 	/* print pci info */
@@ -1758,11 +1865,18 @@ static int __devinit cx23885_initdev(struct pci_dev *pci_dev,
 		goto fail_irq;
 	}
 
-	pci_set_drvdata(pci_dev, dev);
+	switch (dev->board) {
+	case CX23885_BOARD_NETUP_DUAL_DVBS2_CI:
+		cx_set(PCI_INT_MSK, 0x01800000); /* for NetUP */
+		break;
+	}
+
 	return 0;
 
 fail_irq:
 	cx23885_dev_unregister(dev);
+fail_unreg:
+	v4l2_device_unregister(&dev->v4l2_dev);
 fail_free:
 	kfree(dev);
 	return err;
@@ -1770,7 +1884,8 @@ fail_free:
 
 static void __devexit cx23885_finidev(struct pci_dev *pci_dev)
 {
-	struct cx23885_dev *dev = pci_get_drvdata(pci_dev);
+	struct v4l2_device *v4l2_dev = pci_get_drvdata(pci_dev);
+	struct cx23885_dev *dev = to_cx23885(v4l2_dev);
 
 	cx23885_shutdown(dev);
 
@@ -1778,13 +1893,13 @@ static void __devexit cx23885_finidev(struct pci_dev *pci_dev)
 
 	/* unregister stuff */
 	free_irq(pci_dev->irq, dev);
-	pci_set_drvdata(pci_dev, NULL);
 
 	mutex_lock(&devlist);
 	list_del(&dev->devlist);
 	mutex_unlock(&devlist);
 
 	cx23885_dev_unregister(dev);
+	v4l2_device_unregister(v4l2_dev);
 	kfree(dev);
 }
 

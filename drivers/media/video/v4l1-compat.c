@@ -565,16 +565,17 @@ static noinline long v4l1_compat_get_input_info(
 		break;
 	}
 	chan->norm = 0;
-	err = drv(file, VIDIOC_G_STD, &sid);
-	if (err < 0)
-		dprintk("VIDIOCGCHAN / VIDIOC_G_STD: %ld\n", err);
-	if (err == 0) {
+	/* Note: G_STD might not be present for radio receivers,
+	 * so we should ignore any errors. */
+	if (drv(file, VIDIOC_G_STD, &sid) == 0) {
 		if (sid & V4L2_STD_PAL)
 			chan->norm = VIDEO_MODE_PAL;
 		if (sid & V4L2_STD_NTSC)
 			chan->norm = VIDEO_MODE_NTSC;
 		if (sid & V4L2_STD_SECAM)
 			chan->norm = VIDEO_MODE_SECAM;
+		if (sid == V4L2_STD_ALL)
+			chan->norm = VIDEO_MODE_AUTO;
 	}
 done:
 	return err;
@@ -600,6 +601,9 @@ static noinline long v4l1_compat_set_input(
 		break;
 	case VIDEO_MODE_SECAM:
 		sid = V4L2_STD_SECAM;
+		break;
+	case VIDEO_MODE_AUTO:
+		sid = V4L2_STD_ALL;
 		break;
 	}
 	if (0 != sid) {
@@ -772,10 +776,9 @@ static noinline long v4l1_compat_get_tuner(
 			tun->flags |= VIDEO_TUNER_SECAM;
 	}
 
-	err = drv(file, VIDIOC_G_STD, &sid);
-	if (err < 0)
-		dprintk("VIDIOCGTUNER / VIDIOC_G_STD: %ld\n", err);
-	if (err == 0) {
+	/* Note: G_STD might not be present for radio receivers,
+	 * so we should ignore any errors. */
+	if (drv(file, VIDIOC_G_STD, &sid) == 0) {
 		if (sid & V4L2_STD_PAL)
 			tun->mode = VIDEO_MODE_PAL;
 		if (sid & V4L2_STD_NTSC)
@@ -804,9 +807,9 @@ static noinline long v4l1_compat_select_tuner(
 
 	t.index = tun->tuner;
 
-	err = drv(file, VIDIOC_S_INPUT, &t);
+	err = drv(file, VIDIOC_S_TUNER, &t);
 	if (err < 0)
-		dprintk("VIDIOCSTUNER / VIDIOC_S_INPUT: %ld\n", err);
+		dprintk("VIDIOCSTUNER / VIDIOC_S_TUNER: %ld\n", err);
 	return err;
 }
 

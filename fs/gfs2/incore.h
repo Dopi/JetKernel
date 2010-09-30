@@ -12,6 +12,9 @@
 
 #include <linux/fs.h>
 #include <linux/workqueue.h>
+#include <linux/slow-work.h>
+#include <linux/dlm.h>
+#include <linux/buffer_head.h>
 
 #define DIO_WAIT	0x00000010
 #define DIO_METADATA	0x00000020
@@ -26,6 +29,7 @@ struct gfs2_trans;
 struct gfs2_ail;
 struct gfs2_jdesc;
 struct gfs2_sbd;
+struct lm_lockops;
 
 typedef void (*gfs2_glop_bh_t) (struct gfs2_glock *gl, unsigned int ret);
 
@@ -60,9 +64,12 @@ struct gfs2_log_element {
 	const struct gfs2_log_operations *le_ops;
 };
 
+#define GBF_FULL 1
+
 struct gfs2_bitmap {
 	struct buffer_head *bi_bh;
 	char *bi_clone;
+	unsigned long bi_flags;
 	u32 bi_offset;
 	u32 bi_start;
 	u32 bi_len;
@@ -87,10 +94,11 @@ struct gfs2_rgrpd {
 	struct gfs2_sbd *rd_sbd;
 	unsigned int rd_bh_count;
 	u32 rd_last_alloc;
-	unsigned char rd_flags;
-#define GFS2_RDF_CHECK        0x01      /* Need to check for unlinked inodes */
-#define GFS2_RDF_NOALLOC      0x02      /* rg prohibits allocation */
-#define GFS2_RDF_UPTODATE     0x04      /* rg is up to date */
+	u32 rd_flags;
+#define GFS2_RDF_CHECK		0x10000000 /* check for unlinked inodes */
+#define GFS2_RDF_UPTODATE	0x20000000 /* rg is up to date */
+#define GFS2_RDF_ERROR		0x40000000 /* error in rg */
+#define GFS2_RDF_MASK		0xf0000000 /* mask for internal flags */
 };
 
 enum gfs2_state_bits {
@@ -121,6 +129,28 @@ struct gfs2_bufdata {
 	struct list_head bd_ail_gl_list;
 };
 
+/*
+ * Internally, we prefix things with gdlm_ and GDLM_ (for gfs-dlm) since a
+ * prefix of lock_dlm_ gets awkward.
+ */
+
+#define GDLM_STRNAME_BYTES	25
+#define GDLM_LVB_SIZE		32
+
+enum {
+	DFL_BLOCK_LOCKS		= 0,
+};
+
+struct lm_lockname {
+	u64 ln_number;
+	unsigned int ln_type;
+};
+
+#define lm_name_equal(name1, name2) \
+        (((name1)->ln_number == (name2)->ln_number) && \
+         ((name1)->ln_type == (name2)->ln_type))
+
+
 struct gfs2_glock_operations {
 	void (*go_xmote_th) (struct gfs2_glock *gl);
 	int (*go_xmote_bh) (struct gfs2_glock *gl, struct gfs2_holder *gh);
@@ -129,6 +159,7 @@ struct gfs2_glock_operations {
 	int (*go_lock) (struct gfs2_holder *gh);
 	void (*go_unlock) (struct gfs2_holder *gh);
 	int (*go_dump)(struct seq_file *seq, const struct gfs2_glock *gl);
+	void (*go_callback) (struct gfs2_glock *gl);
 	const int go_type;
 	const unsigned long go_min_hold_time;
 };
@@ -162,6 +193,8 @@ enum {
 	GLF_LFLUSH			= 7,
 	GLF_INVALIDATE_IN_PROGRESS	= 8,
 	GLF_REPLY_PENDING		= 9,
+	GLF_INITIAL			= 10,
+	GLF_FROZEN			= 11,
 };
 
 struct gfs2_glock {
@@ -176,16 +209,15 @@ struct gfs2_glock {
 	unsigned int gl_target;
 	unsigned int gl_reply;
 	unsigned int gl_hash;
+	unsigned int gl_req;
 	unsigned int gl_demote_state; /* state requested by remote node */
 	unsigned long gl_demote_time; /* time of first demote request */
 	struct list_head gl_holders;
 
 	const struct gfs2_glock_operations *gl_ops;
-	void *gl_lock;
-	char *gl_lvb;
-	atomic_t gl_lvb_count;
-
-	unsigned long gl_stamp;
+	char gl_strname[GDLM_STRNAME_BYTES];
+	struct dlm_lksb gl_lksb;
+	char gl_lvb[32];
 	unsigned long gl_tchange;
 	void *gl_object;
 
@@ -197,6 +229,7 @@ struct gfs2_glock {
 	struct list_head gl_ail_list;
 	atomic_t gl_ail_count;
 	struct delayed_work gl_work;
+	struct work_struct gl_delete;
 };
 
 #define GFS2_MIN_LVB_SIZE 32	/* Min size of LVB that gfs2 supports */
@@ -283,7 +316,9 @@ enum {
 
 struct gfs2_quota_data {
 	struct list_head qd_list;
-	unsigned int qd_count;
+	struct list_head qd_reclaim;
+
+	atomic_t qd_count;
 
 	u32 qd_id;
 	unsigned long qd_flags;		/* QDF_... */
@@ -303,7 +338,6 @@ struct gfs2_quota_data {
 
 	u64 qd_sync_gen;
 	unsigned long qd_last_warn;
-	unsigned long qd_last_touched;
 };
 
 struct gfs2_trans {
@@ -349,11 +383,11 @@ struct gfs2_journal_extent {
 struct gfs2_jdesc {
 	struct list_head jd_list;
 	struct list_head extent_list;
-
+	struct slow_work jd_work;
 	struct inode *jd_inode;
+	unsigned long jd_flags;
+#define JDF_RECOVERY 1
 	unsigned int jd_jid;
-	int jd_dirty;
-
 	unsigned int jd_blocks;
 };
 
@@ -362,9 +396,6 @@ struct gfs2_statfs_change_host {
 	s64 sc_free;
 	s64 sc_dinodes;
 };
-
-#define GFS2_GLOCKD_DEFAULT	1
-#define GFS2_GLOCKD_MAX		16
 
 #define GFS2_QUOTA_DEFAULT	GFS2_QUOTA_OFF
 #define GFS2_QUOTA_OFF		0
@@ -390,7 +421,8 @@ struct gfs2_args {
 	unsigned int ar_suiddir:1;		/* suiddir support */
 	unsigned int ar_data:2;			/* ordered/writeback */
 	unsigned int ar_meta:1;			/* mount metafs */
-	unsigned int ar_num_glockd;		/* Number of glockd threads */
+	unsigned int ar_discard:1;		/* discard requests */
+	int ar_commit;				/* Commit interval */
 };
 
 struct gfs2_tune {
@@ -399,14 +431,12 @@ struct gfs2_tune {
 	unsigned int gt_incore_log_blocks;
 	unsigned int gt_log_flush_secs;
 
-	unsigned int gt_recoverd_secs;
 	unsigned int gt_logd_secs;
 
 	unsigned int gt_quota_simul_sync; /* Max quotavals to sync at once */
 	unsigned int gt_quota_warn_period; /* Secs between quota warn msgs */
 	unsigned int gt_quota_scale_num; /* Numerator */
 	unsigned int gt_quota_scale_den; /* Denominator */
-	unsigned int gt_quota_cache_secs;
 	unsigned int gt_quota_quantum; /* Secs between syncs to quota file */
 	unsigned int gt_new_files_jdata;
 	unsigned int gt_max_readahead; /* Max bytes to read-ahead from disk */
@@ -421,6 +451,7 @@ enum {
 	SDF_JOURNAL_LIVE	= 1,
 	SDF_SHUTDOWN		= 2,
 	SDF_NOBARRIERS		= 3,
+	SDF_NORECOVERY		= 4,
 };
 
 #define GFS2_FSNAME_LEN		256
@@ -445,6 +476,30 @@ struct gfs2_sb_host {
 
 	char sb_lockproto[GFS2_LOCKNAME_LEN];
 	char sb_locktable[GFS2_LOCKNAME_LEN];
+	u8 sb_uuid[16];
+};
+
+/*
+ * lm_mount() return values
+ *
+ * ls_jid - the journal ID this node should use
+ * ls_first - this node is the first to mount the file system
+ * ls_lockspace - lock module's context for this file system
+ * ls_ops - lock module's functions
+ */
+
+struct lm_lockstruct {
+	u32 ls_id;
+	unsigned int ls_jid;
+	unsigned int ls_first;
+	unsigned int ls_first_done;
+	unsigned int ls_nodir;
+	const struct lm_lockops *ls_ops;
+	unsigned long ls_flags;
+	dlm_lockspace_t *ls_dlm;
+
+	int ls_recover_jid_done;
+	int ls_recover_jid_status;
 };
 
 struct gfs2_sbd {
@@ -520,7 +575,6 @@ struct gfs2_sbd {
 	spinlock_t sd_jindex_spin;
 	struct mutex sd_jindex_mutex;
 	unsigned int sd_journals;
-	unsigned long sd_jindex_refresh_time;
 
 	struct gfs2_jdesc *sd_jdesc;
 	struct gfs2_holder sd_journal_gh;
@@ -532,7 +586,6 @@ struct gfs2_sbd {
 
 	/* Daemon stuff */
 
-	struct task_struct *sd_recoverd_process;
 	struct task_struct *sd_logd_process;
 	struct task_struct *sd_quotad_process;
 
@@ -540,7 +593,6 @@ struct gfs2_sbd {
 
 	struct list_head sd_quota_list;
 	atomic_t sd_quota_count;
-	spinlock_t sd_quota_spin;
 	struct mutex sd_quota_mutex;
 	wait_queue_head_t sd_quota_wait;
 	struct list_head sd_trunc_list;

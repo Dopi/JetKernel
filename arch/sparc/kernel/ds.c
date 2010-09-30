@@ -544,7 +544,8 @@ static int __cpuinit dr_cpu_configure(struct ds_info *dp,
 			     resp_len, ncpus, mask,
 			     DR_CPU_STAT_CONFIGURED);
 
-	mdesc_fill_in_cpu_data(*mask);
+	mdesc_populate_present_mask(mask);
+	mdesc_fill_in_cpu_data(mask);
 
 	for_each_cpu_mask(cpu, *mask) {
 		int err;
@@ -653,7 +654,7 @@ static void __cpuinit dr_cpu_data(struct ds_info *dp,
 		if (cpu_list[i] == CPU_SENTINEL)
 			continue;
 
-		if (cpu_list[i] < NR_CPUS)
+		if (cpu_list[i] < nr_cpu_ids)
 			cpu_set(cpu_list[i], mask);
 	}
 

@@ -14,6 +14,7 @@
 #include <linux/init.h>
 #include <linux/mbus.h>
 #include <linux/io.h>
+#include <linux/errno.h>
 #include <mach/hardware.h>
 #include "common.h"
 
@@ -44,6 +45,7 @@
 #define TARGET_DEV_BUS		1
 #define TARGET_PCI		3
 #define TARGET_PCIE		4
+#define TARGET_SRAM		9
 #define ATTR_PCIE_MEM		0x59
 #define ATTR_PCIE_IO		0x51
 #define ATTR_PCIE_WA		0x79
@@ -53,16 +55,19 @@
 #define ATTR_DEV_CS1		0x1d
 #define ATTR_DEV_CS2		0x1b
 #define ATTR_DEV_BOOT		0xf
+#define ATTR_SRAM		0x0
 
 /*
  * Helpers to get DDR bank info
  */
+#define ORION5X_DDR_REG(x)	(ORION5X_DDR_VIRT_BASE | (x))
 #define DDR_BASE_CS(n)		ORION5X_DDR_REG(0x1500 + ((n) << 3))
 #define DDR_SIZE_CS(n)		ORION5X_DDR_REG(0x1504 + ((n) << 3))
 
 /*
  * CPU Address Decode Windows registers
  */
+#define ORION5X_BRIDGE_REG(x)	(ORION5X_BRIDGE_VIRT_BASE | (x))
 #define CPU_WIN_CTRL(n)		ORION5X_BRIDGE_REG(0x000 | ((n) << 4))
 #define CPU_WIN_BASE(n)		ORION5X_BRIDGE_REG(0x004 | ((n) << 4))
 #define CPU_WIN_REMAP_LO(n)	ORION5X_BRIDGE_REG(0x008 | ((n) << 4))
@@ -85,13 +90,13 @@ static int __init orion5x_cpu_win_can_remap(int win)
 	return 0;
 }
 
-static void __init setup_cpu_win(int win, u32 base, u32 size,
+static int __init setup_cpu_win(int win, u32 base, u32 size,
 				 u8 target, u8 attr, int remap)
 {
 	if (win >= 8) {
 		printk(KERN_ERR "setup_cpu_win: trying to allocate "
 				"window %d\n", win);
-		return;
+		return -ENOSPC;
 	}
 
 	writel(base & 0xffff0000, CPU_WIN_BASE(win));
@@ -105,6 +110,7 @@ static void __init setup_cpu_win(int win, u32 base, u32 size,
 		writel(remap & 0xffff0000, CPU_WIN_REMAP_LO(win));
 		writel(0, CPU_WIN_REMAP_HI(win));
 	}
+	return 0;
 }
 
 void __init orion5x_setup_cpu_mbus_bridge(void)
@@ -190,4 +196,10 @@ void __init orion5x_setup_pcie_wa_win(u32 base, u32 size)
 {
 	setup_cpu_win(win_alloc_count++, base, size,
 		      TARGET_PCIE, ATTR_PCIE_WA, -1);
+}
+
+int __init orion5x_setup_sram_win(void)
+{
+	return setup_cpu_win(win_alloc_count++, ORION5X_SRAM_PHYS_BASE,
+			ORION5X_SRAM_SIZE, TARGET_SRAM, ATTR_SRAM, -1);
 }

@@ -114,38 +114,16 @@ struct IR_IO_APIC_route_entry {
 extern int nr_ioapics;
 extern int nr_ioapic_registers[MAX_IO_APICS];
 
-/*
- * MP-BIOS irq configuration table structures:
- */
-
 #define MP_MAX_IOAPIC_PIN 127
 
-struct mp_config_ioapic {
-	unsigned long mp_apicaddr;
-	unsigned int mp_apicid;
-	unsigned char mp_type;
-	unsigned char mp_apicver;
-	unsigned char mp_flags;
-};
-
-struct mp_config_intsrc {
-	unsigned int mp_dstapic;
-	unsigned char mp_type;
-	unsigned char mp_irqtype;
-	unsigned short mp_irqflag;
-	unsigned char mp_srcbus;
-	unsigned char mp_srcbusirq;
-	unsigned char mp_dstirq;
-};
-
 /* I/O APIC entries */
-extern struct mp_config_ioapic mp_ioapics[MAX_IO_APICS];
+extern struct mpc_ioapic mp_ioapics[MAX_IO_APICS];
 
 /* # of MP IRQ source entries */
 extern int mp_irq_entries;
 
 /* MP IRQ source entries */
-extern struct mp_config_intsrc mp_irqs[MAX_IRQ_SOURCES];
+extern struct mpc_intsrc mp_irqs[MAX_IRQ_SOURCES];
 
 /* non-0 if default (table-less) MP configuration */
 extern int mpc_default_type;
@@ -165,15 +143,6 @@ extern int noioapicreroute;
 /* 1 if the timer IRQ uses the '8259A Virtual Wire' mode */
 extern int timer_through_8259;
 
-static inline void disable_ioapic_setup(void)
-{
-#ifdef CONFIG_PCI
-	noioapicquirk = 1;
-	noioapicreroute = -1;
-#endif
-	skip_ioapic_setup = 1;
-}
-
 /*
  * If we use the IO-APIC for IRQ routing, disable automatic
  * assignment of PCI IRQ's.
@@ -185,25 +154,35 @@ static inline void disable_ioapic_setup(void)
 extern int io_apic_get_unique_id(int ioapic, int apic_id);
 extern int io_apic_get_version(int ioapic);
 extern int io_apic_get_redir_entries(int ioapic);
-extern int io_apic_set_pci_routing(int ioapic, int pin, int irq,
-				   int edge_level, int active_high_low);
 #endif /* CONFIG_ACPI */
 
+struct io_apic_irq_attr;
+extern int io_apic_set_pci_routing(struct device *dev, int irq,
+		 struct io_apic_irq_attr *irq_attr);
+void setup_IO_APIC_irq_extra(u32 gsi);
 extern int (*ioapic_renumber_irq)(int ioapic, int irq);
 extern void ioapic_init_mappings(void);
+extern void ioapic_insert_resources(void);
 
-#ifdef CONFIG_X86_64
-extern int save_mask_IO_APIC_setup(void);
-extern void restore_IO_APIC_setup(void);
-extern void reinit_intr_remapped_IO_APIC(int);
-#endif
+extern struct IO_APIC_route_entry **alloc_ioapic_entries(void);
+extern void free_ioapic_entries(struct IO_APIC_route_entry **ioapic_entries);
+extern int save_IO_APIC_setup(struct IO_APIC_route_entry **ioapic_entries);
+extern void mask_IO_APIC_setup(struct IO_APIC_route_entry **ioapic_entries);
+extern int restore_IO_APIC_setup(struct IO_APIC_route_entry **ioapic_entries);
 
 extern void probe_nr_irqs_gsi(void);
 
+extern int setup_ioapic_entry(int apic, int irq,
+			      struct IO_APIC_route_entry *entry,
+			      unsigned int destination, int trigger,
+			      int polarity, int vector, int pin);
+extern void ioapic_write_entry(int apic, int pin,
+			       struct IO_APIC_route_entry e);
 #else  /* !CONFIG_X86_IO_APIC */
 #define io_apic_assign_pci_irqs 0
 static const int timer_through_8259 = 0;
 static inline void ioapic_init_mappings(void)	{ }
+static inline void ioapic_insert_resources(void) { }
 
 static inline void probe_nr_irqs_gsi(void)	{ }
 #endif

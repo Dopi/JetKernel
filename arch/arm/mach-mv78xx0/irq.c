@@ -13,7 +13,7 @@
 #include <linux/pci.h>
 #include <linux/irq.h>
 #include <asm/gpio.h>
-#include <mach/mv78xx0.h>
+#include <mach/bridge-regs.h>
 #include <plat/irq.h>
 #include "common.h"
 
@@ -27,6 +27,9 @@ static void gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
 void __init mv78xx0_init_irq(void)
 {
 	int i;
+
+	/* Initialize gpiolib. */
+	orion_gpio_init();
 
 	orion_irq_init(0, (void __iomem *)(IRQ_VIRT_BASE + IRQ_MASK_LOW_OFF));
 	orion_irq_init(32, (void __iomem *)(IRQ_VIRT_BASE + IRQ_MASK_HIGH_OFF));

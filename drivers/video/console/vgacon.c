@@ -180,7 +180,7 @@ static inline void vga_set_mem_top(struct vc_data *c)
 }
 
 #ifdef CONFIG_VGACON_SOFT_SCROLLBACK
-#include <linux/bootmem.h>
+#include <linux/slab.h>
 /* software scrollback */
 static void *vgacon_scrollback;
 static int vgacon_scrollback_tail;
@@ -210,8 +210,7 @@ static void vgacon_scrollback_init(int pitch)
  */
 static void __init_refok vgacon_scrollback_startup(void)
 {
-	vgacon_scrollback = alloc_bootmem(CONFIG_VGACON_SOFT_SCROLLBACK_SIZE
-					  * 1024);
+	vgacon_scrollback = kcalloc(CONFIG_VGACON_SOFT_SCROLLBACK_SIZE, 1024, GFP_NOWAIT);
 	vgacon_scrollback_init(vga_video_num_columns * 2);
 }
 
@@ -1282,7 +1281,7 @@ static int vgacon_font_get(struct vc_data *c, struct console_font *font)
 	font->charcount = vga_512_chars ? 512 : 256;
 	if (!font->data)
 		return 0;
-	return vgacon_do_font_op(&state, font->data, 0, 0);
+	return vgacon_do_font_op(&state, font->data, 0, vga_512_chars);
 }
 
 #else

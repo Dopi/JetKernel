@@ -52,6 +52,7 @@ cpm_cpm2_t __iomem *cpmp; /* Pointer to comm processor space */
  * the communication processor devices.
  */
 cpm2_map_t __iomem *cpm2_immr;
+EXPORT_SYMBOL(cpm2_immr);
 
 #define CPM_MAP_SIZE	(0x40000)	/* 256k - the PQ3 reserve this amount
 					   of space for CPM as it is larger
@@ -60,7 +61,7 @@ cpm2_map_t __iomem *cpm2_immr;
 void __init cpm2_reset(void)
 {
 #ifdef CONFIG_PPC_85xx
-	cpm2_immr = ioremap(CPM_MAP_ADDR, CPM_MAP_SIZE);
+	cpm2_immr = ioremap(get_immrbase() + 0x80000, CPM_MAP_SIZE);
 #else
 	cpm2_immr = ioremap(get_immrbase(), CPM_MAP_SIZE);
 #endif
@@ -129,7 +130,8 @@ void __cpm2_setbrg(uint brg, uint rate, uint clk, int div16, int src)
 		brg -= 4;
 	}
 	bp += brg;
-	val = (((clk / rate) - 1) << 1) | CPM_BRG_EN | src;
+	/* Round the clock divider to the nearest integer. */
+	val = (((clk * 2 / rate) - 1) & ~1) | CPM_BRG_EN | src;
 	if (div16)
 		val |= CPM_BRG_DIV16;
 

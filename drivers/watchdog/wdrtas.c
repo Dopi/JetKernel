@@ -49,12 +49,7 @@ MODULE_LICENSE("GPL");
 MODULE_ALIAS_MISCDEV(WATCHDOG_MINOR);
 MODULE_ALIAS_MISCDEV(TEMP_MINOR);
 
-#ifdef CONFIG_WATCHDOG_NOWAYOUT
-static int wdrtas_nowayout = 1;
-#else
-static int wdrtas_nowayout = 0;
-#endif
-
+static int wdrtas_nowayout = WATCHDOG_NOWAYOUT;
 static atomic_t wdrtas_miscdev_open = ATOMIC_INIT(0);
 static char wdrtas_expect_close;
 
@@ -106,6 +101,8 @@ static int wdrtas_set_interval(int interval)
 	return result;
 }
 
+#define WDRTAS_SP_SPI_LEN 4
+
 /**
  * wdrtas_get_interval - returns the current watchdog interval
  * @fallback_value: value (in seconds) to use, if the RTAS call fails
@@ -119,10 +116,17 @@ static int wdrtas_set_interval(int interval)
 static int wdrtas_get_interval(int fallback_value)
 {
 	long result;
-	char value[4];
+	char value[WDRTAS_SP_SPI_LEN];
 
+	spin_lock(&rtas_data_buf_lock);
+	memset(rtas_data_buf, 0, WDRTAS_SP_SPI_LEN);
 	result = rtas_call(wdrtas_token_get_sp, 3, 1, NULL,
-			   WDRTAS_SP_SPI, (void *)__pa(&value), 4);
+			   WDRTAS_SP_SPI, __pa(rtas_data_buf),
+			   WDRTAS_SP_SPI_LEN);
+
+	memcpy(value, rtas_data_buf, WDRTAS_SP_SPI_LEN);
+	spin_unlock(&rtas_data_buf_lock);
+
 	if (value[0] != 0 || value[1] != 2 || value[3] != 0 || result < 0) {
 		printk(KERN_WARNING "wdrtas: could not get sp_spi watchdog "
 		       "timeout (%li). Continuing\n", result);
@@ -214,16 +218,14 @@ static void wdrtas_timer_keepalive(void)
  */
 static int wdrtas_get_temperature(void)
 {
-	long result;
+	int result;
 	int temperature = 0;
 
-	result = rtas_call(wdrtas_token_get_sensor_state, 2, 2,
-			   (void *)__pa(&temperature),
-			   WDRTAS_THERMAL_SENSOR, 0);
+	result = rtas_get_sensor(WDRTAS_THERMAL_SENSOR, 0, &temperature);
 
 	if (result < 0)
 		printk(KERN_WARNING "wdrtas: reading the thermal sensor "
-		       "faild: %li\n", result);
+		       "failed: %i\n", result);
 	else
 		temperature = ((temperature * 9) / 5) + 32; /* fahrenheit */
 

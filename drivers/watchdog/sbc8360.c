@@ -4,12 +4,12 @@
  *	(c) Copyright 2005 Webcon, Inc.
  *
  *	Based on ib700wdt.c, which is based on advantechwdt.c which is based
- *      on acquirewdt.c which is based on wdt.c.
+ *	on acquirewdt.c which is based on wdt.c.
  *
  *	(c) Copyright 2001 Charles Howes <chowes@vsol.net>
  *
- *      Based on advantechwdt.c which is based on acquirewdt.c which
- *       is based on wdt.c.
+ *	Based on advantechwdt.c which is based on acquirewdt.c which
+ *	is based on wdt.c.
  *
  *	(c) Copyright 2000-2001 Marek Michalkiewicz <marekm@linux.org.pl>
  *
@@ -30,9 +30,9 @@
  *
  *	(c) Copyright 1995    Alan Cox <alan@lxorguk.ukuu.org.uk>
  *
- *      14-Dec-2001 Matt Domsch <Matt_Domsch@dell.com>
- *           Added nowayout module option to override CONFIG_WATCHDOG_NOWAYOUT
- *           Added timeout module option to override default
+ *	14-Dec-2001 Matt Domsch <Matt_Domsch@dell.com>
+ *	     Added nowayout module option to override CONFIG_WATCHDOG_NOWAYOUT
+ *	     Added timeout module option to override default
  *
  */
 
@@ -280,8 +280,8 @@ static int sbc8360_close(struct inode *inode, struct file *file)
 	if (expect_close == 42)
 		sbc8360_stop();
 	else
-		printk(KERN_CRIT PFX
-			"SBC8360 device closed unexpectedly.  SBC8360 will not stop!\n");
+		printk(KERN_CRIT PFX "SBC8360 device closed unexpectedly.  "
+						"SBC8360 will not stop!\n");
 
 	clear_bit(0, &sbc8360_is_open);
 	expect_close = 0;

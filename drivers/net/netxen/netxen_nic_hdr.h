@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003 - 2006 NetXen, Inc.
+ * Copyright (C) 2003 - 2009 NetXen, Inc.
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or
@@ -22,24 +22,17 @@
  *
  * Contact Information:
  *    info@netxen.com
- * NetXen,
- * 3965 Freedom Circle, Fourth floor,
- * Santa Clara, CA 95054
+ * NetXen Inc,
+ * 18922 Forge Drive
+ * Cupertino, CA 95014-0701
+ *
  */
 
 #ifndef __NETXEN_NIC_HDR_H_
 #define __NETXEN_NIC_HDR_H_
 
-#include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/spinlock.h>
-#include <asm/irq.h>
-#include <linux/init.h>
-#include <linux/errno.h>
-#include <linux/pci.h>
 #include <linux/types.h>
-#include <asm/uaccess.h>
-#include <asm/string.h>		/* for memset */
 
 /*
  * The basic unit of access when reading/writing control registers.
@@ -362,12 +355,7 @@ enum {
 #define NETXEN_HW_CRB_HUB_AGT_ADR_LPC	\
 	((NETXEN_HW_H6_CH_HUB_ADR << 7) | NETXEN_HW_LPC_CRB_AGT_ADR)
 
-/*
- * MAX_RCV_CTX : The number of receive contexts that are available on
- * the phantom.
- */
-#define MAX_RCV_CTX			1
-
+#define NETXEN_SRE_MISC			(NETXEN_CRB_SRE + 0x0002c)
 #define NETXEN_SRE_INT_STATUS		(NETXEN_CRB_SRE + 0x00034)
 #define NETXEN_SRE_PBI_ACTIVE_STATUS	(NETXEN_CRB_SRE + 0x01014)
 #define NETXEN_SRE_L1RE_CTL		(NETXEN_CRB_SRE + 0x03000)
@@ -858,7 +846,14 @@ enum {
 #define NETXEN_PORT_MODE_ADDR		(NETXEN_CAM_RAM(0x24))
 #define NETXEN_WOL_PORT_MODE		(NETXEN_CAM_RAM(0x198))
 
+#define NETXEN_WOL_CONFIG_NV		(NETXEN_CAM_RAM(0x184))
+#define NETXEN_WOL_CONFIG		(NETXEN_CAM_RAM(0x188))
+
+#define NX_PEG_TUNE_MN_PRESENT		0x1
+#define NX_PEG_TUNE_CAPABILITY		(NETXEN_CAM_RAM(0x02c))
+
 #define NETXEN_CAM_RAM_DMA_WATCHDOG_CTRL		(0x14)
+#define NETXEN_PEG_ALIVE_COUNTER	(NETXEN_CAM_RAM(0xb0))
 
 #define	ISR_MSI_INT_TRIGGER(FUNC) (NETXEN_PCIX_PS_REG(PCIX_MSI_F(FUNC)))
 #define ISR_LEGACY_INT_TRIGGERED(VAL)	(((VAL) & 0x300) == 0x200)

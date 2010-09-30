@@ -1,7 +1,7 @@
 /*******************************************************************************
 
   Intel(R) Gigabit Ethernet Linux driver
-  Copyright(c) 2007 Intel Corporation.
+  Copyright(c) 2007-2009 Intel Corporation.
 
   This program is free software; you can redistribute it and/or modify it
   under the terms and conditions of the GNU General Public License,
@@ -44,7 +44,6 @@ enum e1000_smart_speed {
 s32  igb_check_downshift(struct e1000_hw *hw);
 s32  igb_check_reset_block(struct e1000_hw *hw);
 s32  igb_copper_link_autoneg(struct e1000_hw *hw);
-s32  igb_phy_force_speed_duplex(struct e1000_hw *hw);
 s32  igb_copper_link_setup_igp(struct e1000_hw *hw);
 s32  igb_copper_link_setup_m88(struct e1000_hw *hw);
 s32  igb_phy_force_speed_duplex_igp(struct e1000_hw *hw);
@@ -81,7 +80,7 @@ s32  igb_phy_init_script_igp3(struct e1000_hw *hw);
 #define IGP02E1000_PM_D3_LPLU             0x0004 /* For all other states */
 #define IGP01E1000_PLHR_SS_DOWNGRADE      0x8000
 #define IGP01E1000_PSSR_POLARITY_REVERSED 0x0002
-#define IGP01E1000_PSSR_MDIX              0x0008
+#define IGP01E1000_PSSR_MDIX              0x0800
 #define IGP01E1000_PSSR_SPEED_MASK        0xC000
 #define IGP01E1000_PSSR_SPEED_1000MBPS    0xC000
 #define IGP02E1000_PHY_CHANNEL_NUM        4

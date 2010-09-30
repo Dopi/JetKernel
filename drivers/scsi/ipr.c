@@ -131,13 +131,13 @@ static const struct ipr_chip_cfg_t ipr_chip_cfg[] = {
 };
 
 static const struct ipr_chip_t ipr_chip[] = {
-	{ PCI_VENDOR_ID_MYLEX, PCI_DEVICE_ID_IBM_GEMSTONE, &ipr_chip_cfg[0] },
-	{ PCI_VENDOR_ID_IBM, PCI_DEVICE_ID_IBM_CITRINE, &ipr_chip_cfg[0] },
-	{ PCI_VENDOR_ID_ADAPTEC2, PCI_DEVICE_ID_ADAPTEC2_OBSIDIAN, &ipr_chip_cfg[0] },
-	{ PCI_VENDOR_ID_IBM, PCI_DEVICE_ID_IBM_OBSIDIAN, &ipr_chip_cfg[0] },
-	{ PCI_VENDOR_ID_IBM, PCI_DEVICE_ID_IBM_OBSIDIAN_E, &ipr_chip_cfg[0] },
-	{ PCI_VENDOR_ID_IBM, PCI_DEVICE_ID_IBM_SNIPE, &ipr_chip_cfg[1] },
-	{ PCI_VENDOR_ID_ADAPTEC2, PCI_DEVICE_ID_ADAPTEC2_SCAMP, &ipr_chip_cfg[1] }
+	{ PCI_VENDOR_ID_MYLEX, PCI_DEVICE_ID_IBM_GEMSTONE, IPR_USE_LSI, &ipr_chip_cfg[0] },
+	{ PCI_VENDOR_ID_IBM, PCI_DEVICE_ID_IBM_CITRINE, IPR_USE_LSI, &ipr_chip_cfg[0] },
+	{ PCI_VENDOR_ID_ADAPTEC2, PCI_DEVICE_ID_ADAPTEC2_OBSIDIAN, IPR_USE_LSI, &ipr_chip_cfg[0] },
+	{ PCI_VENDOR_ID_IBM, PCI_DEVICE_ID_IBM_OBSIDIAN, IPR_USE_LSI, &ipr_chip_cfg[0] },
+	{ PCI_VENDOR_ID_IBM, PCI_DEVICE_ID_IBM_OBSIDIAN_E, IPR_USE_MSI, &ipr_chip_cfg[0] },
+	{ PCI_VENDOR_ID_IBM, PCI_DEVICE_ID_IBM_SNIPE, IPR_USE_LSI, &ipr_chip_cfg[1] },
+	{ PCI_VENDOR_ID_ADAPTEC2, PCI_DEVICE_ID_ADAPTEC2_SCAMP, IPR_USE_LSI, &ipr_chip_cfg[1] }
 };
 
 static int ipr_max_bus_speeds [] = {
@@ -152,13 +152,13 @@ module_param_named(log_level, ipr_log_level, uint, 0);
 MODULE_PARM_DESC(log_level, "Set to 0 - 4 for increasing verbosity of device driver");
 module_param_named(testmode, ipr_testmode, int, 0);
 MODULE_PARM_DESC(testmode, "DANGEROUS!!! Allows unsupported configurations");
-module_param_named(fastfail, ipr_fastfail, int, 0);
+module_param_named(fastfail, ipr_fastfail, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(fastfail, "Reduce timeouts and retries");
 module_param_named(transop_timeout, ipr_transop_timeout, int, 0);
 MODULE_PARM_DESC(transop_timeout, "Time in seconds to wait for adapter to come operational (default: 300)");
 module_param_named(enable_cache, ipr_enable_cache, int, 0);
 MODULE_PARM_DESC(enable_cache, "Enable adapter's non-volatile write cache (default: 1)");
-module_param_named(debug, ipr_debug, int, 0);
+module_param_named(debug, ipr_debug, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(debug, "Enable device driver debugging logging. Set to 1 to enable. (default: 0)");
 module_param_named(dual_ioa_raid, ipr_dual_ioa_raid, int, 0);
 MODULE_PARM_DESC(dual_ioa_raid, "Enable dual adapter RAID support. Set to 1 to enable. (default: 1)");
@@ -354,6 +354,8 @@ struct ipr_error_table_t ipr_error_table[] = {
 	"9076: Configuration error, missing remote IOA"},
 	{0x06679100, 0, IPR_DEFAULT_LOG_LEVEL,
 	"4050: Enclosure does not support a required multipath function"},
+	{0x06690000, 0, IPR_DEFAULT_LOG_LEVEL,
+	"4070: Logically bad block written on device"},
 	{0x06690200, 0, IPR_DEFAULT_LOG_LEVEL,
 	"9041: Array protection temporarily suspended"},
 	{0x06698200, 0, IPR_DEFAULT_LOG_LEVEL,
@@ -3652,6 +3654,7 @@ static int ipr_slave_configure(struct scsi_device *sdev)
 {
 	struct ipr_ioa_cfg *ioa_cfg = (struct ipr_ioa_cfg *) sdev->host->hostdata;
 	struct ipr_resource_entry *res;
+	struct ata_port *ap = NULL;
 	unsigned long lock_flags = 0;
 
 	spin_lock_irqsave(ioa_cfg->host->host_lock, lock_flags);
@@ -3670,12 +3673,16 @@ static int ipr_slave_configure(struct scsi_device *sdev)
 		}
 		if (ipr_is_vset_device(res) || ipr_is_scsi_disk(res))
 			sdev->allow_restart = 1;
-		if (ipr_is_gata(res) && res->sata_port) {
+		if (ipr_is_gata(res) && res->sata_port)
+			ap = res->sata_port->ap;
+		spin_unlock_irqrestore(ioa_cfg->host->host_lock, lock_flags);
+
+		if (ap) {
 			scsi_adjust_queue_depth(sdev, 0, IPR_MAX_CMD_PER_ATA_LUN);
-			ata_sas_slave_configure(sdev, res->sata_port->ap);
-		} else {
+			ata_sas_slave_configure(sdev, ap);
+		} else
 			scsi_adjust_queue_depth(sdev, 0, sdev->host->cmd_per_lun);
-		}
+		return 0;
 	}
 	spin_unlock_irqrestore(ioa_cfg->host->host_lock, lock_flags);
 	return 0;
@@ -6996,6 +7003,7 @@ static void ipr_pci_perm_failure(struct pci_dev *pdev)
 		ioa_cfg->sdt_state = ABORT_DUMP;
 	ioa_cfg->reset_retries = IPR_NUM_RESET_RELOAD_RETRIES;
 	ioa_cfg->in_ioa_bringdown = 1;
+	ioa_cfg->allow_cmds = 0;
 	ipr_initiate_ioa_reset(ioa_cfg, IPR_SHUTDOWN_NONE);
 	spin_unlock_irqrestore(ioa_cfg->host->host_lock, flags);
 }
@@ -7147,6 +7155,7 @@ static void ipr_free_all_resources(struct ipr_ioa_cfg *ioa_cfg)
 
 	ENTER;
 	free_irq(pdev->irq, ioa_cfg);
+	pci_disable_msi(pdev);
 	iounmap(ioa_cfg->hdw_dma_regs);
 	pci_release_regions(pdev);
 	ipr_free_mem(ioa_cfg);
@@ -7358,6 +7367,7 @@ static void __devinit ipr_init_ioa_cfg(struct ipr_ioa_cfg *ioa_cfg,
 	INIT_LIST_HEAD(&ioa_cfg->used_res_q);
 	INIT_WORK(&ioa_cfg->work_q, ipr_worker_thread);
 	init_waitqueue_head(&ioa_cfg->reset_wait_q);
+	init_waitqueue_head(&ioa_cfg->msi_wait_q);
 	ioa_cfg->sdt_state = INACTIVE;
 	if (ipr_enable_cache)
 		ioa_cfg->cache_state = CACHE_ENABLED;
@@ -7389,22 +7399,105 @@ static void __devinit ipr_init_ioa_cfg(struct ipr_ioa_cfg *ioa_cfg,
 }
 
 /**
- * ipr_get_chip_cfg - Find adapter chip configuration
+ * ipr_get_chip_info - Find adapter chip information
  * @dev_id:		PCI device id struct
  *
  * Return value:
- * 	ptr to chip config on success / NULL on failure
+ * 	ptr to chip information on success / NULL on failure
  **/
-static const struct ipr_chip_cfg_t * __devinit
-ipr_get_chip_cfg(const struct pci_device_id *dev_id)
+static const struct ipr_chip_t * __devinit
+ipr_get_chip_info(const struct pci_device_id *dev_id)
 {
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(ipr_chip); i++)
 		if (ipr_chip[i].vendor == dev_id->vendor &&
 		    ipr_chip[i].device == dev_id->device)
-			return ipr_chip[i].cfg;
+			return &ipr_chip[i];
 	return NULL;
+}
+
+/**
+ * ipr_test_intr - Handle the interrupt generated in ipr_test_msi().
+ * @pdev:		PCI device struct
+ *
+ * Description: Simply set the msi_received flag to 1 indicating that
+ * Message Signaled Interrupts are supported.
+ *
+ * Return value:
+ * 	0 on success / non-zero on failure
+ **/
+static irqreturn_t __devinit ipr_test_intr(int irq, void *devp)
+{
+	struct ipr_ioa_cfg *ioa_cfg = (struct ipr_ioa_cfg *)devp;
+	unsigned long lock_flags = 0;
+	irqreturn_t rc = IRQ_HANDLED;
+
+	spin_lock_irqsave(ioa_cfg->host->host_lock, lock_flags);
+
+	ioa_cfg->msi_received = 1;
+	wake_up(&ioa_cfg->msi_wait_q);
+
+	spin_unlock_irqrestore(ioa_cfg->host->host_lock, lock_flags);
+	return rc;
+}
+
+/**
+ * ipr_test_msi - Test for Message Signaled Interrupt (MSI) support.
+ * @pdev:		PCI device struct
+ *
+ * Description: The return value from pci_enable_msi() can not always be
+ * trusted.  This routine sets up and initiates a test interrupt to determine
+ * if the interrupt is received via the ipr_test_intr() service routine.
+ * If the tests fails, the driver will fall back to LSI.
+ *
+ * Return value:
+ * 	0 on success / non-zero on failure
+ **/
+static int __devinit ipr_test_msi(struct ipr_ioa_cfg *ioa_cfg,
+				  struct pci_dev *pdev)
+{
+	int rc;
+	volatile u32 int_reg;
+	unsigned long lock_flags = 0;
+
+	ENTER;
+
+	spin_lock_irqsave(ioa_cfg->host->host_lock, lock_flags);
+	init_waitqueue_head(&ioa_cfg->msi_wait_q);
+	ioa_cfg->msi_received = 0;
+	ipr_mask_and_clear_interrupts(ioa_cfg, ~IPR_PCII_IOA_TRANS_TO_OPER);
+	writel(IPR_PCII_IO_DEBUG_ACKNOWLEDGE, ioa_cfg->regs.clr_interrupt_mask_reg);
+	int_reg = readl(ioa_cfg->regs.sense_interrupt_mask_reg);
+	spin_unlock_irqrestore(ioa_cfg->host->host_lock, lock_flags);
+
+	rc = request_irq(pdev->irq, ipr_test_intr, 0, IPR_NAME, ioa_cfg);
+	if (rc) {
+		dev_err(&pdev->dev, "Can not assign irq %d\n", pdev->irq);
+		return rc;
+	} else if (ipr_debug)
+		dev_info(&pdev->dev, "IRQ assigned: %d\n", pdev->irq);
+
+	writel(IPR_PCII_IO_DEBUG_ACKNOWLEDGE, ioa_cfg->regs.sense_interrupt_reg);
+	int_reg = readl(ioa_cfg->regs.sense_interrupt_reg);
+	wait_event_timeout(ioa_cfg->msi_wait_q, ioa_cfg->msi_received, HZ);
+	ipr_mask_and_clear_interrupts(ioa_cfg, ~IPR_PCII_IOA_TRANS_TO_OPER);
+
+	spin_lock_irqsave(ioa_cfg->host->host_lock, lock_flags);
+	if (!ioa_cfg->msi_received) {
+		/* MSI test failed */
+		dev_info(&pdev->dev, "MSI test failed.  Falling back to LSI.\n");
+		rc = -EOPNOTSUPP;
+	} else if (ipr_debug)
+		dev_info(&pdev->dev, "MSI test succeeded.\n");
+
+	spin_unlock_irqrestore(ioa_cfg->host->host_lock, lock_flags);
+
+	free_irq(pdev->irq, ioa_cfg);
+
+	LEAVE;
+
+	return rc;
 }
 
 /**
@@ -7447,13 +7540,15 @@ static int __devinit ipr_probe_ioa(struct pci_dev *pdev,
 	ata_host_init(&ioa_cfg->ata_host, &pdev->dev,
 		      sata_port_info.flags, &ipr_sata_ops);
 
-	ioa_cfg->chip_cfg = ipr_get_chip_cfg(dev_id);
+	ioa_cfg->ipr_chip = ipr_get_chip_info(dev_id);
 
-	if (!ioa_cfg->chip_cfg) {
+	if (!ioa_cfg->ipr_chip) {
 		dev_err(&pdev->dev, "Unknown adapter chipset 0x%04X 0x%04X\n",
 			dev_id->vendor, dev_id->device);
 		goto out_scsi_host_put;
 	}
+
+	ioa_cfg->chip_cfg = ioa_cfg->ipr_chip->cfg;
 
 	if (ipr_transop_timeout)
 		ioa_cfg->transop_timeout = ipr_transop_timeout;
@@ -7490,7 +7585,7 @@ static int __devinit ipr_probe_ioa(struct pci_dev *pdev,
 
 	pci_set_master(pdev);
 
-	rc = pci_set_dma_mask(pdev, DMA_32BIT_MASK);
+	rc = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
 	if (rc < 0) {
 		dev_err(&pdev->dev, "Failed to set PCI DMA mask\n");
 		goto cleanup_nomem;
@@ -7504,6 +7599,18 @@ static int __devinit ipr_probe_ioa(struct pci_dev *pdev,
 		rc = -EIO;
 		goto cleanup_nomem;
 	}
+
+	/* Enable MSI style interrupts if they are supported. */
+	if (ioa_cfg->ipr_chip->intr_type == IPR_USE_MSI && !pci_enable_msi(pdev)) {
+		rc = ipr_test_msi(ioa_cfg, pdev);
+		if (rc == -EOPNOTSUPP)
+			pci_disable_msi(pdev);
+		else if (rc)
+			goto out_msi_disable;
+		else
+			dev_info(&pdev->dev, "MSI enabled with IRQ: %d\n", pdev->irq);
+	} else if (ipr_debug)
+		dev_info(&pdev->dev, "Cannot enable MSI.\n");
 
 	/* Save away PCI config space for use following IOA reset */
 	rc = pci_save_state(pdev);
@@ -7542,7 +7649,9 @@ static int __devinit ipr_probe_ioa(struct pci_dev *pdev,
 		ioa_cfg->ioa_unit_checked = 1;
 
 	ipr_mask_and_clear_interrupts(ioa_cfg, ~IPR_PCII_IOA_TRANS_TO_OPER);
-	rc = request_irq(pdev->irq, ipr_isr, IRQF_SHARED, IPR_NAME, ioa_cfg);
+	rc = request_irq(pdev->irq, ipr_isr,
+			 ioa_cfg->msi_received ? 0 : IRQF_SHARED,
+			 IPR_NAME, ioa_cfg);
 
 	if (rc) {
 		dev_err(&pdev->dev, "Couldn't register IRQ %d! rc=%d\n",
@@ -7569,6 +7678,8 @@ cleanup_nolog:
 	ipr_free_mem(ioa_cfg);
 cleanup_nomem:
 	iounmap(ipr_regs);
+out_msi_disable:
+	pci_disable_msi(pdev);
 out_release_regions:
 	pci_release_regions(pdev);
 out_scsi_host_put:
@@ -7674,7 +7785,7 @@ static void __ipr_remove(struct pci_dev *pdev)
  * Return value:
  * 	none
  **/
-static void ipr_remove(struct pci_dev *pdev)
+static void __devexit ipr_remove(struct pci_dev *pdev)
 {
 	struct ipr_ioa_cfg *ioa_cfg = pci_get_drvdata(pdev);
 
@@ -7850,7 +7961,7 @@ static struct pci_driver ipr_driver = {
 	.name = IPR_NAME,
 	.id_table = ipr_pci_table,
 	.probe = ipr_probe,
-	.remove = ipr_remove,
+	.remove = __devexit_p(ipr_remove),
 	.shutdown = ipr_shutdown,
 	.err_handler = &ipr_err_handler,
 };

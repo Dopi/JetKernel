@@ -173,11 +173,14 @@
 #define VV6410_SUBSAMPLE		0x01
 #define VV6410_CROP_TO_QVGA		0x02
 
+#define VV6410_CIF_LINELENGTH		415
+
 static int vv6410_probe(struct sd *sd);
 static int vv6410_start(struct sd *sd);
 static int vv6410_init(struct sd *sd);
 static int vv6410_stop(struct sd *sd);
 static int vv6410_dump(struct sd *sd);
+static void vv6410_disconnect(struct sd *sd);
 
 /* V4L2 controls supported by the driver */
 static int vv6410_get_hflip(struct gspca_dev *gspca_dev, __s32 *val);
@@ -186,6 +189,8 @@ static int vv6410_get_vflip(struct gspca_dev *gspca_dev, __s32 *val);
 static int vv6410_set_vflip(struct gspca_dev *gspca_dev, __s32 val);
 static int vv6410_get_analog_gain(struct gspca_dev *gspca_dev, __s32 *val);
 static int vv6410_set_analog_gain(struct gspca_dev *gspca_dev, __s32 val);
+static int vv6410_get_exposure(struct gspca_dev *gspca_dev, __s32 *val);
+static int vv6410_set_exposure(struct gspca_dev *gspca_dev, __s32 val);
 
 const struct stv06xx_sensor stv06xx_sensor_vv6410 = {
 	.name = "ST VV6410",
@@ -197,62 +202,7 @@ const struct stv06xx_sensor stv06xx_sensor_vv6410 = {
 	.start = vv6410_start,
 	.stop = vv6410_stop,
 	.dump = vv6410_dump,
-
-	.nctrls = 3,
-	.ctrls = {
-	{
-		{
-			.id		= V4L2_CID_HFLIP,
-			.type		= V4L2_CTRL_TYPE_BOOLEAN,
-			.name		= "horizontal flip",
-			.minimum	= 0,
-			.maximum	= 1,
-			.step		= 1,
-			.default_value	= 0
-		},
-		.set = vv6410_set_hflip,
-		.get = vv6410_get_hflip
-	}, {
-		{
-			.id		= V4L2_CID_VFLIP,
-			.type		= V4L2_CTRL_TYPE_BOOLEAN,
-			.name		= "vertical flip",
-			.minimum	= 0,
-			.maximum	= 1,
-			.step		= 1,
-			.default_value 	= 0
-		},
-		.set = vv6410_set_vflip,
-		.get = vv6410_get_vflip
-	}, {
-		{
-			.id		= V4L2_CID_GAIN,
-			.type		= V4L2_CTRL_TYPE_INTEGER,
-			.name		= "analog gain",
-			.minimum	= 0,
-			.maximum	= 15,
-			.step		= 1,
-			.default_value  = 0
-		},
-		.set = vv6410_set_analog_gain,
-		.get = vv6410_get_analog_gain
-	}
-	},
-
-	.nmodes = 1,
-	.modes = {
-	{
-		356,
-		292,
-		V4L2_PIX_FMT_SGRBG8,
-		V4L2_FIELD_NONE,
-		.sizeimage =
-			356 * 292,
-		.bytesperline = 356,
-		.colorspace = V4L2_COLORSPACE_SRGB,
-		.priv = 0
-	}
-	}
+	.disconnect = vv6410_disconnect,
 };
 
 /* If NULL, only single value to write, stored in len */
@@ -296,12 +246,6 @@ static const u8 vv6410_sensor_init[][2] = {
 	/* Pre-clock generator divide off */
 	{VV6410_DATAFORMAT,	BIT(7) | BIT(0)},
 
-	/* Exposure registers */
-	{VV6410_FINEH,		VV6410_FINE_EXPOSURE >> 8},
-	{VV6410_FINEL,		VV6410_FINE_EXPOSURE & 0xff},
-	{VV6410_COARSEH,	VV6410_COARSE_EXPOSURE >> 8},
-	{VV6410_COARSEL,	VV6410_COARSE_EXPOSURE & 0xff},
-	{VV6410_ANALOGGAIN,	0xf0 | VV6410_DEFAULT_GAIN},
 	{VV6410_CLKDIV,		VV6410_CLK_DIV_2},
 
 	/* System registers */

@@ -467,7 +467,7 @@ jump_to_sun4u_init:
 	jmpl    %g2 + %g0, %g0
 	 nop
 
-	.section	.text.init.refok
+	__REF
 sun4u_init:
 	BRANCH_IF_SUN4V(g1, sun4v_init)
 
@@ -641,28 +641,6 @@ tlb_fixup_done:
 	/* Not reached... */
 
 1:
-	/* If we boot on a non-zero cpu, all of the per-cpu
-	 * variable references we make before setting up the
-	 * per-cpu areas will use a bogus offset.  Put a
-	 * compensating factor into __per_cpu_base to handle
-	 * this cleanly.
-	 *
-	 * What the per-cpu code calculates is:
-	 *
-	 *	__per_cpu_base + (cpu << __per_cpu_shift)
-	 *
-	 * These two variables are zero initially, so to
-	 * make it all cancel out to zero we need to put
-	 * "0 - (cpu << 0)" into __per_cpu_base so that the
-	 * above formula evaluates to zero.
-	 *
-	 * We cannot even perform a printk() until this stuff
-	 * is setup as that calls cpu_clock() which uses
-	 * per-cpu variables.
-	 */
-	sub	%g0, %o0, %o1
-	sethi	%hi(__per_cpu_base), %o2
-	stx	%o1, [%o2 + %lo(__per_cpu_base)]
 #else
 	mov	0, %o0
 #endif
@@ -686,7 +664,7 @@ tlb_fixup_done:
 	 * point.
 	 *
 	 * There used to be enormous complexity wrt. transferring
-	 * over from the firwmare's trap table to the Linux kernel's.
+	 * over from the firmware's trap table to the Linux kernel's.
 	 * For example, there was a chicken & egg problem wrt. building
 	 * the OBP page tables, yet needing to be on the Linux kernel
 	 * trap table (to translate PAGE_OFFSET addresses) in order to

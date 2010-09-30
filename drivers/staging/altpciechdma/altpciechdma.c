@@ -46,7 +46,6 @@
 #include <linux/cdev.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
-#include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
@@ -313,15 +312,16 @@ static int __devinit map_bars(struct ape_dev *ape, struct pci_dev *dev)
 			continue;
 		/* do not map BARs with address 0 */
 		if (!bar_start || !bar_end) {
-            printk(KERN_DEBUG "BAR #%d is not present?!\n", i);
+			printk(KERN_DEBUG "BAR #%d is not present?!\n", i);
 			rc = -1;
 			goto fail;
 		}
 		bar_length = bar_end - bar_start + 1;
 		/* BAR length is less than driver requires? */
 		if (bar_length < bar_min_len[i]) {
-            printk(KERN_DEBUG "BAR #%d length = %lu bytes but driver "
-            "requires at least %lu bytes\n", i, bar_length, bar_min_len[i]);
+			printk(KERN_DEBUG "BAR #%d length = %lu bytes but driver "
+			"requires at least %lu bytes\n",
+			i, bar_length, bar_min_len[i]);
 			rc = -1;
 			goto fail;
 		}
@@ -333,8 +333,8 @@ static int __devinit map_bars(struct ape_dev *ape, struct pci_dev *dev)
 			rc = -1;
 			goto fail;
 		}
-        printk(KERN_DEBUG "BAR[%d] mapped at 0x%p with length %lu(/%lu).\n", i,
-			ape->bar[i], bar_min_len[i], bar_length);
+		printk(KERN_DEBUG "BAR[%d] mapped at 0x%p with length %lu(/%lu).\n", i,
+		ape->bar[i], bar_min_len[i], bar_length);
 	}
 	/* succesfully mapped all required BAR regions */
 	rc = 0;
@@ -399,6 +399,7 @@ static inline void ape_chdma_desc_set(struct ape_chdma_desc *desc, dma_addr_t ad
 	desc->rc_addr_l = cpu_to_le32(pci_dma_l(addr));
 }
 
+#if ALTPCIECHDMA_CDEV
 /*
  * ape_sg_to_chdma_table() - Create a device descriptor table from a scatterlist.
  *
@@ -427,11 +428,13 @@ static int ape_sg_to_chdma_table(struct scatterlist *sgl, int nents, int first, 
 		dma_addr_t next = sg_dma_address(&sgl[i + 1]);
 		/* length of this entry i */
 		len = sg_dma_len(&sgl[i]);
-		printk(KERN_DEBUG "%04d: addr=0x%08x length=0x%08x\n", i, addr, len);
+		printk(KERN_DEBUG "%04d: addr=0x%Lx length=0x%08x\n", i,
+			(unsigned long long)addr, len);
 		/* entry i + 1 is non-contiguous with entry i? */
 		if (next != addr + len) {
 			/* TODO create entry here (we could overwrite i) */
-			printk(KERN_DEBUG "%4d: cont_addr=0x%08x cont_len=0x%08x\n", j, cont_addr, cont_len);
+			printk(KERN_DEBUG "%4d: cont_addr=0x%Lx cont_len=0x%08x\n", j,
+				(unsigned long long)cont_addr, cont_len);
 			/* set descriptor for contiguous transfer */
 			ape_chdma_desc_set(&desc[j], cont_addr, ep_addr, cont_len);
 			/* next end point memory address */
@@ -447,11 +450,14 @@ static int ape_sg_to_chdma_table(struct scatterlist *sgl, int nents, int first, 
 		addr = next;
 	}
 	/* TODO create entry here  (we could overwrite i) */
-	printk(KERN_DEBUG "%04d: addr=0x%08x length=0x%08x\n", i, addr, len);
-	printk(KERN_DEBUG "%4d: cont_addr=0x%08x length=0x%08x\n", j, cont_addr, cont_len);
+	printk(KERN_DEBUG "%04d: addr=0x%Lx length=0x%08x\n", i,
+		(unsigned long long)addr, len);
+	printk(KERN_DEBUG "%4d: cont_addr=0x%Lx length=0x%08x\n", j,
+		(unsigned long long)cont_addr, cont_len);
 	j++;
 	return j;
 }
+#endif
 
 /* compare buffers */
 static inline int compare(u32 *p, u32 *q, int len)
@@ -467,15 +473,14 @@ static inline int compare(u32 *p, u32 *q, int len)
 		} else {
 			fail++;
 			/* show the first few miscompares */
-			if (fail < 10) {
-                printk(KERN_DEBUG "[%p] = 0x%08x != [%p] = 0x%08x ?!\n", p, *p, q, *q);
-            /* but stop after a while */
-            } else if (fail == 10) {
-                printk(KERN_DEBUG "---more errors follow! not printed---\n");
-		  	} else {
+			if (fail < 10)
+				printk(KERN_DEBUG "[%p] = 0x%08x != [%p] = 0x%08x ?!\n", p, *p, q, *q);
+				/* but stop after a while */
+			else if (fail == 10)
+				printk(KERN_DEBUG "---more errors follow! not printed---\n");
+			else
 				/* stop compare after this many errors */
-                break;
-            }
+			break;
 		}
 		p++;
 		q++;
@@ -528,7 +533,7 @@ static int __devinit dma_test(struct ape_dev *ape, struct pci_dev *dev)
 	printk(KERN_DEBUG "ape->table_virt = 0x%p.\n", ape->table_virt);
 
 	if (!write_header || !read_header || !ape->table_virt)
-        goto fail;
+		goto fail;
 
 	/* allocate and map coherently-cached memory for a DMA-able buffer */
 	/* @see Documentation/PCI/PCI-DMA-mapping.txt, near line 318 */
@@ -537,8 +542,8 @@ static int __devinit dma_test(struct ape_dev *ape, struct pci_dev *dev)
 		printk(KERN_DEBUG "Could not allocate coherent DMA buffer.\n");
 		goto fail;
 	}
-	printk(KERN_DEBUG "Allocated cache-coherent DMA buffer (virtual address = 0x%016llx, bus address = 0x%016llx).\n",
-		(u64)buffer_virt, (u64)buffer_bus);
+	printk(KERN_DEBUG "Allocated cache-coherent DMA buffer (virtual address = %p, bus address = 0x%016llx).\n",
+	       buffer_virt, (u64)buffer_bus);
 
 	/* fill first half of buffer with its virtual address as data */
 	for (i = 0; i < 4 * PAGE_SIZE; i += 4)
@@ -565,9 +570,8 @@ static int __devinit dma_test(struct ape_dev *ape, struct pci_dev *dev)
 	/* read 8192 bytes from RC buffer to EP address 4096 */
 	ape_chdma_desc_set(&ape->table_virt->desc[n], buffer_bus, 4096, 2 * PAGE_SIZE);
 #if 1
-	for (i = 0; i < 255; i++) {
+	for (i = 0; i < 255; i++)
 		ape_chdma_desc_set(&ape->table_virt->desc[i], buffer_bus, 4096, 2 * PAGE_SIZE);
-	}
 	/* index of last descriptor */
 	n = i - 1;
 #endif
@@ -647,7 +651,7 @@ static int __devinit dma_test(struct ape_dev *ape, struct pci_dev *dev)
 		printk(KERN_DEBUG "EPLAST = %u, n = %d\n", eplast, n);
 		if (eplast == n) {
 			printk(KERN_DEBUG "DONE\n");
-            /* print IRQ count before the transfer */
+			/* print IRQ count before the transfer */
 			printk(KERN_DEBUG "#IRQs during transfer: %d\n", ape->irq_count - irq_count);
 			break;
 		}
@@ -661,9 +665,9 @@ static int __devinit dma_test(struct ape_dev *ape, struct pci_dev *dev)
 	n = 0;
 	ape_chdma_desc_set(&ape->table_virt->desc[n], buffer_bus + 8192, 4096, 2 * PAGE_SIZE);
 #if 1
-	for (i = 0; i < 255; i++) {
+	for (i = 0; i < 255; i++)
 		ape_chdma_desc_set(&ape->table_virt->desc[i], buffer_bus + 8192, 4096, 2 * PAGE_SIZE);
-	}
+
 	/* index of last descriptor */
 	n = i - 1;
 #endif
@@ -691,7 +695,7 @@ static int __devinit dma_test(struct ape_dev *ape, struct pci_dev *dev)
 	w = (u32)(n + 1);
 	/* enable updates of eplast for each descriptor completion */
 	w |= (u32)(1UL << 18)/*global EPLAST_EN*/;
-#if 0 // test variable, make a module option later
+#if 0   /* test variable, make a module option later */
 	/* enable MSI for each descriptor completion */
 	if (ape->msi_enabled)
 		w |= (1UL << 17)/*global MSI*/;
@@ -715,7 +719,7 @@ static int __devinit dma_test(struct ape_dev *ape, struct pci_dev *dev)
 	/** memory write barrier */
 	wmb();
 	/** dummy read to flush posted writes */
-	//(void)ioread32();
+	/* (void) ioread32(); */
 
 	printk(KERN_DEBUG "POLL FOR WRITE:\n");
 	/* poll for completion, 1000 times 1 millisecond */
@@ -781,7 +785,7 @@ static int __devinit probe(struct pci_dev *dev, const struct pci_device_id *id)
 		goto err_ape;
 	}
 	ape->pci_dev = dev;
-	dev->dev.driver_data = (void *)ape;
+	dev_set_drvdata(&dev->dev, ape);
 	printk(KERN_DEBUG "probe() ape = 0x%p\n", ape);
 
 	printk(KERN_DEBUG "sizeof(struct ape_chdma_table) = %d.\n",
@@ -799,8 +803,8 @@ static int __devinit probe(struct pci_dev *dev, const struct pci_device_id *id)
 		goto err_table;
 	}
 
-	printk(KERN_DEBUG "table_virt = 0x%16llx, table_bus = 0x%16llx.\n",
-		(u64)ape->table_virt, (u64)ape->table_bus);
+	printk(KERN_DEBUG "table_virt = %p, table_bus = 0x%16llx.\n",
+		ape->table_virt, (u64)ape->table_bus);
 
 	/* enable device */
 	rc = pci_enable_device(dev);
@@ -844,18 +848,18 @@ static int __devinit probe(struct pci_dev *dev, const struct pci_device_id *id)
 	}
 	ape->got_regions = 1;
 
-#if 1 // @todo For now, disable 64-bit, because I do not understand the implications (DAC!)
+#if 1   /* @todo For now, disable 64-bit, because I do not understand the implications (DAC!) */
 	/* query for DMA transfer */
 	/* @see Documentation/PCI/PCI-DMA-mapping.txt */
-	if (!pci_set_dma_mask(dev, DMA_64BIT_MASK)) {
-		pci_set_consistent_dma_mask(dev, DMA_64BIT_MASK);
+	if (!pci_set_dma_mask(dev, DMA_BIT_MASK(64))) {
+		pci_set_consistent_dma_mask(dev, DMA_BIT_MASK(64));
 		/* use 64-bit DMA */
 		printk(KERN_DEBUG "Using a 64-bit DMA mask.\n");
 	} else
 #endif
-	if (!pci_set_dma_mask(dev, DMA_32BIT_MASK)) {
+	if (!pci_set_dma_mask(dev, DMA_BIT_MASK(32))) {
 		printk(KERN_DEBUG "Could not set 64-bit DMA mask.\n");
-		pci_set_consistent_dma_mask(dev, DMA_32BIT_MASK);
+		pci_set_consistent_dma_mask(dev, DMA_BIT_MASK(32));
 		/* use 32-bit DMA */
 		printk(KERN_DEBUG "Using a 32-bit DMA mask.\n");
 	} else {
@@ -911,9 +915,11 @@ static int __devinit probe(struct pci_dev *dev, const struct pci_device_id *id)
 	rc = 0;
 	printk(KERN_DEBUG "probe() successful.\n");
 	goto end;
+#if ALTPCIECHDMA_CDEV
 err_cdev:
 	/* unmap the BARs */
 	unmap_bars(ape, dev);
+#endif
 err_map:
 	/* free allocated irq */
 	if (ape->irq_line >= 0)
@@ -928,7 +934,7 @@ err_irq:
 		pci_release_regions(dev);
 err_mask:
 err_regions:
-err_rev:
+/*err_rev:*/
 /* clean up everything before device enable() */
 err_enable:
 	if (ape->table_virt)
@@ -944,18 +950,11 @@ end:
 
 static void __devexit remove(struct pci_dev *dev)
 {
-	struct ape_dev *ape;
+	struct ape_dev *ape = dev_get_drvdata(&dev->dev);
+
 	printk(KERN_DEBUG "remove(0x%p)\n", dev);
-	if ((dev == 0) || (dev->dev.driver_data == 0)) {
-		printk(KERN_DEBUG "remove(dev = 0x%p) dev->dev.driver_data = 0x%p\n", dev, dev->dev.driver_data);
-		return;
-	}
-	ape = (struct ape_dev *)dev->dev.driver_data;
-	printk(KERN_DEBUG "remove(dev = 0x%p) where dev->dev.driver_data = 0x%p\n", dev, ape);
-	if (ape->pci_dev != dev) {
-		printk(KERN_DEBUG "dev->dev.driver_data->pci_dev (0x%08lx) != dev (0x%08lx)\n",
-		(unsigned long)ape->pci_dev, (unsigned long)dev);
-	}
+	printk(KERN_DEBUG "remove(dev = 0x%p) where ape = 0x%p\n", dev, ape);
+
 	/* remove character device */
 #if ALTPCIECHDMA_CDEV
 	sg_exit(ape);
@@ -1048,10 +1047,9 @@ static ssize_t sg_write(struct file *file, const char __user *buf, size_t count,
 	printk(KERN_DEBUG DRV_NAME "_write(buf=0x%p, count=%lld, pos=%llu)\n",
 		buf, (s64)count, (u64)*pos);
 	/* TODO transfer boundaries at PAGE_SIZE granularity */
-	while (remaining > 0)
-	{
+	while (remaining > 0) {
 		/* limit DMA transfer size */
-		transfer_len = (remaining < APE_CHDMA_MAX_TRANSFER_LEN)? remaining:
+		transfer_len = (remaining < APE_CHDMA_MAX_TRANSFER_LEN) ? remaining :
 			APE_CHDMA_MAX_TRANSFER_LEN;
 		/* get all user space buffer pages and create a scattergather list */
 		sgm_map_user_pages(ape->sgm, transfer_addr, transfer_len, 0/*read from userspace*/);
@@ -1085,12 +1083,12 @@ static ssize_t sg_write(struct file *file, const char __user *buf, size_t count,
 /*
  * character device file operations
  */
-static struct file_operations sg_fops = {
-  .owner = THIS_MODULE,
-  .open = sg_open,
-  .release = sg_close,
-  .read = sg_read,
-  .write = sg_write,
+static const struct file_operations sg_fops = {
+	.owner = THIS_MODULE,
+	.open = sg_open,
+	.release = sg_close,
+	.read = sg_read,
+	.write = sg_write,
 };
 
 /* sg_init() - Initialize character device
@@ -1149,7 +1147,7 @@ static struct pci_driver pci_driver = {
 	.name = DRV_NAME,
 	.id_table = ids,
 	.probe = probe,
-	.remove = remove,
+	.remove = __devexit_p(remove),
 	/* resume, suspend are optional */
 };
 
@@ -1158,12 +1156,12 @@ static struct pci_driver pci_driver = {
  */
 static int __init alterapciechdma_init(void)
 {
-  int rc = 0;
+	int rc = 0;
 	printk(KERN_DEBUG DRV_NAME " init(), built at " __DATE__ " " __TIME__ "\n");
 	/* register this driver with the PCI bus driver */
 	rc = pci_register_driver(&pci_driver);
 	if (rc < 0)
-	  return rc;
+		return rc;
 	return 0;
 }
 

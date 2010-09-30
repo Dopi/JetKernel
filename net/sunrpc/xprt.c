@@ -12,8 +12,9 @@
  *  -	Next, the caller puts together the RPC message, stuffs it into
  *	the request struct, and calls xprt_transmit().
  *  -	xprt_transmit sends the message and installs the caller on the
- *	transport's wait list. At the same time, it installs a timer that
- *	is run after the packet's timeout has expired.
+ *	transport's wait list. At the same time, if a reply is expected,
+ *	it installs a timer that is run after the packet's timeout has
+ *	expired.
  *  -	When a packet arrives, the data_ready handler walks the list of
  *	pending requests for that transport. If a matching XID is found, the
  *	caller is woken up, and the timer removed.
@@ -45,6 +46,8 @@
 
 #include <linux/sunrpc/clnt.h>
 #include <linux/sunrpc/metrics.h>
+
+#include "sunrpc.h"
 
 /*
  * Local variables
@@ -152,6 +155,37 @@ out:
 EXPORT_SYMBOL_GPL(xprt_unregister_transport);
 
 /**
+ * xprt_load_transport - load a transport implementation
+ * @transport_name: transport to load
+ *
+ * Returns:
+ * 0:		transport successfully loaded
+ * -ENOENT:	transport module not available
+ */
+int xprt_load_transport(const char *transport_name)
+{
+	struct xprt_class *t;
+	char module_name[sizeof t->name + 5];
+	int result;
+
+	result = 0;
+	spin_lock(&xprt_list_lock);
+	list_for_each_entry(t, &xprt_list, list) {
+		if (strcmp(t->name, transport_name) == 0) {
+			spin_unlock(&xprt_list_lock);
+			goto out;
+		}
+	}
+	spin_unlock(&xprt_list_lock);
+	strcpy(module_name, "xprt");
+	strncat(module_name, transport_name, sizeof t->name);
+	result = request_module(module_name);
+out:
+	return result;
+}
+EXPORT_SYMBOL_GPL(xprt_load_transport);
+
+/**
  * xprt_reserve_xprt - serialize write access to transports
  * @task: task that is requesting access to the transport
  *
@@ -161,8 +195,8 @@ EXPORT_SYMBOL_GPL(xprt_unregister_transport);
  */
 int xprt_reserve_xprt(struct rpc_task *task)
 {
-	struct rpc_xprt	*xprt = task->tk_xprt;
 	struct rpc_rqst *req = task->tk_rqstp;
+	struct rpc_xprt	*xprt = req->rq_xprt;
 
 	if (test_and_set_bit(XPRT_LOCKED, &xprt->state)) {
 		if (task == xprt->snd_task)
@@ -580,7 +614,7 @@ void xprt_disconnect_done(struct rpc_xprt *xprt)
 	dprintk("RPC:       disconnected transport %p\n", xprt);
 	spin_lock_bh(&xprt->transport_lock);
 	xprt_clear_connected(xprt);
-	xprt_wake_pending_tasks(xprt, -ENOTCONN);
+	xprt_wake_pending_tasks(xprt, -EAGAIN);
 	spin_unlock_bh(&xprt->transport_lock);
 }
 EXPORT_SYMBOL_GPL(xprt_disconnect_done);
@@ -598,7 +632,7 @@ void xprt_force_disconnect(struct rpc_xprt *xprt)
 	/* Try to schedule an autoclose RPC call */
 	if (test_and_set_bit(XPRT_LOCKED, &xprt->state) == 0)
 		queue_work(rpciod_workqueue, &xprt->task_cleanup);
-	xprt_wake_pending_tasks(xprt, -ENOTCONN);
+	xprt_wake_pending_tasks(xprt, -EAGAIN);
 	spin_unlock_bh(&xprt->transport_lock);
 }
 
@@ -625,7 +659,7 @@ void xprt_conditional_disconnect(struct rpc_xprt *xprt, unsigned int cookie)
 	/* Try to schedule an autoclose RPC call */
 	if (test_and_set_bit(XPRT_LOCKED, &xprt->state) == 0)
 		queue_work(rpciod_workqueue, &xprt->task_cleanup);
-	xprt_wake_pending_tasks(xprt, -ENOTCONN);
+	xprt_wake_pending_tasks(xprt, -EAGAIN);
 out:
 	spin_unlock_bh(&xprt->transport_lock);
 }
@@ -641,10 +675,8 @@ xprt_init_autodisconnect(unsigned long data)
 	if (test_and_set_bit(XPRT_LOCKED, &xprt->state))
 		goto out_abort;
 	spin_unlock(&xprt->transport_lock);
-	if (xprt_connecting(xprt))
-		xprt_release_write(xprt, NULL);
-	else
-		queue_work(rpciod_workqueue, &xprt->task_cleanup);
+	set_bit(XPRT_CONNECTION_CLOSE, &xprt->state);
+	queue_work(rpciod_workqueue, &xprt->task_cleanup);
 	return;
 out_abort:
 	spin_unlock(&xprt->transport_lock);
@@ -695,9 +727,8 @@ static void xprt_connect_status(struct rpc_task *task)
 	}
 
 	switch (task->tk_status) {
-	case -ENOTCONN:
-		dprintk("RPC: %5u xprt_connect_status: connection broken\n",
-				task->tk_pid);
+	case -EAGAIN:
+		dprintk("RPC: %5u xprt_connect_status: retrying\n", task->tk_pid);
 		break;
 	case -ETIMEDOUT:
 		dprintk("RPC: %5u xprt_connect_status: connect attempt timed "
@@ -775,9 +806,10 @@ void xprt_complete_rqst(struct rpc_task *task, int copied)
 
 	list_del_init(&req->rq_list);
 	req->rq_private_buf.len = copied;
-	/* Ensure all writes are done before we update req->rq_received */
+	/* Ensure all writes are done before we update */
+	/* req->rq_reply_bytes_recvd */
 	smp_wmb();
-	req->rq_received = copied;
+	req->rq_reply_bytes_recvd = copied;
 	rpc_wake_up_queued_task(&xprt->pending, task);
 }
 EXPORT_SYMBOL_GPL(xprt_complete_rqst);
@@ -792,7 +824,7 @@ static void xprt_timer(struct rpc_task *task)
 	dprintk("RPC: %5u xprt_timer\n", task->tk_pid);
 
 	spin_lock_bh(&xprt->transport_lock);
-	if (!req->rq_received) {
+	if (!req->rq_reply_bytes_recvd) {
 		if (xprt->ops->timer)
 			xprt->ops->timer(task);
 	} else
@@ -814,19 +846,12 @@ int xprt_prepare_transmit(struct rpc_task *task)
 	dprintk("RPC: %5u xprt_prepare_transmit\n", task->tk_pid);
 
 	spin_lock_bh(&xprt->transport_lock);
-	if (req->rq_received && !req->rq_bytes_sent) {
-		err = req->rq_received;
+	if (req->rq_reply_bytes_recvd && !req->rq_bytes_sent) {
+		err = req->rq_reply_bytes_recvd;
 		goto out_unlock;
 	}
-	if (!xprt->ops->reserve_xprt(task)) {
+	if (!xprt->ops->reserve_xprt(task))
 		err = -EAGAIN;
-		goto out_unlock;
-	}
-
-	if (!xprt_connected(xprt)) {
-		err = -ENOTCONN;
-		goto out_unlock;
-	}
 out_unlock:
 	spin_unlock_bh(&xprt->transport_lock);
 	return err;
@@ -834,7 +859,7 @@ out_unlock:
 
 void xprt_end_transmit(struct rpc_task *task)
 {
-	xprt_release_write(task->tk_xprt, task);
+	xprt_release_write(task->tk_rqstp->rq_xprt, task);
 }
 
 /**
@@ -851,8 +876,11 @@ void xprt_transmit(struct rpc_task *task)
 
 	dprintk("RPC: %5u xprt_transmit(%u)\n", task->tk_pid, req->rq_slen);
 
-	if (!req->rq_received) {
-		if (list_empty(&req->rq_list)) {
+	if (!req->rq_reply_bytes_recvd) {
+		if (list_empty(&req->rq_list) && rpc_reply_expected(task)) {
+			/*
+			 * Add to the list only if we're expecting a reply
+			 */
 			spin_lock_bh(&xprt->transport_lock);
 			/* Update the softirq receive buffer */
 			memcpy(&req->rq_private_buf, &req->rq_rcv_buf,
@@ -870,32 +898,31 @@ void xprt_transmit(struct rpc_task *task)
 	req->rq_connect_cookie = xprt->connect_cookie;
 	req->rq_xtime = jiffies;
 	status = xprt->ops->send_request(task);
-	if (status == 0) {
-		dprintk("RPC: %5u xmit complete\n", task->tk_pid);
-		spin_lock_bh(&xprt->transport_lock);
-
-		xprt->ops->set_retrans_timeout(task);
-
-		xprt->stat.sends++;
-		xprt->stat.req_u += xprt->stat.sends - xprt->stat.recvs;
-		xprt->stat.bklog_u += xprt->backlog.qlen;
-
-		/* Don't race with disconnect */
-		if (!xprt_connected(xprt))
-			task->tk_status = -ENOTCONN;
-		else if (!req->rq_received)
-			rpc_sleep_on(&xprt->pending, task, xprt_timer);
-		spin_unlock_bh(&xprt->transport_lock);
+	if (status != 0) {
+		task->tk_status = status;
 		return;
 	}
 
-	/* Note: at this point, task->tk_sleeping has not yet been set,
-	 *	 hence there is no danger of the waking up task being put on
-	 *	 schedq, and being picked up by a parallel run of rpciod().
-	 */
-	task->tk_status = status;
-	if (status == -ECONNREFUSED)
-		rpc_sleep_on(&xprt->sending, task, NULL);
+	dprintk("RPC: %5u xmit complete\n", task->tk_pid);
+	spin_lock_bh(&xprt->transport_lock);
+
+	xprt->ops->set_retrans_timeout(task);
+
+	xprt->stat.sends++;
+	xprt->stat.req_u += xprt->stat.sends - xprt->stat.recvs;
+	xprt->stat.bklog_u += xprt->backlog.qlen;
+
+	/* Don't race with disconnect */
+	if (!xprt_connected(xprt))
+		task->tk_status = -ENOTCONN;
+	else if (!req->rq_reply_bytes_recvd && rpc_reply_expected(task)) {
+		/*
+		 * Sleep on the pending queue since
+		 * we're expecting a reply.
+		 */
+		rpc_sleep_on(&xprt->pending, task, xprt_timer);
+	}
+	spin_unlock_bh(&xprt->transport_lock);
 }
 
 static inline void do_xprt_reserve(struct rpc_task *task)
@@ -967,11 +994,17 @@ static void xprt_request_init(struct rpc_task *task, struct rpc_xprt *xprt)
  */
 void xprt_release(struct rpc_task *task)
 {
-	struct rpc_xprt	*xprt = task->tk_xprt;
+	struct rpc_xprt	*xprt;
 	struct rpc_rqst	*req;
+	int is_bc_request;
 
 	if (!(req = task->tk_rqstp))
 		return;
+
+	/* Preallocated backchannel request? */
+	is_bc_request = bc_prealloc(req);
+
+	xprt = req->rq_xprt;
 	rpc_count_iostats(task);
 	spin_lock_bh(&xprt->transport_lock);
 	xprt->ops->release_xprt(xprt, task);
@@ -984,10 +1017,19 @@ void xprt_release(struct rpc_task *task)
 		mod_timer(&xprt->timer,
 				xprt->last_used + xprt->idle_timeout);
 	spin_unlock_bh(&xprt->transport_lock);
-	xprt->ops->buf_free(req->rq_buffer);
+	if (!bc_prealloc(req))
+		xprt->ops->buf_free(req->rq_buffer);
 	task->tk_rqstp = NULL;
 	if (req->rq_release_snd_buf)
 		req->rq_release_snd_buf(req);
+
+	/*
+	 * Early exit if this is a backchannel preallocated request.
+	 * There is no need to have it added to the RPC slot list.
+	 */
+	if (is_bc_request)
+		return;
+
 	memset(req, 0, sizeof(*req));	/* mark unused */
 
 	dprintk("RPC: %5u release request %p\n", task->tk_pid, req);
@@ -1034,6 +1076,11 @@ found:
 
 	INIT_LIST_HEAD(&xprt->free);
 	INIT_LIST_HEAD(&xprt->recv);
+#if defined(CONFIG_NFS_V4_1)
+	spin_lock_init(&xprt->bc_pa_lock);
+	INIT_LIST_HEAD(&xprt->bc_pa_list);
+#endif /* CONFIG_NFS_V4_1 */
+
 	INIT_WORK(&xprt->task_cleanup, xprt_autoclose);
 	setup_timer(&xprt->timer, xprt_init_autodisconnect,
 			(unsigned long)xprt);

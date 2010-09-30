@@ -20,20 +20,6 @@
  * loudness - set between 0 and 15 for varying degrees of loudness effect
  *
  * maxvol   - set maximium volume to +20db (1), default is 0db(0)
- *
- *
- *  Revision: 0.7 - maxvol module parm to set maximium volume 0db or +20db
- *  				store if muted so we can return it
- *  				change balance only if flaged to
- *  Revision: 0.6 - added tone controls
- *  Revision: 0.5 - Fixed odd balance problem
- *  Revision: 0.4 - added muting
- *  Revision: 0.3 - Fixed silly reversed volume controls.  :)
- *  Revision: 0.2 - Cleaned up #defines
- *			fixed volume control
- *          Added I2C_DRIVERID_TDA7432
- *			added loudness insmod control
- *  Revision: 0.1 - initial version
  */
 
 #include <linux/module.h>
@@ -50,7 +36,7 @@
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
 #include <media/i2c-addr.h>
-#include <media/v4l2-i2c-drv-legacy.h>
+#include <media/v4l2-i2c-drv.h>
 
 #ifndef VIDEO_AUDIO_BALANCE
 # define VIDEO_AUDIO_BALANCE 32
@@ -69,13 +55,6 @@ MODULE_PARM_DESC(maxvol,"Set maximium volume to +20db (0), default is 0db(1)");
 module_param(maxvol, int, S_IRUGO | S_IWUSR);
 
 
-/* Address to scan (I2C address of this chip) */
-static unsigned short normal_i2c[] = {
-	I2C_ADDR_TDA7432 >> 1,
-	I2C_CLIENT_END,
-};
-
-I2C_CLIENT_INSMOD;
 
 /* Structure of address and subaddresses for the tda7432 */
 
@@ -421,19 +400,16 @@ static int tda7432_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 static int tda7432_queryctrl(struct v4l2_subdev *sd, struct v4l2_queryctrl *qc)
 {
 	switch (qc->id) {
-	case V4L2_CID_AUDIO_MUTE:
 	case V4L2_CID_AUDIO_VOLUME:
+		return v4l2_ctrl_query_fill(qc, 0, 65535, 65535 / 100, 58880);
+	case V4L2_CID_AUDIO_MUTE:
+		return v4l2_ctrl_query_fill(qc, 0, 1, 1, 0);
 	case V4L2_CID_AUDIO_BALANCE:
 	case V4L2_CID_AUDIO_BASS:
 	case V4L2_CID_AUDIO_TREBLE:
-		return v4l2_ctrl_query_fill_std(qc);
+		return v4l2_ctrl_query_fill(qc, 0, 65535, 65535 / 100, 32768);
 	}
 	return -EINVAL;
-}
-
-static int tda7432_command(struct i2c_client *client, unsigned cmd, void *arg)
-{
-	return v4l2_subdev_command(i2c_get_clientdata(client), cmd, arg);
 }
 
 /* ----------------------------------------------------------------------- */
@@ -498,8 +474,6 @@ MODULE_DEVICE_TABLE(i2c, tda7432_id);
 
 static struct v4l2_i2c_driver_data v4l2_i2c_data = {
 	.name = "tda7432",
-	.driverid = I2C_DRIVERID_TDA7432,
-	.command = tda7432_command,
 	.probe = tda7432_probe,
 	.remove = tda7432_remove,
 	.id_table = tda7432_id,

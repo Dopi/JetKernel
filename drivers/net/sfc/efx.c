@@ -50,16 +50,6 @@ static struct workqueue_struct *reset_workqueue;
  *************************************************************************/
 
 /*
- * Enable large receive offload (LRO) aka soft segment reassembly (SSR)
- *
- * This sets the default for new devices.  It can be controlled later
- * using ethtool.
- */
-static int lro = true;
-module_param(lro, int, 0644);
-MODULE_PARM_DESC(lro, "Large receive offload acceleration");
-
-/*
  * Use separate channels for TX and RX events
  *
  * Set this to 1 to use separate channels for TX and RX. It allows us
@@ -133,6 +123,16 @@ static int phy_flash_cfg;
 module_param(phy_flash_cfg, int, 0644);
 MODULE_PARM_DESC(phy_flash_cfg, "Set PHYs into reflash mode initially");
 
+static unsigned irq_adapt_low_thresh = 10000;
+module_param(irq_adapt_low_thresh, uint, 0644);
+MODULE_PARM_DESC(irq_adapt_low_thresh,
+		 "Threshold score for reducing IRQ moderation");
+
+static unsigned irq_adapt_high_thresh = 20000;
+module_param(irq_adapt_high_thresh, uint, 0644);
+MODULE_PARM_DESC(irq_adapt_high_thresh,
+		 "Threshold score for increasing IRQ moderation");
+
 /**************************************************************************
  *
  * Utility functions and prototypes
@@ -182,7 +182,6 @@ static int efx_process_channel(struct efx_channel *channel, int rx_quota)
 		channel->rx_pkt = NULL;
 	}
 
-	efx_flush_lro(channel);
 	efx_rx_strategy(channel);
 
 	efx_fast_push_rx_descriptors(&efx->rx_queue[channel->channel]);
@@ -224,12 +223,41 @@ static int efx_poll(struct napi_struct *napi, int budget)
 	rx_packets = efx_process_channel(channel, budget);
 
 	if (rx_packets < budget) {
+		struct efx_nic *efx = channel->efx;
+
+		if (channel->used_flags & EFX_USED_BY_RX &&
+		    efx->irq_rx_adaptive &&
+		    unlikely(++channel->irq_count == 1000)) {
+			unsigned old_irq_moderation = channel->irq_moderation;
+
+			if (unlikely(channel->irq_mod_score <
+				     irq_adapt_low_thresh)) {
+				channel->irq_moderation =
+					max_t(int,
+					      channel->irq_moderation -
+					      FALCON_IRQ_MOD_RESOLUTION,
+					      FALCON_IRQ_MOD_RESOLUTION);
+			} else if (unlikely(channel->irq_mod_score >
+					    irq_adapt_high_thresh)) {
+				channel->irq_moderation =
+					min(channel->irq_moderation +
+					    FALCON_IRQ_MOD_RESOLUTION,
+					    efx->irq_rx_moderation);
+			}
+
+			if (channel->irq_moderation != old_irq_moderation)
+				falcon_set_int_moderation(channel);
+
+			channel->irq_count = 0;
+			channel->irq_mod_score = 0;
+		}
+
 		/* There is no race here; although napi_disable() will
-		 * only wait for netif_rx_complete(), this isn't a problem
+		 * only wait for napi_complete(), this isn't a problem
 		 * since efx_channel_processed() will have no effect if
 		 * interrupts have already been disabled.
 		 */
-		netif_rx_complete(napi);
+		napi_complete(napi);
 		efx_channel_processed(channel);
 	}
 
@@ -554,6 +582,8 @@ static void efx_link_status_changed(struct efx_nic *efx)
 
 }
 
+static void efx_fini_port(struct efx_nic *efx);
+
 /* This call reinitialises the MAC to pick up new PHY settings. The
  * caller must hold the mac_lock */
 void __efx_reconfigure_port(struct efx_nic *efx)
@@ -589,8 +619,8 @@ void __efx_reconfigure_port(struct efx_nic *efx)
 
 fail:
 	EFX_ERR(efx, "failed to reconfigure MAC\n");
-	efx->phy_op->fini(efx);
-	efx->port_initialized = false;
+	efx->port_enabled = false;
+	efx_fini_port(efx);
 }
 
 /* Reinitialise the MAC to pick up new PHY settings, even if the port is
@@ -850,20 +880,27 @@ static void efx_fini_io(struct efx_nic *efx)
  * interrupts across them. */
 static int efx_wanted_rx_queues(void)
 {
-	cpumask_t core_mask;
+	cpumask_var_t core_mask;
 	int count;
 	int cpu;
 
-	cpus_clear(core_mask);
+	if (unlikely(!alloc_cpumask_var(&core_mask, GFP_KERNEL))) {
+		printk(KERN_WARNING
+		       "sfc: RSS disabled due to allocation failure\n");
+		return 1;
+	}
+
+	cpumask_clear(core_mask);
 	count = 0;
 	for_each_online_cpu(cpu) {
-		if (!cpu_isset(cpu, core_mask)) {
+		if (!cpumask_test_cpu(cpu, core_mask)) {
 			++count;
-			cpus_or(core_mask, core_mask,
-				topology_core_siblings(cpu));
+			cpumask_or(core_mask, core_mask,
+				   topology_core_cpumask(cpu));
 		}
 	}
 
+	free_cpumask_var(core_mask);
 	return count;
 }
 
@@ -986,7 +1023,7 @@ static int efx_probe_nic(struct efx_nic *efx)
 	efx_set_channels(efx);
 
 	/* Initialise the interrupt moderation settings */
-	efx_init_irq_moderation(efx, tx_irq_mod_usec, rx_irq_mod_usec);
+	efx_init_irq_moderation(efx, tx_irq_mod_usec, rx_irq_mod_usec, true);
 
 	return 0;
 }
@@ -1183,7 +1220,8 @@ void efx_flush_queues(struct efx_nic *efx)
  **************************************************************************/
 
 /* Set interrupt moderation parameters */
-void efx_init_irq_moderation(struct efx_nic *efx, int tx_usecs, int rx_usecs)
+void efx_init_irq_moderation(struct efx_nic *efx, int tx_usecs, int rx_usecs,
+			     bool rx_adaptive)
 {
 	struct efx_tx_queue *tx_queue;
 	struct efx_rx_queue *rx_queue;
@@ -1193,6 +1231,8 @@ void efx_init_irq_moderation(struct efx_nic *efx, int tx_usecs, int rx_usecs)
 	efx_for_each_tx_queue(tx_queue, efx)
 		tx_queue->channel->irq_moderation = tx_usecs;
 
+	efx->irq_rx_adaptive = rx_adaptive;
+	efx->irq_rx_moderation = rx_usecs;
 	efx_for_each_rx_queue(rx_queue, efx)
 		rx_queue->channel->irq_moderation = rx_usecs;
 }
@@ -1250,10 +1290,16 @@ out_requeue:
 static int efx_ioctl(struct net_device *net_dev, struct ifreq *ifr, int cmd)
 {
 	struct efx_nic *efx = netdev_priv(net_dev);
+	struct mii_ioctl_data *data = if_mii(ifr);
 
 	EFX_ASSERT_RESET_SERIALISED(efx);
 
-	return generic_mii_ioctl(&efx->mii, if_mii(ifr), cmd, NULL);
+	/* Convert phy_id from older PRTAD/DEVAD format */
+	if ((cmd == SIOCGMIIREG || cmd == SIOCSMIIREG) &&
+	    (data->phy_id & 0xfc00) == 0x0400)
+		data->phy_id ^= MDIO_PHY_ID_C45 | 0x0400;
+
+	return mdio_mii_ioctl(&efx->mdio, data, cmd);
 }
 
 /**************************************************************************
@@ -1265,20 +1311,13 @@ static int efx_ioctl(struct net_device *net_dev, struct ifreq *ifr, int cmd)
 static int efx_init_napi(struct efx_nic *efx)
 {
 	struct efx_channel *channel;
-	int rc;
 
 	efx_for_each_channel(channel, efx) {
 		channel->napi_dev = efx->net_dev;
 		netif_napi_add(channel->napi_dev, &channel->napi_str,
 			       efx_poll, napi_weight);
-		rc = efx_lro_init(&channel->lro_mgr, efx);
-		if (rc)
-			goto err;
 	}
 	return 0;
- err:
-	efx_fini_napi(efx);
-	return rc;
 }
 
 static void efx_fini_napi(struct efx_nic *efx)
@@ -1286,7 +1325,6 @@ static void efx_fini_napi(struct efx_nic *efx)
 	struct efx_channel *channel;
 
 	efx_for_each_channel(channel, efx) {
-		efx_lro_fini(&channel->lro_mgr);
 		if (channel->napi_dev)
 			netif_napi_del(&channel->napi_str);
 		channel->napi_dev = NULL;
@@ -1676,7 +1714,8 @@ int efx_reset_up(struct efx_nic *efx, enum reset_type method,
 			rc = efx->phy_op->init(efx);
 			if (rc)
 				ok = false;
-		} else
+		}
+		if (!ok)
 			efx->port_initialized = false;
 	}
 
@@ -1857,8 +1896,8 @@ static struct efx_phy_operations efx_dummy_phy_operations = {
 
 static struct efx_board efx_dummy_board_info = {
 	.init		= efx_port_dummy_op_int,
-	.init_leds	= efx_port_dummy_op_int,
-	.set_fault_led	= efx_port_dummy_op_blink,
+	.init_leds	= efx_port_dummy_op_void,
+	.set_id_led	= efx_port_dummy_op_blink,
 	.monitor	= efx_port_dummy_op_int,
 	.blink		= efx_port_dummy_op_blink,
 	.fini		= efx_port_dummy_op_void,
@@ -1902,7 +1941,7 @@ static int efx_init_struct(struct efx_nic *efx, struct efx_nic_type *type,
 	mutex_init(&efx->mac_lock);
 	efx->mac_op = &efx_dummy_mac_operations;
 	efx->phy_op = &efx_dummy_phy_operations;
-	efx->mii.dev = net_dev;
+	efx->mdio.dev = net_dev;
 	INIT_WORK(&efx->phy_work, efx_phy_work);
 	INIT_WORK(&efx->mac_work, efx_mac_work);
 	atomic_set(&efx->netif_stop_count, 1);
@@ -2118,9 +2157,8 @@ static int __devinit efx_pci_probe(struct pci_dev *pci_dev,
 	if (!net_dev)
 		return -ENOMEM;
 	net_dev->features |= (NETIF_F_IP_CSUM | NETIF_F_SG |
-			      NETIF_F_HIGHDMA | NETIF_F_TSO);
-	if (lro)
-		net_dev->features |= NETIF_F_LRO;
+			      NETIF_F_HIGHDMA | NETIF_F_TSO |
+			      NETIF_F_GRO);
 	/* Mask for features that also apply to VLAN devices */
 	net_dev->vlan_features |= (NETIF_F_ALL_CSUM | NETIF_F_SG |
 				   NETIF_F_HIGHDMA | NETIF_F_TSO);

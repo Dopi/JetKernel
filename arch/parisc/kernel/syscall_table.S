@@ -130,7 +130,7 @@
 	ENTRY_OURS(newuname)
 	ENTRY_SAME(umask)		/* 60 */
 	ENTRY_SAME(chroot)
-	ENTRY_SAME(ustat)
+	ENTRY_COMP(ustat)
 	ENTRY_SAME(dup2)
 	ENTRY_SAME(getppid)
 	ENTRY_SAME(getpgrp)		/* 65 */
@@ -413,6 +413,10 @@
 	ENTRY_SAME(dup3)
 	ENTRY_SAME(pipe2)
 	ENTRY_SAME(inotify_init1)
+	ENTRY_COMP(preadv)		/* 315 */
+	ENTRY_COMP(pwritev)
+	ENTRY_COMP(rt_tgsigqueueinfo)
+	ENTRY_SAME(perf_counter_open)
 
 	/* Nothing yet */
 

@@ -228,8 +228,8 @@ int dvb_register_device(struct dvb_adapter *adap, struct dvb_device **pdvbdev,
 	dvbdev->fops = dvbdevfops;
 	init_waitqueue_head (&dvbdev->wait_queue);
 
-	memcpy(dvbdev->fops, template->fops, sizeof(struct file_operations));
-	dvbdev->fops->owner = adap->module;
+	memcpy(dvbdevfops, template->fops, sizeof(struct file_operations));
+	dvbdevfops->owner = adap->module;
 
 	list_add_tail (&dvbdev->list_head, &adap->device_list);
 
@@ -447,6 +447,15 @@ static int dvb_uevent(struct device *dev, struct kobj_uevent_env *env)
 	return 0;
 }
 
+static char *dvb_nodename(struct device *dev)
+{
+	struct dvb_device *dvbdev = dev_get_drvdata(dev);
+
+	return kasprintf(GFP_KERNEL, "dvb/adapter%d/%s%d",
+		dvbdev->adapter->num, dnames[dvbdev->type], dvbdev->id);
+}
+
+
 static int __init init_dvbdev(void)
 {
 	int retval;
@@ -469,6 +478,7 @@ static int __init init_dvbdev(void)
 		goto error;
 	}
 	dvb_class->dev_uevent = dvb_uevent;
+	dvb_class->nodename = dvb_nodename;
 	return 0;
 
 error:

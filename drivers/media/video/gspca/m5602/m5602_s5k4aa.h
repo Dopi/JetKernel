@@ -47,8 +47,9 @@
 #define S5K4AA_H_BLANK_LO__		0x1e
 #define S5K4AA_EXPOSURE_HI		0x17
 #define S5K4AA_EXPOSURE_LO		0x18
-#define S5K4AA_GAIN_1			0x1f /* (digital?) gain : 5 bits */
-#define S5K4AA_GAIN_2			0x20 /* (analogue?) gain : 7 bits */
+#define S5K4AA_BRIGHTNESS		0x1f /* (digital?) gain : 5 bits */
+#define S5K4AA_GAIN			0x20 /* (analogue?) gain : 7 bits */
+#define S5K4AA_NOISE_SUPP		0x37
 
 #define S5K4AA_RM_ROW_SKIP_4X		0x08
 #define S5K4AA_RM_ROW_SKIP_2X		0x04
@@ -56,6 +57,9 @@
 #define S5K4AA_RM_COL_SKIP_2X		0x01
 #define S5K4AA_RM_H_FLIP		0x40
 #define S5K4AA_RM_V_FLIP		0x80
+
+#define S5K4AA_DEFAULT_GAIN		0x5f
+#define S5K4AA_DEFAULT_BRIGHTNESS	0x10
 
 /*****************************************************************************/
 
@@ -65,95 +69,18 @@ extern int dump_sensor;
 
 int s5k4aa_probe(struct sd *sd);
 int s5k4aa_init(struct sd *sd);
-int s5k4aa_power_down(struct sd *sd);
+int s5k4aa_start(struct sd *sd);
+void s5k4aa_disconnect(struct sd *sd);
 
-int s5k4aa_get_exposure(struct gspca_dev *gspca_dev, __s32 *val);
-int s5k4aa_set_exposure(struct gspca_dev *gspca_dev, __s32 val);
-int s5k4aa_get_vflip(struct gspca_dev *gspca_dev, __s32 *val);
-int s5k4aa_set_vflip(struct gspca_dev *gspca_dev, __s32 val);
-int s5k4aa_get_hflip(struct gspca_dev *gspca_dev, __s32 *val);
-int s5k4aa_set_hflip(struct gspca_dev *gspca_dev, __s32 val);
-int s5k4aa_get_gain(struct gspca_dev *gspca_dev, __s32 *val);
-int s5k4aa_set_gain(struct gspca_dev *gspca_dev, __s32 val);
-
-static struct m5602_sensor s5k4aa = {
+static const struct m5602_sensor s5k4aa = {
 	.name = "S5K4AA",
-	.probe = s5k4aa_probe,
-	.init = s5k4aa_init,
-	.power_down = s5k4aa_power_down,
 	.i2c_slave_id = 0x5a,
 	.i2c_regW = 2,
-	.nctrls = 4,
-	.ctrls = {
-	{
-		{
-			.id 		= V4L2_CID_VFLIP,
-			.type 		= V4L2_CTRL_TYPE_BOOLEAN,
-			.name 		= "vertical flip",
-			.minimum 	= 0,
-			.maximum 	= 1,
-			.step 		= 1,
-			.default_value 	= 0
-		},
-		.set = s5k4aa_set_vflip,
-		.get = s5k4aa_get_vflip
 
-	}, {
-		{
-			.id 		= V4L2_CID_HFLIP,
-			.type 		= V4L2_CTRL_TYPE_BOOLEAN,
-			.name 		= "horizontal flip",
-			.minimum 	= 0,
-			.maximum 	= 1,
-			.step 		= 1,
-			.default_value 	= 0
-		},
-		.set = s5k4aa_set_hflip,
-		.get = s5k4aa_get_hflip
-
-	}, {
-		{
-			.id		= V4L2_CID_GAIN,
-			.type		= V4L2_CTRL_TYPE_INTEGER,
-			.name		= "Gain",
-			.minimum	= 0,
-			.maximum	= 127,
-			.step		= 1,
-			.default_value	= 0xa0,
-			.flags		= V4L2_CTRL_FLAG_SLIDER
-		},
-		.set = s5k4aa_set_gain,
-		.get = s5k4aa_get_gain
-	}, {
-		{
-			.id		= V4L2_CID_EXPOSURE,
-			.type		= V4L2_CTRL_TYPE_INTEGER,
-			.name		= "Exposure",
-			.minimum	= 13,
-			.maximum	= 0xfff,
-			.step		= 1,
-			.default_value	= 0x100,
-			.flags		= V4L2_CTRL_FLAG_SLIDER
-		},
-		.set = s5k4aa_set_exposure,
-		.get = s5k4aa_get_exposure
-	}
-	},
-
-	.nmodes = 1,
-	.modes = {
-	{
-		M5602_DEFAULT_FRAME_WIDTH,
-		M5602_DEFAULT_FRAME_HEIGHT,
-		V4L2_PIX_FMT_SBGGR8,
-		V4L2_FIELD_NONE,
-		.sizeimage =
-			M5602_DEFAULT_FRAME_WIDTH * M5602_DEFAULT_FRAME_HEIGHT,
-		.bytesperline = M5602_DEFAULT_FRAME_WIDTH,
-		.colorspace = V4L2_COLORSPACE_SRGB,
-		.priv = 1
-	}
-	}
+	.probe = s5k4aa_probe,
+	.init = s5k4aa_init,
+	.start = s5k4aa_start,
+	.disconnect = s5k4aa_disconnect,
 };
 
 static const unsigned char preinit_s5k4aa[][4] =
@@ -248,30 +175,12 @@ static const unsigned char init_s5k4aa[][4] =
 	{SENSOR, S5K4AA_PAGE_MAP, 0x02, 0x00},
 	{SENSOR, 0x0c, 0x05, 0x00},
 	{SENSOR, 0x02, 0x0e, 0x00},
-	{SENSOR, S5K4AA_GAIN_1, 0x0f, 0x00},
-	{SENSOR, S5K4AA_GAIN_2, 0x00, 0x00},
-	{SENSOR, S5K4AA_GLOBAL_GAIN__, 0x01, 0x00},
-	{SENSOR, 0x11, 0x00, 0x00},
-	{SENSOR, 0x12, 0x00, 0x00},
-	{SENSOR, S5K4AA_PAGE_MAP, 0x02, 0x00},
 	{SENSOR, S5K4AA_READ_MODE, 0xa0, 0x00},
 	{SENSOR, 0x37, 0x00, 0x00},
-	{SENSOR, S5K4AA_ROWSTART_HI, 0x00, 0x00},
-	{SENSOR, S5K4AA_ROWSTART_LO, 0x2a, 0x00},
-	{SENSOR, S5K4AA_COLSTART_HI, 0x00, 0x00},
-	{SENSOR, S5K4AA_COLSTART_LO, 0x0b, 0x00},
-	{SENSOR, S5K4AA_WINDOW_HEIGHT_HI, 0x03, 0x00},
-	{SENSOR, S5K4AA_WINDOW_HEIGHT_LO, 0xc4, 0x00},
-	{SENSOR, S5K4AA_WINDOW_WIDTH_HI, 0x05, 0x00},
-	{SENSOR, S5K4AA_WINDOW_WIDTH_LO, 0x08, 0x00},
-	{SENSOR, S5K4AA_H_BLANK_HI__, 0x00, 0x00},
-	{SENSOR, S5K4AA_H_BLANK_LO__, 0x48, 0x00},
-	{SENSOR, S5K4AA_EXPOSURE_HI, 0x00, 0x00},
-	{SENSOR, S5K4AA_EXPOSURE_LO, 0x43, 0x00},
-	{SENSOR, 0x11, 0x04, 0x00},
-	{SENSOR, 0x12, 0xc3, 0x00},
-	{SENSOR, S5K4AA_PAGE_MAP, 0x02, 0x00},
+};
 
+static const unsigned char VGA_s5k4aa[][4] =
+{
 	{BRIDGE, M5602_XB_SEN_CLK_DIV, 0x06, 0x00},
 	{BRIDGE, M5602_XB_SEN_CLK_CTRL, 0xb0, 0x00},
 	{BRIDGE, M5602_XB_ADC_CTRL, 0xc0, 0x00},
@@ -307,7 +216,7 @@ static const unsigned char init_s5k4aa[][4] =
 	{SENSOR, 0x37, 0x01, 0x00},
 	/* ROWSTART_HI, ROWSTART_LO : 10 + (1024-960)/2 = 42 = 0x002a */
 	{SENSOR, S5K4AA_ROWSTART_HI, 0x00, 0x00},
-	{SENSOR, S5K4AA_ROWSTART_LO, 0x2a, 0x00},
+	{SENSOR, S5K4AA_ROWSTART_LO, 0x29, 0x00},
 	{SENSOR, S5K4AA_COLSTART_HI, 0x00, 0x00},
 	{SENSOR, S5K4AA_COLSTART_LO, 0x0c, 0x00},
 	/* window_height_hi, window_height_lo : 960 = 0x03c0 */
@@ -324,9 +233,57 @@ static const unsigned char init_s5k4aa[][4] =
 	{SENSOR, 0x12, 0xc3, 0x00},
 	{SENSOR, S5K4AA_PAGE_MAP, 0x02, 0x00},
 	{SENSOR, 0x02, 0x0e, 0x00},
-	{SENSOR_LONG, S5K4AA_GLOBAL_GAIN__, 0x0f, 0x00},
-	{SENSOR, S5K4AA_GAIN_1, 0x0b, 0x00},
-	{SENSOR, S5K4AA_GAIN_2, 0xa0, 0x00}
 };
+
+static const unsigned char SXGA_s5k4aa[][4] =
+{
+	{BRIDGE, M5602_XB_SEN_CLK_DIV, 0x06, 0x00},
+	{BRIDGE, M5602_XB_SEN_CLK_CTRL, 0xb0, 0x00},
+	{BRIDGE, M5602_XB_ADC_CTRL, 0xc0, 0x00},
+	{BRIDGE, M5602_XB_SENSOR_TYPE, 0x08, 0x00},
+	{BRIDGE, M5602_XB_LINE_OF_FRAME_H, 0x81, 0x00},
+	{BRIDGE, M5602_XB_PIX_OF_LINE_H, 0x82, 0x00},
+	{BRIDGE, M5602_XB_SIG_INI, 0x01, 0x00},
+	{BRIDGE, M5602_XB_VSYNC_PARA, 0x00, 0x00},
+	{BRIDGE, M5602_XB_VSYNC_PARA, 0x00, 0x00},
+	{BRIDGE, M5602_XB_VSYNC_PARA, 0x00, 0x00},
+	{BRIDGE, M5602_XB_VSYNC_PARA, 0x00, 0x00},
+	/* VSYNC_PARA, VSYNC_PARA : img height 1024 = 0x0400 */
+	{BRIDGE, M5602_XB_VSYNC_PARA, 0x04, 0x00},
+	{BRIDGE, M5602_XB_VSYNC_PARA, 0x00, 0x00},
+	{BRIDGE, M5602_XB_VSYNC_PARA, 0x00, 0x00},
+	{BRIDGE, M5602_XB_VSYNC_PARA, 0x00, 0x00},
+	{BRIDGE, M5602_XB_SIG_INI, 0x00, 0x00},
+	{BRIDGE, M5602_XB_SIG_INI, 0x02, 0x00},
+	{BRIDGE, M5602_XB_HSYNC_PARA, 0x00, 0x00},
+	{BRIDGE, M5602_XB_HSYNC_PARA, 0x00, 0x00},
+	/* HSYNC_PARA, HSYNC_PARA : img width 1280 = 0x0500 */
+	{BRIDGE, M5602_XB_HSYNC_PARA, 0x05, 0x00},
+	{BRIDGE, M5602_XB_HSYNC_PARA, 0x00, 0x00},
+	{BRIDGE, M5602_XB_SIG_INI, 0x00, 0x00},
+	{BRIDGE, M5602_XB_SEN_CLK_DIV, 0x00, 0x00},
+	{BRIDGE, M5602_XB_SEN_CLK_CTRL, 0xa0, 0x00}, /* 48 MHz */
+
+	{SENSOR, S5K4AA_PAGE_MAP, 0x02, 0x00},
+	{SENSOR, S5K4AA_READ_MODE, S5K4AA_RM_H_FLIP, 0x00},
+	{SENSOR, 0x37, 0x01, 0x00},
+	{SENSOR, S5K4AA_ROWSTART_HI, 0x00, 0x00},
+	{SENSOR, S5K4AA_ROWSTART_LO, 0x09, 0x00},
+	{SENSOR, S5K4AA_COLSTART_HI, 0x00, 0x00},
+	{SENSOR, S5K4AA_COLSTART_LO, 0x0a, 0x00},
+	{SENSOR, S5K4AA_WINDOW_HEIGHT_HI, 0x04, 0x00},
+	{SENSOR, S5K4AA_WINDOW_HEIGHT_LO, 0x00, 0x00},
+	{SENSOR, S5K4AA_WINDOW_WIDTH_HI, 0x05, 0x00},
+	{SENSOR, S5K4AA_WINDOW_WIDTH_LO, 0x00, 0x00},
+	{SENSOR, S5K4AA_H_BLANK_HI__, 0x01, 0x00},
+	{SENSOR, S5K4AA_H_BLANK_LO__, 0xa8, 0x00},
+	{SENSOR, S5K4AA_EXPOSURE_HI, 0x01, 0x00},
+	{SENSOR, S5K4AA_EXPOSURE_LO, 0x00, 0x00},
+	{SENSOR, 0x11, 0x04, 0x00},
+	{SENSOR, 0x12, 0xc3, 0x00},
+	{SENSOR, S5K4AA_PAGE_MAP, 0x02, 0x00},
+	{SENSOR, 0x02, 0x0e, 0x00},
+};
+
 
 #endif

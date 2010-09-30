@@ -1123,8 +1123,6 @@ static int emulate_raw(struct vc_data *vc, unsigned int keycode,
 
 #define HW_RAW(dev)	0
 
-#warning "Cannot generate rawmode keyboard for your architecture yet."
-
 static int emulate_raw(struct vc_data *vc, unsigned int keycode, unsigned char up_flag)
 {
 	if (keycode > 127)
@@ -1251,7 +1249,7 @@ static void kbd_keycode(unsigned int keycode, int down, int hw_raw)
 
 	if (keycode >= NR_KEYS)
 		if (keycode >= KEY_BRL_DOT1 && keycode <= KEY_BRL_DOT8)
-			keysym = K(KT_BRL, keycode - KEY_BRL_DOT1 + 1);
+			keysym = U(K(KT_BRL, keycode - KEY_BRL_DOT1 + 1));
 		else
 			return;
 	else

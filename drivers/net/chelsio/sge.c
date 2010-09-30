@@ -1149,8 +1149,8 @@ static inline void write_tx_desc(struct cmdQ_e *e, dma_addr_t mapping,
 				 unsigned int len, unsigned int gen,
 				 unsigned int eop)
 {
-	if (unlikely(len > SGE_TX_DESC_MAX_PLEN))
-		BUG();
+	BUG_ON(len > SGE_TX_DESC_MAX_PLEN);
+
 	e->addr_lo = (u32)mapping;
 	e->addr_hi = (u64)mapping >> 32;
 	e->len_gen = V_CMD_LEN(len) | V_CMD_GEN1(gen);
@@ -1612,7 +1612,7 @@ int t1_poll(struct napi_struct *napi, int budget)
 	int work_done = process_responses(adapter, budget);
 
 	if (likely(work_done < budget)) {
-		netif_rx_complete(napi);
+		napi_complete(napi);
 		writel(adapter->sge->respQ.cidx,
 		       adapter->regs + A_SG_SLEEPING);
 	}
@@ -1630,7 +1630,7 @@ irqreturn_t t1_interrupt(int irq, void *data)
 
 		if (napi_schedule_prep(&adapter->napi)) {
 			if (process_pure_responses(adapter))
-				__netif_rx_schedule(&adapter->napi);
+				__napi_schedule(&adapter->napi);
 			else {
 				/* no data, no NAPI needed */
 				writel(sge->respQ.cidx, adapter->regs + A_SG_SLEEPING);
@@ -1879,7 +1879,6 @@ int t1_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		cpl->vlan_valid = 0;
 
 send:
-	dev->trans_start = jiffies;
 	ret = t1_sge_tx(skb, adapter, 0, dev);
 
 	/* If transmit busy, and we reallocated skb's due to headroom limit,
@@ -1967,8 +1966,7 @@ void t1_sge_stop(struct sge *sge)
 		tx_sched_stop(sge);
 
 	for (i = 0; i < MAX_NPORTS; i++)
-		if (sge->espibug_skb[i])
-			kfree_skb(sge->espibug_skb[i]);
+		kfree_skb(sge->espibug_skb[i]);
 }
 
 /*

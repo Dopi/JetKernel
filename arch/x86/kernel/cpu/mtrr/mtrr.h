@@ -5,21 +5,6 @@
 #include <linux/types.h>
 #include <linux/stddef.h>
 
-#define MTRRcap_MSR     0x0fe
-#define MTRRdefType_MSR 0x2ff
-
-#define MTRRfix64K_00000_MSR 0x250
-#define MTRRfix16K_80000_MSR 0x258
-#define MTRRfix16K_A0000_MSR 0x259
-#define MTRRfix4K_C0000_MSR 0x268
-#define MTRRfix4K_C8000_MSR 0x269
-#define MTRRfix4K_D0000_MSR 0x26a
-#define MTRRfix4K_D8000_MSR 0x26b
-#define MTRRfix4K_E0000_MSR 0x26c
-#define MTRRfix4K_E8000_MSR 0x26d
-#define MTRRfix4K_F0000_MSR 0x26e
-#define MTRRfix4K_F8000_MSR 0x26f
-
 #define MTRR_CHANGE_MASK_FIXED     0x01
 #define MTRR_CHANGE_MASK_VARIABLE  0x02
 #define MTRR_CHANGE_MASK_DEFTYPE   0x04
@@ -79,6 +64,7 @@ extern struct mtrr_ops * mtrr_if;
 
 extern unsigned int num_var_ranges;
 extern u64 mtrr_tom2;
+extern struct mtrr_state_type mtrr_state;
 
 void mtrr_state_warn(void);
 const char *mtrr_attrib_to_str(int x);
@@ -88,3 +74,6 @@ void mtrr_wrmsr(unsigned, unsigned, unsigned);
 int amd_init_mtrr(void);
 int cyrix_init_mtrr(void);
 int centaur_init_mtrr(void);
+
+extern int changed_by_mtrr_cleanup;
+extern int mtrr_cleanup(unsigned address_bits);

@@ -32,6 +32,7 @@
 #include <linux/list.h>
 #include <linux/writeback.h>
 #include <linux/inotify.h>
+#include <linux/fsnotify_backend.h>
 
 static atomic_t inotify_cookie;
 
@@ -380,20 +381,20 @@ void inotify_unmount_inodes(struct list_head *list)
 		struct list_head *watches;
 
 		/*
+		 * We cannot __iget() an inode in state I_CLEAR, I_FREEING,
+		 * I_WILL_FREE, or I_NEW which is fine because by that point
+		 * the inode cannot have any associated watches.
+		 */
+		if (inode->i_state & (I_CLEAR|I_FREEING|I_WILL_FREE|I_NEW))
+			continue;
+
+		/*
 		 * If i_count is zero, the inode cannot have any watches and
 		 * doing an __iget/iput with MS_ACTIVE clear would actually
 		 * evict all inodes with zero i_count from icache which is
 		 * unnecessarily violent and may in fact be illegal to do.
 		 */
 		if (!atomic_read(&inode->i_count))
-			continue;
-
-		/*
-		 * We cannot __iget() an inode in state I_CLEAR, I_FREEING, or
-		 * I_WILL_FREE which is fine because by that point the inode
-		 * cannot have any associated watches.
-		 */
-		if (inode->i_state & (I_CLEAR | I_FREEING | I_WILL_FREE))
 			continue;
 
 		need_iput_tmp = need_iput;
@@ -905,6 +906,25 @@ EXPORT_SYMBOL_GPL(inotify_rm_watch);
  */
 static int __init inotify_setup(void)
 {
+	BUILD_BUG_ON(IN_ACCESS != FS_ACCESS);
+	BUILD_BUG_ON(IN_MODIFY != FS_MODIFY);
+	BUILD_BUG_ON(IN_ATTRIB != FS_ATTRIB);
+	BUILD_BUG_ON(IN_CLOSE_WRITE != FS_CLOSE_WRITE);
+	BUILD_BUG_ON(IN_CLOSE_NOWRITE != FS_CLOSE_NOWRITE);
+	BUILD_BUG_ON(IN_OPEN != FS_OPEN);
+	BUILD_BUG_ON(IN_MOVED_FROM != FS_MOVED_FROM);
+	BUILD_BUG_ON(IN_MOVED_TO != FS_MOVED_TO);
+	BUILD_BUG_ON(IN_CREATE != FS_CREATE);
+	BUILD_BUG_ON(IN_DELETE != FS_DELETE);
+	BUILD_BUG_ON(IN_DELETE_SELF != FS_DELETE_SELF);
+	BUILD_BUG_ON(IN_MOVE_SELF != FS_MOVE_SELF);
+	BUILD_BUG_ON(IN_Q_OVERFLOW != FS_Q_OVERFLOW);
+
+	BUILD_BUG_ON(IN_UNMOUNT != FS_UNMOUNT);
+	BUILD_BUG_ON(IN_ISDIR != FS_IN_ISDIR);
+	BUILD_BUG_ON(IN_IGNORED != FS_IN_IGNORED);
+	BUILD_BUG_ON(IN_ONESHOT != FS_IN_ONESHOT);
+
 	atomic_set(&inotify_cookie, 0);
 
 	return 0;

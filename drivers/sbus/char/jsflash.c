@@ -186,31 +186,31 @@ static void jsfd_do_request(struct request_queue *q)
 {
 	struct request *req;
 
-	while ((req = elv_next_request(q)) != NULL) {
+	req = blk_fetch_request(q);
+	while (req) {
 		struct jsfd_part *jdp = req->rq_disk->private_data;
-		unsigned long offset = req->sector << 9;
-		size_t len = req->current_nr_sectors << 9;
+		unsigned long offset = blk_rq_pos(req) << 9;
+		size_t len = blk_rq_cur_bytes(req);
+		int err = -EIO;
 
-		if ((offset + len) > jdp->dsize) {
-               		end_request(req, 0);
-			continue;
-		}
+		if ((offset + len) > jdp->dsize)
+			goto end;
 
 		if (rq_data_dir(req) != READ) {
 			printk(KERN_ERR "jsfd: write\n");
-			end_request(req, 0);
-			continue;
+			goto end;
 		}
 
 		if ((jdp->dbase & 0xff000000) != 0x20000000) {
 			printk(KERN_ERR "jsfd: bad base %x\n", (int)jdp->dbase);
-			end_request(req, 0);
-			continue;
+			goto end;
 		}
 
 		jsfd_read(req->buffer, jdp->dbase + offset, len);
-
-		end_request(req, 1);
+		err = 0;
+	end:
+		if (!__blk_end_request_cur(req, err))
+			req = blk_fetch_request(q);
 	}
 }
 
@@ -383,18 +383,22 @@ static int jsf_ioctl_program(void __user *arg)
 	return 0;
 }
 
-static int jsf_ioctl(struct inode *inode, struct file *f, unsigned int cmd,
-    unsigned long arg)
+static long jsf_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 {
+	lock_kernel();
 	int error = -ENOTTY;
 	void __user *argp = (void __user *)arg;
 
-	if (!capable(CAP_SYS_ADMIN))
+	if (!capable(CAP_SYS_ADMIN)) {
+		unlock_kernel();
 		return -EPERM;
+	}
 	switch (cmd) {
 	case JSFLASH_IDENT:
-		if (copy_to_user(argp, &jsf0.id, JSFIDSZ))
+		if (copy_to_user(argp, &jsf0.id, JSFIDSZ)) {
+			unlock_kernel();
 			return -EFAULT;
+		}
 		break;
 	case JSFLASH_ERASE:
 		error = jsf_ioctl_erase(arg);
@@ -404,6 +408,7 @@ static int jsf_ioctl(struct inode *inode, struct file *f, unsigned int cmd,
 		break;
 	}
 
+	unlock_kernel();
 	return error;
 }
 
@@ -439,7 +444,7 @@ static const struct file_operations jsf_fops = {
 	.llseek =	jsf_lseek,
 	.read =		jsf_read,
 	.write =	jsf_write,
-	.ioctl =	jsf_ioctl,
+	.unlocked_ioctl =	jsf_ioctl,
 	.mmap =		jsf_mmap,
 	.open =		jsf_open,
 	.release =	jsf_release,

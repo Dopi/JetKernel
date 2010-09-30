@@ -17,6 +17,7 @@
  */
 #include "xfs.h"
 #include "xfs_fs.h"
+#include "xfs_acl.h"
 #include "xfs_bit.h"
 #include "xfs_log.h"
 #include "xfs_inum.h"
@@ -51,6 +52,7 @@
 #include <linux/capability.h>
 #include <linux/xattr.h>
 #include <linux/namei.h>
+#include <linux/posix_acl.h>
 #include <linux/security.h>
 #include <linux/falloc.h>
 #include <linux/fiemap.h>
@@ -202,50 +204,33 @@ xfs_vn_mknod(
 {
 	struct inode	*inode;
 	struct xfs_inode *ip = NULL;
-	xfs_acl_t	*default_acl = NULL;
+	struct posix_acl *default_acl = NULL;
 	struct xfs_name	name;
-	int (*test_default_acl)(struct inode *) = _ACL_DEFAULT_EXISTS;
 	int		error;
 
 	/*
 	 * Irix uses Missed'em'V split, but doesn't want to see
 	 * the upper 5 bits of (14bit) major.
 	 */
-	if (unlikely(!sysv_valid_dev(rdev) || MAJOR(rdev) & ~0x1ff))
-		return -EINVAL;
+	if (S_ISCHR(mode) || S_ISBLK(mode)) {
+		if (unlikely(!sysv_valid_dev(rdev) || MAJOR(rdev) & ~0x1ff))
+			return -EINVAL;
+		rdev = sysv_encode_dev(rdev);
+	} else {
+		rdev = 0;
+	}
 
-	if (test_default_acl && test_default_acl(dir)) {
-		if (!_ACL_ALLOC(default_acl)) {
-			return -ENOMEM;
-		}
-		if (!_ACL_GET_DEFAULT(dir, default_acl)) {
-			_ACL_FREE(default_acl);
-			default_acl = NULL;
-		}
+	if (IS_POSIXACL(dir)) {
+		default_acl = xfs_get_acl(dir, ACL_TYPE_DEFAULT);
+		if (IS_ERR(default_acl))
+			return -PTR_ERR(default_acl);
+
+		if (!default_acl)
+			mode &= ~current_umask();
 	}
 
 	xfs_dentry_to_name(&name, dentry);
-
-	if (IS_POSIXACL(dir) && !default_acl)
-		mode &= ~current->fs->umask;
-
-	switch (mode & S_IFMT) {
-	case S_IFCHR:
-	case S_IFBLK:
-	case S_IFIFO:
-	case S_IFSOCK:
-		rdev = sysv_encode_dev(rdev);
-	case S_IFREG:
-		error = xfs_create(XFS_I(dir), &name, mode, rdev, &ip, NULL);
-		break;
-	case S_IFDIR:
-		error = xfs_mkdir(XFS_I(dir), &name, mode, &ip, NULL);
-		break;
-	default:
-		error = EINVAL;
-		break;
-	}
-
+	error = xfs_create(XFS_I(dir), &name, mode, rdev, &ip, NULL);
 	if (unlikely(error))
 		goto out_free_acl;
 
@@ -256,10 +241,10 @@ xfs_vn_mknod(
 		goto out_cleanup_inode;
 
 	if (default_acl) {
-		error = _ACL_INHERIT(inode, mode, default_acl);
+		error = -xfs_inherit_acl(inode, default_acl);
 		if (unlikely(error))
 			goto out_cleanup_inode;
-		_ACL_FREE(default_acl);
+		posix_acl_release(default_acl);
 	}
 
 
@@ -269,8 +254,7 @@ xfs_vn_mknod(
  out_cleanup_inode:
 	xfs_cleanup_inode(dir, inode, dentry);
  out_free_acl:
-	if (default_acl)
-		_ACL_FREE(default_acl);
+	posix_acl_release(default_acl);
 	return -error;
 }
 
@@ -416,7 +400,7 @@ xfs_vn_symlink(
 	mode_t		mode;
 
 	mode = S_IFLNK |
-		(irix_symlink_mode ? 0777 & ~current->fs->umask : S_IRWXUGO);
+		(irix_symlink_mode ? 0777 & ~current_umask() : S_IRWXUGO);
 	xfs_dentry_to_name(&name, dentry);
 
 	error = xfs_symlink(XFS_I(dir), &name, symname, mode, &cip, NULL);
@@ -500,26 +484,6 @@ xfs_vn_put_link(
 		kfree(s);
 }
 
-#ifdef CONFIG_XFS_POSIX_ACL
-STATIC int
-xfs_check_acl(
-	struct inode		*inode,
-	int			mask)
-{
-	struct xfs_inode	*ip = XFS_I(inode);
-	int			error;
-
-	xfs_itrace_entry(ip);
-
-	if (XFS_IFORK_Q(ip)) {
-		error = xfs_acl_iaccess(ip, mask, NULL);
-		if (error != -1)
-			return -error;
-	}
-
-	return -EAGAIN;
-}
-
 STATIC int
 xfs_vn_permission(
 	struct inode		*inode,
@@ -527,9 +491,6 @@ xfs_vn_permission(
 {
 	return generic_permission(inode, mask, xfs_check_acl);
 }
-#else
-#define xfs_vn_permission NULL
-#endif
 
 STATIC int
 xfs_vn_getattr(
@@ -553,9 +514,6 @@ xfs_vn_getattr(
 	stat->uid = ip->i_d.di_uid;
 	stat->gid = ip->i_d.di_gid;
 	stat->ino = ip->i_ino;
-#if XFS_BIG_INUMS
-	stat->ino += mp->m_inoadd;
-#endif
 	stat->atime = inode->i_atime;
 	stat->mtime.tv_sec = ip->i_d.di_mtime.t_sec;
 	stat->mtime.tv_nsec = ip->i_d.di_mtime.t_nsec;
@@ -722,8 +680,8 @@ xfs_vn_fiemap(
 	else
 		bm.bmv_length = BTOBB(length);
 
-	/* our formatter will tell xfs_getbmap when to stop. */
-	bm.bmv_count = MAXEXTNUM;
+	/* We add one because in getbmap world count includes the header */
+	bm.bmv_count = fieinfo->fi_extents_max + 1;
 	bm.bmv_iflags = BMV_IF_PREALLOC;
 	if (fieinfo->fi_flags & FIEMAP_FLAG_XATTR)
 		bm.bmv_iflags |= BMV_IF_ATTRFORK;

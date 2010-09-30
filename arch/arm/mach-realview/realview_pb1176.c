@@ -203,11 +203,23 @@ static struct amba_device *amba_devs[] __initdata = {
 /*
  * RealView PB1176 platform devices
  */
-static struct resource realview_pb1176_flash_resource = {
-	.start			= REALVIEW_PB1176_FLASH_BASE,
-	.end			= REALVIEW_PB1176_FLASH_BASE + REALVIEW_PB1176_FLASH_SIZE - 1,
-	.flags			= IORESOURCE_MEM,
+static struct resource realview_pb1176_flash_resources[] = {
+	[0] = {
+		.start		= REALVIEW_PB1176_FLASH_BASE,
+		.end		= REALVIEW_PB1176_FLASH_BASE + REALVIEW_PB1176_FLASH_SIZE - 1,
+		.flags		= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start		= REALVIEW_PB1176_SEC_FLASH_BASE,
+		.end		= REALVIEW_PB1176_SEC_FLASH_BASE + REALVIEW_PB1176_SEC_FLASH_SIZE - 1,
+		.flags		= IORESOURCE_MEM,
+	},
 };
+#ifdef CONFIG_REALVIEW_PB1176_SECURE_FLASH
+#define PB1176_FLASH_BLOCKS	2
+#else
+#define PB1176_FLASH_BLOCKS	1
+#endif
 
 static struct resource realview_pb1176_smsc911x_resources[] = {
 	[0] = {
@@ -218,6 +230,19 @@ static struct resource realview_pb1176_smsc911x_resources[] = {
 	[1] = {
 		.start		= IRQ_PB1176_ETH,
 		.end		= IRQ_PB1176_ETH,
+		.flags		= IORESOURCE_IRQ,
+	},
+};
+
+static struct resource realview_pb1176_isp1761_resources[] = {
+	[0] = {
+		.start		= REALVIEW_PB1176_USB_BASE,
+		.end		= REALVIEW_PB1176_USB_BASE + SZ_128K - 1,
+		.flags		= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start		= IRQ_PB1176_USB,
+		.end		= IRQ_PB1176_USB,
 		.flags		= IORESOURCE_IRQ,
 	},
 };
@@ -258,8 +283,11 @@ static void __init realview_pb1176_init(void)
 	l2x0_init(__io_address(REALVIEW_PB1176_L220_BASE), 0x00730000, 0xfe000fff);
 #endif
 
-	realview_flash_register(&realview_pb1176_flash_resource, 1);
+	realview_flash_register(realview_pb1176_flash_resources,
+				PB1176_FLASH_BLOCKS);
 	realview_eth_register(NULL, realview_pb1176_smsc911x_resources);
+	platform_device_register(&realview_i2c_device);
+	realview_usb_register(realview_pb1176_isp1761_resources);
 
 	for (i = 0; i < ARRAY_SIZE(amba_devs); i++) {
 		struct amba_device *d = amba_devs[i];

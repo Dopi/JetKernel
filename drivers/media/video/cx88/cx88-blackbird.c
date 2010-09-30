@@ -32,6 +32,7 @@
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/firmware.h>
+#include <linux/smp_lock.h>
 #include <media/v4l2-common.h>
 #include <media/v4l2-ioctl.h>
 #include <media/cx2341x.h>
@@ -746,7 +747,6 @@ static int vidioc_enum_fmt_vid_cap (struct file *file, void  *priv,
 		return -EINVAL;
 
 	strlcpy(f->description, "MPEG", sizeof(f->description));
-	f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	f->pixelformat = V4L2_PIX_FMT_MPEG;
 	return 0;
 }
@@ -757,7 +757,6 @@ static int vidioc_g_fmt_vid_cap (struct file *file, void *priv,
 	struct cx8802_fh  *fh   = priv;
 	struct cx8802_dev *dev  = fh->dev;
 
-	f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	f->fmt.pix.pixelformat  = V4L2_PIX_FMT_MPEG;
 	f->fmt.pix.bytesperline = 0;
 	f->fmt.pix.sizeimage    = dev->ts_packet_size * dev->ts_packet_count; /* 188 * 4 * 1024; */
@@ -776,7 +775,6 @@ static int vidioc_try_fmt_vid_cap (struct file *file, void *priv,
 	struct cx8802_fh  *fh   = priv;
 	struct cx8802_dev *dev  = fh->dev;
 
-	f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	f->fmt.pix.pixelformat  = V4L2_PIX_FMT_MPEG;
 	f->fmt.pix.bytesperline = 0;
 	f->fmt.pix.sizeimage    = dev->ts_packet_size * dev->ts_packet_count; /* 188 * 4 * 1024; */;
@@ -793,7 +791,6 @@ static int vidioc_s_fmt_vid_cap (struct file *file, void *priv,
 	struct cx8802_dev *dev  = fh->dev;
 	struct cx88_core  *core = dev->core;
 
-	f->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	f->fmt.pix.pixelformat  = V4L2_PIX_FMT_MPEG;
 	f->fmt.pix.bytesperline = 0;
 	f->fmt.pix.sizeimage    = dev->ts_packet_size * dev->ts_packet_count; /* 188 * 4 * 1024; */;
@@ -919,7 +916,7 @@ static int vidioc_log_status (struct file *file, void *priv)
 	snprintf(name, sizeof(name), "%s/2", core->name);
 	printk("%s/2: ============  START LOG STATUS  ============\n",
 		core->name);
-	cx88_call_i2c_clients(core, VIDIOC_LOG_STATUS, NULL);
+	call_all(core, core, log_status);
 	cx2341x_log_status(&dev->params, name);
 	printk("%s/2: =============  END LOG STATUS  =============\n",
 		core->name);
@@ -974,7 +971,7 @@ static int vidioc_g_frequency (struct file *file, void *priv,
 
 	f->type = V4L2_TUNER_ANALOG_TV;
 	f->frequency = core->freq;
-	cx88_call_i2c_clients(core,VIDIOC_G_FREQUENCY,f);
+	call_all(core, tuner, g_frequency, f);
 
 	return 0;
 }

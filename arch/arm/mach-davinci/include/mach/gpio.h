@@ -15,8 +15,11 @@
 
 #include <linux/io.h>
 #include <asm-generic/gpio.h>
-#include <mach/hardware.h>
+
 #include <mach/irqs.h>
+#include <mach/common.h>
+
+#define DAVINCI_GPIO_BASE 0x01C67000
 
 /*
  * basic gpio routines
@@ -26,23 +29,18 @@
  * go through boot loaders.
  *
  * the gpio clock will be turned on when gpios are used, and you may also
- * need to pay attention to PINMUX0 and PINMUX1 to be sure those pins are
+ * need to pay attention to PINMUX registers to be sure those pins are
  * used as gpios, not with other peripherals.
  *
  * On-chip GPIOs are numbered 0..(DAVINCI_N_GPIO-1).  For documentation,
- * and maybe for later updates, code should write GPIO(N) or:
- *  - GPIOV18(N) for 1.8V pins, N in 0..53; same as GPIO(0)..GPIO(53)
- *  - GPIOV33(N) for 3.3V pins, N in 0..17; same as GPIO(54)..GPIO(70)
- *
- * For GPIO IRQs use gpio_to_irq(GPIO(N)) or gpio_to_irq(GPIOV33(N)) etc
- * for now, that's != GPIO(N)
+ * and maybe for later updates, code may write GPIO(N).  These may be
+ * all 1.8V signals, all 3.3V ones, or a mix of the two.  A given chip
+ * may not support all the GPIOs in that range.
  *
  * GPIOs can also be on external chips, numbered after the ones built-in
  * to the DaVinci chip.  For now, they won't be usable as IRQ sources.
  */
-#define	GPIO(X)		(X)		/* 0 <= X <= 70 */
-#define	GPIOV18(X)	(X)		/* 1.8V i/o; 0 <= X <= 53 */
-#define	GPIOV33(X)	((X)+54)	/* 3.3V i/o; 0 <= X <= 17 */
+#define	GPIO(X)		(X)		/* 0 <= X <= (DAVINCI_N_GPIO - 1) */
 
 struct gpio_controller {
 	u32	dir;
@@ -70,13 +68,16 @@ static inline struct gpio_controller *__iomem
 __gpio_to_controller(unsigned gpio)
 {
 	void *__iomem ptr;
+	void __iomem *base = davinci_soc_info.gpio_base;
 
-	if (gpio < 32)
-		ptr = IO_ADDRESS(DAVINCI_GPIO_BASE + 0x10);
-	else if (gpio < 64)
-		ptr = IO_ADDRESS(DAVINCI_GPIO_BASE + 0x38);
-	else if (gpio < DAVINCI_N_GPIO)
-		ptr = IO_ADDRESS(DAVINCI_GPIO_BASE + 0x60);
+	if (gpio < 32 * 1)
+		ptr = base + 0x10;
+	else if (gpio < 32 * 2)
+		ptr = base + 0x38;
+	else if (gpio < 32 * 3)
+		ptr = base + 0x60;
+	else if (gpio < 32 * 4)
+		ptr = base + 0x88;
 	else
 		ptr = NULL;
 	return ptr;
@@ -143,13 +144,13 @@ static inline int gpio_to_irq(unsigned gpio)
 {
 	if (gpio >= DAVINCI_N_GPIO)
 		return -EINVAL;
-	return DAVINCI_N_AINTC_IRQ + gpio;
+	return davinci_soc_info.intc_irq_num + gpio;
 }
 
 static inline int irq_to_gpio(unsigned irq)
 {
 	/* caller guarantees gpio_to_irq() succeeded */
-	return irq - DAVINCI_N_AINTC_IRQ;
+	return irq - davinci_soc_info.intc_irq_num;
 }
 
 #endif				/* __DAVINCI_GPIO_H */

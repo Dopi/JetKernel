@@ -18,6 +18,7 @@
 #include <linux/clockchips.h>
 #include <linux/interrupt.h>
 #include <linux/percpu.h>
+#include <linux/smp.h>
 
 #include <asm/addrspace.h>
 #include <asm/io.h>
@@ -143,7 +144,6 @@ void __cpuinit sb1250_clockevent_init(void)
 
 	action->handler	= sibyte_counter_handler;
 	action->flags	= IRQF_DISABLED | IRQF_PERCPU;
-	action->mask	= cpumask_of_cpu(cpu);
 	action->name	= name;
 	action->dev_id	= cd;
 

@@ -24,6 +24,7 @@
 #include <linux/lmb.h>
 
 #include <asm/firmware.h>
+#include <asm/iommu.h>
 #include <asm/prom.h>
 #include <asm/udbg.h>
 #include <asm/lv1call.h>
@@ -311,7 +312,7 @@ static int __init ps3_mm_add_memory(void)
 	result = add_memory(0, start_addr, map.r1.size);
 
 	if (result) {
-		DBG("%s:%d: add_memory failed: (%d)\n",
+		pr_err("%s:%d: add_memory failed: (%d)\n",
 			__func__, __LINE__, result);
 		return result;
 	}
@@ -322,7 +323,7 @@ static int __init ps3_mm_add_memory(void)
 	result = online_pages(start_pfn, nr_pages);
 
 	if (result)
-		DBG("%s:%d: online_pages failed: (%d)\n",
+		pr_err("%s:%d: online_pages failed: (%d)\n",
 			__func__, __LINE__, result);
 
 	return result;
@@ -605,9 +606,8 @@ static int dma_ioc0_map_pages(struct ps3_dma_region *r, unsigned long phys_addr,
 				       r->ioid,
 				       iopte_flag);
 		if (result) {
-			printk(KERN_WARNING "%s:%d: lv1_map_device_dma_region "
-				"failed: %s\n", __func__, __LINE__,
-				ps3_result(result));
+			pr_warning("%s:%d: lv1_put_iopte failed: %s\n",
+				   __func__, __LINE__, ps3_result(result));
 			goto fail_map;
 		}
 		DBG("%s: pg=%d bus=%#lx, lpar=%#lx, ioid=%#x\n", __func__,
@@ -1001,7 +1001,8 @@ static int dma_sb_region_create_linear(struct ps3_dma_region *r)
 		if (len > r->len)
 			len = r->len;
 		result = dma_sb_map_area(r, virt_addr, len, &tmp,
-			IOPTE_PP_W | IOPTE_PP_R | IOPTE_SO_RW | IOPTE_M);
+			CBE_IOPTE_PP_W | CBE_IOPTE_PP_R | CBE_IOPTE_SO_RW |
+			CBE_IOPTE_M);
 		BUG_ON(result);
 	}
 
@@ -1014,7 +1015,8 @@ static int dma_sb_region_create_linear(struct ps3_dma_region *r)
 		else
 			len -= map.rm.size - r->offset;
 		result = dma_sb_map_area(r, virt_addr, len, &tmp,
-			IOPTE_PP_W | IOPTE_PP_R | IOPTE_SO_RW | IOPTE_M);
+			CBE_IOPTE_PP_W | CBE_IOPTE_PP_R | CBE_IOPTE_SO_RW |
+			CBE_IOPTE_M);
 		BUG_ON(result);
 	}
 

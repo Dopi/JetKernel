@@ -10,7 +10,7 @@
  *
  */
 
-#include <linux/crypto.h>
+#include <crypto/internal/aead.h>
 #include <linux/ctype.h>
 #include <linux/err.h>
 #include <linux/init.h>
@@ -206,8 +206,7 @@ static int cryptomgr_test(void *data)
 	u32 type = param->type;
 	int err = 0;
 
-	if (!((type ^ CRYPTO_ALG_TYPE_BLKCIPHER) &
-	      CRYPTO_ALG_TYPE_BLKCIPHER_MASK) && !(type & CRYPTO_ALG_GENIV))
+	if (type & CRYPTO_ALG_TESTED)
 		goto skiptest;
 
 	err = alg_test(param->driver, param->alg, type, CRYPTO_ALG_TESTED);
@@ -223,6 +222,7 @@ static int cryptomgr_schedule_test(struct crypto_alg *alg)
 {
 	struct task_struct *thread;
 	struct crypto_test_param *param;
+	u32 type;
 
 	if (!try_module_get(THIS_MODULE))
 		goto err;
@@ -233,7 +233,19 @@ static int cryptomgr_schedule_test(struct crypto_alg *alg)
 
 	memcpy(param->driver, alg->cra_driver_name, sizeof(param->driver));
 	memcpy(param->alg, alg->cra_name, sizeof(param->alg));
-	param->type = alg->cra_flags;
+	type = alg->cra_flags;
+
+	/* This piece of crap needs to disappear into per-type test hooks. */
+	if ((!((type ^ CRYPTO_ALG_TYPE_BLKCIPHER) &
+	       CRYPTO_ALG_TYPE_BLKCIPHER_MASK) && !(type & CRYPTO_ALG_GENIV) &&
+	     ((alg->cra_flags & CRYPTO_ALG_TYPE_MASK) ==
+	      CRYPTO_ALG_TYPE_BLKCIPHER ? alg->cra_blkcipher.ivsize :
+					  alg->cra_ablkcipher.ivsize)) ||
+	    (!((type ^ CRYPTO_ALG_TYPE_AEAD) & CRYPTO_ALG_TYPE_MASK) &&
+	     alg->cra_type == &crypto_nivaead_type && alg->cra_aead.ivsize))
+		type |= CRYPTO_ALG_TESTED;
+
+	param->type = type;
 
 	thread = kthread_run(cryptomgr_test, param, "cryptomgr_test");
 	if (IS_ERR(thread))
@@ -268,29 +280,13 @@ static struct notifier_block cryptomgr_notifier = {
 
 static int __init cryptomgr_init(void)
 {
-	int err;
-
-	err = testmgr_init();
-	if (err)
-		return err;
-
-	err = crypto_register_notifier(&cryptomgr_notifier);
-	if (err)
-		goto free_testmgr;
-
-	return 0;
-
-free_testmgr:
-	testmgr_exit();
-	return err;
+	return crypto_register_notifier(&cryptomgr_notifier);
 }
 
 static void __exit cryptomgr_exit(void)
 {
 	int err = crypto_unregister_notifier(&cryptomgr_notifier);
 	BUG_ON(err);
-
-	testmgr_exit();
 }
 
 subsys_initcall(cryptomgr_init);

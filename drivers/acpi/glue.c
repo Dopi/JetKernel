@@ -140,46 +140,6 @@ struct device *acpi_get_physical_device(acpi_handle handle)
 
 EXPORT_SYMBOL(acpi_get_physical_device);
 
-/* ToDo: When a PCI bridge is found, return the PCI device behind the bridge
- *       This should work in general, but did not on a Lenovo T61 for the
- *	 graphics card. But this must be fixed when the PCI device is
- *       bound and the kernel device struct is attached to the acpi device
- * Note: A success call will increase reference count by one
- *       Do call put_device(dev) on the returned device then
- */
-struct device *acpi_get_physical_pci_device(acpi_handle handle)
-{
-	struct device *dev;
-	long long device_id;
-	acpi_status status;
-
-	status =
-		acpi_evaluate_integer(handle, "_ADR", NULL, &device_id);
-
-	if (ACPI_FAILURE(status))
-		return NULL;
-
-	/* We need to attempt to determine whether the _ADR refers to a
-	   PCI device or not. There's no terribly good way to do this,
-	   so the best we can hope for is to assume that there'll never
-	   be a device in the host bridge */
-	if (device_id >= 0x10000) {
-		/* It looks like a PCI device. Does it exist? */
-		dev = acpi_get_physical_device(handle);
-	} else {
-		/* It doesn't look like a PCI device. Does its parent
-		   exist? */
-		acpi_handle phandle;
-		if (acpi_get_parent(handle, &phandle))
-			return NULL;
-		dev = acpi_get_physical_device(phandle);
-	}
-	if (!dev)
-		return NULL;
-	return dev;
-}
-EXPORT_SYMBOL(acpi_get_physical_pci_device);
-
 static int acpi_bind_one(struct device *dev, acpi_handle handle)
 {
 	struct acpi_device *acpi_dev;
@@ -286,10 +246,8 @@ static int acpi_platform_notify_remove(struct device *dev)
 	return 0;
 }
 
-static int __init init_acpi_device_notify(void)
+int __init init_acpi_device_notify(void)
 {
-	if (acpi_disabled)
-		return 0;
 	if (platform_notify || platform_notify_remove) {
 		printk(KERN_ERR PREFIX "Can't use platform_notify\n");
 		return 0;
@@ -298,5 +256,3 @@ static int __init init_acpi_device_notify(void)
 	platform_notify_remove = acpi_platform_notify_remove;
 	return 0;
 }
-
-arch_initcall(init_acpi_device_notify);

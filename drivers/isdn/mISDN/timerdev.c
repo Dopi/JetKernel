@@ -152,8 +152,7 @@ dev_expire_timer(unsigned long data)
 	u_long			flags;
 
 	spin_lock_irqsave(&timer->dev->lock, flags);
-	list_del(&timer->list);
-	list_add_tail(&timer->list, &timer->dev->expired);
+	list_move_tail(&timer->list, &timer->dev->expired);
 	spin_unlock_irqrestore(&timer->dev->lock, flags);
 	wake_up_interruptible(&timer->dev->wait);
 }
@@ -260,7 +259,7 @@ mISDN_ioctl(struct inode *inode, struct file *filep, unsigned int cmd,
 	return ret;
 }
 
-static struct file_operations mISDN_fops = {
+static const struct file_operations mISDN_fops = {
 	.read		= mISDN_read,
 	.poll		= mISDN_poll,
 	.ioctl		= mISDN_ioctl,

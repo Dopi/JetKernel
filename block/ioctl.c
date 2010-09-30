@@ -146,18 +146,16 @@ static int blk_ioctl_discard(struct block_device *bdev, uint64_t start,
 		struct bio *bio;
 
 		bio = bio_alloc(GFP_KERNEL, 0);
-		if (!bio)
-			return -ENOMEM;
 
 		bio->bi_end_io = blk_ioc_discard_endio;
 		bio->bi_bdev = bdev;
 		bio->bi_private = &wait;
 		bio->bi_sector = start;
 
-		if (len > q->max_hw_sectors) {
-			bio->bi_size = q->max_hw_sectors << 9;
-			len -= q->max_hw_sectors;
-			start += q->max_hw_sectors;
+		if (len > queue_max_hw_sectors(q)) {
+			bio->bi_size = queue_max_hw_sectors(q) << 9;
+			len -= queue_max_hw_sectors(q);
+			start += queue_max_hw_sectors(q);
 		} else {
 			bio->bi_size = len << 9;
 			len = 0;
@@ -313,9 +311,9 @@ int blkdev_ioctl(struct block_device *bdev, fmode_t mode, unsigned cmd,
 	case BLKBSZGET: /* get the logical block size (cf. BLKSSZGET) */
 		return put_int(arg, block_size(bdev));
 	case BLKSSZGET: /* get block device hardware sector size */
-		return put_int(arg, bdev_hardsect_size(bdev));
+		return put_int(arg, bdev_logical_block_size(bdev));
 	case BLKSECTGET:
-		return put_ushort(arg, bdev_get_queue(bdev)->max_sectors);
+		return put_ushort(arg, queue_max_sectors(bdev_get_queue(bdev)));
 	case BLKRASET:
 	case BLKFRASET:
 		if(!capable(CAP_SYS_ADMIN))

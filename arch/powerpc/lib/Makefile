@@ -2,6 +2,8 @@
 # Makefile for ppc-specific library files..
 #
 
+subdir-ccflags-$(CONFIG_PPC_WERROR) := -Werror
+
 ifeq ($(CONFIG_PPC64),y)
 EXTRA_CFLAGS		+= -mno-minimal-toc
 endif
@@ -18,7 +20,6 @@ obj-$(CONFIG_PPC64)	+= copypage_64.o copyuser_64.o \
 			   memcpy_64.o usercopy_64.o mem_64.o string.o
 obj-$(CONFIG_XMON)	+= sstep.o
 obj-$(CONFIG_KPROBES)	+= sstep.o
-obj-$(CONFIG_NOT_COHERENT_CACHE)	+= dma-noncoherent.o
 
 ifeq ($(CONFIG_PPC64),y)
 obj-$(CONFIG_SMP)	+= locks.o

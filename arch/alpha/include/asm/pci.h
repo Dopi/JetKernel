@@ -237,19 +237,6 @@ extern void pcibios_resource_to_bus(struct pci_dev *, struct pci_bus_region *,
 extern void pcibios_bus_to_resource(struct pci_dev *dev, struct resource *res,
 				    struct pci_bus_region *region);
 
-static inline struct resource *
-pcibios_select_root(struct pci_dev *pdev, struct resource *res)
-{
-	struct resource *root = NULL;
-
-	if (res->flags & IORESOURCE_IO)
-		root = &ioport_resource;
-	if (res->flags & IORESOURCE_MEM)
-		root = &iomem_resource;
-
-	return root;
-}
-
 #define pci_domain_nr(bus) ((struct pci_controller *)(bus)->sysdata)->index
 
 static inline int pci_proc_domain(struct pci_bus *bus)
@@ -272,5 +259,19 @@ struct pci_dev *alpha_gendev_to_pci(struct device *dev);
 #define IOBASE_FROM_HOSE	0x10000
 
 extern struct pci_dev *isa_bridge;
+
+extern int pci_legacy_read(struct pci_bus *bus, loff_t port, u32 *val,
+			   size_t count);
+extern int pci_legacy_write(struct pci_bus *bus, loff_t port, u32 val,
+			    size_t count);
+extern int pci_mmap_legacy_page_range(struct pci_bus *bus,
+				      struct vm_area_struct *vma,
+				      enum pci_mmap_state mmap_state);
+extern void pci_adjust_legacy_attr(struct pci_bus *bus,
+				   enum pci_mmap_state mmap_type);
+#define HAVE_PCI_LEGACY	1
+
+extern int pci_create_resource_files(struct pci_dev *dev);
+extern void pci_remove_resource_files(struct pci_dev *dev);
 
 #endif /* __ALPHA_PCI_H */

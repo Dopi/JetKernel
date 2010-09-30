@@ -13,6 +13,11 @@
 
 #include "ssb_private.h"
 
+#include <linux/ctype.h>
+
+
+static const struct ssb_sprom *fallback_sprom;
+
 
 static int sprom2hex(const u16 *sprom, char *buf, size_t buf_len,
 		     size_t sprom_size_words)
@@ -30,17 +35,27 @@ static int sprom2hex(const u16 *sprom, char *buf, size_t buf_len,
 static int hex2sprom(u16 *sprom, const char *dump, size_t len,
 		     size_t sprom_size_words)
 {
-	char tmp[5] = { 0 };
-	int cnt = 0;
+	char c, tmp[5] = { 0 };
+	int err, cnt = 0;
 	unsigned long parsed;
 
-	if (len < sprom_size_words * 2)
+	/* Strip whitespace at the end. */
+	while (len) {
+		c = dump[len - 1];
+		if (!isspace(c) && c != '\0')
+			break;
+		len--;
+	}
+	/* Length must match exactly. */
+	if (len != sprom_size_words * 4)
 		return -EINVAL;
 
 	while (cnt < sprom_size_words) {
 		memcpy(tmp, dump, 4);
 		dump += 4;
-		parsed = simple_strtoul(tmp, NULL, 16);
+		err = strict_strtoul(tmp, 16, &parsed);
+		if (err)
+			return err;
 		sprom[cnt++] = swab16((u16)parsed);
 	}
 
@@ -130,4 +145,37 @@ out:
 	if (res)
 		return res;
 	return err ? err : count;
+}
+
+/**
+ * ssb_arch_set_fallback_sprom - Set a fallback SPROM for use if no SPROM is found.
+ *
+ * @sprom: The SPROM data structure to register.
+ *
+ * With this function the architecture implementation may register a fallback
+ * SPROM data structure. The fallback is only used for PCI based SSB devices,
+ * where no valid SPROM can be found in the shadow registers.
+ *
+ * This function is useful for weird architectures that have a half-assed SSB device
+ * hardwired to their PCI bus.
+ *
+ * Note that it does only work with PCI attached SSB devices. PCMCIA devices currently
+ * don't use this fallback.
+ * Architectures must provide the SPROM for native SSB devices anyway,
+ * so the fallback also isn't used for native devices.
+ *
+ * This function is available for architecture code, only. So it is not exported.
+ */
+int ssb_arch_set_fallback_sprom(const struct ssb_sprom *sprom)
+{
+	if (fallback_sprom)
+		return -EEXIST;
+	fallback_sprom = sprom;
+
+	return 0;
+}
+
+const struct ssb_sprom *ssb_get_fallback_sprom(void)
+{
+	return fallback_sprom;
 }

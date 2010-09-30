@@ -14,8 +14,8 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/gfs2_ondisk.h>
-#include <linux/lm_interface.h>
 #include <asm/atomic.h>
+#include <linux/slow-work.h>
 
 #include "gfs2.h"
 #include "incore.h"
@@ -23,6 +23,12 @@
 #include "sys.h"
 #include "util.h"
 #include "glock.h"
+#include "quota.h"
+
+static struct shrinker qd_shrinker = {
+	.shrink = gfs2_shrink_qd_memory,
+	.seeks = DEFAULT_SEEKS,
+};
 
 static void gfs2_init_inode_once(void *foo)
 {
@@ -41,8 +47,6 @@ static void gfs2_init_glock_once(void *foo)
 	INIT_HLIST_NODE(&gl->gl_list);
 	spin_lock_init(&gl->gl_spin);
 	INIT_LIST_HEAD(&gl->gl_holders);
-	gl->gl_lvb = NULL;
-	atomic_set(&gl->gl_lvb_count, 0);
 	INIT_LIST_HEAD(&gl->gl_lru);
 	INIT_LIST_HEAD(&gl->gl_ail_list);
 	atomic_set(&gl->gl_ail_count, 0);
@@ -100,6 +104,8 @@ static int __init init_gfs2_fs(void)
 	if (!gfs2_quotad_cachep)
 		goto fail;
 
+	register_shrinker(&qd_shrinker);
+
 	error = register_filesystem(&gfs2_fs_type);
 	if (error)
 		goto fail;
@@ -108,15 +114,22 @@ static int __init init_gfs2_fs(void)
 	if (error)
 		goto fail_unregister;
 
+	error = slow_work_register_user();
+	if (error)
+		goto fail_slow;
+
 	gfs2_register_debugfs();
 
 	printk("GFS2 (built %s %s) installed\n", __DATE__, __TIME__);
 
 	return 0;
 
+fail_slow:
+	unregister_filesystem(&gfs2meta_fs_type);
 fail_unregister:
 	unregister_filesystem(&gfs2_fs_type);
 fail:
+	unregister_shrinker(&qd_shrinker);
 	gfs2_glock_exit();
 
 	if (gfs2_quotad_cachep)
@@ -145,10 +158,12 @@ fail:
 
 static void __exit exit_gfs2_fs(void)
 {
+	unregister_shrinker(&qd_shrinker);
 	gfs2_glock_exit();
 	gfs2_unregister_debugfs();
 	unregister_filesystem(&gfs2_fs_type);
 	unregister_filesystem(&gfs2meta_fs_type);
+	slow_work_unregister_user();
 
 	kmem_cache_destroy(gfs2_quotad_cachep);
 	kmem_cache_destroy(gfs2_rgrpd_cachep);

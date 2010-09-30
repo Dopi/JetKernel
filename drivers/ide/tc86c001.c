@@ -112,7 +112,7 @@ static void tc86c001_dma_start(ide_drive_t *drive)
 	ide_hwif_t *hwif	= drive->hwif;
 	unsigned long sc_base	= hwif->config_data;
 	unsigned long twcr_port	= sc_base + (drive->dn ? 0x06 : 0x04);
-	unsigned long nsectors	= hwif->rq->nr_sectors;
+	unsigned long nsectors	= blk_rq_sectors(hwif->rq);
 
 	/*
 	 * We have to manually load the sector count and size into
@@ -182,12 +182,11 @@ static const struct ide_port_ops tc86c001_port_ops = {
 static const struct ide_dma_ops tc86c001_dma_ops = {
 	.dma_host_set		= ide_dma_host_set,
 	.dma_setup		= ide_dma_setup,
-	.dma_exec_cmd		= ide_dma_exec_cmd,
 	.dma_start		= tc86c001_dma_start,
 	.dma_end		= ide_dma_end,
 	.dma_test_irq		= ide_dma_test_irq,
 	.dma_lost_irq		= ide_dma_lost_irq,
-	.dma_timeout		= ide_dma_timeout,
+	.dma_timer_expiry	= ide_dma_sff_timer_expiry,
 	.dma_sff_read_status	= ide_dma_sff_read_status,
 };
 

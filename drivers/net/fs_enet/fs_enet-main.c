@@ -36,6 +36,8 @@
 #include <linux/fs.h>
 #include <linux/platform_device.h>
 #include <linux/phy.h>
+#include <linux/of.h>
+#include <linux/of_mdio.h>
 #include <linux/of_platform.h>
 #include <linux/of_gpio.h>
 
@@ -209,7 +211,7 @@ static int fs_enet_rx_napi(struct napi_struct *napi, int budget)
 
 	if (received < budget) {
 		/* done */
-		netif_rx_complete(napi);
+		napi_complete(napi);
 		(*fep->ops->napi_enable_rx)(dev);
 	}
 	return received;
@@ -478,7 +480,7 @@ fs_enet_interrupt(int irq, void *dev_id)
 				/* NOTE: it is possible for FCCs in NAPI mode    */
 				/* to submit a spurious interrupt while in poll  */
 				if (napi_ok)
-					__netif_rx_schedule(&fep->napi);
+					__napi_schedule(&fep->napi);
 			}
 		}
 
@@ -752,16 +754,16 @@ static int fs_init_phy(struct net_device *dev)
 	fep->oldlink = 0;
 	fep->oldspeed = 0;
 	fep->oldduplex = -1;
-	if(fep->fpi->bus_id)
-		phydev = phy_connect(dev, fep->fpi->bus_id, &fs_adjust_link, 0,
+
+	phydev = of_phy_connect(dev, fep->fpi->phy_node, &fs_adjust_link, 0,
 				PHY_INTERFACE_MODE_MII);
-	else {
-		printk("No phy bus ID specified in BSP code\n");
-		return -EINVAL;
+	if (!phydev) {
+		phydev = of_phy_connect_fixed_link(dev, &fs_adjust_link,
+						   PHY_INTERFACE_MODE_MII);
 	}
-	if (IS_ERR(phydev)) {
-		printk(KERN_ERR "%s: Could not attach to PHY\n", dev->name);
-		return PTR_ERR(phydev);
+	if (!phydev) {
+		dev_err(&dev->dev, "Could not attach to PHY\n");
+		return -ENODEV;
 	}
 
 	fep->phydev = phydev;
@@ -938,86 +940,27 @@ extern void fs_mii_disconnect(struct net_device *dev);
 
 /**************************************************************************************/
 
-/* handy pointer to the immap */
-void __iomem *fs_enet_immap = NULL;
-
-static int setup_immap(void)
-{
-#ifdef CONFIG_CPM1
-	fs_enet_immap = ioremap(IMAP_ADDR, 0x4000);
-	WARN_ON(!fs_enet_immap);
-#elif defined(CONFIG_CPM2)
-	fs_enet_immap = cpm2_immr;
-#endif
-
-	return 0;
-}
-
-static void cleanup_immap(void)
-{
-#if defined(CONFIG_CPM1)
-	iounmap(fs_enet_immap);
-#endif
-}
-
-/**************************************************************************************/
-
-static int __devinit find_phy(struct device_node *np,
-                              struct fs_platform_info *fpi)
-{
-	struct device_node *phynode, *mdionode;
-	int ret = 0, len, bus_id;
-	const u32 *data;
-
-	data  = of_get_property(np, "fixed-link", NULL);
-	if (data) {
-		snprintf(fpi->bus_id, 16, "%x:%02x", 0, *data);
-		return 0;
-	}
-
-	data = of_get_property(np, "phy-handle", &len);
-	if (!data || len != 4)
-		return -EINVAL;
-
-	phynode = of_find_node_by_phandle(*data);
-	if (!phynode)
-		return -EINVAL;
-
-	data = of_get_property(phynode, "reg", &len);
-	if (!data || len != 4) {
-		ret = -EINVAL;
-		goto out_put_phy;
-	}
-
-	mdionode = of_get_parent(phynode);
-	if (!mdionode) {
-		ret = -EINVAL;
-		goto out_put_phy;
-	}
-
-	bus_id = of_get_gpio(mdionode, 0);
-	if (bus_id < 0) {
-		struct resource res;
-		ret = of_address_to_resource(mdionode, 0, &res);
-		if (ret)
-			goto out_put_mdio;
-		bus_id = res.start;
-	}
-
-	snprintf(fpi->bus_id, 16, "%x:%02x", bus_id, *data);
-
-out_put_mdio:
-	of_node_put(mdionode);
-out_put_phy:
-	of_node_put(phynode);
-	return ret;
-}
-
 #ifdef CONFIG_FS_ENET_HAS_FEC
 #define IS_FEC(match) ((match)->data == &fs_fec_ops)
 #else
 #define IS_FEC(match) 0
 #endif
+
+static const struct net_device_ops fs_enet_netdev_ops = {
+	.ndo_open		= fs_enet_open,
+	.ndo_stop		= fs_enet_close,
+	.ndo_get_stats		= fs_enet_get_stats,
+	.ndo_start_xmit		= fs_enet_start_xmit,
+	.ndo_tx_timeout		= fs_timeout,
+	.ndo_set_multicast_list	= fs_set_multicast_list,
+	.ndo_do_ioctl		= fs_ioctl,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_set_mac_address	= eth_mac_addr,
+	.ndo_change_mtu		= eth_change_mtu,
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	.ndo_poll_controller	= fs_enet_netpoll,
+#endif
+};
 
 static int __devinit fs_enet_probe(struct of_device *ofdev,
                                    const struct of_device_id *match)
@@ -1046,9 +989,9 @@ static int __devinit fs_enet_probe(struct of_device *ofdev,
 	fpi->rx_copybreak = 240;
 	fpi->use_napi = 1;
 	fpi->napi_weight = 17;
-
-	ret = find_phy(ofdev->node, fpi);
-	if (ret)
+	fpi->phy_node = of_parse_phandle(ofdev->node, "phy-handle", 0);
+	if ((!fpi->phy_node) && (!of_get_property(ofdev->node, "fixed-link",
+						  NULL)))
 		goto out_free_fpi;
 
 	privsize = sizeof(*fep) +
@@ -1061,6 +1004,7 @@ static int __devinit fs_enet_probe(struct of_device *ofdev,
 		goto out_free_fpi;
 	}
 
+	SET_NETDEV_DEV(ndev, &ofdev->dev);
 	dev_set_drvdata(&ofdev->dev, ndev);
 
 	fep = netdev_priv(ndev);
@@ -1093,22 +1037,13 @@ static int __devinit fs_enet_probe(struct of_device *ofdev,
 	fep->tx_ring = fpi->tx_ring;
 	fep->rx_ring = fpi->rx_ring;
 
-	ndev->open = fs_enet_open;
-	ndev->hard_start_xmit = fs_enet_start_xmit;
-	ndev->tx_timeout = fs_timeout;
+	ndev->netdev_ops = &fs_enet_netdev_ops;
 	ndev->watchdog_timeo = 2 * HZ;
-	ndev->stop = fs_enet_close;
-	ndev->get_stats = fs_enet_get_stats;
-	ndev->set_multicast_list = fs_set_multicast_list;
-#ifdef CONFIG_NET_POLL_CONTROLLER
-	ndev->poll_controller = fs_enet_netpoll;
-#endif
 	if (fpi->use_napi)
 		netif_napi_add(ndev, &fep->napi, fs_enet_rx_napi,
 		               fpi->napi_weight);
 
 	ndev->ethtool_ops = &fs_ethtool_ops;
-	ndev->do_ioctl = fs_ioctl;
 
 	init_timer(&fep->phy_timer_list);
 
@@ -1129,6 +1064,7 @@ out_cleanup_data:
 out_free_dev:
 	free_netdev(ndev);
 	dev_set_drvdata(&ofdev->dev, NULL);
+	of_node_put(fpi->phy_node);
 out_free_fpi:
 	kfree(fpi);
 	return ret;
@@ -1144,7 +1080,7 @@ static int fs_enet_remove(struct of_device *ofdev)
 	fep->ops->free_bd(ndev);
 	fep->ops->cleanup_data(ndev);
 	dev_set_drvdata(fep->dev, NULL);
-
+	of_node_put(fep->fpi->phy_node);
 	free_netdev(ndev);
 	return 0;
 }
@@ -1184,25 +1120,12 @@ static struct of_platform_driver fs_enet_driver = {
 
 static int __init fs_init(void)
 {
-	int r = setup_immap();
-	if (r != 0)
-		return r;
-
-	r = of_register_platform_driver(&fs_enet_driver);
-	if (r != 0)
-		goto out;
-
-	return 0;
-
-out:
-	cleanup_immap();
-	return r;
+	return of_register_platform_driver(&fs_enet_driver);
 }
 
 static void __exit fs_cleanup(void)
 {
 	of_unregister_platform_driver(&fs_enet_driver);
-	cleanup_immap();
 }
 
 #ifdef CONFIG_NET_POLL_CONTROLLER

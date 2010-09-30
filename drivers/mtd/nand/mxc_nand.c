@@ -138,7 +138,14 @@ static struct nand_ecclayout nand_hw_eccoob_8 = {
 static struct nand_ecclayout nand_hw_eccoob_16 = {
 	.eccbytes = 5,
 	.eccpos = {6, 7, 8, 9, 10},
-	.oobfree = {{0, 6}, {12, 4}, }
+	.oobfree = {{0, 5}, {11, 5}, }
+};
+
+static struct nand_ecclayout nand_hw_eccoob_64 = {
+	.eccbytes = 20,
+	.eccpos = {6, 7, 8, 9, 10, 22, 23, 24, 25, 26,
+		   38, 39, 40, 41, 42, 54, 55, 56, 57, 58},
+	.oobfree = {{2, 4}, {11, 10}, {27, 10}, {43, 10}, {59, 5}, }
 };
 
 #ifdef CONFIG_MTD_PARTITIONS
@@ -192,7 +199,7 @@ static void wait_op_done(struct mxc_nand_host *host, int max_retries,
 			}
 			udelay(1);
 		}
-		if (max_retries <= 0)
+		if (max_retries < 0)
 			DEBUG(MTD_DEBUG_LEVEL0, "%s(%d): INT not set\n",
 			      __func__, param);
 	}
@@ -795,9 +802,13 @@ static void mxc_nand_command(struct mtd_info *mtd, unsigned command,
 		send_addr(host, (page_addr & 0xff), false);
 
 		if (host->pagesize_2k) {
-			send_addr(host, (page_addr >> 8) & 0xFF, false);
-			if (mtd->size >= 0x40000000)
+			if (mtd->size >= 0x10000000) {
+				/* paddr_8 - paddr_15 */
+				send_addr(host, (page_addr >> 8) & 0xff, false);
 				send_addr(host, (page_addr >> 16) & 0xff, true);
+			} else
+				/* paddr_8 - paddr_15 */
+				send_addr(host, (page_addr >> 8) & 0xff, true);
 		} else {
 			/* One more address cycle for higher density devices */
 			if (mtd->size >= 0x4000000) {
@@ -831,6 +842,7 @@ static void mxc_nand_command(struct mtd_info *mtd, unsigned command,
 		break;
 
 	case NAND_CMD_READID:
+		host->col_addr = 0;
 		send_read_id(host);
 		break;
 
@@ -866,6 +878,8 @@ static int __init mxcnd_probe(struct platform_device *pdev)
 	mtd = &host->mtd;
 	mtd->priv = this;
 	mtd->owner = THIS_MODULE;
+	mtd->dev.parent = &pdev->dev;
+	mtd->name = "mxc_nand";
 
 	/* 50 us command delay time */
 	this->chip_delay = 5;
@@ -880,9 +894,11 @@ static int __init mxcnd_probe(struct platform_device *pdev)
 	this->read_buf = mxc_nand_read_buf;
 	this->verify_buf = mxc_nand_verify_buf;
 
-	host->clk = clk_get(&pdev->dev, "nfc_clk");
-	if (IS_ERR(host->clk))
+	host->clk = clk_get(&pdev->dev, "nfc");
+	if (IS_ERR(host->clk)) {
+		err = PTR_ERR(host->clk);
 		goto eclk;
+	}
 
 	clk_enable(host->clk);
 	host->clk_act = 1;
@@ -895,7 +911,7 @@ static int __init mxcnd_probe(struct platform_device *pdev)
 
 	host->regs = ioremap(res->start, res->end - res->start + 1);
 	if (!host->regs) {
-		err = -EIO;
+		err = -ENOMEM;
 		goto eres;
 	}
 
@@ -918,7 +934,6 @@ static int __init mxcnd_probe(struct platform_device *pdev)
 		this->ecc.mode = NAND_ECC_HW;
 		this->ecc.size = 512;
 		this->ecc.bytes = 3;
-		this->ecc.layout = &nand_hw_eccoob_8;
 		tmp = readw(host->regs + NFC_CONFIG1);
 		tmp |= NFC_ECC_EN;
 		writew(tmp, host->regs + NFC_CONFIG1);
@@ -952,12 +967,44 @@ static int __init mxcnd_probe(struct platform_device *pdev)
 		this->ecc.layout = &nand_hw_eccoob_16;
 	}
 
-	host->pagesize_2k = 0;
+	/* first scan to find the device and get the page size */
+	if (nand_scan_ident(mtd, 1)) {
+		err = -ENXIO;
+		goto escan;
+	}
 
-	/* Scan to find existence of the device */
-	if (nand_scan(mtd, 1)) {
-		DEBUG(MTD_DEBUG_LEVEL0,
-		      "MXC_ND: Unable to find any NAND device.\n");
+	host->pagesize_2k = (mtd->writesize == 2048) ? 1 : 0;
+
+	if (this->ecc.mode == NAND_ECC_HW) {
+		switch (mtd->oobsize) {
+		case 8:
+			this->ecc.layout = &nand_hw_eccoob_8;
+			break;
+		case 16:
+			this->ecc.layout = &nand_hw_eccoob_16;
+			break;
+		case 64:
+			this->ecc.layout = &nand_hw_eccoob_64;
+			break;
+		default:
+			/* page size not handled by HW ECC */
+			/* switching back to soft ECC */
+			this->ecc.size = 512;
+			this->ecc.bytes = 3;
+			this->ecc.layout = &nand_hw_eccoob_8;
+			this->ecc.mode = NAND_ECC_SOFT;
+			this->ecc.calculate = NULL;
+			this->ecc.correct = NULL;
+			this->ecc.hwctl = NULL;
+			tmp = readw(host->regs + NFC_CONFIG1);
+			tmp &= ~NFC_ECC_EN;
+			writew(tmp, host->regs + NFC_CONFIG1);
+			break;
+		}
+	}
+
+	/* second phase scan */
+	if (nand_scan_tail(mtd)) {
 		err = -ENXIO;
 		goto escan;
 	}
@@ -980,7 +1027,7 @@ static int __init mxcnd_probe(struct platform_device *pdev)
 	return 0;
 
 escan:
-	free_irq(host->irq, NULL);
+	free_irq(host->irq, host);
 eirq:
 	iounmap(host->regs);
 eres:
@@ -1000,7 +1047,7 @@ static int __devexit mxcnd_remove(struct platform_device *pdev)
 	platform_set_drvdata(pdev, NULL);
 
 	nand_release(&host->mtd);
-	free_irq(host->irq, NULL);
+	free_irq(host->irq, host);
 	iounmap(host->regs);
 	kfree(host);
 
@@ -1010,30 +1057,35 @@ static int __devexit mxcnd_remove(struct platform_device *pdev)
 #ifdef CONFIG_PM
 static int mxcnd_suspend(struct platform_device *pdev, pm_message_t state)
 {
-	struct mtd_info *info = platform_get_drvdata(pdev);
+	struct mtd_info *mtd = platform_get_drvdata(pdev);
+	struct nand_chip *nand_chip = mtd->priv;
+	struct mxc_nand_host *host = nand_chip->priv;
 	int ret = 0;
 
 	DEBUG(MTD_DEBUG_LEVEL0, "MXC_ND : NAND suspend\n");
-	if (info)
-		ret = info->suspend(info);
-
-	/* Disable the NFC clock */
-	clk_disable(nfc_clk);	/* FIXME */
+	if (mtd) {
+		ret = mtd->suspend(mtd);
+		/* Disable the NFC clock */
+		clk_disable(host->clk);
+	}
 
 	return ret;
 }
 
 static int mxcnd_resume(struct platform_device *pdev)
 {
-	struct mtd_info *info = platform_get_drvdata(pdev);
+	struct mtd_info *mtd = platform_get_drvdata(pdev);
+	struct nand_chip *nand_chip = mtd->priv;
+	struct mxc_nand_host *host = nand_chip->priv;
 	int ret = 0;
 
 	DEBUG(MTD_DEBUG_LEVEL0, "MXC_ND : NAND resume\n");
-	/* Enable the NFC clock */
-	clk_enable(nfc_clk);	/* FIXME */
 
-	if (info)
-		info->resume(info);
+	if (mtd) {
+		/* Enable the NFC clock */
+		clk_enable(host->clk);
+		mtd->resume(mtd);
+	}
 
 	return ret;
 }
@@ -1054,13 +1106,7 @@ static struct platform_driver mxcnd_driver = {
 
 static int __init mxc_nd_init(void)
 {
-	/* Register the device driver structure. */
-	pr_info("MXC MTD nand Driver\n");
-	if (platform_driver_probe(&mxcnd_driver, mxcnd_probe) != 0) {
-		printk(KERN_ERR "Driver register failed for mxcnd_driver\n");
-		return -ENODEV;
-	}
-	return 0;
+	return platform_driver_probe(&mxcnd_driver, mxcnd_probe);
 }
 
 static void __exit mxc_nd_cleanup(void)

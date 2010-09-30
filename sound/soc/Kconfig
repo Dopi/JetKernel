@@ -6,6 +6,7 @@ menuconfig SND_SOC
 	tristate "ALSA for SoC audio support"
 	select SND_PCM
 	select AC97_BUS if SND_SOC_AC97_BUS
+	select SND_JACK if INPUT=y || INPUT=SND
 	---help---
 
 	  If you want ASoC support, you should say Y here and also to the
@@ -31,7 +32,9 @@ source "sound/soc/fsl/Kconfig"
 source "sound/soc/omap/Kconfig"
 source "sound/soc/pxa/Kconfig"
 source "sound/soc/s3c24xx/Kconfig"
+source "sound/soc/s6000/Kconfig"
 source "sound/soc/sh/Kconfig"
+source "sound/soc/txx9/Kconfig"
 
 # Supported codecs
 source "sound/soc/codecs/Kconfig"

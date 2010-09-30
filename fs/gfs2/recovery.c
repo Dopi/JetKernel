@@ -13,9 +13,7 @@
 #include <linux/buffer_head.h>
 #include <linux/gfs2_ondisk.h>
 #include <linux/crc32.h>
-#include <linux/lm_interface.h>
-#include <linux/kthread.h>
-#include <linux/freezer.h>
+#include <linux/slow-work.h>
 
 #include "gfs2.h"
 #include "incore.h"
@@ -427,30 +425,40 @@ static int clean_journal(struct gfs2_jdesc *jd, struct gfs2_log_header_host *hea
 }
 
 
-static void gfs2_lm_recovery_done(struct gfs2_sbd *sdp, unsigned int jid,
-				  unsigned int message)
+static void gfs2_recovery_done(struct gfs2_sbd *sdp, unsigned int jid,
+                               unsigned int message)
 {
-	if (!sdp->sd_lockstruct.ls_ops->lm_recovery_done)
-		return;
-
-	if (likely(!test_bit(SDF_SHUTDOWN, &sdp->sd_flags)))
-		sdp->sd_lockstruct.ls_ops->lm_recovery_done(
-			sdp->sd_lockstruct.ls_lockspace, jid, message);
+	char env_jid[20];
+	char env_status[20];
+	char *envp[] = { env_jid, env_status, NULL };
+	struct lm_lockstruct *ls = &sdp->sd_lockstruct;
+        ls->ls_recover_jid_done = jid;
+        ls->ls_recover_jid_status = message;
+	sprintf(env_jid, "JID=%d", jid);
+	sprintf(env_status, "RECOVERY=%s",
+		message == LM_RD_SUCCESS ? "Done" : "Failed");
+        kobject_uevent_env(&sdp->sd_kobj, KOBJ_CHANGE, envp);
 }
 
-
-/**
- * gfs2_recover_journal - recovery a given journal
- * @jd: the struct gfs2_jdesc describing the journal
- *
- * Acquire the journal's lock, check to see if the journal is clean, and
- * do recovery if necessary.
- *
- * Returns: errno
- */
-
-int gfs2_recover_journal(struct gfs2_jdesc *jd)
+static int gfs2_recover_get_ref(struct slow_work *work)
 {
+	struct gfs2_jdesc *jd = container_of(work, struct gfs2_jdesc, jd_work);
+	if (test_and_set_bit(JDF_RECOVERY, &jd->jd_flags))
+		return -EBUSY;
+	return 0;
+}
+
+static void gfs2_recover_put_ref(struct slow_work *work)
+{
+	struct gfs2_jdesc *jd = container_of(work, struct gfs2_jdesc, jd_work);
+	clear_bit(JDF_RECOVERY, &jd->jd_flags);
+	smp_mb__after_clear_bit();
+	wake_up_bit(&jd->jd_flags, JDF_RECOVERY);
+}
+
+static void gfs2_recover_work(struct slow_work *work)
+{
+	struct gfs2_jdesc *jd = container_of(work, struct gfs2_jdesc, jd_work);
 	struct gfs2_inode *ip = GFS2_I(jd->jd_inode);
 	struct gfs2_sbd *sdp = GFS2_SB(jd->jd_inode);
 	struct gfs2_log_header_host head;
@@ -561,13 +569,13 @@ int gfs2_recover_journal(struct gfs2_jdesc *jd)
 	if (jd->jd_jid != sdp->sd_lockstruct.ls_jid)
 		gfs2_glock_dq_uninit(&ji_gh);
 
-	gfs2_lm_recovery_done(sdp, jd->jd_jid, LM_RD_SUCCESS);
+	gfs2_recovery_done(sdp, jd->jd_jid, LM_RD_SUCCESS);
 
 	if (jd->jd_jid != sdp->sd_lockstruct.ls_jid)
 		gfs2_glock_dq_uninit(&j_gh);
 
 	fs_info(sdp, "jid=%u: Done\n", jd->jd_jid);
-	return 0;
+	return;
 
 fail_gunlock_tr:
 	gfs2_glock_dq_uninit(&t_gh);
@@ -581,71 +589,29 @@ fail_gunlock_j:
 	fs_info(sdp, "jid=%u: %s\n", jd->jd_jid, (error) ? "Failed" : "Done");
 
 fail:
-	gfs2_lm_recovery_done(sdp, jd->jd_jid, LM_RD_GAVEUP);
-	return error;
+	gfs2_recovery_done(sdp, jd->jd_jid, LM_RD_GAVEUP);
 }
 
-static struct gfs2_jdesc *gfs2_jdesc_find_dirty(struct gfs2_sbd *sdp)
+struct slow_work_ops gfs2_recover_ops = {
+	.get_ref = gfs2_recover_get_ref,
+	.put_ref = gfs2_recover_put_ref,
+	.execute = gfs2_recover_work,
+};
+
+
+static int gfs2_recovery_wait(void *word)
 {
-	struct gfs2_jdesc *jd;
-	int found = 0;
-
-	spin_lock(&sdp->sd_jindex_spin);
-
-	list_for_each_entry(jd, &sdp->sd_jindex_list, jd_list) {
-		if (jd->jd_dirty) {
-			jd->jd_dirty = 0;
-			found = 1;
-			break;
-		}
-	}
-	spin_unlock(&sdp->sd_jindex_spin);
-
-	if (!found)
-		jd = NULL;
-
-	return jd;
+	schedule();
+	return 0;
 }
 
-/**
- * gfs2_check_journals - Recover any dirty journals
- * @sdp: the filesystem
- *
- */
-
-static void gfs2_check_journals(struct gfs2_sbd *sdp)
+int gfs2_recover_journal(struct gfs2_jdesc *jd)
 {
-	struct gfs2_jdesc *jd;
-
-	for (;;) {
-		jd = gfs2_jdesc_find_dirty(sdp);
-		if (!jd)
-			break;
-
-		if (jd != sdp->sd_jdesc)
-			gfs2_recover_journal(jd);
-	}
-}
-
-/**
- * gfs2_recoverd - Recover dead machine's journals
- * @sdp: Pointer to GFS2 superblock
- *
- */
-
-int gfs2_recoverd(void *data)
-{
-	struct gfs2_sbd *sdp = data;
-	unsigned long t;
-
-	while (!kthread_should_stop()) {
-		gfs2_check_journals(sdp);
-		t = gfs2_tune_get(sdp,  gt_recoverd_secs) * HZ;
-		if (freezing(current))
-			refrigerator();
-		schedule_timeout_interruptible(t);
-	}
-
+	int rv;
+	rv = slow_work_enqueue(&jd->jd_work);
+	if (rv)
+		return rv;
+	wait_on_bit(&jd->jd_flags, JDF_RECOVERY, gfs2_recovery_wait, TASK_UNINTERRUPTIBLE);
 	return 0;
 }
 

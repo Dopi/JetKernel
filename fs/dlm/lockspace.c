@@ -384,7 +384,7 @@ static void threads_stop(void)
 	dlm_astd_stop();
 }
 
-static int new_lockspace(char *name, int namelen, void **lockspace,
+static int new_lockspace(const char *name, int namelen, void **lockspace,
 			 uint32_t flags, int lvblen)
 {
 	struct dlm_ls *ls;
@@ -419,16 +419,14 @@ static int new_lockspace(char *name, int namelen, void **lockspace,
 			break;
 		}
 		ls->ls_create_count++;
-		module_put(THIS_MODULE);
-		error = 1; /* not an error, return 0 */
+		*lockspace = ls;
+		error = 1;
 		break;
 	}
 	spin_unlock(&lslist_lock);
 
-	if (error < 0)
-		goto out;
 	if (error)
-		goto ret_zero;
+		goto out;
 
 	error = -ENOMEM;
 
@@ -487,7 +485,7 @@ static int new_lockspace(char *name, int namelen, void **lockspace,
 		goto out_lkbfree;
 	for (i = 0; i < size; i++) {
 		INIT_LIST_HEAD(&ls->ls_dirtbl[i].list);
-		rwlock_init(&ls->ls_dirtbl[i].lock);
+		spin_lock_init(&ls->ls_dirtbl[i].lock);
 	}
 
 	INIT_LIST_HEAD(&ls->ls_waiters);
@@ -583,7 +581,6 @@ static int new_lockspace(char *name, int namelen, void **lockspace,
 	dlm_create_debug_file(ls);
 
 	log_debug(ls, "join complete");
- ret_zero:
 	*lockspace = ls;
 	return 0;
 
@@ -614,7 +611,7 @@ static int new_lockspace(char *name, int namelen, void **lockspace,
 	return error;
 }
 
-int dlm_new_lockspace(char *name, int namelen, void **lockspace,
+int dlm_new_lockspace(const char *name, int namelen, void **lockspace,
 		      uint32_t flags, int lvblen)
 {
 	int error = 0;
@@ -628,7 +625,9 @@ int dlm_new_lockspace(char *name, int namelen, void **lockspace,
 	error = new_lockspace(name, namelen, lockspace, flags, lvblen);
 	if (!error)
 		ls_count++;
-	else if (!ls_count)
+	if (error > 0)
+		error = 0;
+	if (!ls_count)
 		threads_stop();
  out:
 	mutex_unlock(&ls_lock);

@@ -21,6 +21,9 @@
 
 #include <linux/kvm_host.h>
 #include <linux/smp.h>
+#include <asm/sn/addrs.h>
+#include <asm/sn/clksupport.h>
+#include <asm/sn/shub_mmr.h>
 
 #include "vti.h"
 #include "misc.h"
@@ -188,12 +191,35 @@ static struct ia64_pal_retval pal_freq_base(struct kvm_vcpu *vcpu)
 	return result;
 }
 
+/*
+ * On the SGI SN2, the ITC isn't stable. Emulation backed by the SN2
+ * RTC is used instead. This function patches the ratios from SAL
+ * to match the RTC before providing them to the guest.
+ */
+static void sn2_patch_itc_freq_ratios(struct ia64_pal_retval *result)
+{
+	struct pal_freq_ratio *ratio;
+	unsigned long sal_freq, sal_drift, factor;
+
+	result->status = ia64_sal_freq_base(SAL_FREQ_BASE_PLATFORM,
+					    &sal_freq, &sal_drift);
+	ratio = (struct pal_freq_ratio *)&result->v2;
+	factor = ((sal_freq * 3) + (sn_rtc_cycles_per_second / 2)) /
+		sn_rtc_cycles_per_second;
+
+	ratio->num = 3;
+	ratio->den = factor;
+}
+
 static struct ia64_pal_retval pal_freq_ratios(struct kvm_vcpu *vcpu)
 {
-
 	struct ia64_pal_retval result;
 
 	PAL_CALL(result, PAL_FREQ_RATIOS, 0, 0, 0);
+
+	if (vcpu->kvm->arch.is_sn2)
+		sn2_patch_itc_freq_ratios(&result);
+
 	return result;
 }
 
@@ -223,6 +249,18 @@ static struct ia64_pal_retval pal_proc_get_features(struct kvm_vcpu *vcpu)
 	kvm_get_pal_call_data(vcpu, &in0, &in1, &in2, &in3);
 	result.status = ia64_pal_proc_get_features(&result.v0, &result.v1,
 			&result.v2, in2);
+
+	return result;
+}
+
+static struct ia64_pal_retval pal_register_info(struct kvm_vcpu *vcpu)
+{
+
+	struct ia64_pal_retval result = {0, 0, 0, 0};
+	long in0, in1, in2, in3;
+
+	kvm_get_pal_call_data(vcpu, &in0, &in1, &in2, &in3);
+	result.status = ia64_pal_register_info(in1, &result.v1, &result.v2);
 
 	return result;
 }
@@ -268,8 +306,12 @@ static struct ia64_pal_retval pal_vm_summary(struct kvm_vcpu *vcpu)
 static struct ia64_pal_retval pal_vm_info(struct kvm_vcpu *vcpu)
 {
 	struct ia64_pal_retval result;
+	unsigned long in0, in1, in2, in3;
 
-	INIT_PAL_STATUS_UNIMPLEMENTED(result);
+	kvm_get_pal_call_data(vcpu, &in0, &in1, &in2, &in3);
+
+	result.status = ia64_pal_vm_info(in1, in2,
+			(pal_tc_info_u_t *)&result.v1, &result.v2);
 
 	return result;
 }
@@ -292,6 +334,108 @@ static void prepare_for_halt(struct kvm_vcpu *vcpu)
 	vcpu->arch.timer_fired = 0;
 }
 
+static struct ia64_pal_retval pal_perf_mon_info(struct kvm_vcpu *vcpu)
+{
+	long status;
+	unsigned long in0, in1, in2, in3, r9;
+	unsigned long pm_buffer[16];
+
+	kvm_get_pal_call_data(vcpu, &in0, &in1, &in2, &in3);
+	status = ia64_pal_perf_mon_info(pm_buffer,
+				(pal_perf_mon_info_u_t *) &r9);
+	if (status != 0) {
+		printk(KERN_DEBUG"PAL_PERF_MON_INFO fails ret=%ld\n", status);
+	} else {
+		if (in1)
+			memcpy((void *)in1, pm_buffer, sizeof(pm_buffer));
+		else {
+			status = PAL_STATUS_EINVAL;
+			printk(KERN_WARNING"Invalid parameters "
+						"for PAL call:0x%lx!\n", in0);
+		}
+	}
+	return (struct ia64_pal_retval){status, r9, 0, 0};
+}
+
+static struct ia64_pal_retval pal_halt_info(struct kvm_vcpu *vcpu)
+{
+	unsigned long in0, in1, in2, in3;
+	long status;
+	unsigned long res = 1000UL | (1000UL << 16) | (10UL << 32)
+					| (1UL << 61) | (1UL << 60);
+
+	kvm_get_pal_call_data(vcpu, &in0, &in1, &in2, &in3);
+	if (in1) {
+		memcpy((void *)in1, &res, sizeof(res));
+		status = 0;
+	} else{
+		status = PAL_STATUS_EINVAL;
+		printk(KERN_WARNING"Invalid parameters "
+					"for PAL call:0x%lx!\n", in0);
+	}
+
+	return (struct ia64_pal_retval){status, 0, 0, 0};
+}
+
+static struct ia64_pal_retval pal_mem_attrib(struct kvm_vcpu *vcpu)
+{
+	unsigned long r9;
+	long status;
+
+	status = ia64_pal_mem_attrib(&r9);
+
+	return (struct ia64_pal_retval){status, r9, 0, 0};
+}
+
+static void remote_pal_prefetch_visibility(void *v)
+{
+	s64 trans_type = (s64)v;
+	ia64_pal_prefetch_visibility(trans_type);
+}
+
+static struct ia64_pal_retval pal_prefetch_visibility(struct kvm_vcpu *vcpu)
+{
+	struct ia64_pal_retval result = {0, 0, 0, 0};
+	unsigned long in0, in1, in2, in3;
+	kvm_get_pal_call_data(vcpu, &in0, &in1, &in2, &in3);
+	result.status = ia64_pal_prefetch_visibility(in1);
+	if (result.status == 0) {
+		/* Must be performed on all remote processors
+		in the coherence domain. */
+		smp_call_function(remote_pal_prefetch_visibility,
+					(void *)in1, 1);
+		/* Unnecessary on remote processor for other vcpus!*/
+		result.status = 1;
+	}
+	return result;
+}
+
+static void remote_pal_mc_drain(void *v)
+{
+	ia64_pal_mc_drain();
+}
+
+static struct ia64_pal_retval pal_get_brand_info(struct kvm_vcpu *vcpu)
+{
+	struct ia64_pal_retval result = {0, 0, 0, 0};
+	unsigned long in0, in1, in2, in3;
+
+	kvm_get_pal_call_data(vcpu, &in0, &in1, &in2, &in3);
+
+	if (in1 == 0 && in2) {
+		char brand_info[128];
+		result.status = ia64_pal_get_brand_info(brand_info);
+		if (result.status == PAL_STATUS_SUCCESS)
+			memcpy((void *)in2, brand_info, 128);
+	} else {
+		result.status = PAL_STATUS_REQUIRES_MEMORY;
+		printk(KERN_WARNING"Invalid parameters for "
+					"PAL call:0x%lx!\n", in0);
+	}
+
+	return result;
+}
+
 int kvm_pal_emul(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 
@@ -300,13 +444,21 @@ int kvm_pal_emul(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	int ret = 1;
 
 	gr28 = kvm_get_pal_call_index(vcpu);
-	/*printk("pal_call index:%lx\n",gr28);*/
 	switch (gr28) {
 	case PAL_CACHE_FLUSH:
 		result = pal_cache_flush(vcpu);
 		break;
+	case PAL_MEM_ATTRIB:
+		result = pal_mem_attrib(vcpu);
+		break;
 	case PAL_CACHE_SUMMARY:
 		result = pal_cache_summary(vcpu);
+		break;
+	case PAL_PERF_MON_INFO:
+		result = pal_perf_mon_info(vcpu);
+		break;
+	case PAL_HALT_INFO:
+		result = pal_halt_info(vcpu);
 		break;
 	case PAL_HALT_LIGHT:
 	{
@@ -315,6 +467,16 @@ int kvm_pal_emul(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		if (kvm_highest_pending_irq(vcpu) == -1)
 			ret = kvm_emulate_halt(vcpu);
 	}
+		break;
+
+	case PAL_PREFETCH_VISIBILITY:
+		result = pal_prefetch_visibility(vcpu);
+		break;
+	case PAL_MC_DRAIN:
+		result.status = ia64_pal_mc_drain();
+		/* FIXME: All vcpus likely call PAL_MC_DRAIN.
+		   That causes the congestion. */
+		smp_call_function(remote_pal_mc_drain, NULL, 1);
 		break;
 
 	case PAL_FREQ_RATIOS:
@@ -346,6 +508,9 @@ int kvm_pal_emul(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		INIT_PAL_STATUS_SUCCESS(result);
 		result.v1 = (1L << 32) | 1L;
 		break;
+	case PAL_REGISTER_INFO:
+		result = pal_register_info(vcpu);
+		break;
 	case PAL_VM_PAGE_SIZE:
 		result.status = ia64_pal_vm_page_size(&result.v0,
 							&result.v1);
@@ -365,11 +530,17 @@ int kvm_pal_emul(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		result.status = ia64_pal_version(
 				(pal_version_u_t *)&result.v0,
 				(pal_version_u_t *)&result.v1);
-
 		break;
 	case PAL_FIXED_ADDR:
 		result.status = PAL_STATUS_SUCCESS;
 		result.v0 = vcpu->vcpu_id;
+		break;
+	case PAL_BRAND_INFO:
+		result = pal_get_brand_info(vcpu);
+		break;
+	case PAL_GET_PSTATE:
+	case PAL_CACHE_SHARED_INFO:
+		INIT_PAL_STATUS_UNIMPLEMENTED(result);
 		break;
 	default:
 		INIT_PAL_STATUS_UNIMPLEMENTED(result);

@@ -361,6 +361,9 @@ struct l2_fhdr {
 #define BNX2_L2CTX_CTX_TYPE_CTX_BD_CHN_TYPE_VALUE	 (1<<28)
 
 #define BNX2_L2CTX_HOST_BDIDX				0x00000004
+#define BNX2_L2CTX_STATUSB_NUM_SHIFT			 16
+#define BNX2_L2CTX_STATUSB_NUM(sb_id)			 \
+	(((sb_id) > 0) ? (((sb_id) + 7) << BNX2_L2CTX_STATUSB_NUM_SHIFT) : 0)
 #define BNX2_L2CTX_HOST_BSEQ				0x00000008
 #define BNX2_L2CTX_NX_BSEQ				0x0000000c
 #define BNX2_L2CTX_NX_BDHADDR_HI			0x00000010
@@ -5900,6 +5903,7 @@ struct l2_fhdr {
 #define BNX2_RXP_FTQ_CTL_CUR_DEPTH			 (0x3ffL<<22)
 
 #define BNX2_RXP_SCRATCH				0x000e0000
+#define BNX2_RXP_SCRATCH_RXP_FLOOD			 0x000e0024
 #define BNX2_RXP_SCRATCH_RSS_TBL_SZ			 0x000e0038
 #define BNX2_RXP_SCRATCH_RSS_TBL			 0x000e003c
 #define BNX2_RXP_SCRATCH_RSS_TBL_MAX_ENTRIES		 128
@@ -6552,6 +6556,8 @@ struct sw_pg {
 
 struct sw_tx_bd {
 	struct sk_buff		*skb;
+	unsigned short		is_gso;
+	unsigned short		nr_frags;
 };
 
 #define SW_RXBD_RING_SIZE (sizeof(struct sw_bd) * RX_DESC_CNT)
@@ -6678,6 +6684,11 @@ struct bnx2_napi {
 	u32 			last_status_idx;
 	u32			int_num;
 
+#ifdef BCM_CNIC
+	u32			cnic_tag;
+	int			cnic_present;
+#endif
+
 	struct bnx2_rx_ring_info	rx_ring;
 	struct bnx2_tx_ring_info	tx_ring;
 };
@@ -6726,6 +6737,11 @@ struct bnx2 {
 	/* TX constants */
 	int		tx_ring_size;
 	u32		tx_wake_thresh;
+
+#ifdef BCM_CNIC
+	struct cnic_ops		*cnic_ops;
+	void			*cnic_data;
+#endif
 
 	/* End of fields used in the performance code paths. */
 
@@ -6885,6 +6901,13 @@ struct bnx2 {
 
 	u32			idle_chk_status_idx;
 
+#ifdef BCM_CNIC
+	struct mutex		cnic_lock;
+	struct cnic_eth_dev	cnic_eth_dev;
+#endif
+
+	const struct firmware	*mips_firmware;
+	const struct firmware	*rv2p_firmware;
 };
 
 #define REG_RD(bp, offset)					\
@@ -6915,43 +6938,40 @@ struct cpu_reg {
 	u32 mips_view_base;
 };
 
-struct fw_info {
-	const u32 ver_major;
-	const u32 ver_minor;
-	const u32 ver_fix;
-
-	const u32 start_addr;
-
-	/* Text section. */
-	const u32 text_addr;
-	const u32 text_len;
-	const u32 text_index;
-	__le32 *text;
-	u8 *gz_text;
-	const u32 gz_text_len;
-
-	/* Data section. */
-	const u32 data_addr;
-	const u32 data_len;
-	const u32 data_index;
-	const u32 *data;
-
-	/* SBSS section. */
-	const u32 sbss_addr;
-	const u32 sbss_len;
-	const u32 sbss_index;
-
-	/* BSS section. */
-	const u32 bss_addr;
-	const u32 bss_len;
-	const u32 bss_index;
-
-	/* Read-only section. */
-	const u32 rodata_addr;
-	const u32 rodata_len;
-	const u32 rodata_index;
-	const u32 *rodata;
+struct bnx2_fw_file_section {
+	__be32 addr;
+	__be32 len;
+	__be32 offset;
 };
+
+struct bnx2_mips_fw_file_entry {
+	__be32 start_addr;
+	struct bnx2_fw_file_section text;
+	struct bnx2_fw_file_section data;
+	struct bnx2_fw_file_section rodata;
+};
+
+struct bnx2_rv2p_fw_file_entry {
+	struct bnx2_fw_file_section rv2p;
+	__be32 fixup[8];
+};
+
+struct bnx2_mips_fw_file {
+	struct bnx2_mips_fw_file_entry com;
+	struct bnx2_mips_fw_file_entry cp;
+	struct bnx2_mips_fw_file_entry rxp;
+	struct bnx2_mips_fw_file_entry tpat;
+	struct bnx2_mips_fw_file_entry txp;
+};
+
+struct bnx2_rv2p_fw_file {
+	struct bnx2_rv2p_fw_file_entry proc1;
+	struct bnx2_rv2p_fw_file_entry proc2;
+};
+
+#define RV2P_P1_FIXUP_PAGE_SIZE_IDX		0
+#define RV2P_BD_PAGE_SIZE_MSK			0xffff
+#define RV2P_BD_PAGE_SIZE			((BCM_PAGE_SIZE / 16) - 1)
 
 #define RV2P_PROC1                              0
 #define RV2P_PROC2                              1

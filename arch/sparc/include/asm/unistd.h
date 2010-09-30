@@ -392,8 +392,11 @@
 #define __NR_pipe2		321
 #define __NR_inotify_init1	322
 #define __NR_accept4		323
+#define __NR_preadv		324
+#define __NR_pwritev		325
+#define __NR_rt_tgsigqueueinfo	326
 
-#define NR_SYSCALLS		324
+#define NR_SYSCALLS		327
 
 #ifdef __32bit_syscall_numbers__
 /* Sparc 32-bit only has the "setresuid32", "getresuid32" variants,

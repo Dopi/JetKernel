@@ -1,5 +1,5 @@
 /*
- * Copyright (C) Freescale Semicondutor, Inc. 2006. All rights reserved.
+ * Copyright (C) Freescale Semicondutor, Inc. 2006-2009. All rights reserved.
  *
  * Author: Shlomi Gridish <gridish@freescale.com>
  *
@@ -20,15 +20,12 @@
 
 #include <linux/kernel.h>
 #include <linux/list.h>
-#include <linux/fsl_devices.h>
 
 #include <asm/immap_qe.h>
 #include <asm/qe.h>
 
 #include <asm/ucc.h>
 #include <asm/ucc_fast.h>
-
-#include "ucc_geth_mii.h"
 
 #define DRV_DESC "QE UCC Gigabit Ethernet Controller"
 #define DRV_NAME "ucc_geth"
@@ -183,6 +180,43 @@ struct ucc_geth {
 
 #define UCCE_RX_EVENTS  (UCCE_RXF | UCC_GETH_UCCE_BSY)
 #define UCCE_TX_EVENTS	(UCCE_TXB | UCC_GETH_UCCE_TXE)
+
+/* TBI defines */
+#define	ENET_TBI_MII_CR		0x00	/* Control */
+#define	ENET_TBI_MII_SR		0x01	/* Status */
+#define	ENET_TBI_MII_ANA	0x04	/* AN advertisement */
+#define	ENET_TBI_MII_ANLPBPA	0x05	/* AN link partner base page ability */
+#define	ENET_TBI_MII_ANEX	0x06	/* AN expansion */
+#define	ENET_TBI_MII_ANNPT	0x07	/* AN next page transmit */
+#define	ENET_TBI_MII_ANLPANP	0x08	/* AN link partner ability next page */
+#define	ENET_TBI_MII_EXST	0x0F	/* Extended status */
+#define	ENET_TBI_MII_JD		0x10	/* Jitter diagnostics */
+#define	ENET_TBI_MII_TBICON	0x11	/* TBI control */
+
+/* TBI MDIO register bit fields*/
+#define TBISR_LSTATUS          0x0004
+#define TBICON_CLK_SELECT       0x0020
+#define TBIANA_ASYMMETRIC_PAUSE 0x0100
+#define TBIANA_SYMMETRIC_PAUSE  0x0080
+#define TBIANA_HALF_DUPLEX      0x0040
+#define TBIANA_FULL_DUPLEX      0x0020
+#define TBICR_PHY_RESET         0x8000
+#define TBICR_ANEG_ENABLE       0x1000
+#define TBICR_RESTART_ANEG      0x0200
+#define TBICR_FULL_DUPLEX       0x0100
+#define TBICR_SPEED1_SET        0x0040
+
+#define TBIANA_SETTINGS ( \
+		TBIANA_ASYMMETRIC_PAUSE \
+		| TBIANA_SYMMETRIC_PAUSE \
+		| TBIANA_FULL_DUPLEX \
+		)
+#define TBICR_SETTINGS ( \
+		TBICR_PHY_RESET \
+		| TBICR_ANEG_ENABLE \
+		| TBICR_FULL_DUPLEX \
+		| TBICR_SPEED1_SET \
+		)
 
 /* UCC GETH MACCFG1 (MAC Configuration 1 Register) */
 #define MACCFG1_FLOW_RX                         0x00000020	/* Flow Control
@@ -843,7 +877,6 @@ struct ucc_geth_hardware_statistics {
 /* Driver definitions */
 #define TX_BD_RING_LEN                          0x10
 #define RX_BD_RING_LEN                          0x10
-#define UCC_GETH_DEV_WEIGHT                     TX_BD_RING_LEN
 
 #define TX_RING_MOD_MASK(size)                  (size-1)
 #define RX_RING_MOD_MASK(size)                  (size-1)
@@ -1091,7 +1124,8 @@ struct ucc_geth_info {
 	u32 eventRegMask;
 	u16 pausePeriod;
 	u16 extensionField;
-	char phy_bus_id[BUS_ID_SIZE];
+	struct device_node *phy_node;
+	struct device_node *tbi_node;
 	u8 weightfactor[NUM_TX_QUEUES];
 	u8 interruptcoalescingmaxvalue[NUM_RX_QUEUES];
 	u8 l2qt[UCC_GETH_VLAN_PRIORITY_MAX];
@@ -1111,15 +1145,16 @@ struct ucc_geth_info {
 	enum ucc_geth_maccfg2_pad_and_crc_mode padAndCrc;
 	enum ucc_geth_num_of_threads numThreadsTx;
 	enum ucc_geth_num_of_threads numThreadsRx;
-	enum qe_risc_allocation riscTx;
-	enum qe_risc_allocation riscRx;
+	unsigned int riscTx;
+	unsigned int riscRx;
 };
 
 /* structure representing UCC GETH */
 struct ucc_geth_private {
 	struct ucc_geth_info *ug_info;
 	struct ucc_fast_private *uccf;
-	struct net_device *dev;
+	struct device *dev;
+	struct net_device *ndev;
 	struct napi_struct napi;
 	struct work_struct timeout_work;
 	struct ucc_geth __iomem *ug_regs;

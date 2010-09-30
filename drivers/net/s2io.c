@@ -63,6 +63,7 @@
 #include <linux/kernel.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
+#include <linux/mdio.h>
 #include <linux/skbuff.h>
 #include <linux/init.h>
 #include <linux/delay.h>
@@ -1763,7 +1764,7 @@ static int init_nic(struct s2io_nic *nic)
 		 * by then we return error.
 		 */
 		time = 0;
-		while (TRUE) {
+		while (true) {
 			val64 = readq(&bar0->rti_command_mem);
 			if (!(val64 & RTI_CMD_MEM_STROBE_NEW_CMD))
 				break;
@@ -2136,7 +2137,7 @@ static int verify_pcc_quiescent(struct s2io_nic *sp, int flag)
 
 	herc = (sp->device_type == XFRAME_II_DEVICE);
 
-	if (flag == FALSE) {
+	if (flag == false) {
 		if ((!herc && (sp->pdev->revision >= 4)) || herc) {
 			if (!(val64 & ADAPTER_STATUS_RMAC_PCC_IDLE))
 				ret = 1;
@@ -2852,7 +2853,7 @@ static int s2io_poll_msix(struct napi_struct *napi, int budget)
 	s2io_chk_rx_buffers(nic, ring);
 
 	if (pkts_processed < budget_org) {
-		netif_rx_complete(napi);
+		napi_complete(napi);
 		/*Re Enable MSI-Rx Vector*/
 		addr = (u8 __iomem *)&bar0->xmsi_mask_reg;
 		addr += 7 - ring->ring_no;
@@ -2889,7 +2890,7 @@ static int s2io_poll_inta(struct napi_struct *napi, int budget)
 			break;
 	}
 	if (pkts_processed < budget_org) {
-		netif_rx_complete(napi);
+		napi_complete(napi);
 		/* Re enable the Rx interrupts for the ring */
 		writeq(0, &bar0->rx_traffic_mask);
 		readl(&bar0->rx_traffic_mask);
@@ -3328,9 +3329,9 @@ static void s2io_updt_xpak_counter(struct net_device *dev)
 	struct stat_block *stat_info = sp->mac_control.stats_info;
 
 	/* Check the communication with the MDIO slave */
-	addr = 0x0000;
+	addr = MDIO_CTRL1;
 	val64 = 0x0;
-	val64 = s2io_mdio_read(MDIO_MMD_PMA_DEV_ADDR, addr, dev);
+	val64 = s2io_mdio_read(MDIO_MMD_PMAPMD, addr, dev);
 	if((val64 == 0xFFFF) || (val64 == 0x0000))
 	{
 		DBG_PRINT(ERR_DBG, "ERR: MDIO slave access failed - "
@@ -3338,24 +3339,24 @@ static void s2io_updt_xpak_counter(struct net_device *dev)
 		return;
 	}
 
-	/* Check for the expecte value of 2040 at PMA address 0x0000 */
-	if(val64 != 0x2040)
+	/* Check for the expected value of control reg 1 */
+	if(val64 != MDIO_CTRL1_SPEED10G)
 	{
 		DBG_PRINT(ERR_DBG, "Incorrect value at PMA address 0x0000 - ");
-		DBG_PRINT(ERR_DBG, "Returned: %llx- Expected: 0x2040\n",
-			  (unsigned long long)val64);
+		DBG_PRINT(ERR_DBG, "Returned: %llx- Expected: 0x%x\n",
+			  (unsigned long long)val64, MDIO_CTRL1_SPEED10G);
 		return;
 	}
 
 	/* Loading the DOM register to MDIO register */
 	addr = 0xA100;
-	s2io_mdio_write(MDIO_MMD_PMA_DEV_ADDR, addr, val16, dev);
-	val64 = s2io_mdio_read(MDIO_MMD_PMA_DEV_ADDR, addr, dev);
+	s2io_mdio_write(MDIO_MMD_PMAPMD, addr, val16, dev);
+	val64 = s2io_mdio_read(MDIO_MMD_PMAPMD, addr, dev);
 
 	/* Reading the Alarm flags */
 	addr = 0xA070;
 	val64 = 0x0;
-	val64 = s2io_mdio_read(MDIO_MMD_PMA_DEV_ADDR, addr, dev);
+	val64 = s2io_mdio_read(MDIO_MMD_PMAPMD, addr, dev);
 
 	flag = CHECKBIT(val64, 0x7);
 	type = 1;
@@ -3387,7 +3388,7 @@ static void s2io_updt_xpak_counter(struct net_device *dev)
 	/* Reading the Warning flags */
 	addr = 0xA074;
 	val64 = 0x0;
-	val64 = s2io_mdio_read(MDIO_MMD_PMA_DEV_ADDR, addr, dev);
+	val64 = s2io_mdio_read(MDIO_MMD_PMAPMD, addr, dev);
 
 	if(CHECKBIT(val64, 0x7))
 		stat_info->xpak_stat.warn_transceiver_temp_high++;
@@ -3586,7 +3587,7 @@ static void s2io_reset(struct s2io_nic * sp)
 		writeq(val64, &bar0->pcc_err_reg);
 	}
 
-	sp->device_enabled_once = FALSE;
+	sp->device_enabled_once = false;
 }
 
 /**
@@ -3862,7 +3863,7 @@ static int s2io_enable_msi_x(struct s2io_nic *nic)
 	ret = pci_enable_msix(nic->pdev, nic->entries, nic->num_entries);
 	/* We fail init if error or we get less vectors than min required */
 	if (ret) {
-		DBG_PRINT(ERR_DBG, "%s: Enabling MSIX failed\n", nic->dev->name);
+		DBG_PRINT(ERR_DBG, "s2io: Enabling MSI-X failed\n");
 		kfree(nic->entries);
 		nic->mac_control.stats_info->sw_stat.mem_freed
 			+= (nic->num_entries * sizeof(struct msix_entry));
@@ -4298,7 +4299,6 @@ static int s2io_xmit(struct sk_buff *skb, struct net_device *dev)
 		s2io_stop_tx_queue(sp, fifo->fifo_no);
 	}
 	mac_control->stats_info->sw_stat.mem_allocated += skb->truesize;
-	dev->trans_start = jiffies;
 	spin_unlock_irqrestore(&fifo->tx_lock, flags);
 
 	if (sp->config.intr_type == MSI_X)
@@ -4342,7 +4342,7 @@ static irqreturn_t s2io_msix_ring_handle(int irq, void *dev_id)
 		val8 = (ring->ring_no == 0) ? 0x7f : 0xff;
 		writeb(val8, addr);
 		val8 = readb(addr);
-		netif_rx_schedule(&ring->napi);
+		napi_schedule(&ring->napi);
 	} else {
 		rx_intr_handler(ring, 0);
 		s2io_chk_rx_buffers(sp, ring);
@@ -4789,7 +4789,7 @@ static irqreturn_t s2io_isr(int irq, void *dev_id)
 
 		if (config->napi) {
 			if (reason & GEN_INTR_RXTRAFFIC) {
-				netif_rx_schedule(&sp->napi);
+				napi_schedule(&sp->napi);
 				writeq(S2IO_MINUS_ONE, &bar0->rx_traffic_mask);
 				writeq(S2IO_MINUS_ONE, &bar0->rx_traffic_int);
 				readl(&bar0->rx_traffic_int);
@@ -5572,10 +5572,10 @@ static void s2io_ethtool_getpause_data(struct net_device *dev,
 
 	val64 = readq(&bar0->rmac_pause_cfg);
 	if (val64 & RMAC_PAUSE_GEN_ENABLE)
-		ep->tx_pause = TRUE;
+		ep->tx_pause = true;
 	if (val64 & RMAC_PAUSE_RX_ENABLE)
-		ep->rx_pause = TRUE;
-	ep->autoneg = FALSE;
+		ep->rx_pause = true;
+	ep->autoneg = false;
 }
 
 /**
@@ -6806,7 +6806,7 @@ static void s2io_set_link(struct work_struct *work)
 					val64 |= ADAPTER_LED_ON;
 					writeq(val64, &bar0->adapter_control);
 				}
-				nic->device_enabled_once = TRUE;
+				nic->device_enabled_once = true;
 			} else {
 				DBG_PRINT(ERR_DBG, "%s: Error: ", dev->name);
 				DBG_PRINT(ERR_DBG, "device is not Quiescent\n");
@@ -7220,7 +7220,6 @@ static int s2io_card_up(struct s2io_nic * sp)
 
 	/* Initialise napi */
 	if (config->napi) {
-		int i;
 		if (config->intr_type ==  MSI_X) {
 			for (i = 0; i < sp->config.rx_ring_num; i++)
 				napi_enable(&sp->mac_control.rings[i].napi);
@@ -7542,6 +7541,7 @@ static int rx_osm_handler(struct ring_info *ring_data, struct RxD_t * rxdp)
 
 	sp->mac_control.stats_info->sw_stat.mem_freed += skb->truesize;
 send_up:
+	skb_record_rx_queue(skb, ring_no);
 	queue_rx_frame(skb, RXD_GET_VLAN_TAG(rxdp->Control_2));
 aggregate:
 	sp->mac_control.rings[ring_no].rx_bufs_left -= 1;
@@ -7754,7 +7754,7 @@ s2io_init_nic(struct pci_dev *pdev, const struct pci_device_id *pre)
 	struct s2io_nic *sp;
 	struct net_device *dev;
 	int i, j, ret;
-	int dma_flag = FALSE;
+	int dma_flag = false;
 	u32 mac_up, mac_down;
 	u64 val64 = 0, tmp64 = 0;
 	struct XENA_dev_config __iomem *bar0 = NULL;
@@ -7775,18 +7775,18 @@ s2io_init_nic(struct pci_dev *pdev, const struct pci_device_id *pre)
 		return ret;
 	}
 
-	if (!pci_set_dma_mask(pdev, DMA_64BIT_MASK)) {
+	if (!pci_set_dma_mask(pdev, DMA_BIT_MASK(64))) {
 		DBG_PRINT(INIT_DBG, "s2io_init_nic: Using 64bit DMA\n");
-		dma_flag = TRUE;
+		dma_flag = true;
 		if (pci_set_consistent_dma_mask
-		    (pdev, DMA_64BIT_MASK)) {
+		    (pdev, DMA_BIT_MASK(64))) {
 			DBG_PRINT(ERR_DBG,
 				  "Unable to obtain 64bit DMA for \
 					consistent allocations\n");
 			pci_disable_device(pdev);
 			return -ENOMEM;
 		}
-	} else if (!pci_set_dma_mask(pdev, DMA_32BIT_MASK)) {
+	} else if (!pci_set_dma_mask(pdev, DMA_BIT_MASK(32))) {
 		DBG_PRINT(INIT_DBG, "s2io_init_nic: Using 32bit DMA\n");
 	} else {
 		pci_disable_device(pdev);
@@ -7818,7 +7818,7 @@ s2io_init_nic(struct pci_dev *pdev, const struct pci_device_id *pre)
 	sp->dev = dev;
 	sp->pdev = pdev;
 	sp->high_dma_flag = dma_flag;
-	sp->device_enabled_once = FALSE;
+	sp->device_enabled_once = false;
 	if (rx_ring_mode == 1)
 		sp->rxd_mode = RXD_MODE_1;
 	if (rx_ring_mode == 2)
@@ -7964,7 +7964,7 @@ s2io_init_nic(struct pci_dev *pdev, const struct pci_device_id *pre)
 	dev->features |= NETIF_F_HW_VLAN_TX | NETIF_F_HW_VLAN_RX;
 
 	dev->features |= NETIF_F_SG | NETIF_F_IP_CSUM;
-	if (sp->high_dma_flag == TRUE)
+	if (sp->high_dma_flag == true)
 		dev->features |= NETIF_F_HIGHDMA;
 	dev->features |= NETIF_F_TSO;
 	dev->features |= NETIF_F_TSO6;
@@ -8009,8 +8009,7 @@ s2io_init_nic(struct pci_dev *pdev, const struct pci_device_id *pre)
 		if (ret) {
 
 			DBG_PRINT(ERR_DBG,
-			  "%s: MSI-X requested but failed to enable\n",
-			  dev->name);
+			  "s2io: MSI-X requested but failed to enable\n");
 			sp->config.intr_type = INTA;
 		}
 	}

@@ -221,7 +221,7 @@ static irqreturn_t gatwick_action(int cpl, void *dev_id)
 			continue;
 		irq += __ilog2(bits);
 		spin_unlock_irqrestore(&pmac_pic_lock, flags);
-		__do_IRQ(irq);
+		generic_handle_irq(irq);
 		spin_lock_irqsave(&pmac_pic_lock, flags);
 		rc = IRQ_HANDLED;
 	}
@@ -266,7 +266,6 @@ static unsigned int pmac_pic_get_irq(void)
 static struct irqaction xmon_action = {
 	.handler	= xmon_irq,
 	.flags		= 0,
-	.mask		= CPU_MASK_NONE,
 	.name		= "NMI - XMON"
 };
 #endif
@@ -274,7 +273,6 @@ static struct irqaction xmon_action = {
 static struct irqaction gatwick_cascade_action = {
 	.handler	= gatwick_action,
 	.flags		= IRQF_DISABLED,
-	.mask		= CPU_MASK_NONE,
 	.name		= "cascade",
 };
 
@@ -611,7 +609,7 @@ static int pmacpic_find_viaint(void)
 	np = of_find_node_by_name(NULL, "via-pmu");
 	if (np == NULL)
 		goto not_found;
-	viaint = irq_of_parse_and_map(np, 0);;
+	viaint = irq_of_parse_and_map(np, 0);
 
 not_found:
 #endif /* CONFIG_ADB_PMU */

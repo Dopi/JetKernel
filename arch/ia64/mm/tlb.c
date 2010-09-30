@@ -34,7 +34,7 @@
 #include <asm/tlb.h>
 
 static struct {
-	unsigned long mask;	/* mask of supported purge page-sizes */
+	u64 mask;		/* mask of supported purge page-sizes */
 	unsigned long max_bits;	/* log2 of largest supported purge page-size */
 } purge;
 
@@ -309,7 +309,7 @@ flush_tlb_range (struct vm_area_struct *vma, unsigned long start,
 
 	preempt_disable();
 #ifdef CONFIG_SMP
-	if (mm != current->active_mm || cpus_weight(mm->cpu_vm_mask) != 1) {
+	if (mm != current->active_mm || cpumask_weight(mm_cpumask(mm)) != 1) {
 		platform_global_tlb_purge(mm, start, end, nbits);
 		preempt_enable();
 		return;
@@ -328,7 +328,7 @@ void __devinit
 ia64_tlb_init (void)
 {
 	ia64_ptce_info_t uninitialized_var(ptce_info); /* GCC be quiet */
-	unsigned long tr_pgbits;
+	u64 tr_pgbits;
 	long status;
 	pal_vm_info_1_u_t vm_info_1;
 	pal_vm_info_2_u_t vm_info_2;

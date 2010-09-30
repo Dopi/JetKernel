@@ -34,10 +34,24 @@
 #include <linux/err.h>
 #include <linux/clk.h>
 
-#include <mach/hardware.h>
 #include <asm/irq.h>
 #include <asm/io.h>
-#include <mach/i2c.h>
+#include <plat/i2c.h>
+
+/*
+ * I2C register offsets will be shifted 0 or 1 bit left, depending on
+ * different SoCs
+ */
+#define REG_SHIFT_0	(0 << 0)
+#define REG_SHIFT_1	(1 << 0)
+#define REG_SHIFT(d)	((d) & 0x1)
+
+static const struct platform_device_id i2c_pxa_id_table[] = {
+	{ "pxa2xx-i2c",		REG_SHIFT_1 },
+	{ "pxa3xx-pwri2c",	REG_SHIFT_0 },
+	{ },
+};
+MODULE_DEVICE_TABLE(platform, i2c_pxa_id_table);
 
 /*
  * I2C registers and bit definitions
@@ -210,11 +224,12 @@ static irqreturn_t i2c_pxa_handler(int this_irq, void *dev_id);
 static void i2c_pxa_scream_blue_murder(struct pxa_i2c *i2c, const char *why)
 {
 	unsigned int i;
-	printk("i2c: error: %s\n", why);
-	printk("i2c: msg_num: %d msg_idx: %d msg_ptr: %d\n",
+	printk(KERN_ERR "i2c: error: %s\n", why);
+	printk(KERN_ERR "i2c: msg_num: %d msg_idx: %d msg_ptr: %d\n",
 		i2c->msg_num, i2c->msg_idx, i2c->msg_ptr);
-	printk("i2c: ICR: %08x ISR: %08x\n"
-	       "i2c: log: ", readl(_ICR(i2c)), readl(_ISR(i2c)));
+	printk(KERN_ERR "i2c: ICR: %08x ISR: %08x\n",
+	       readl(_ICR(i2c)), readl(_ISR(i2c)));
+	printk(KERN_DEBUG "i2c: log: ");
 	for (i = 0; i < i2c->irqlogidx; i++)
 		printk("[%08x:%08x] ", i2c->isrlog[i], i2c->icrlog[i]);
 	printk("\n");
@@ -264,10 +279,10 @@ static int i2c_pxa_wait_bus_not_busy(struct pxa_i2c *i2c)
 		show_state(i2c);
 	}
 
-	if (timeout <= 0)
+	if (timeout < 0)
 		show_state(i2c);
 
-	return timeout <= 0 ? I2C_RETRY : 0;
+	return timeout < 0 ? I2C_RETRY : 0;
 }
 
 static int i2c_pxa_wait_master(struct pxa_i2c *i2c)
@@ -611,7 +626,7 @@ static int i2c_pxa_pio_set_master(struct pxa_i2c *i2c)
 		show_state(i2c);
 	}
 
-	if (timeout <= 0) {
+	if (timeout < 0) {
 		show_state(i2c);
 		dev_err(&i2c->adap.dev,
 			"i2c_pxa: timeout waiting for bus free\n");
@@ -978,12 +993,12 @@ static const struct i2c_algorithm i2c_pxa_pio_algorithm = {
 	.functionality	= i2c_pxa_functionality,
 };
 
-#define res_len(r)		((r)->end - (r)->start + 1)
 static int i2c_pxa_probe(struct platform_device *dev)
 {
 	struct pxa_i2c *i2c;
 	struct resource *res;
 	struct i2c_pxa_platform_data *plat = dev->dev.platform_data;
+	struct platform_device_id *id = platform_get_device_id(dev);
 	int ret;
 	int irq;
 
@@ -992,7 +1007,7 @@ static int i2c_pxa_probe(struct platform_device *dev)
 	if (res == NULL || irq < 0)
 		return -ENODEV;
 
-	if (!request_mem_region(res->start, res_len(res), res->name))
+	if (!request_mem_region(res->start, resource_size(res), res->name))
 		return -ENOMEM;
 
 	i2c = kzalloc(sizeof(struct pxa_i2c), GFP_KERNEL);
@@ -1022,15 +1037,15 @@ static int i2c_pxa_probe(struct platform_device *dev)
 		goto eclk;
 	}
 
-	i2c->reg_base = ioremap(res->start, res_len(res));
+	i2c->reg_base = ioremap(res->start, resource_size(res));
 	if (!i2c->reg_base) {
 		ret = -EIO;
 		goto eremap;
 	}
-	i2c->reg_shift = (cpu_is_pxa3xx() && (dev->id == 1)) ? 0 : 1;
+	i2c->reg_shift = REG_SHIFT(id->driver_data);
 
 	i2c->iobase = res->start;
-	i2c->iosize = res_len(res);
+	i2c->iosize = resource_size(res);
 
 	i2c->irq = irq;
 
@@ -1094,7 +1109,7 @@ eremap:
 eclk:
 	kfree(i2c);
 emalloc:
-	release_mem_region(res->start, res_len(res));
+	release_mem_region(res->start, resource_size(res));
 	return ret;
 }
 
@@ -1149,6 +1164,7 @@ static struct platform_driver i2c_pxa_driver = {
 		.name	= "pxa2xx-i2c",
 		.owner	= THIS_MODULE,
 	},
+	.id_table	= i2c_pxa_id_table,
 };
 
 static int __init i2c_adap_pxa_init(void)

@@ -1,7 +1,7 @@
 /*
  * i2sbus driver
  *
- * Copyright 2006 Johannes Berg <johannes@sipsolutions.net>
+ * Copyright 2006-2008 Johannes Berg <johannes@sipsolutions.net>
  *
  * GPL v2, can be found in COPYING.
  */
@@ -186,13 +186,25 @@ static int i2sbus_add_dev(struct macio_dev *macio,
 		}
 	}
 	if (i == 1) {
-		const u32 *layout_id =
-			of_get_property(sound, "layout-id", NULL);
-		if (layout_id) {
-			layout = *layout_id;
+		const u32 *id = of_get_property(sound, "layout-id", NULL);
+
+		if (id) {
+			layout = *id;
 			snprintf(dev->sound.modalias, 32,
 				 "sound-layout-%d", layout);
 			ok = 1;
+		} else {
+			id = of_get_property(sound, "device-id", NULL);
+			/*
+			 * We probably cannot handle all device-id machines,
+			 * so restrict to those we do handle for now.
+			 */
+			if (id && (*id == 22 || *id == 14 || *id == 35)) {
+				snprintf(dev->sound.modalias, 32,
+					 "aoa-device-id-%d", *id);
+				ok = 1;
+				layout = -1;
+			}
 		}
 	}
 	/* for the time being, until we can handle non-layout-id
@@ -346,14 +358,14 @@ static int i2sbus_probe(struct macio_dev* dev, const struct of_device_id *match)
 		return -ENODEV;
 	}
 
-	dev->ofdev.dev.driver_data = control;
+	dev_set_drvdata(&dev->ofdev.dev, control);
 
 	return 0;
 }
 
 static int i2sbus_remove(struct macio_dev* dev)
 {
-	struct i2sbus_control *control = dev->ofdev.dev.driver_data;
+	struct i2sbus_control *control = dev_get_drvdata(&dev->ofdev.dev);
 	struct i2sbus_dev *i2sdev, *tmp;
 
 	list_for_each_entry_safe(i2sdev, tmp, &control->list, item)
@@ -365,7 +377,7 @@ static int i2sbus_remove(struct macio_dev* dev)
 #ifdef CONFIG_PM
 static int i2sbus_suspend(struct macio_dev* dev, pm_message_t state)
 {
-	struct i2sbus_control *control = dev->ofdev.dev.driver_data;
+	struct i2sbus_control *control = dev_get_drvdata(&dev->ofdev.dev);
 	struct codec_info_item *cii;
 	struct i2sbus_dev* i2sdev;
 	int err, ret = 0;
@@ -395,7 +407,7 @@ static int i2sbus_suspend(struct macio_dev* dev, pm_message_t state)
 
 static int i2sbus_resume(struct macio_dev* dev)
 {
-	struct i2sbus_control *control = dev->ofdev.dev.driver_data;
+	struct i2sbus_control *control = dev_get_drvdata(&dev->ofdev.dev);
 	struct codec_info_item *cii;
 	struct i2sbus_dev* i2sdev;
 	int err, ret = 0;

@@ -12,9 +12,8 @@
 #include <linux/spinlock.h>
 #include <linux/completion.h>
 #include <linux/buffer_head.h>
-#include <linux/gfs2_ondisk.h>
 #include <linux/kallsyms.h>
-#include <linux/lm_interface.h>
+#include <linux/gfs2_ondisk.h>
 
 #include "gfs2.h"
 #include "incore.h"
@@ -33,6 +32,9 @@ int gfs2_trans_begin(struct gfs2_sbd *sdp, unsigned int blocks,
 
 	BUG_ON(current->journal_info);
 	BUG_ON(blocks == 0 && revokes == 0);
+
+	if (!test_bit(SDF_JOURNAL_LIVE, &sdp->sd_flags))
+		return -EROFS;
 
 	tr = kzalloc(sizeof(struct gfs2_trans), GFP_NOFS);
 	if (!tr)
@@ -54,12 +56,6 @@ int gfs2_trans_begin(struct gfs2_sbd *sdp, unsigned int blocks,
 	error = gfs2_glock_nq(&tr->tr_t_gh);
 	if (error)
 		goto fail_holder_uninit;
-
-	if (!test_bit(SDF_JOURNAL_LIVE, &sdp->sd_flags)) {
-		tr->tr_t_gh.gh_flags |= GL_NOCACHE;
-		error = -EROFS;
-		goto fail_gunlock;
-	}
 
 	error = gfs2_log_reserve(sdp, tr->tr_reserved);
 	if (error)
@@ -88,9 +84,11 @@ void gfs2_trans_end(struct gfs2_sbd *sdp)
 
 	if (!tr->tr_touched) {
 		gfs2_log_release(sdp, tr->tr_reserved);
-		gfs2_glock_dq(&tr->tr_t_gh);
-		gfs2_holder_uninit(&tr->tr_t_gh);
-		kfree(tr);
+		if (tr->tr_t_gh.gh_gl) {
+			gfs2_glock_dq(&tr->tr_t_gh);
+			gfs2_holder_uninit(&tr->tr_t_gh);
+			kfree(tr);
+		}
 		return;
 	}
 
@@ -106,9 +104,11 @@ void gfs2_trans_end(struct gfs2_sbd *sdp)
 	}
 
 	gfs2_log_commit(sdp, tr);
-        gfs2_glock_dq(&tr->tr_t_gh);
-        gfs2_holder_uninit(&tr->tr_t_gh);
-        kfree(tr);
+	if (tr->tr_t_gh.gh_gl) {
+		gfs2_glock_dq(&tr->tr_t_gh);
+		gfs2_holder_uninit(&tr->tr_t_gh);
+		kfree(tr);
+	}
 
 	if (sdp->sd_vfs->s_flags & MS_SYNCHRONOUS)
 		gfs2_log_flush(sdp, NULL);

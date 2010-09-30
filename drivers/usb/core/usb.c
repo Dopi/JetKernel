@@ -34,6 +34,7 @@
 #include <linux/usb.h>
 #include <linux/mutex.h>
 #include <linux/workqueue.h>
+#include <linux/debugfs.h>
 
 #include <asm/io.h>
 #include <linux/scatterlist.h>
@@ -131,7 +132,7 @@ EXPORT_SYMBOL_GPL(usb_altnum_to_altsetting);
 
 struct find_interface_arg {
 	int minor;
-	struct usb_interface *interface;
+	struct device_driver *drv;
 };
 
 static int __find_interface(struct device *dev, void *data)
@@ -139,16 +140,13 @@ static int __find_interface(struct device *dev, void *data)
 	struct find_interface_arg *arg = data;
 	struct usb_interface *intf;
 
-	/* can't look at usb devices, only interfaces */
-	if (is_usb_device(dev))
+	if (!is_usb_interface(dev))
 		return 0;
 
+	if (dev->driver != arg->drv)
+		return 0;
 	intf = to_usb_interface(dev);
-	if (intf->minor != -1 && intf->minor == arg->minor) {
-		arg->interface = intf;
-		return 1;
-	}
-	return 0;
+	return intf->minor == arg->minor;
 }
 
 /**
@@ -156,21 +154,24 @@ static int __find_interface(struct device *dev, void *data)
  * @drv: the driver whose current configuration is considered
  * @minor: the minor number of the desired device
  *
- * This walks the driver device list and returns a pointer to the interface
- * with the matching minor.  Note, this only works for devices that share the
- * USB major number.
+ * This walks the bus device list and returns a pointer to the interface
+ * with the matching minor and driver.  Note, this only works for devices
+ * that share the USB major number.
  */
 struct usb_interface *usb_find_interface(struct usb_driver *drv, int minor)
 {
 	struct find_interface_arg argb;
-	int retval;
+	struct device *dev;
 
 	argb.minor = minor;
-	argb.interface = NULL;
-	/* eat the error, it will be in argb.interface */
-	retval = driver_for_each_device(&drv->drvwrap.driver, NULL, &argb,
-					__find_interface);
-	return argb.interface;
+	argb.drv = &drv->drvwrap.driver;
+
+	dev = bus_find_device(&usb_bus_type, NULL, &argb, __find_interface);
+
+	/* Drop reference count from bus_find_device */
+	put_device(dev);
+
+	return dev ? to_usb_interface(dev) : NULL;
 }
 EXPORT_SYMBOL_GPL(usb_find_interface);
 
@@ -184,11 +185,16 @@ EXPORT_SYMBOL_GPL(usb_find_interface);
 static void usb_release_dev(struct device *dev)
 {
 	struct usb_device *udev;
+	struct usb_hcd *hcd;
 
 	udev = to_usb_device(dev);
+	hcd = bus_to_hcd(udev->bus);
 
 	usb_destroy_configuration(udev);
-	usb_put_hcd(bus_to_hcd(udev->bus));
+	/* Root hubs aren't real devices, so don't free HCD resources */
+	if (hcd->driver->free_dev && udev->parent)
+		hcd->driver->free_dev(hcd, udev);
+	usb_put_hcd(hcd);
 	kfree(udev->product);
 	kfree(udev->manufacturer);
 	kfree(udev->serial);
@@ -305,10 +311,21 @@ static struct dev_pm_ops usb_device_pm_ops = {
 
 #endif	/* CONFIG_PM */
 
+
+static char *usb_nodename(struct device *dev)
+{
+	struct usb_device *usb_dev;
+
+	usb_dev = to_usb_device(dev);
+	return kasprintf(GFP_KERNEL, "bus/usb/%03d/%03d",
+			 usb_dev->bus->busnum, usb_dev->devnum);
+}
+
 struct device_type usb_device_type = {
 	.name =		"usb_device",
 	.release =	usb_release_dev,
 	.uevent =	usb_dev_uevent,
+	.nodename = 	usb_nodename,
 	.pm =		&usb_device_pm_ops,
 };
 
@@ -348,6 +365,13 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 		kfree(dev);
 		return NULL;
 	}
+	/* Root hubs aren't true devices, so don't allocate HCD resources */
+	if (usb_hcd->driver->alloc_dev && parent &&
+		!usb_hcd->driver->alloc_dev(usb_hcd, dev)) {
+		usb_put_hcd(bus_to_hcd(bus));
+		kfree(dev);
+		return NULL;
+	}
 
 	device_initialize(&dev->dev);
 	dev->dev.bus = &usb_bus_type;
@@ -362,7 +386,7 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 	dev->ep0.desc.bLength = USB_DT_ENDPOINT_SIZE;
 	dev->ep0.desc.bDescriptorType = USB_DT_ENDPOINT;
 	/* ep0 maxpacket comes later, from device descriptor */
-	usb_enable_endpoint(dev, &dev->ep0, true);
+	usb_enable_endpoint(dev, &dev->ep0, false);
 	dev->can_submit = 1;
 
 	/* Save readable and stable topology id, distinguishing devices
@@ -375,18 +399,24 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 	 */
 	if (unlikely(!parent)) {
 		dev->devpath[0] = '0';
+		dev->route = 0;
 
 		dev->dev.parent = bus->controller;
 		dev_set_name(&dev->dev, "usb%d", bus->busnum);
 		root_hub = 1;
 	} else {
 		/* match any labeling on the hubs; it's one-based */
-		if (parent->devpath[0] == '0')
+		if (parent->devpath[0] == '0') {
 			snprintf(dev->devpath, sizeof dev->devpath,
 				"%d", port1);
-		else
+			/* Root ports are not counted in route string */
+			dev->route = 0;
+		} else {
 			snprintf(dev->devpath, sizeof dev->devpath,
 				"%s.%d", parent->devpath, port1);
+			dev->route = parent->route +
+				(port1 << ((parent->level - 1)*4));
+		}
 
 		dev->dev.parent = &parent->dev;
 		dev_set_name(&dev->dev, "%d-%s", bus->busnum, dev->devpath);
@@ -799,12 +829,12 @@ void usb_buffer_dmasync(struct urb *urb)
 		return;
 
 	if (controller->dma_mask) {
-		dma_sync_single(controller,
+		dma_sync_single_for_cpu(controller,
 			urb->transfer_dma, urb->transfer_buffer_length,
 			usb_pipein(urb->pipe)
 				? DMA_FROM_DEVICE : DMA_TO_DEVICE);
 		if (usb_pipecontrol(urb->pipe))
-			dma_sync_single(controller,
+			dma_sync_single_for_cpu(controller,
 					urb->setup_dma,
 					sizeof(struct usb_ctrlrequest),
 					DMA_TO_DEVICE);
@@ -922,8 +952,8 @@ void usb_buffer_dmasync_sg(const struct usb_device *dev, int is_in,
 			|| !controller->dma_mask)
 		return;
 
-	dma_sync_sg(controller, sg, n_hw_ents,
-			is_in ? DMA_FROM_DEVICE : DMA_TO_DEVICE);
+	dma_sync_sg_for_cpu(controller, sg, n_hw_ents,
+			    is_in ? DMA_FROM_DEVICE : DMA_TO_DEVICE);
 }
 EXPORT_SYMBOL_GPL(usb_buffer_dmasync_sg);
 #endif
@@ -1001,6 +1031,35 @@ static struct notifier_block usb_bus_nb = {
 	.notifier_call = usb_bus_notify,
 };
 
+struct dentry *usb_debug_root;
+EXPORT_SYMBOL_GPL(usb_debug_root);
+
+struct dentry *usb_debug_devices;
+
+static int usb_debugfs_init(void)
+{
+	usb_debug_root = debugfs_create_dir("usb", NULL);
+	if (!usb_debug_root)
+		return -ENOENT;
+
+	usb_debug_devices = debugfs_create_file("devices", 0444,
+						usb_debug_root, NULL,
+						&usbfs_devices_fops);
+	if (!usb_debug_devices) {
+		debugfs_remove(usb_debug_root);
+		usb_debug_root = NULL;
+		return -ENOENT;
+	}
+
+	return 0;
+}
+
+static void usb_debugfs_cleanup(void)
+{
+	debugfs_remove(usb_debug_devices);
+	debugfs_remove(usb_debug_root);
+}
+
 /*
  * Init
  */
@@ -1012,6 +1071,10 @@ static int __init usb_init(void)
 		return 0;
 	}
 
+	retval = usb_debugfs_init();
+	if (retval)
+		goto out;
+
 	retval = ksuspend_usb_init();
 	if (retval)
 		goto out;
@@ -1021,9 +1084,6 @@ static int __init usb_init(void)
 	retval = bus_register_notifier(&usb_bus_type, &usb_bus_nb);
 	if (retval)
 		goto bus_notifier_failed;
-	retval = usb_host_init();
-	if (retval)
-		goto host_init_failed;
 	retval = usb_major_init();
 	if (retval)
 		goto major_init_failed;
@@ -1053,8 +1113,6 @@ usb_devio_init_failed:
 driver_register_failed:
 	usb_major_cleanup();
 major_init_failed:
-	usb_host_cleanup();
-host_init_failed:
 	bus_unregister_notifier(&usb_bus_type, &usb_bus_nb);
 bus_notifier_failed:
 	bus_unregister(&usb_bus_type);
@@ -1079,10 +1137,10 @@ static void __exit usb_exit(void)
 	usb_deregister(&usbfs_driver);
 	usb_devio_cleanup();
 	usb_hub_cleanup();
-	usb_host_cleanup();
 	bus_unregister_notifier(&usb_bus_type, &usb_bus_nb);
 	bus_unregister(&usb_bus_type);
 	ksuspend_usb_cleanup();
+	usb_debugfs_cleanup();
 }
 
 subsys_initcall(usb_init);

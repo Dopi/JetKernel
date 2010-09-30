@@ -16,6 +16,7 @@
 #define MCFINT_VECBASE      64
 #define MCFINT_UART0        26          /* Interrupt number for UART0 */
 #define MCFINT_UART1        27          /* Interrupt number for UART1 */
+#define MCFINT_UART2        28          /* Interrupt number for UART2 */
 
 #define MCF_WTM_WCR	MCF_REG16(0xFC098000)
 
@@ -123,6 +124,18 @@
 #define	ACR_CM_OFF_PRE		(2<<5)
 #define	ACR_CM_OFF_IMP		(3<<5)
 #define	ACR_WPROTECT		(1<<2)
+
+/*********************************************************************
+ *
+ * Reset Controller Module
+ *
+ *********************************************************************/
+
+#define	MCF_RCR			0xFC0A0000
+#define	MCF_RSR			0xFC0A0001
+
+#define	MCF_RCR_SWRESET		0x80		/* Software reset bit */
+#define	MCF_RCR_FRCSTOUT	0x40		/* Force external reset */
 
 /*********************************************************************
  *

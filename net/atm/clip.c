@@ -214,15 +214,15 @@ static void clip_push(struct atm_vcc *vcc, struct sk_buff *skb)
 		skb->protocol = ((__be16 *) skb->data)[3];
 		skb_pull(skb, RFC1483LLC_LEN);
 		if (skb->protocol == htons(ETH_P_ARP)) {
-			PRIV(skb->dev)->stats.rx_packets++;
-			PRIV(skb->dev)->stats.rx_bytes += skb->len;
+			skb->dev->stats.rx_packets++;
+			skb->dev->stats.rx_bytes += skb->len;
 			clip_arp_rcv(skb);
 			return;
 		}
 	}
 	clip_vcc->last_use = jiffies;
-	PRIV(skb->dev)->stats.rx_packets++;
-	PRIV(skb->dev)->stats.rx_bytes += skb->len;
+	skb->dev->stats.rx_packets++;
+	skb->dev->stats.rx_bytes += skb->len;
 	memset(ATM_SKB(skb), 0, sizeof(struct atm_skb_data));
 	netif_rx(skb);
 }
@@ -369,27 +369,27 @@ static int clip_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	unsigned long flags;
 
 	pr_debug("clip_start_xmit (skb %p)\n", skb);
-	if (!skb->dst) {
-		printk(KERN_ERR "clip_start_xmit: skb->dst == NULL\n");
+	if (!skb_dst(skb)) {
+		printk(KERN_ERR "clip_start_xmit: skb_dst(skb) == NULL\n");
 		dev_kfree_skb(skb);
-		clip_priv->stats.tx_dropped++;
+		dev->stats.tx_dropped++;
 		return 0;
 	}
-	if (!skb->dst->neighbour) {
+	if (!skb_dst(skb)->neighbour) {
 #if 0
-		skb->dst->neighbour = clip_find_neighbour(skb->dst, 1);
-		if (!skb->dst->neighbour) {
+		skb_dst(skb)->neighbour = clip_find_neighbour(skb_dst(skb), 1);
+		if (!skb_dst(skb)->neighbour) {
 			dev_kfree_skb(skb);	/* lost that one */
-			clip_priv->stats.tx_dropped++;
+			dev->stats.tx_dropped++;
 			return 0;
 		}
 #endif
 		printk(KERN_ERR "clip_start_xmit: NO NEIGHBOUR !\n");
 		dev_kfree_skb(skb);
-		clip_priv->stats.tx_dropped++;
+		dev->stats.tx_dropped++;
 		return 0;
 	}
-	entry = NEIGH2ENTRY(skb->dst->neighbour);
+	entry = NEIGH2ENTRY(skb_dst(skb)->neighbour);
 	if (!entry->vccs) {
 		if (time_after(jiffies, entry->expires)) {
 			/* should be resolved */
@@ -400,13 +400,13 @@ static int clip_start_xmit(struct sk_buff *skb, struct net_device *dev)
 			skb_queue_tail(&entry->neigh->arp_queue, skb);
 		else {
 			dev_kfree_skb(skb);
-			clip_priv->stats.tx_dropped++;
+			dev->stats.tx_dropped++;
 		}
 		return 0;
 	}
 	pr_debug("neigh %p, vccs %p\n", entry, entry->vccs);
 	ATM_SKB(skb)->vcc = vcc = entry->vccs->vcc;
-	pr_debug("using neighbour %p, vcc %p\n", skb->dst->neighbour, vcc);
+	pr_debug("using neighbour %p, vcc %p\n", skb_dst(skb)->neighbour, vcc);
 	if (entry->vccs->encap) {
 		void *here;
 
@@ -423,8 +423,8 @@ static int clip_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		printk(KERN_WARNING "clip_start_xmit: XOFF->XOFF transition\n");
 		return 0;
 	}
-	clip_priv->stats.tx_packets++;
-	clip_priv->stats.tx_bytes += skb->len;
+	dev->stats.tx_packets++;
+	dev->stats.tx_bytes += skb->len;
 	vcc->send(vcc, skb);
 	if (atm_may_send(vcc, 0)) {
 		entry->vccs->xoff = 0;
@@ -443,16 +443,11 @@ static int clip_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	return 0;
 }
 
-static struct net_device_stats *clip_get_stats(struct net_device *dev)
-{
-	return &PRIV(dev)->stats;
-}
-
 static int clip_mkip(struct atm_vcc *vcc, int timeout)
 {
+	struct sk_buff_head *rq, queue;
 	struct clip_vcc *clip_vcc;
-	struct sk_buff *skb;
-	struct sk_buff_head *rq;
+	struct sk_buff *skb, *tmp;
 	unsigned long flags;
 
 	if (!vcc->push)
@@ -474,39 +469,28 @@ static int clip_mkip(struct atm_vcc *vcc, int timeout)
 	vcc->push = clip_push;
 	vcc->pop = clip_pop;
 
+	__skb_queue_head_init(&queue);
 	rq = &sk_atm(vcc)->sk_receive_queue;
 
 	spin_lock_irqsave(&rq->lock, flags);
-	if (skb_queue_empty(rq)) {
-		skb = NULL;
-	} else {
-		/* NULL terminate the list.  */
-		rq->prev->next = NULL;
-		skb = rq->next;
-	}
-	rq->prev = rq->next = (struct sk_buff *)rq;
-	rq->qlen = 0;
+	skb_queue_splice_init(rq, &queue);
 	spin_unlock_irqrestore(&rq->lock, flags);
 
 	/* re-process everything received between connection setup and MKIP */
-	while (skb) {
-		struct sk_buff *next = skb->next;
-
-		skb->next = skb->prev = NULL;
+	skb_queue_walk_safe(&queue, skb, tmp) {
 		if (!clip_devs) {
 			atm_return(vcc, skb->truesize);
 			kfree_skb(skb);
 		} else {
+			struct net_device *dev = skb->dev;
 			unsigned int len = skb->len;
 
 			skb_get(skb);
 			clip_push(vcc, skb);
-			PRIV(skb->dev)->stats.rx_packets--;
-			PRIV(skb->dev)->stats.rx_bytes -= len;
+			dev->stats.rx_packets--;
+			dev->stats.rx_bytes -= len;
 			kfree_skb(skb);
 		}
-
-		skb = next;
 	}
 	return 0;
 }
@@ -557,11 +541,13 @@ static int clip_setentry(struct atm_vcc *vcc, __be32 ip)
 	return error;
 }
 
+static const struct net_device_ops clip_netdev_ops = {
+	.ndo_start_xmit = clip_start_xmit,
+};
+
 static void clip_setup(struct net_device *dev)
 {
-	dev->hard_start_xmit = clip_start_xmit;
-	/* sg_xmit ... */
-	dev->get_stats = clip_get_stats;
+	dev->netdev_ops = &clip_netdev_ops;
 	dev->type = ARPHRD_ATM;
 	dev->hard_header_len = RFC1483LLC_LEN;
 	dev->mtu = RFC1626_MTU;
@@ -571,6 +557,7 @@ static void clip_setup(struct net_device *dev)
 	/* without any more elaborate queuing. 100 is a reasonable */
 	/* compromise between decent burst-tolerance and protection */
 	/* against memory hogs. */
+	dev->priv_flags &= ~IFF_XMIT_DST_RELEASE;
 }
 
 static int clip_create(int number)
@@ -621,7 +608,7 @@ static int clip_device_event(struct notifier_block *this, unsigned long event,
 	}
 
 	/* ignore non-CLIP devices */
-	if (dev->type != ARPHRD_ATM || dev->hard_start_xmit != clip_start_xmit)
+	if (dev->type != ARPHRD_ATM || dev->netdev_ops != &clip_netdev_ops)
 		return NOTIFY_DONE;
 
 	switch (event) {

@@ -41,16 +41,17 @@ static inline void *qdisc_priv(struct Qdisc *q)
 typedef u64	psched_time_t;
 typedef long	psched_tdiff_t;
 
-/* Avoid doing 64 bit divide by 1000 */
-#define PSCHED_US2NS(x)			((s64)(x) << 10)
-#define PSCHED_NS2US(x)			((x) >> 10)
+/* Avoid doing 64 bit divide */
+#define PSCHED_SHIFT			6
+#define PSCHED_TICKS2NS(x)		((s64)(x) << PSCHED_SHIFT)
+#define PSCHED_NS2TICKS(x)		((x) >> PSCHED_SHIFT)
 
-#define PSCHED_TICKS_PER_SEC		PSCHED_NS2US(NSEC_PER_SEC)
+#define PSCHED_TICKS_PER_SEC		PSCHED_NS2TICKS(NSEC_PER_SEC)
 #define PSCHED_PASTPERFECT		0
 
 static inline psched_time_t psched_get_time(void)
 {
-	return PSCHED_NS2US(ktime_to_ns(ktime_get()));
+	return PSCHED_NS2TICKS(ktime_to_ns(ktime_get()));
 }
 
 static inline psched_tdiff_t
@@ -85,6 +86,7 @@ extern struct qdisc_rate_table *qdisc_get_rtab(struct tc_ratespec *r,
 		struct nlattr *tab);
 extern void qdisc_put_rtab(struct qdisc_rate_table *tab);
 extern void qdisc_put_stab(struct qdisc_size_table *tab);
+extern void qdisc_warn_nonwc(char *txt, struct Qdisc *qdisc);
 
 extern void __qdisc_run(struct Qdisc *q);
 

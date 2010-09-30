@@ -44,10 +44,6 @@
 
 #include "pasemi.h"
 
-#if !defined(CONFIG_SMP)
-static void smp_send_stop(void) {}
-#endif
-
 /* SDC reset register, must be pre-mapped at reset time */
 static void __iomem *reset_reg;
 
@@ -75,20 +71,25 @@ static void pas_restart(char *cmd)
 }
 
 #ifdef CONFIG_SMP
-static DEFINE_SPINLOCK(timebase_lock);
+static raw_spinlock_t timebase_lock;
 static unsigned long timebase;
 
 static void __devinit pas_give_timebase(void)
 {
-	spin_lock(&timebase_lock);
+	unsigned long flags;
+
+	local_irq_save(flags);
+	hard_irq_disable();
+	__raw_spin_lock(&timebase_lock);
 	mtspr(SPRN_TBCTL, TBCTL_FREEZE);
 	isync();
 	timebase = get_tb();
-	spin_unlock(&timebase_lock);
+	__raw_spin_unlock(&timebase_lock);
 
 	while (timebase)
 		barrier();
 	mtspr(SPRN_TBCTL, TBCTL_RESTART);
+	local_irq_restore(flags);
 }
 
 static void __devinit pas_take_timebase(void)
@@ -96,10 +97,10 @@ static void __devinit pas_take_timebase(void)
 	while (!timebase)
 		smp_rmb();
 
-	spin_lock(&timebase_lock);
+	__raw_spin_lock(&timebase_lock);
 	set_tb(timebase >> 32, timebase & 0xffffffff);
 	timebase = 0;
-	spin_unlock(&timebase_lock);
+	__raw_spin_unlock(&timebase_lock);
 }
 
 struct smp_ops_t pas_smp_ops = {

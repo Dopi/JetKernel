@@ -11,12 +11,12 @@
 #include <linux/device.h>
 #include <linux/interrupt.h>
 #include <linux/init.h>
+#include <linux/io.h>
 
 #include <pcmcia/ss.h>
 
 #include <mach/hardware.h>
 #include <asm/hardware/sa1111.h>
-#include <asm/io.h>
 #include <asm/irq.h>
 
 #include "sa1111_generic.h"
@@ -159,7 +159,7 @@ static int __devexit pcmcia_remove(struct sa1111_dev *dev)
 
 static int pcmcia_suspend(struct sa1111_dev *dev, pm_message_t state)
 {
-	return pcmcia_socket_dev_suspend(&dev->dev, state);
+	return pcmcia_socket_dev_suspend(&dev->dev);
 }
 
 static int pcmcia_resume(struct sa1111_dev *dev)

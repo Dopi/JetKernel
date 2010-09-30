@@ -8,26 +8,13 @@
  * published by the Free Software Foundation.
  */
 #include <linux/module.h>
-#include <linux/errno.h>
-#include <linux/fs.h>
-#include <linux/adfs_fs.h>
-#include <linux/slab.h>
-#include <linux/time.h>
-#include <linux/stat.h>
-#include <linux/string.h>
 #include <linux/init.h>
 #include <linux/buffer_head.h>
-#include <linux/vfs.h>
 #include <linux/parser.h>
-#include <linux/bitops.h>
 #include <linux/mount.h>
 #include <linux/seq_file.h>
-
-#include <asm/uaccess.h>
-#include <asm/system.h>
-
-#include <stdarg.h>
-
+#include <linux/smp_lock.h>
+#include <linux/statfs.h>
 #include "adfs.h"
 #include "dir_f.h"
 #include "dir_fplus.h"
@@ -132,11 +119,15 @@ static void adfs_put_super(struct super_block *sb)
 	int i;
 	struct adfs_sb_info *asb = ADFS_SB(sb);
 
+	lock_kernel();
+
 	for (i = 0; i < asb->s_map_size; i++)
 		brelse(asb->s_map[i].dm_bh);
 	kfree(asb->s_map);
 	kfree(asb);
 	sb->s_fs_info = NULL;
+
+	unlock_kernel();
 }
 
 static int adfs_show_options(struct seq_file *seq, struct vfsmount *mnt)
@@ -219,16 +210,20 @@ static int adfs_remount(struct super_block *sb, int *flags, char *data)
 
 static int adfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 {
-	struct adfs_sb_info *asb = ADFS_SB(dentry->d_sb);
+	struct super_block *sb = dentry->d_sb;
+	struct adfs_sb_info *sbi = ADFS_SB(sb);
+	u64 id = huge_encode_dev(sb->s_bdev->bd_dev);
 
 	buf->f_type    = ADFS_SUPER_MAGIC;
-	buf->f_namelen = asb->s_namelen;
-	buf->f_bsize   = dentry->d_sb->s_blocksize;
-	buf->f_blocks  = asb->s_size;
-	buf->f_files   = asb->s_ids_per_zone * asb->s_map_size;
+	buf->f_namelen = sbi->s_namelen;
+	buf->f_bsize   = sb->s_blocksize;
+	buf->f_blocks  = sbi->s_size;
+	buf->f_files   = sbi->s_ids_per_zone * sbi->s_map_size;
 	buf->f_bavail  =
-	buf->f_bfree   = adfs_map_free(dentry->d_sb);
+	buf->f_bfree   = adfs_map_free(sb);
 	buf->f_ffree   = (long)(buf->f_bfree * buf->f_files) / (long)buf->f_blocks;
+	buf->f_fsid.val[0] = (u32)id;
+	buf->f_fsid.val[1] = (u32)(id >> 32);
 
 	return 0;
 }
@@ -526,3 +521,4 @@ static void __exit exit_adfs_fs(void)
 
 module_init(init_adfs_fs)
 module_exit(exit_adfs_fs)
+MODULE_LICENSE("GPL");

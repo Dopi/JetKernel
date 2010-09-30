@@ -824,10 +824,6 @@ static int mcs_hard_xmit(struct sk_buff *skb, struct net_device *ndev)
 	int wraplen;
 	int ret = 0;
 
-
-	if (skb == NULL || ndev == NULL)
-		return -EINVAL;
-
 	netif_stop_queue(ndev);
 	mcs = netdev_priv(ndev);
 
@@ -870,8 +866,15 @@ static int mcs_hard_xmit(struct sk_buff *skb, struct net_device *ndev)
 
 	dev_kfree_skb(skb);
 	spin_unlock_irqrestore(&mcs->lock, flags);
-	return ret;
+	return NETDEV_TX_OK;
 }
+
+static const struct net_device_ops mcs_netdev_ops = {
+	.ndo_open = mcs_net_open,
+	.ndo_stop = mcs_net_close,
+	.ndo_start_xmit = mcs_hard_xmit,
+	.ndo_do_ioctl = mcs_net_ioctl,
+};
 
 /*
  * This function is called by the USB subsystem for each new device in the
@@ -919,11 +922,7 @@ static int mcs_probe(struct usb_interface *intf,
 	/* Speed change work initialisation*/
 	INIT_WORK(&mcs->work, mcs_speed_work);
 
-	/* Override the network functions we need to use */
-	ndev->hard_start_xmit = mcs_hard_xmit;
-	ndev->open = mcs_net_open;
-	ndev->stop = mcs_net_close;
-	ndev->do_ioctl = mcs_net_ioctl;
+	ndev->netdev_ops = &mcs_netdev_ops;
 
 	if (!intf->cur_altsetting)
 		goto error2;

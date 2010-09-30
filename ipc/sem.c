@@ -129,6 +129,7 @@ void sem_init_ns(struct ipc_namespace *ns)
 void sem_exit_ns(struct ipc_namespace *ns)
 {
 	free_ipcs(ns, &sem_ids(ns), freeary);
+	idr_destroy(&ns->ids[IPC_SEM_IDS].ipcs_idr);
 }
 #endif
 
@@ -1290,8 +1291,8 @@ void exit_sem(struct task_struct *tsk)
 		int i;
 
 		rcu_read_lock();
-		un = list_entry(rcu_dereference(ulp->list_proc.next),
-					struct sem_undo, list_proc);
+		un = list_entry_rcu(ulp->list_proc.next,
+				    struct sem_undo, list_proc);
 		if (&un->list_proc == &ulp->list_proc)
 			semid = -1;
 		 else

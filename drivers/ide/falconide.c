@@ -20,6 +20,7 @@
 #include <asm/atarihw.h>
 #include <asm/atariints.h>
 #include <asm/atari_stdma.h>
+#include <asm/ide.h>
 
 #define DRV_NAME "falconide"
 
@@ -40,29 +41,52 @@
      *  which is shared between several drivers.
      */
 
-int falconide_intr_lock;
-EXPORT_SYMBOL(falconide_intr_lock);
+static int falconide_intr_lock;
 
-static void falconide_input_data(ide_drive_t *drive, struct request *rq,
+static void falconide_release_lock(void)
+{
+	if (falconide_intr_lock == 0) {
+		printk(KERN_ERR "%s: bug\n", __func__);
+		return;
+	}
+	falconide_intr_lock = 0;
+	stdma_release();
+}
+
+static void falconide_get_lock(irq_handler_t handler, void *data)
+{
+	if (falconide_intr_lock == 0) {
+		if (in_interrupt() > 0)
+			panic("Falcon IDE hasn't ST-DMA lock in interrupt");
+		stdma_lock(handler, data);
+		falconide_intr_lock = 1;
+	}
+}
+
+static void falconide_input_data(ide_drive_t *drive, struct ide_cmd *cmd,
 				 void *buf, unsigned int len)
 {
 	unsigned long data_addr = drive->hwif->io_ports.data_addr;
 
-	if (drive->media == ide_disk && rq && rq->cmd_type == REQ_TYPE_FS)
-		return insw(data_addr, buf, (len + 1) / 2);
+	if (drive->media == ide_disk && cmd && (cmd->tf_flags & IDE_TFLAG_FS)) {
+		__ide_mm_insw(data_addr, buf, (len + 1) / 2);
+		return;
+	}
 
-	insw_swapw(data_addr, buf, (len + 1) / 2);
+	raw_insw_swapw((u16 *)data_addr, buf, (len + 1) / 2);
 }
 
-static void falconide_output_data(ide_drive_t *drive, struct request *rq,
+static void falconide_output_data(ide_drive_t *drive, struct ide_cmd *cmd,
 				  void *buf, unsigned int len)
 {
 	unsigned long data_addr = drive->hwif->io_ports.data_addr;
 
-	if (drive->media == ide_disk && rq && rq->cmd_type == REQ_TYPE_FS)
-		return outsw(data_addr, buf, (len + 1) / 2);
+	if (drive->media == ide_disk && cmd && (cmd->tf_flags & IDE_TFLAG_FS)) {
+		__ide_mm_outsw(data_addr, buf, (len + 1) / 2);
+		return;
+	}
 
-	outsw_swapw(data_addr, buf, (len + 1) / 2);
+	raw_outsw_swapw((u16 *)data_addr, buf, (len + 1) / 2);
 }
 
 /* Atari has a byte-swapped IDE interface */
@@ -70,9 +94,9 @@ static const struct ide_tp_ops falconide_tp_ops = {
 	.exec_command		= ide_exec_command,
 	.read_status		= ide_read_status,
 	.read_altstatus		= ide_read_altstatus,
+	.write_devctl		= ide_write_devctl,
 
-	.set_irq		= ide_set_irq,
-
+	.dev_select		= ide_dev_select,
 	.tf_load		= ide_tf_load,
 	.tf_read		= ide_tf_read,
 
@@ -81,11 +105,16 @@ static const struct ide_tp_ops falconide_tp_ops = {
 };
 
 static const struct ide_port_info falconide_port_info = {
+	.get_lock		= falconide_get_lock,
+	.release_lock		= falconide_release_lock,
 	.tp_ops			= &falconide_tp_ops,
-	.host_flags		= IDE_HFLAG_NO_DMA | IDE_HFLAG_SERIALIZE,
+	.host_flags		= IDE_HFLAG_MMIO | IDE_HFLAG_SERIALIZE |
+				  IDE_HFLAG_NO_DMA,
+	.irq_flags		= IRQF_SHARED,
+	.chipset		= ide_generic,
 };
 
-static void __init falconide_setup_ports(hw_regs_t *hw)
+static void __init falconide_setup_ports(struct ide_hw *hw)
 {
 	int i;
 
@@ -99,9 +128,6 @@ static void __init falconide_setup_ports(hw_regs_t *hw)
 	hw->io_ports.ctl_addr = ATA_HD_BASE + ATA_HD_CONTROL;
 
 	hw->irq = IRQ_MFP_IDE;
-	hw->ack_intr = NULL;
-
-	hw->chipset = ide_generic;
 }
 
     /*
@@ -111,7 +137,7 @@ static void __init falconide_setup_ports(hw_regs_t *hw)
 static int __init falconide_init(void)
 {
 	struct ide_host *host;
-	hw_regs_t hw, *hws[] = { &hw, NULL, NULL, NULL };
+	struct ide_hw hw, *hws[] = { &hw };
 	int rc;
 
 	if (!MACH_IS_ATARI || !ATARIHW_PRESENT(IDE))
@@ -126,15 +152,15 @@ static int __init falconide_init(void)
 
 	falconide_setup_ports(&hw);
 
-	host = ide_host_alloc(&falconide_port_info, hws);
+	host = ide_host_alloc(&falconide_port_info, hws, 1);
 	if (host == NULL) {
 		rc = -ENOMEM;
 		goto err;
 	}
 
-	ide_get_lock(NULL, NULL);
+	falconide_get_lock(NULL, NULL);
 	rc = ide_host_register(host, &falconide_port_info, hws);
-	ide_release_lock();
+	falconide_release_lock();
 
 	if (rc)
 		goto err_free;

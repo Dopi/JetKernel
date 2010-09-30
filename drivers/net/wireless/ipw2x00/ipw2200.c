@@ -301,88 +301,102 @@ static inline void ipw_write_reg32(struct ipw_priv *a, u32 b, u32 c)
 }
 
 /* 8-bit direct write (low 4K) */
-#define _ipw_write8(ipw, ofs, val) writeb((val), (ipw)->hw_base + (ofs))
+static inline void _ipw_write8(struct ipw_priv *ipw, unsigned long ofs,
+		u8 val)
+{
+	writeb(val, ipw->hw_base + ofs);
+}
 
 /* 8-bit direct write (for low 4K of SRAM/regs), with debug wrapper */
 #define ipw_write8(ipw, ofs, val) do { \
- IPW_DEBUG_IO("%s %d: write_direct8(0x%08X, 0x%08X)\n", __FILE__, __LINE__, (u32)(ofs), (u32)(val)); \
- _ipw_write8(ipw, ofs, val); \
- } while (0)
+	IPW_DEBUG_IO("%s %d: write_direct8(0x%08X, 0x%08X)\n", __FILE__, \
+			__LINE__, (u32)(ofs), (u32)(val)); \
+	_ipw_write8(ipw, ofs, val); \
+} while (0)
 
 /* 16-bit direct write (low 4K) */
-#define _ipw_write16(ipw, ofs, val) writew((val), (ipw)->hw_base + (ofs))
+static inline void _ipw_write16(struct ipw_priv *ipw, unsigned long ofs,
+		u16 val)
+{
+	writew(val, ipw->hw_base + ofs);
+}
 
 /* 16-bit direct write (for low 4K of SRAM/regs), with debug wrapper */
-#define ipw_write16(ipw, ofs, val) \
- IPW_DEBUG_IO("%s %d: write_direct16(0x%08X, 0x%08X)\n", __FILE__, __LINE__, (u32)(ofs), (u32)(val)); \
- _ipw_write16(ipw, ofs, val)
+#define ipw_write16(ipw, ofs, val) do { \
+	IPW_DEBUG_IO("%s %d: write_direct16(0x%08X, 0x%08X)\n", __FILE__, \
+			__LINE__, (u32)(ofs), (u32)(val)); \
+	_ipw_write16(ipw, ofs, val); \
+} while (0)
 
 /* 32-bit direct write (low 4K) */
-#define _ipw_write32(ipw, ofs, val) writel((val), (ipw)->hw_base + (ofs))
+static inline void _ipw_write32(struct ipw_priv *ipw, unsigned long ofs,
+		u32 val)
+{
+	writel(val, ipw->hw_base + ofs);
+}
 
 /* 32-bit direct write (for low 4K of SRAM/regs), with debug wrapper */
-#define ipw_write32(ipw, ofs, val) \
- IPW_DEBUG_IO("%s %d: write_direct32(0x%08X, 0x%08X)\n", __FILE__, __LINE__, (u32)(ofs), (u32)(val)); \
- _ipw_write32(ipw, ofs, val)
+#define ipw_write32(ipw, ofs, val) do { \
+	IPW_DEBUG_IO("%s %d: write_direct32(0x%08X, 0x%08X)\n", __FILE__, \
+			__LINE__, (u32)(ofs), (u32)(val)); \
+	_ipw_write32(ipw, ofs, val); \
+} while (0)
 
 /* 8-bit direct read (low 4K) */
-#define _ipw_read8(ipw, ofs) readb((ipw)->hw_base + (ofs))
-
-/* 8-bit direct read (low 4K), with debug wrapper */
-static inline u8 __ipw_read8(char *f, u32 l, struct ipw_priv *ipw, u32 ofs)
+static inline u8 _ipw_read8(struct ipw_priv *ipw, unsigned long ofs)
 {
-	IPW_DEBUG_IO("%s %d: read_direct8(0x%08X)\n", f, l, (u32) (ofs));
-	return _ipw_read8(ipw, ofs);
+	return readb(ipw->hw_base + ofs);
 }
 
 /* alias to 8-bit direct read (low 4K of SRAM/regs), with debug wrapper */
-#define ipw_read8(ipw, ofs) __ipw_read8(__FILE__, __LINE__, ipw, ofs)
+#define ipw_read8(ipw, ofs) ({ \
+	IPW_DEBUG_IO("%s %d: read_direct8(0x%08X)\n", __FILE__, __LINE__, \
+			(u32)(ofs)); \
+	_ipw_read8(ipw, ofs); \
+})
 
 /* 16-bit direct read (low 4K) */
-#define _ipw_read16(ipw, ofs) readw((ipw)->hw_base + (ofs))
-
-/* 16-bit direct read (low 4K), with debug wrapper */
-static inline u16 __ipw_read16(char *f, u32 l, struct ipw_priv *ipw, u32 ofs)
+static inline u16 _ipw_read16(struct ipw_priv *ipw, unsigned long ofs)
 {
-	IPW_DEBUG_IO("%s %d: read_direct16(0x%08X)\n", f, l, (u32) (ofs));
-	return _ipw_read16(ipw, ofs);
+	return readw(ipw->hw_base + ofs);
 }
 
 /* alias to 16-bit direct read (low 4K of SRAM/regs), with debug wrapper */
-#define ipw_read16(ipw, ofs) __ipw_read16(__FILE__, __LINE__, ipw, ofs)
+#define ipw_read16(ipw, ofs) ({ \
+	IPW_DEBUG_IO("%s %d: read_direct16(0x%08X)\n", __FILE__, __LINE__, \
+			(u32)(ofs)); \
+	_ipw_read16(ipw, ofs); \
+})
 
 /* 32-bit direct read (low 4K) */
-#define _ipw_read32(ipw, ofs) readl((ipw)->hw_base + (ofs))
-
-/* 32-bit direct read (low 4K), with debug wrapper */
-static inline u32 __ipw_read32(char *f, u32 l, struct ipw_priv *ipw, u32 ofs)
+static inline u32 _ipw_read32(struct ipw_priv *ipw, unsigned long ofs)
 {
-	IPW_DEBUG_IO("%s %d: read_direct32(0x%08X)\n", f, l, (u32) (ofs));
-	return _ipw_read32(ipw, ofs);
+	return readl(ipw->hw_base + ofs);
 }
 
 /* alias to 32-bit direct read (low 4K of SRAM/regs), with debug wrapper */
-#define ipw_read32(ipw, ofs) __ipw_read32(__FILE__, __LINE__, ipw, ofs)
+#define ipw_read32(ipw, ofs) ({ \
+	IPW_DEBUG_IO("%s %d: read_direct32(0x%08X)\n", __FILE__, __LINE__, \
+			(u32)(ofs)); \
+	_ipw_read32(ipw, ofs); \
+})
 
-/* multi-byte read (above 4K), with debug wrapper */
 static void _ipw_read_indirect(struct ipw_priv *, u32, u8 *, int);
-static inline void __ipw_read_indirect(const char *f, int l,
-				       struct ipw_priv *a, u32 b, u8 * c, int d)
-{
-	IPW_DEBUG_IO("%s %d: read_indirect(0x%08X) %d bytes\n", f, l, (u32) (b),
-		     d);
-	_ipw_read_indirect(a, b, c, d);
-}
-
 /* alias to multi-byte read (SRAM/regs above 4K), with debug wrapper */
-#define ipw_read_indirect(a, b, c, d) __ipw_read_indirect(__FILE__, __LINE__, a, b, c, d)
+#define ipw_read_indirect(a, b, c, d) ({ \
+	IPW_DEBUG_IO("%s %d: read_indirect(0x%08X) %u bytes\n", __FILE__, \
+			__LINE__, (u32)(b), (u32)(d)); \
+	_ipw_read_indirect(a, b, c, d); \
+})
 
 /* alias to multi-byte read (SRAM/regs above 4K), with debug wrapper */
 static void _ipw_write_indirect(struct ipw_priv *priv, u32 addr, u8 * data,
 				int num);
-#define ipw_write_indirect(a, b, c, d) \
-	IPW_DEBUG_IO("%s %d: write_indirect(0x%08X) %d bytes\n", __FILE__, __LINE__, (u32)(b), d); \
-	_ipw_write_indirect(a, b, c, d)
+#define ipw_write_indirect(a, b, c, d) do { \
+	IPW_DEBUG_IO("%s %d: write_indirect(0x%08X) %u bytes\n", __FILE__, \
+			__LINE__, (u32)(b), (u32)(d)); \
+	_ipw_write_indirect(a, b, c, d); \
+} while (0)
 
 /* 32-bit indirect write (above 4K) */
 static void _ipw_write_reg32(struct ipw_priv *priv, u32 reg, u32 value)
@@ -1513,7 +1527,7 @@ static DEVICE_ATTR(led, S_IWUSR | S_IRUGO, show_led, store_led);
 static ssize_t show_status(struct device *d,
 			   struct device_attribute *attr, char *buf)
 {
-	struct ipw_priv *p = d->driver_data;
+	struct ipw_priv *p = dev_get_drvdata(d);
 	return sprintf(buf, "0x%08x\n", (int)p->status);
 }
 
@@ -1522,7 +1536,7 @@ static DEVICE_ATTR(status, S_IRUGO, show_status, NULL);
 static ssize_t show_cfg(struct device *d, struct device_attribute *attr,
 			char *buf)
 {
-	struct ipw_priv *p = d->driver_data;
+	struct ipw_priv *p = dev_get_drvdata(d);
 	return sprintf(buf, "0x%08x\n", (int)p->config);
 }
 
@@ -1531,7 +1545,7 @@ static DEVICE_ATTR(cfg, S_IRUGO, show_cfg, NULL);
 static ssize_t show_nic_type(struct device *d,
 			     struct device_attribute *attr, char *buf)
 {
-	struct ipw_priv *priv = d->driver_data;
+	struct ipw_priv *priv = dev_get_drvdata(d);
 	return sprintf(buf, "TYPE: %d\n", priv->nic_type);
 }
 
@@ -1541,7 +1555,7 @@ static ssize_t show_ucode_version(struct device *d,
 				  struct device_attribute *attr, char *buf)
 {
 	u32 len = sizeof(u32), tmp = 0;
-	struct ipw_priv *p = d->driver_data;
+	struct ipw_priv *p = dev_get_drvdata(d);
 
 	if (ipw_get_ordinal(p, IPW_ORD_STAT_UCODE_VERSION, &tmp, &len))
 		return 0;
@@ -1555,7 +1569,7 @@ static ssize_t show_rtc(struct device *d, struct device_attribute *attr,
 			char *buf)
 {
 	u32 len = sizeof(u32), tmp = 0;
-	struct ipw_priv *p = d->driver_data;
+	struct ipw_priv *p = dev_get_drvdata(d);
 
 	if (ipw_get_ordinal(p, IPW_ORD_STAT_RTC, &tmp, &len))
 		return 0;
@@ -1572,14 +1586,15 @@ static DEVICE_ATTR(rtc, S_IWUSR | S_IRUGO, show_rtc, NULL);
 static ssize_t show_eeprom_delay(struct device *d,
 				 struct device_attribute *attr, char *buf)
 {
-	int n = ((struct ipw_priv *)d->driver_data)->eeprom_delay;
+	struct ipw_priv *p = dev_get_drvdata(d);
+	int n = p->eeprom_delay;
 	return sprintf(buf, "%i\n", n);
 }
 static ssize_t store_eeprom_delay(struct device *d,
 				  struct device_attribute *attr,
 				  const char *buf, size_t count)
 {
-	struct ipw_priv *p = d->driver_data;
+	struct ipw_priv *p = dev_get_drvdata(d);
 	sscanf(buf, "%i", &p->eeprom_delay);
 	return strnlen(buf, count);
 }
@@ -1591,7 +1606,7 @@ static ssize_t show_command_event_reg(struct device *d,
 				      struct device_attribute *attr, char *buf)
 {
 	u32 reg = 0;
-	struct ipw_priv *p = d->driver_data;
+	struct ipw_priv *p = dev_get_drvdata(d);
 
 	reg = ipw_read_reg32(p, IPW_INTERNAL_CMD_EVENT);
 	return sprintf(buf, "0x%08x\n", reg);
@@ -1601,7 +1616,7 @@ static ssize_t store_command_event_reg(struct device *d,
 				       const char *buf, size_t count)
 {
 	u32 reg;
-	struct ipw_priv *p = d->driver_data;
+	struct ipw_priv *p = dev_get_drvdata(d);
 
 	sscanf(buf, "%x", &reg);
 	ipw_write_reg32(p, IPW_INTERNAL_CMD_EVENT, reg);
@@ -1615,7 +1630,7 @@ static ssize_t show_mem_gpio_reg(struct device *d,
 				 struct device_attribute *attr, char *buf)
 {
 	u32 reg = 0;
-	struct ipw_priv *p = d->driver_data;
+	struct ipw_priv *p = dev_get_drvdata(d);
 
 	reg = ipw_read_reg32(p, 0x301100);
 	return sprintf(buf, "0x%08x\n", reg);
@@ -1625,7 +1640,7 @@ static ssize_t store_mem_gpio_reg(struct device *d,
 				  const char *buf, size_t count)
 {
 	u32 reg;
-	struct ipw_priv *p = d->driver_data;
+	struct ipw_priv *p = dev_get_drvdata(d);
 
 	sscanf(buf, "%x", &reg);
 	ipw_write_reg32(p, 0x301100, reg);
@@ -1639,7 +1654,7 @@ static ssize_t show_indirect_dword(struct device *d,
 				   struct device_attribute *attr, char *buf)
 {
 	u32 reg = 0;
-	struct ipw_priv *priv = d->driver_data;
+	struct ipw_priv *priv = dev_get_drvdata(d);
 
 	if (priv->status & STATUS_INDIRECT_DWORD)
 		reg = ipw_read_reg32(priv, priv->indirect_dword);
@@ -1652,7 +1667,7 @@ static ssize_t store_indirect_dword(struct device *d,
 				    struct device_attribute *attr,
 				    const char *buf, size_t count)
 {
-	struct ipw_priv *priv = d->driver_data;
+	struct ipw_priv *priv = dev_get_drvdata(d);
 
 	sscanf(buf, "%x", &priv->indirect_dword);
 	priv->status |= STATUS_INDIRECT_DWORD;
@@ -1666,7 +1681,7 @@ static ssize_t show_indirect_byte(struct device *d,
 				  struct device_attribute *attr, char *buf)
 {
 	u8 reg = 0;
-	struct ipw_priv *priv = d->driver_data;
+	struct ipw_priv *priv = dev_get_drvdata(d);
 
 	if (priv->status & STATUS_INDIRECT_BYTE)
 		reg = ipw_read_reg8(priv, priv->indirect_byte);
@@ -1679,7 +1694,7 @@ static ssize_t store_indirect_byte(struct device *d,
 				   struct device_attribute *attr,
 				   const char *buf, size_t count)
 {
-	struct ipw_priv *priv = d->driver_data;
+	struct ipw_priv *priv = dev_get_drvdata(d);
 
 	sscanf(buf, "%x", &priv->indirect_byte);
 	priv->status |= STATUS_INDIRECT_BYTE;
@@ -1693,7 +1708,7 @@ static ssize_t show_direct_dword(struct device *d,
 				 struct device_attribute *attr, char *buf)
 {
 	u32 reg = 0;
-	struct ipw_priv *priv = d->driver_data;
+	struct ipw_priv *priv = dev_get_drvdata(d);
 
 	if (priv->status & STATUS_DIRECT_DWORD)
 		reg = ipw_read32(priv, priv->direct_dword);
@@ -1706,7 +1721,7 @@ static ssize_t store_direct_dword(struct device *d,
 				  struct device_attribute *attr,
 				  const char *buf, size_t count)
 {
-	struct ipw_priv *priv = d->driver_data;
+	struct ipw_priv *priv = dev_get_drvdata(d);
 
 	sscanf(buf, "%x", &priv->direct_dword);
 	priv->status |= STATUS_DIRECT_DWORD;
@@ -1733,7 +1748,7 @@ static ssize_t show_rf_kill(struct device *d, struct device_attribute *attr,
 	   1 - SW based RF kill active (sysfs)
 	   2 - HW based RF kill active
 	   3 - Both HW and SW baed RF kill active */
-	struct ipw_priv *priv = d->driver_data;
+	struct ipw_priv *priv = dev_get_drvdata(d);
 	int val = ((priv->status & STATUS_RF_KILL_SW) ? 0x1 : 0x0) |
 	    (rf_kill_active(priv) ? 0x2 : 0x0);
 	return sprintf(buf, "%i\n", val);
@@ -1777,7 +1792,7 @@ static int ipw_radio_kill_sw(struct ipw_priv *priv, int disable_radio)
 static ssize_t store_rf_kill(struct device *d, struct device_attribute *attr,
 			     const char *buf, size_t count)
 {
-	struct ipw_priv *priv = d->driver_data;
+	struct ipw_priv *priv = dev_get_drvdata(d);
 
 	ipw_radio_kill_sw(priv, buf[0] == '1');
 
@@ -1789,7 +1804,7 @@ static DEVICE_ATTR(rf_kill, S_IWUSR | S_IRUGO, show_rf_kill, store_rf_kill);
 static ssize_t show_speed_scan(struct device *d, struct device_attribute *attr,
 			       char *buf)
 {
-	struct ipw_priv *priv = (struct ipw_priv *)d->driver_data;
+	struct ipw_priv *priv = dev_get_drvdata(d);
 	int pos = 0, len = 0;
 	if (priv->config & CFG_SPEED_SCAN) {
 		while (priv->speed_scan[pos] != 0)
@@ -1804,7 +1819,7 @@ static ssize_t show_speed_scan(struct device *d, struct device_attribute *attr,
 static ssize_t store_speed_scan(struct device *d, struct device_attribute *attr,
 				const char *buf, size_t count)
 {
-	struct ipw_priv *priv = (struct ipw_priv *)d->driver_data;
+	struct ipw_priv *priv = dev_get_drvdata(d);
 	int channel, pos = 0;
 	const char *p = buf;
 
@@ -1843,14 +1858,14 @@ static DEVICE_ATTR(speed_scan, S_IWUSR | S_IRUGO, show_speed_scan,
 static ssize_t show_net_stats(struct device *d, struct device_attribute *attr,
 			      char *buf)
 {
-	struct ipw_priv *priv = (struct ipw_priv *)d->driver_data;
+	struct ipw_priv *priv = dev_get_drvdata(d);
 	return sprintf(buf, "%c\n", (priv->config & CFG_NET_STATS) ? '1' : '0');
 }
 
 static ssize_t store_net_stats(struct device *d, struct device_attribute *attr,
 			       const char *buf, size_t count)
 {
-	struct ipw_priv *priv = (struct ipw_priv *)d->driver_data;
+	struct ipw_priv *priv = dev_get_drvdata(d);
 	if (buf[0] == '1')
 		priv->config |= CFG_NET_STATS;
 	else
@@ -2859,45 +2874,27 @@ static int ipw_fw_dma_add_command_block(struct ipw_priv *priv,
 	return 0;
 }
 
-static int ipw_fw_dma_add_buffer(struct ipw_priv *priv,
-				 u32 src_phys, u32 dest_address, u32 length)
+static int ipw_fw_dma_add_buffer(struct ipw_priv *priv, dma_addr_t *src_address,
+				 int nr, u32 dest_address, u32 len)
 {
-	u32 bytes_left = length;
-	u32 src_offset = 0;
-	u32 dest_offset = 0;
-	int status = 0;
+	int ret, i;
+	u32 size;
+
 	IPW_DEBUG_FW(">> \n");
-	IPW_DEBUG_FW_INFO("src_phys=0x%x dest_address=0x%x length=0x%x\n",
-			  src_phys, dest_address, length);
-	while (bytes_left > CB_MAX_LENGTH) {
-		status = ipw_fw_dma_add_command_block(priv,
-						      src_phys + src_offset,
-						      dest_address +
-						      dest_offset,
-						      CB_MAX_LENGTH, 0, 0);
-		if (status) {
+	IPW_DEBUG_FW_INFO("nr=%d dest_address=0x%x len=0x%x\n",
+			  nr, dest_address, len);
+
+	for (i = 0; i < nr; i++) {
+		size = min_t(u32, len - i * CB_MAX_LENGTH, CB_MAX_LENGTH);
+		ret = ipw_fw_dma_add_command_block(priv, src_address[i],
+						   dest_address +
+						   i * CB_MAX_LENGTH, size,
+						   0, 0);
+		if (ret) {
 			IPW_DEBUG_FW_INFO(": Failed\n");
 			return -1;
 		} else
 			IPW_DEBUG_FW_INFO(": Added new cb\n");
-
-		src_offset += CB_MAX_LENGTH;
-		dest_offset += CB_MAX_LENGTH;
-		bytes_left -= CB_MAX_LENGTH;
-	}
-
-	/* add the buffer tail */
-	if (bytes_left > 0) {
-		status =
-		    ipw_fw_dma_add_command_block(priv, src_phys + src_offset,
-						 dest_address + dest_offset,
-						 bytes_left, 0, 0);
-		if (status) {
-			IPW_DEBUG_FW_INFO(": Failed on the buffer tail\n");
-			return -1;
-		} else
-			IPW_DEBUG_FW_INFO
-			    (": Adding new cb - the buffer tail\n");
 	}
 
 	IPW_DEBUG_FW("<< \n");
@@ -3145,62 +3142,91 @@ static int ipw_load_ucode(struct ipw_priv *priv, u8 * data, size_t len)
 
 static int ipw_load_firmware(struct ipw_priv *priv, u8 * data, size_t len)
 {
-	int rc = -1;
+	int ret = -1;
 	int offset = 0;
 	struct fw_chunk *chunk;
-	dma_addr_t shared_phys;
-	u8 *shared_virt;
+	int total_nr = 0;
+	int i;
+	struct pci_pool *pool;
+	u32 *virts[CB_NUMBER_OF_ELEMENTS_SMALL];
+	dma_addr_t phys[CB_NUMBER_OF_ELEMENTS_SMALL];
 
 	IPW_DEBUG_TRACE("<< : \n");
-	shared_virt = pci_alloc_consistent(priv->pci_dev, len, &shared_phys);
 
-	if (!shared_virt)
+	pool = pci_pool_create("ipw2200", priv->pci_dev, CB_MAX_LENGTH, 0, 0);
+	if (!pool) {
+		IPW_ERROR("pci_pool_create failed\n");
 		return -ENOMEM;
-
-	memmove(shared_virt, data, len);
-
-	/* Start the Dma */
-	rc = ipw_fw_dma_enable(priv);
-
-	if (priv->sram_desc.last_cb_index > 0) {
-		/* the DMA is already ready this would be a bug. */
-		BUG();
-		goto out;
 	}
 
+	/* Start the Dma */
+	ret = ipw_fw_dma_enable(priv);
+
+	/* the DMA is already ready this would be a bug. */
+	BUG_ON(priv->sram_desc.last_cb_index > 0);
+
 	do {
+		u32 chunk_len;
+		u8 *start;
+		int size;
+		int nr = 0;
+
 		chunk = (struct fw_chunk *)(data + offset);
 		offset += sizeof(struct fw_chunk);
+		chunk_len = le32_to_cpu(chunk->length);
+		start = data + offset;
+
+		nr = (chunk_len + CB_MAX_LENGTH - 1) / CB_MAX_LENGTH;
+		for (i = 0; i < nr; i++) {
+			virts[total_nr] = pci_pool_alloc(pool, GFP_KERNEL,
+							 &phys[total_nr]);
+			if (!virts[total_nr]) {
+				ret = -ENOMEM;
+				goto out;
+			}
+			size = min_t(u32, chunk_len - i * CB_MAX_LENGTH,
+				     CB_MAX_LENGTH);
+			memcpy(virts[total_nr], start, size);
+			start += size;
+			total_nr++;
+			/* We don't support fw chunk larger than 64*8K */
+			BUG_ON(total_nr > CB_NUMBER_OF_ELEMENTS_SMALL);
+		}
+
 		/* build DMA packet and queue up for sending */
 		/* dma to chunk->address, the chunk->length bytes from data +
 		 * offeset*/
 		/* Dma loading */
-		rc = ipw_fw_dma_add_buffer(priv, shared_phys + offset,
-					   le32_to_cpu(chunk->address),
-					   le32_to_cpu(chunk->length));
-		if (rc) {
+		ret = ipw_fw_dma_add_buffer(priv, &phys[total_nr - nr],
+					    nr, le32_to_cpu(chunk->address),
+					    chunk_len);
+		if (ret) {
 			IPW_DEBUG_INFO("dmaAddBuffer Failed\n");
 			goto out;
 		}
 
-		offset += le32_to_cpu(chunk->length);
+		offset += chunk_len;
 	} while (offset < len);
 
 	/* Run the DMA and wait for the answer */
-	rc = ipw_fw_dma_kick(priv);
-	if (rc) {
+	ret = ipw_fw_dma_kick(priv);
+	if (ret) {
 		IPW_ERROR("dmaKick Failed\n");
 		goto out;
 	}
 
-	rc = ipw_fw_dma_wait(priv);
-	if (rc) {
+	ret = ipw_fw_dma_wait(priv);
+	if (ret) {
 		IPW_ERROR("dmaWaitSync Failed\n");
 		goto out;
 	}
-      out:
-	pci_free_consistent(priv->pci_dev, len, shared_virt, shared_phys);
-	return rc;
+ out:
+	for (i = 0; i < total_nr; i++)
+		pci_pool_free(pool, virts[i], phys[i]);
+
+	pci_pool_destroy(pool);
+
+	return ret;
 }
 
 /* stop nic */
@@ -6214,7 +6240,7 @@ static void ipw_add_scan_channels(struct ipw_priv *priv,
 			};
 
 			u8 channel;
-			while (channel_index < IPW_SCAN_CHANNELS) {
+			while (channel_index < IPW_SCAN_CHANNELS - 1) {
 				channel =
 				    priv->speed_scan[priv->speed_scan_pos];
 				if (channel == 0) {
@@ -7717,22 +7743,23 @@ static void ipw_handle_data_packet(struct ipw_priv *priv,
 				   struct ipw_rx_mem_buffer *rxb,
 				   struct ieee80211_rx_stats *stats)
 {
+	struct net_device *dev = priv->net_dev;
 	struct ieee80211_hdr_4addr *hdr;
 	struct ipw_rx_packet *pkt = (struct ipw_rx_packet *)rxb->skb->data;
 
 	/* We received data from the HW, so stop the watchdog */
-	priv->net_dev->trans_start = jiffies;
+	dev->trans_start = jiffies;
 
 	/* We only process data packets if the
 	 * interface is open */
 	if (unlikely((le16_to_cpu(pkt->u.frame.length) + IPW_RX_FRAME_SIZE) >
 		     skb_tailroom(rxb->skb))) {
-		priv->ieee->stats.rx_errors++;
+		dev->stats.rx_errors++;
 		priv->wstats.discard.misc++;
 		IPW_DEBUG_DROP("Corruption detected! Oh no!\n");
 		return;
 	} else if (unlikely(!netif_running(priv->net_dev))) {
-		priv->ieee->stats.rx_dropped++;
+		dev->stats.rx_dropped++;
 		priv->wstats.discard.misc++;
 		IPW_DEBUG_DROP("Dropping packet while interface is not up.\n");
 		return;
@@ -7754,7 +7781,7 @@ static void ipw_handle_data_packet(struct ipw_priv *priv,
 		ipw_rebuild_decrypted_skb(priv, rxb->skb);
 
 	if (!ieee80211_rx(priv->ieee, rxb->skb, stats))
-		priv->ieee->stats.rx_errors++;
+		dev->stats.rx_errors++;
 	else {			/* ieee80211_rx succeeded, so it now owns the SKB */
 		rxb->skb = NULL;
 		__ipw_led_activity_on(priv);
@@ -7766,6 +7793,7 @@ static void ipw_handle_data_packet_monitor(struct ipw_priv *priv,
 					   struct ipw_rx_mem_buffer *rxb,
 					   struct ieee80211_rx_stats *stats)
 {
+	struct net_device *dev = priv->net_dev;
 	struct ipw_rx_packet *pkt = (struct ipw_rx_packet *)rxb->skb->data;
 	struct ipw_rx_frame *frame = &pkt->u.frame;
 
@@ -7783,18 +7811,18 @@ static void ipw_handle_data_packet_monitor(struct ipw_priv *priv,
 	short len = le16_to_cpu(pkt->u.frame.length);
 
 	/* We received data from the HW, so stop the watchdog */
-	priv->net_dev->trans_start = jiffies;
+	dev->trans_start = jiffies;
 
 	/* We only process data packets if the
 	 * interface is open */
 	if (unlikely((le16_to_cpu(pkt->u.frame.length) + IPW_RX_FRAME_SIZE) >
 		     skb_tailroom(rxb->skb))) {
-		priv->ieee->stats.rx_errors++;
+		dev->stats.rx_errors++;
 		priv->wstats.discard.misc++;
 		IPW_DEBUG_DROP("Corruption detected! Oh no!\n");
 		return;
 	} else if (unlikely(!netif_running(priv->net_dev))) {
-		priv->ieee->stats.rx_dropped++;
+		dev->stats.rx_dropped++;
 		priv->wstats.discard.misc++;
 		IPW_DEBUG_DROP("Dropping packet while interface is not up.\n");
 		return;
@@ -7804,7 +7832,7 @@ static void ipw_handle_data_packet_monitor(struct ipw_priv *priv,
 	 * that now */
 	if (len > IPW_RX_BUF_SIZE - sizeof(struct ipw_rt_hdr)) {
 		/* FIXME: Should alloc bigger skb instead */
-		priv->ieee->stats.rx_dropped++;
+		dev->stats.rx_dropped++;
 		priv->wstats.discard.misc++;
 		IPW_DEBUG_DROP("Dropping too large packet in monitor\n");
 		return;
@@ -7910,7 +7938,7 @@ static void ipw_handle_data_packet_monitor(struct ipw_priv *priv,
 	IPW_DEBUG_RX("Rx packet of %d bytes.\n", rxb->skb->len);
 
 	if (!ieee80211_rx(priv->ieee, rxb->skb, stats))
-		priv->ieee->stats.rx_errors++;
+		dev->stats.rx_errors++;
 	else {			/* ieee80211_rx succeeded, so it now owns the SKB */
 		rxb->skb = NULL;
 		/* no LED during capture */
@@ -7942,6 +7970,7 @@ static void ipw_handle_promiscuous_rx(struct ipw_priv *priv,
 				      struct ipw_rx_mem_buffer *rxb,
 				      struct ieee80211_rx_stats *stats)
 {
+	struct net_device *dev = priv->prom_net_dev;
 	struct ipw_rx_packet *pkt = (struct ipw_rx_packet *)rxb->skb->data;
 	struct ipw_rx_frame *frame = &pkt->u.frame;
 	struct ipw_rt_hdr *ipw_rt;
@@ -7964,17 +7993,17 @@ static void ipw_handle_promiscuous_rx(struct ipw_priv *priv,
 		return;
 
 	/* We received data from the HW, so stop the watchdog */
-	priv->prom_net_dev->trans_start = jiffies;
+	dev->trans_start = jiffies;
 
 	if (unlikely((len + IPW_RX_FRAME_SIZE) > skb_tailroom(rxb->skb))) {
-		priv->prom_priv->ieee->stats.rx_errors++;
+		dev->stats.rx_errors++;
 		IPW_DEBUG_DROP("Corruption detected! Oh no!\n");
 		return;
 	}
 
 	/* We only process data packets if the interface is open */
-	if (unlikely(!netif_running(priv->prom_net_dev))) {
-		priv->prom_priv->ieee->stats.rx_dropped++;
+	if (unlikely(!netif_running(dev))) {
+		dev->stats.rx_dropped++;
 		IPW_DEBUG_DROP("Dropping packet while interface is not up.\n");
 		return;
 	}
@@ -7983,7 +8012,7 @@ static void ipw_handle_promiscuous_rx(struct ipw_priv *priv,
 	 * that now */
 	if (len > IPW_RX_BUF_SIZE - sizeof(struct ipw_rt_hdr)) {
 		/* FIXME: Should alloc bigger skb instead */
-		priv->prom_priv->ieee->stats.rx_dropped++;
+		dev->stats.rx_dropped++;
 		IPW_DEBUG_DROP("Dropping too large packet in monitor\n");
 		return;
 	}
@@ -8115,7 +8144,7 @@ static void ipw_handle_promiscuous_rx(struct ipw_priv *priv,
 	IPW_DEBUG_RX("Rx packet of %d bytes.\n", skb->len);
 
 	if (!ieee80211_rx(priv->prom_priv->ieee, skb, stats)) {
-		priv->prom_priv->ieee->stats.rx_errors++;
+		dev->stats.rx_errors++;
 		dev_kfree_skb_any(skb);
 	}
 }
@@ -8272,7 +8301,7 @@ static void ipw_handle_mgmt_packet(struct ipw_priv *priv,
 		skb_reset_mac_header(skb);
 
 		skb->pkt_type = PACKET_OTHERHOST;
-		skb->protocol = __constant_htons(ETH_P_80211_STATS);
+		skb->protocol = cpu_to_be16(ETH_P_80211_STATS);
 		memset(skb->cb, 0, sizeof(rxb->skb->cb));
 		netif_rx(skb);
 		rxb->skb = NULL;
@@ -8399,7 +8428,7 @@ static void ipw_rx(struct ipw_priv *priv)
 					IPW_DEBUG_DROP
 					    ("Received packet is too small. "
 					     "Dropping.\n");
-					priv->ieee->stats.rx_errors++;
+					priv->net_dev->stats.rx_errors++;
 					priv->wstats.discard.misc++;
 					break;
 				}
@@ -8827,7 +8856,7 @@ static int ipw_wx_set_mode(struct net_device *dev,
 #endif				/* CONFIG_IPW2200_MONITOR */
 
 	/* Free the existing firmware and reset the fw_loaded
-	 * flag so ipw_load() will bring in the new firmawre */
+	 * flag so ipw_load() will bring in the new firmware */
 	free_firmware();
 
 	priv->ieee->iw_mode = wrqu->mode;
@@ -10470,15 +10499,6 @@ static int ipw_net_hard_start_xmit(struct ieee80211_txb *txb,
 	return ret;
 }
 
-static struct net_device_stats *ipw_net_get_stats(struct net_device *dev)
-{
-	struct ipw_priv *priv = ieee80211_priv(dev);
-
-	priv->ieee->stats.tx_packets = priv->tx_packets;
-	priv->ieee->stats.rx_packets = priv->rx_packets;
-	return &priv->ieee->stats;
-}
-
 static void ipw_net_set_multicast_list(struct net_device *dev)
 {
 
@@ -11224,6 +11244,12 @@ static int ipw_up(struct ipw_priv *priv)
 {
 	int rc, i, j;
 
+	/* Age scan list entries found before suspend */
+	if (priv->suspend_time) {
+		ieee80211_networks_age(priv->ieee, priv->suspend_time);
+		priv->suspend_time = 0;
+	}
+
 	if (priv->status & STATUS_EXIT_PENDING)
 		return -EIO;
 
@@ -11512,14 +11538,18 @@ static int ipw_prom_stop(struct net_device *dev)
 static int ipw_prom_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	IPW_DEBUG_INFO("prom dev->xmit\n");
-	return -EOPNOTSUPP;
+	dev_kfree_skb(skb);
+	return NETDEV_TX_OK;
 }
 
-static struct net_device_stats *ipw_prom_get_stats(struct net_device *dev)
-{
-	struct ipw_prom_priv *prom_priv = ieee80211_priv(dev);
-	return &prom_priv->ieee->stats;
-}
+static const struct net_device_ops ipw_prom_netdev_ops = {
+	.ndo_open 		= ipw_prom_open,
+	.ndo_stop		= ipw_prom_stop,
+	.ndo_start_xmit		= ipw_prom_hard_start_xmit,
+	.ndo_change_mtu		= ieee80211_change_mtu,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
 
 static int ipw_prom_alloc(struct ipw_priv *priv)
 {
@@ -11540,10 +11570,7 @@ static int ipw_prom_alloc(struct ipw_priv *priv)
 	memcpy(priv->prom_net_dev->dev_addr, priv->mac_addr, ETH_ALEN);
 
 	priv->prom_net_dev->type = ARPHRD_IEEE80211_RADIOTAP;
-	priv->prom_net_dev->open = ipw_prom_open;
-	priv->prom_net_dev->stop = ipw_prom_stop;
-	priv->prom_net_dev->get_stats = ipw_prom_get_stats;
-	priv->prom_net_dev->hard_start_xmit = ipw_prom_hard_start_xmit;
+	priv->prom_net_dev->netdev_ops = &ipw_prom_netdev_ops;
 
 	priv->prom_priv->ieee->iw_mode = IW_MODE_MONITOR;
 	SET_NETDEV_DEV(priv->prom_net_dev, &priv->pci_dev->dev);
@@ -11571,6 +11598,16 @@ static void ipw_prom_free(struct ipw_priv *priv)
 
 #endif
 
+static const struct net_device_ops ipw_netdev_ops = {
+	.ndo_init		= ipw_net_init,
+	.ndo_open		= ipw_net_open,
+	.ndo_stop		= ipw_net_stop,
+	.ndo_set_multicast_list	= ipw_net_set_multicast_list,
+	.ndo_set_mac_address	= ipw_net_set_mac_address,
+	.ndo_start_xmit		= ieee80211_xmit,
+	.ndo_change_mtu		= ieee80211_change_mtu,
+	.ndo_validate_addr	= eth_validate_addr,
+};
 
 static int __devinit ipw_pci_probe(struct pci_dev *pdev,
 				   const struct pci_device_id *ent)
@@ -11607,9 +11644,9 @@ static int __devinit ipw_pci_probe(struct pci_dev *pdev,
 
 	pci_set_master(pdev);
 
-	err = pci_set_dma_mask(pdev, DMA_32BIT_MASK);
+	err = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
 	if (!err)
-		err = pci_set_consistent_dma_mask(pdev, DMA_32BIT_MASK);
+		err = pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(32));
 	if (err) {
 		printk(KERN_WARNING DRV_NAME ": No suitable DMA available.\n");
 		goto out_pci_disable_device;
@@ -11672,12 +11709,7 @@ static int __devinit ipw_pci_probe(struct pci_dev *pdev,
 	priv->ieee->perfect_rssi = -20;
 	priv->ieee->worst_rssi = -85;
 
-	net_dev->open = ipw_net_open;
-	net_dev->stop = ipw_net_stop;
-	net_dev->init = ipw_net_init;
-	net_dev->get_stats = ipw_net_get_stats;
-	net_dev->set_multicast_list = ipw_net_set_multicast_list;
-	net_dev->set_mac_address = ipw_net_set_mac_address;
+	net_dev->netdev_ops = &ipw_netdev_ops;
 	priv->wireless_data.spy_data = &priv->ieee->spy_data;
 	net_dev->wireless_data = &priv->wireless_data;
 	net_dev->wireless_handlers = &ipw_wx_handler_def;
@@ -11824,6 +11856,8 @@ static int ipw_pci_suspend(struct pci_dev *pdev, pm_message_t state)
 	pci_disable_device(pdev);
 	pci_set_power_state(pdev, pci_choose_state(pdev, state));
 
+	priv->suspend_at = get_seconds();
+
 	return 0;
 }
 
@@ -11858,6 +11892,8 @@ static int ipw_pci_resume(struct pci_dev *pdev)
 	/* Set the device back into the PRESENT state; this will also wake
 	 * the queue of needed */
 	netif_device_attach(dev);
+
+	priv->suspend_time = get_seconds() - priv->suspend_at;
 
 	/* Bring the device back up */
 	queue_work(priv->workqueue, &priv->up);

@@ -12,7 +12,6 @@
 #include <linux/slab.h>
 #include <linux/i2c.h>
 #include <linux/log2.h>
-#include <linux/gpio.h>
 
 #include <media/v4l2-common.h>
 #include <media/v4l2-chip-ident.h>
@@ -73,58 +72,53 @@ struct mt9m001 {
 	struct i2c_client *client;
 	struct soc_camera_device icd;
 	int model;	/* V4L2_IDENT_MT9M001* codes from v4l2-chip-ident.h */
-	int switch_gpio;
 	unsigned char autoexposure;
-	unsigned char datawidth;
 };
 
-static int reg_read(struct soc_camera_device *icd, const u8 reg)
+static int reg_read(struct i2c_client *client, const u8 reg)
 {
-	struct mt9m001 *mt9m001 = container_of(icd, struct mt9m001, icd);
-	struct i2c_client *client = mt9m001->client;
 	s32 data = i2c_smbus_read_word_data(client, reg);
 	return data < 0 ? data : swab16(data);
 }
 
-static int reg_write(struct soc_camera_device *icd, const u8 reg,
+static int reg_write(struct i2c_client *client, const u8 reg,
 		     const u16 data)
 {
-	struct mt9m001 *mt9m001 = container_of(icd, struct mt9m001, icd);
-	return i2c_smbus_write_word_data(mt9m001->client, reg, swab16(data));
+	return i2c_smbus_write_word_data(client, reg, swab16(data));
 }
 
-static int reg_set(struct soc_camera_device *icd, const u8 reg,
+static int reg_set(struct i2c_client *client, const u8 reg,
 		   const u16 data)
 {
 	int ret;
 
-	ret = reg_read(icd, reg);
+	ret = reg_read(client, reg);
 	if (ret < 0)
 		return ret;
-	return reg_write(icd, reg, ret | data);
+	return reg_write(client, reg, ret | data);
 }
 
-static int reg_clear(struct soc_camera_device *icd, const u8 reg,
+static int reg_clear(struct i2c_client *client, const u8 reg,
 		     const u16 data)
 {
 	int ret;
 
-	ret = reg_read(icd, reg);
+	ret = reg_read(client, reg);
 	if (ret < 0)
 		return ret;
-	return reg_write(icd, reg, ret & ~data);
+	return reg_write(client, reg, ret & ~data);
 }
 
 static int mt9m001_init(struct soc_camera_device *icd)
 {
-	struct mt9m001 *mt9m001 = container_of(icd, struct mt9m001, icd);
-	struct soc_camera_link *icl = mt9m001->client->dev.platform_data;
+	struct i2c_client *client = to_i2c_client(icd->control);
+	struct soc_camera_link *icl = client->dev.platform_data;
 	int ret;
 
 	dev_dbg(icd->vdev->parent, "%s\n", __func__);
 
 	if (icl->power) {
-		ret = icl->power(&mt9m001->client->dev, 1);
+		ret = icl->power(&client->dev, 1);
 		if (ret < 0) {
 			dev_err(icd->vdev->parent,
 				"Platform failed to power-on the camera.\n");
@@ -134,139 +128,79 @@ static int mt9m001_init(struct soc_camera_device *icd)
 
 	/* The camera could have been already on, we reset it additionally */
 	if (icl->reset)
-		ret = icl->reset(&mt9m001->client->dev);
+		ret = icl->reset(&client->dev);
 	else
 		ret = -ENODEV;
 
 	if (ret < 0) {
 		/* Either no platform reset, or platform reset failed */
-		ret = reg_write(icd, MT9M001_RESET, 1);
+		ret = reg_write(client, MT9M001_RESET, 1);
 		if (!ret)
-			ret = reg_write(icd, MT9M001_RESET, 0);
+			ret = reg_write(client, MT9M001_RESET, 0);
 	}
 	/* Disable chip, synchronous option update */
 	if (!ret)
-		ret = reg_write(icd, MT9M001_OUTPUT_CONTROL, 0);
+		ret = reg_write(client, MT9M001_OUTPUT_CONTROL, 0);
 
 	return ret;
 }
 
 static int mt9m001_release(struct soc_camera_device *icd)
 {
-	struct mt9m001 *mt9m001 = container_of(icd, struct mt9m001, icd);
-	struct soc_camera_link *icl = mt9m001->client->dev.platform_data;
+	struct i2c_client *client = to_i2c_client(icd->control);
+	struct soc_camera_link *icl = client->dev.platform_data;
 
 	/* Disable the chip */
-	reg_write(icd, MT9M001_OUTPUT_CONTROL, 0);
+	reg_write(client, MT9M001_OUTPUT_CONTROL, 0);
 
 	if (icl->power)
-		icl->power(&mt9m001->client->dev, 0);
+		icl->power(&client->dev, 0);
 
 	return 0;
 }
 
 static int mt9m001_start_capture(struct soc_camera_device *icd)
 {
+	struct i2c_client *client = to_i2c_client(icd->control);
+
 	/* Switch to master "normal" mode */
-	if (reg_write(icd, MT9M001_OUTPUT_CONTROL, 2) < 0)
+	if (reg_write(client, MT9M001_OUTPUT_CONTROL, 2) < 0)
 		return -EIO;
 	return 0;
 }
 
 static int mt9m001_stop_capture(struct soc_camera_device *icd)
 {
+	struct i2c_client *client = to_i2c_client(icd->control);
+
 	/* Stop sensor readout */
-	if (reg_write(icd, MT9M001_OUTPUT_CONTROL, 0) < 0)
+	if (reg_write(client, MT9M001_OUTPUT_CONTROL, 0) < 0)
 		return -EIO;
 	return 0;
-}
-
-static int bus_switch_request(struct mt9m001 *mt9m001,
-			      struct soc_camera_link *icl)
-{
-#ifdef CONFIG_MT9M001_PCA9536_SWITCH
-	int ret;
-	unsigned int gpio = icl->gpio;
-
-	if (gpio_is_valid(gpio)) {
-		/* We have a data bus switch. */
-		ret = gpio_request(gpio, "mt9m001");
-		if (ret < 0) {
-			dev_err(&mt9m001->client->dev, "Cannot get GPIO %u\n",
-				gpio);
-			return ret;
-		}
-
-		ret = gpio_direction_output(gpio, 0);
-		if (ret < 0) {
-			dev_err(&mt9m001->client->dev,
-				"Cannot set GPIO %u to output\n", gpio);
-			gpio_free(gpio);
-			return ret;
-		}
-	}
-
-	mt9m001->switch_gpio = gpio;
-#else
-	mt9m001->switch_gpio = -EINVAL;
-#endif
-	return 0;
-}
-
-static void bus_switch_release(struct mt9m001 *mt9m001)
-{
-#ifdef CONFIG_MT9M001_PCA9536_SWITCH
-	if (gpio_is_valid(mt9m001->switch_gpio))
-		gpio_free(mt9m001->switch_gpio);
-#endif
-}
-
-static int bus_switch_act(struct mt9m001 *mt9m001, int go8bit)
-{
-#ifdef CONFIG_MT9M001_PCA9536_SWITCH
-	if (!gpio_is_valid(mt9m001->switch_gpio))
-		return -ENODEV;
-
-	gpio_set_value_cansleep(mt9m001->switch_gpio, go8bit);
-	return 0;
-#else
-	return -ENODEV;
-#endif
-}
-
-static int bus_switch_possible(struct mt9m001 *mt9m001)
-{
-#ifdef CONFIG_MT9M001_PCA9536_SWITCH
-	return gpio_is_valid(mt9m001->switch_gpio);
-#else
-	return 0;
-#endif
 }
 
 static int mt9m001_set_bus_param(struct soc_camera_device *icd,
 				 unsigned long flags)
 {
 	struct mt9m001 *mt9m001 = container_of(icd, struct mt9m001, icd);
-	unsigned int width_flag = flags & SOCAM_DATAWIDTH_MASK;
-	int ret;
+	struct soc_camera_link *icl = mt9m001->client->dev.platform_data;
+	unsigned long width_flag = flags & SOCAM_DATAWIDTH_MASK;
 
-	/* Flags validity verified in test_bus_param */
+	/* Only one width bit may be set */
+	if (!is_power_of_2(width_flag))
+		return -EINVAL;
 
-	if ((mt9m001->datawidth != 10 && (width_flag == SOCAM_DATAWIDTH_10)) ||
-	    (mt9m001->datawidth != 9  && (width_flag == SOCAM_DATAWIDTH_9)) ||
-	    (mt9m001->datawidth != 8  && (width_flag == SOCAM_DATAWIDTH_8))) {
-		/* Well, we actually only can do 10 or 8 bits... */
-		if (width_flag == SOCAM_DATAWIDTH_9)
-			return -EINVAL;
-		ret = bus_switch_act(mt9m001,
-				     width_flag == SOCAM_DATAWIDTH_8);
-		if (ret < 0)
-			return ret;
+	if (icl->set_bus_param)
+		return icl->set_bus_param(icl, width_flag);
 
-		mt9m001->datawidth = width_flag == SOCAM_DATAWIDTH_8 ? 8 : 10;
-	}
+	/*
+	 * Without board specific bus width settings we only support the
+	 * sensors native bus width
+	 */
+	if (width_flag == SOCAM_DATAWIDTH_10)
+		return 0;
 
-	return 0;
+	return -EINVAL;
 }
 
 static unsigned long mt9m001_query_bus_param(struct soc_camera_device *icd)
@@ -274,41 +208,44 @@ static unsigned long mt9m001_query_bus_param(struct soc_camera_device *icd)
 	struct mt9m001 *mt9m001 = container_of(icd, struct mt9m001, icd);
 	struct soc_camera_link *icl = mt9m001->client->dev.platform_data;
 	/* MT9M001 has all capture_format parameters fixed */
-	unsigned long flags = SOCAM_DATAWIDTH_10 | SOCAM_PCLK_SAMPLE_RISING |
+	unsigned long flags = SOCAM_PCLK_SAMPLE_FALLING |
 		SOCAM_HSYNC_ACTIVE_HIGH | SOCAM_VSYNC_ACTIVE_HIGH |
-		SOCAM_MASTER;
+		SOCAM_DATA_ACTIVE_HIGH | SOCAM_MASTER;
 
-	if (bus_switch_possible(mt9m001))
-		flags |= SOCAM_DATAWIDTH_8;
+	if (icl->query_bus_param)
+		flags |= icl->query_bus_param(icl) & SOCAM_DATAWIDTH_MASK;
+	else
+		flags |= SOCAM_DATAWIDTH_10;
 
 	return soc_camera_apply_sensor_flags(icl, flags);
 }
 
-static int mt9m001_set_fmt(struct soc_camera_device *icd,
-			   __u32 pixfmt, struct v4l2_rect *rect)
+static int mt9m001_set_crop(struct soc_camera_device *icd,
+			    struct v4l2_rect *rect)
 {
+	struct i2c_client *client = to_i2c_client(icd->control);
 	struct mt9m001 *mt9m001 = container_of(icd, struct mt9m001, icd);
 	int ret;
 	const u16 hblank = 9, vblank = 25;
 
 	/* Blanking and start values - default... */
-	ret = reg_write(icd, MT9M001_HORIZONTAL_BLANKING, hblank);
+	ret = reg_write(client, MT9M001_HORIZONTAL_BLANKING, hblank);
 	if (!ret)
-		ret = reg_write(icd, MT9M001_VERTICAL_BLANKING, vblank);
+		ret = reg_write(client, MT9M001_VERTICAL_BLANKING, vblank);
 
 	/* The caller provides a supported format, as verified per
 	 * call to icd->try_fmt() */
 	if (!ret)
-		ret = reg_write(icd, MT9M001_COLUMN_START, rect->left);
+		ret = reg_write(client, MT9M001_COLUMN_START, rect->left);
 	if (!ret)
-		ret = reg_write(icd, MT9M001_ROW_START, rect->top);
+		ret = reg_write(client, MT9M001_ROW_START, rect->top);
 	if (!ret)
-		ret = reg_write(icd, MT9M001_WINDOW_WIDTH, rect->width - 1);
+		ret = reg_write(client, MT9M001_WINDOW_WIDTH, rect->width - 1);
 	if (!ret)
-		ret = reg_write(icd, MT9M001_WINDOW_HEIGHT,
+		ret = reg_write(client, MT9M001_WINDOW_HEIGHT,
 				rect->height + icd->y_skip_top - 1);
 	if (!ret && mt9m001->autoexposure) {
-		ret = reg_write(icd, MT9M001_SHUTTER_WIDTH,
+		ret = reg_write(client, MT9M001_SHUTTER_WIDTH,
 				rect->height + icd->y_skip_top + vblank);
 		if (!ret) {
 			const struct v4l2_queryctrl *qctrl =
@@ -324,20 +261,28 @@ static int mt9m001_set_fmt(struct soc_camera_device *icd,
 	return ret;
 }
 
+static int mt9m001_set_fmt(struct soc_camera_device *icd,
+			   struct v4l2_format *f)
+{
+	struct v4l2_rect rect = {
+		.left	= icd->x_current,
+		.top	= icd->y_current,
+		.width	= f->fmt.pix.width,
+		.height	= f->fmt.pix.height,
+	};
+
+	/* No support for scaling so far, just crop. TODO: use skipping */
+	return mt9m001_set_crop(icd, &rect);
+}
+
 static int mt9m001_try_fmt(struct soc_camera_device *icd,
 			   struct v4l2_format *f)
 {
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 
-	if (pix->height < 32 + icd->y_skip_top)
-		pix->height = 32 + icd->y_skip_top;
-	if (pix->height > 1024 + icd->y_skip_top)
-		pix->height = 1024 + icd->y_skip_top;
-	if (pix->width < 48)
-		pix->width = 48;
-	if (pix->width > 1280)
-		pix->width = 1280;
-	pix->width &= ~0x01; /* has to be even, unsure why was ~3 */
+	v4l_bound_align_image(&pix->width, 48, 1280, 1,
+			      &pix->height, 32 + icd->y_skip_top,
+			      1024 + icd->y_skip_top, 0, 0);
 
 	return 0;
 }
@@ -363,16 +308,16 @@ static int mt9m001_get_chip_id(struct soc_camera_device *icd,
 static int mt9m001_get_register(struct soc_camera_device *icd,
 				struct v4l2_dbg_register *reg)
 {
-	struct mt9m001 *mt9m001 = container_of(icd, struct mt9m001, icd);
+	struct i2c_client *client = to_i2c_client(icd->control);
 
 	if (reg->match.type != V4L2_CHIP_MATCH_I2C_ADDR || reg->reg > 0xff)
 		return -EINVAL;
 
-	if (reg->match.addr != mt9m001->client->addr)
+	if (reg->match.addr != client->addr)
 		return -ENODEV;
 
 	reg->size = 2;
-	reg->val = reg_read(icd, reg->reg);
+	reg->val = reg_read(client, reg->reg);
 
 	if (reg->val > 0xffff)
 		return -EIO;
@@ -383,15 +328,15 @@ static int mt9m001_get_register(struct soc_camera_device *icd,
 static int mt9m001_set_register(struct soc_camera_device *icd,
 				struct v4l2_dbg_register *reg)
 {
-	struct mt9m001 *mt9m001 = container_of(icd, struct mt9m001, icd);
+	struct i2c_client *client = to_i2c_client(icd->control);
 
 	if (reg->match.type != V4L2_CHIP_MATCH_I2C_ADDR || reg->reg > 0xff)
 		return -EINVAL;
 
-	if (reg->match.addr != mt9m001->client->addr)
+	if (reg->match.addr != client->addr)
 		return -ENODEV;
 
-	if (reg_write(icd, reg->reg, reg->val) < 0)
+	if (reg_write(client, reg->reg, reg->val) < 0)
 		return -EIO;
 
 	return 0;
@@ -449,6 +394,7 @@ static struct soc_camera_ops mt9m001_ops = {
 	.release		= mt9m001_release,
 	.start_capture		= mt9m001_start_capture,
 	.stop_capture		= mt9m001_stop_capture,
+	.set_crop		= mt9m001_set_crop,
 	.set_fmt		= mt9m001_set_fmt,
 	.try_fmt		= mt9m001_try_fmt,
 	.set_bus_param		= mt9m001_set_bus_param,
@@ -466,12 +412,13 @@ static struct soc_camera_ops mt9m001_ops = {
 
 static int mt9m001_get_control(struct soc_camera_device *icd, struct v4l2_control *ctrl)
 {
+	struct i2c_client *client = to_i2c_client(icd->control);
 	struct mt9m001 *mt9m001 = container_of(icd, struct mt9m001, icd);
 	int data;
 
 	switch (ctrl->id) {
 	case V4L2_CID_VFLIP:
-		data = reg_read(icd, MT9M001_READ_OPTIONS2);
+		data = reg_read(client, MT9M001_READ_OPTIONS2);
 		if (data < 0)
 			return -EIO;
 		ctrl->value = !!(data & 0x8000);
@@ -485,6 +432,7 @@ static int mt9m001_get_control(struct soc_camera_device *icd, struct v4l2_contro
 
 static int mt9m001_set_control(struct soc_camera_device *icd, struct v4l2_control *ctrl)
 {
+	struct i2c_client *client = to_i2c_client(icd->control);
 	struct mt9m001 *mt9m001 = container_of(icd, struct mt9m001, icd);
 	const struct v4l2_queryctrl *qctrl;
 	int data;
@@ -497,9 +445,9 @@ static int mt9m001_set_control(struct soc_camera_device *icd, struct v4l2_contro
 	switch (ctrl->id) {
 	case V4L2_CID_VFLIP:
 		if (ctrl->value)
-			data = reg_set(icd, MT9M001_READ_OPTIONS2, 0x8000);
+			data = reg_set(client, MT9M001_READ_OPTIONS2, 0x8000);
 		else
-			data = reg_clear(icd, MT9M001_READ_OPTIONS2, 0x8000);
+			data = reg_clear(client, MT9M001_READ_OPTIONS2, 0x8000);
 		if (data < 0)
 			return -EIO;
 		break;
@@ -513,7 +461,7 @@ static int mt9m001_set_control(struct soc_camera_device *icd, struct v4l2_contro
 			data = ((ctrl->value - qctrl->minimum) * 8 + range / 2) / range;
 
 			dev_dbg(&icd->dev, "Setting gain %d\n", data);
-			data = reg_write(icd, MT9M001_GLOBAL_GAIN, data);
+			data = reg_write(client, MT9M001_GLOBAL_GAIN, data);
 			if (data < 0)
 				return -EIO;
 		} else {
@@ -531,8 +479,8 @@ static int mt9m001_set_control(struct soc_camera_device *icd, struct v4l2_contro
 				data = ((gain - 64) * 7 + 28) / 56 + 96;
 
 			dev_dbg(&icd->dev, "Setting gain from %d to %d\n",
-				 reg_read(icd, MT9M001_GLOBAL_GAIN), data);
-			data = reg_write(icd, MT9M001_GLOBAL_GAIN, data);
+				 reg_read(client, MT9M001_GLOBAL_GAIN), data);
+			data = reg_write(client, MT9M001_GLOBAL_GAIN, data);
 			if (data < 0)
 				return -EIO;
 		}
@@ -550,8 +498,8 @@ static int mt9m001_set_control(struct soc_camera_device *icd, struct v4l2_contro
 						 range / 2) / range + 1;
 
 			dev_dbg(&icd->dev, "Setting shutter width from %d to %lu\n",
-				 reg_read(icd, MT9M001_SHUTTER_WIDTH), shutter);
-			if (reg_write(icd, MT9M001_SHUTTER_WIDTH, shutter) < 0)
+				 reg_read(client, MT9M001_SHUTTER_WIDTH), shutter);
+			if (reg_write(client, MT9M001_SHUTTER_WIDTH, shutter) < 0)
 				return -EIO;
 			icd->exposure = ctrl->value;
 			mt9m001->autoexposure = 0;
@@ -560,7 +508,7 @@ static int mt9m001_set_control(struct soc_camera_device *icd, struct v4l2_contro
 	case V4L2_CID_EXPOSURE_AUTO:
 		if (ctrl->value) {
 			const u16 vblank = 25;
-			if (reg_write(icd, MT9M001_SHUTTER_WIDTH, icd->height +
+			if (reg_write(client, MT9M001_SHUTTER_WIDTH, icd->height +
 				      icd->y_skip_top + vblank) < 0)
 				return -EIO;
 			qctrl = soc_camera_find_qctrl(icd->ops, V4L2_CID_EXPOSURE);
@@ -579,10 +527,12 @@ static int mt9m001_set_control(struct soc_camera_device *icd, struct v4l2_contro
  * this wasn't our capture interface, so, we wait for the right one */
 static int mt9m001_video_probe(struct soc_camera_device *icd)
 {
+	struct i2c_client *client = to_i2c_client(icd->control);
 	struct mt9m001 *mt9m001 = container_of(icd, struct mt9m001, icd);
-	struct soc_camera_link *icl = mt9m001->client->dev.platform_data;
+	struct soc_camera_link *icl = client->dev.platform_data;
 	s32 data;
 	int ret;
+	unsigned long flags;
 
 	/* We must have a parent by now. And it cannot be a wrong one.
 	 * So this entire test is completely redundant. */
@@ -591,11 +541,11 @@ static int mt9m001_video_probe(struct soc_camera_device *icd)
 		return -ENODEV;
 
 	/* Enable the chip */
-	data = reg_write(icd, MT9M001_CHIP_ENABLE, 1);
+	data = reg_write(client, MT9M001_CHIP_ENABLE, 1);
 	dev_dbg(&icd->dev, "write: %d\n", data);
 
 	/* Read out the chip version register */
-	data = reg_read(icd, MT9M001_CHIP_VERSION);
+	data = reg_read(client, MT9M001_CHIP_VERSION);
 
 	/* must be 0x8411 or 0x8421 for colour sensor and 8431 for bw */
 	switch (data) {
@@ -603,18 +553,10 @@ static int mt9m001_video_probe(struct soc_camera_device *icd)
 	case 0x8421:
 		mt9m001->model = V4L2_IDENT_MT9M001C12ST;
 		icd->formats = mt9m001_colour_formats;
-		if (gpio_is_valid(icl->gpio))
-			icd->num_formats = ARRAY_SIZE(mt9m001_colour_formats);
-		else
-			icd->num_formats = 1;
 		break;
 	case 0x8431:
 		mt9m001->model = V4L2_IDENT_MT9M001C12STM;
 		icd->formats = mt9m001_monochrome_formats;
-		if (gpio_is_valid(icl->gpio))
-			icd->num_formats = ARRAY_SIZE(mt9m001_monochrome_formats);
-		else
-			icd->num_formats = 1;
 		break;
 	default:
 		ret = -ENODEV;
@@ -622,6 +564,26 @@ static int mt9m001_video_probe(struct soc_camera_device *icd)
 			"No MT9M001 chip detected, register read %x\n", data);
 		goto ei2c;
 	}
+
+	icd->num_formats = 0;
+
+	/*
+	 * This is a 10bit sensor, so by default we only allow 10bit.
+	 * The platform may support different bus widths due to
+	 * different routing of the data lines.
+	 */
+	if (icl->query_bus_param)
+		flags = icl->query_bus_param(icl);
+	else
+		flags = SOCAM_DATAWIDTH_10;
+
+	if (flags & SOCAM_DATAWIDTH_10)
+		icd->num_formats++;
+	else
+		icd->formats++;
+
+	if (flags & SOCAM_DATAWIDTH_8)
+		icd->num_formats++;
 
 	dev_info(&icd->dev, "Detected a MT9M001 chip ID %x (%s)\n", data,
 		 data == 0x8431 ? "C12STM" : "C12ST");
@@ -641,10 +603,13 @@ ei2c:
 static void mt9m001_video_remove(struct soc_camera_device *icd)
 {
 	struct mt9m001 *mt9m001 = container_of(icd, struct mt9m001, icd);
+	struct soc_camera_link *icl = mt9m001->client->dev.platform_data;
 
 	dev_dbg(&icd->dev, "Video %x removed: %p, %p\n", mt9m001->client->addr,
 		icd->dev.parent, icd->vdev);
 	soc_camera_video_stop(icd);
+	if (icl->free_bus)
+		icl->free_bus(icl);
 }
 
 static int mt9m001_probe(struct i2c_client *client,
@@ -688,17 +653,9 @@ static int mt9m001_probe(struct i2c_client *client,
 	icd->height_max	= 1024;
 	icd->y_skip_top	= 1;
 	icd->iface	= icl->bus_id;
-	/* Default datawidth - this is the only width this camera (normally)
-	 * supports. It is only with extra logic that it can support
-	 * other widths. Therefore it seems to be a sensible default. */
-	mt9m001->datawidth = 10;
 	/* Simulated autoexposure. If enabled, we calculate shutter width
 	 * ourselves in the driver based on vertical blanking and frame width */
 	mt9m001->autoexposure = 1;
-
-	ret = bus_switch_request(mt9m001, icl);
-	if (ret)
-		goto eswinit;
 
 	ret = soc_camera_device_register(icd);
 	if (ret)
@@ -707,8 +664,6 @@ static int mt9m001_probe(struct i2c_client *client,
 	return 0;
 
 eisdr:
-	bus_switch_release(mt9m001);
-eswinit:
 	kfree(mt9m001);
 	return ret;
 }
@@ -718,7 +673,6 @@ static int mt9m001_remove(struct i2c_client *client)
 	struct mt9m001 *mt9m001 = i2c_get_clientdata(client);
 
 	soc_camera_device_unregister(&mt9m001->icd);
-	bus_switch_release(mt9m001);
 	kfree(mt9m001);
 
 	return 0;

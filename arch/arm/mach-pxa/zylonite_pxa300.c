@@ -18,10 +18,10 @@
 #include <linux/init.h>
 #include <linux/i2c.h>
 #include <linux/i2c/pca953x.h>
+#include <linux/gpio.h>
 
-#include <asm/gpio.h>
-#include <mach/mfp-pxa300.h>
-#include <mach/i2c.h>
+#include <mach/pxa300.h>
+#include <plat/i2c.h>
 #include <mach/zylonite.h>
 
 #include "generic.h"
@@ -72,6 +72,7 @@ static mfp_cfg_t common_mfp_cfg[] __initdata = {
 	GPIO25_AC97_SDATA_IN_0,
 	GPIO27_AC97_SDATA_OUT,
 	GPIO28_AC97_SYNC,
+	GPIO17_GPIO,	/* SDATA_IN_1 but unused - configure to GPIO */
 
 	/* SSP3 */
 	GPIO91_SSP3_SCLK,
@@ -126,6 +127,10 @@ static mfp_cfg_t common_mfp_cfg[] __initdata = {
 	/* Standard I2C */
 	GPIO21_I2C_SCL,
 	GPIO22_I2C_SDA,
+
+	/* GPIO */
+	GPIO18_GPIO,	/* GPIO Expander #0 INT_N */
+	GPIO19_GPIO,	/* GPIO Expander #1 INT_N */
 };
 
 static mfp_cfg_t pxa300_mfp_cfg[] __initdata = {
@@ -192,10 +197,12 @@ static void __init zylonite_detect_lcd_panel(void)
 	for (i = 0; i < NUM_LCD_DETECT_PINS; i++) {
 		id = id << 1;
 		gpio = mfp_to_gpio(lcd_detect_pins[i]);
+		gpio_request(gpio, "LCD_ID_PINS");
 		gpio_direction_input(gpio);
 
 		if (gpio_get_value(gpio))
 			id = id | 0x1;
+		gpio_free(gpio);
 	}
 
 	/* lcd id, flush out bit 1 */

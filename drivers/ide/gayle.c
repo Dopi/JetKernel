@@ -53,11 +53,6 @@
 
 #define GAYLE_NEXT_PORT	0x1000
 
-#ifndef CONFIG_BLK_DEV_IDEDOUBLER
-#define GAYLE_NUM_HWIFS		1
-#define GAYLE_NUM_PROBE_HWIFS	GAYLE_NUM_HWIFS
-#define GAYLE_HAS_CONTROL_REG	1
-#else /* CONFIG_BLK_DEV_IDEDOUBLER */
 #define GAYLE_NUM_HWIFS		2
 #define GAYLE_NUM_PROBE_HWIFS	(ide_doubler ? GAYLE_NUM_HWIFS : \
 					       GAYLE_NUM_HWIFS-1)
@@ -66,14 +61,12 @@
 static int ide_doubler;
 module_param_named(doubler, ide_doubler, bool, 0);
 MODULE_PARM_DESC(doubler, "enable support for IDE doublers");
-#endif /* CONFIG_BLK_DEV_IDEDOUBLER */
-
 
     /*
      *  Check and acknowledge the interrupt status
      */
 
-static int gayle_ack_intr_a4000(ide_hwif_t *hwif)
+static int gayle_test_irq(ide_hwif_t *hwif)
 {
     unsigned char ch;
 
@@ -83,21 +76,16 @@ static int gayle_ack_intr_a4000(ide_hwif_t *hwif)
     return 1;
 }
 
-static int gayle_ack_intr_a1200(ide_hwif_t *hwif)
+static void gayle_a1200_clear_irq(ide_drive_t *drive)
 {
-    unsigned char ch;
+    ide_hwif_t *hwif = drive->hwif;
 
-    ch = z_readb(hwif->io_ports.irq_addr);
-    if (!(ch & GAYLE_IRQ_IDE))
-	return 0;
     (void)z_readb(hwif->io_ports.status_addr);
     z_writeb(0x7c, hwif->io_ports.irq_addr);
-    return 1;
 }
 
-static void __init gayle_setup_ports(hw_regs_t *hw, unsigned long base,
-				     unsigned long ctl, unsigned long irq_port,
-				     ide_ack_intr_t *ack_intr)
+static void __init gayle_setup_ports(struct ide_hw *hw, unsigned long base,
+				     unsigned long ctl, unsigned long irq_port)
 {
 	int i;
 
@@ -112,13 +100,22 @@ static void __init gayle_setup_ports(hw_regs_t *hw, unsigned long base,
 	hw->io_ports.irq_addr = irq_port;
 
 	hw->irq = IRQ_AMIGA_PORTS;
-	hw->ack_intr = ack_intr;
-
-	hw->chipset = ide_generic;
 }
 
+static const struct ide_port_ops gayle_a4000_port_ops = {
+	.test_irq		= gayle_test_irq,
+};
+
+static const struct ide_port_ops gayle_a1200_port_ops = {
+	.clear_irq		= gayle_a1200_clear_irq,
+	.test_irq		= gayle_test_irq,
+};
+
 static const struct ide_port_info gayle_port_info = {
-	.host_flags		= IDE_HFLAG_SERIALIZE | IDE_HFLAG_NO_DMA,
+	.host_flags		= IDE_HFLAG_MMIO | IDE_HFLAG_SERIALIZE |
+				  IDE_HFLAG_NO_DMA,
+	.irq_flags		= IRQF_SHARED,
+	.chipset		= ide_generic,
 };
 
     /*
@@ -129,9 +126,9 @@ static int __init gayle_init(void)
 {
     unsigned long phys_base, res_start, res_n;
     unsigned long base, ctrlport, irqport;
-    ide_ack_intr_t *ack_intr;
     int a4000, i, rc;
-    hw_regs_t hw[GAYLE_NUM_HWIFS], *hws[] = { NULL, NULL, NULL, NULL };
+    struct ide_hw hw[GAYLE_NUM_HWIFS], *hws[GAYLE_NUM_HWIFS];
+    struct ide_port_info d = gayle_port_info;
 
     if (!MACH_IS_AMIGA)
 	return -ENODEV;
@@ -149,23 +146,17 @@ static int __init gayle_init(void)
 found:
 	printk(KERN_INFO "ide: Gayle IDE controller (A%d style%s)\n",
 			 a4000 ? 4000 : 1200,
-#ifdef CONFIG_BLK_DEV_IDEDOUBLER
-			 ide_doubler ? ", IDE doubler" :
-#endif
-			 "");
+			 ide_doubler ? ", IDE doubler" : "");
 
 	if (a4000) {
 	    phys_base = GAYLE_BASE_4000;
 	    irqport = (unsigned long)ZTWO_VADDR(GAYLE_IRQ_4000);
-	    ack_intr = gayle_ack_intr_a4000;
+	    d.port_ops = &gayle_a4000_port_ops;
 	} else {
 	    phys_base = GAYLE_BASE_1200;
 	    irqport = (unsigned long)ZTWO_VADDR(GAYLE_IRQ_1200);
-	    ack_intr = gayle_ack_intr_a1200;
+	    d.port_ops = &gayle_a1200_port_ops;
 	}
-/*
- * FIXME: we now have selectable modes between mmio v/s iomio
- */
 
 	res_start = ((unsigned long)phys_base) & ~(GAYLE_NEXT_PORT-1);
 	res_n = GAYLE_IDEREG_SIZE;
@@ -177,12 +168,12 @@ found:
 	base = (unsigned long)ZTWO_VADDR(phys_base + i * GAYLE_NEXT_PORT);
 	ctrlport = GAYLE_HAS_CONTROL_REG ? (base + GAYLE_CONTROL) : 0;
 
-	gayle_setup_ports(&hw[i], base, ctrlport, irqport, ack_intr);
+	gayle_setup_ports(&hw[i], base, ctrlport, irqport);
 
 	hws[i] = &hw[i];
     }
 
-    rc = ide_host_add(&gayle_port_info, hws, NULL);
+    rc = ide_host_add(&d, hws, i, NULL);
     if (rc)
 	release_mem_region(res_start, res_n);
 

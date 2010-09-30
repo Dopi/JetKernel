@@ -18,6 +18,9 @@
 #include <linux/security.h>
 #include <linux/in.h>
 #include <net/netlabel.h>
+#include <linux/list.h>
+#include <linux/rculist.h>
+#include <linux/lsm_audit.h>
 
 /*
  * Why 23? CIPSO is constrained to 30, so a 32 byte buffer is
@@ -58,17 +61,10 @@ struct inode_smack {
  * A label access rule.
  */
 struct smack_rule {
-	char	*smk_subject;
-	char	*smk_object;
-	int	smk_access;
-};
-
-/*
- * An entry in the table of permitted label accesses.
- */
-struct smk_list_entry {
-	struct smk_list_entry	*smk_next;
-	struct smack_rule	smk_rule;
+	struct list_head	list;
+	char			*smk_subject;
+	char			*smk_object;
+	int			smk_access;
 };
 
 /*
@@ -84,7 +80,7 @@ struct smack_cipso {
  * An entry in the table identifying hosts.
  */
 struct smk_netlbladdr {
-	struct smk_netlbladdr	*smk_next;
+	struct list_head	list;
 	struct sockaddr_in	smk_host;	/* network address */
 	struct in_addr		smk_mask;	/* network mask */
 	char			*smk_label;	/* label */
@@ -112,7 +108,7 @@ struct smk_netlbladdr {
  * the cipso direct mapping in used internally.
  */
 struct smack_known {
-	struct smack_known	*smk_next;
+	struct list_head	list;
 	char			smk_known[SMK_LABELLEN];
 	u32			smk_secid;
 	struct smack_cipso	*smk_cipso;
@@ -136,6 +132,8 @@ struct smack_known {
 #define XATTR_NAME_SMACK	XATTR_SECURITY_PREFIX XATTR_SMACK_SUFFIX
 #define XATTR_NAME_SMACKIPIN	XATTR_SECURITY_PREFIX XATTR_SMACK_IPIN
 #define XATTR_NAME_SMACKIPOUT	XATTR_SECURITY_PREFIX XATTR_SMACK_IPOUT
+
+#define SMACK_CIPSO_OPTION 	"-CIPSO"
 
 /*
  * How communications on this socket are treated.
@@ -182,6 +180,20 @@ struct smack_known {
 #define MAY_NOT		0
 
 /*
+ * Number of access types used by Smack (rwxa)
+ */
+#define SMK_NUM_ACCESS_TYPE 4
+
+/*
+ * Smack audit data; is empty if CONFIG_AUDIT not set
+ * to save some stack
+ */
+struct smk_audit_info {
+#ifdef CONFIG_AUDIT
+	struct common_audit_data a;
+#endif
+};
+/*
  * These functions are in smack_lsm.c
  */
 struct inode_smack *new_inode_smack(char *);
@@ -189,8 +201,8 @@ struct inode_smack *new_inode_smack(char *);
 /*
  * These functions are in smack_access.c
  */
-int smk_access(char *, char *, int);
-int smk_curacc(char *, u32);
+int smk_access(char *, char *, int, struct smk_audit_info *);
+int smk_curacc(char *, u32, struct smk_audit_info *);
 int smack_to_cipso(const char *, struct smack_cipso *);
 void smack_from_cipso(u32, char *, char *);
 char *smack_from_secid(const u32);
@@ -204,8 +216,8 @@ u32 smack_to_secid(const char *);
 extern int smack_cipso_direct;
 extern char *smack_net_ambient;
 extern char *smack_onlycap;
+extern const char *smack_cipso_option;
 
-extern struct smack_known *smack_known;
 extern struct smack_known smack_known_floor;
 extern struct smack_known smack_known_hat;
 extern struct smack_known smack_known_huh;
@@ -213,8 +225,10 @@ extern struct smack_known smack_known_invalid;
 extern struct smack_known smack_known_star;
 extern struct smack_known smack_known_web;
 
-extern struct smk_list_entry *smack_list;
-extern struct smk_netlbladdr *smack_netlbladdrs;
+extern struct list_head smack_known_list;
+extern struct list_head smack_rule_list;
+extern struct list_head smk_netlbladdr_list;
+
 extern struct security_operations smack_ops;
 
 /*
@@ -237,5 +251,94 @@ static inline char *smk_of_inode(const struct inode *isp)
 	struct inode_smack *sip = isp->i_security;
 	return sip->smk_inode;
 }
+
+/*
+ * logging functions
+ */
+#define SMACK_AUDIT_DENIED 0x1
+#define SMACK_AUDIT_ACCEPT 0x2
+extern int log_policy;
+
+void smack_log(char *subject_label, char *object_label,
+		int request,
+		int result, struct smk_audit_info *auditdata);
+
+#ifdef CONFIG_AUDIT
+
+/*
+ * some inline functions to set up audit data
+ * they do nothing if CONFIG_AUDIT is not set
+ *
+ */
+static inline void smk_ad_init(struct smk_audit_info *a, const char *func,
+			       char type)
+{
+	memset(a, 0, sizeof(*a));
+	a->a.type = type;
+	a->a.function = func;
+}
+
+static inline void smk_ad_setfield_u_tsk(struct smk_audit_info *a,
+					 struct task_struct *t)
+{
+	a->a.u.tsk = t;
+}
+static inline void smk_ad_setfield_u_fs_path_dentry(struct smk_audit_info *a,
+						    struct dentry *d)
+{
+	a->a.u.fs.path.dentry = d;
+}
+static inline void smk_ad_setfield_u_fs_path_mnt(struct smk_audit_info *a,
+						 struct vfsmount *m)
+{
+	a->a.u.fs.path.mnt = m;
+}
+static inline void smk_ad_setfield_u_fs_inode(struct smk_audit_info *a,
+					      struct inode *i)
+{
+	a->a.u.fs.inode = i;
+}
+static inline void smk_ad_setfield_u_fs_path(struct smk_audit_info *a,
+					     struct path p)
+{
+	a->a.u.fs.path = p;
+}
+static inline void smk_ad_setfield_u_net_sk(struct smk_audit_info *a,
+					    struct sock *sk)
+{
+	a->a.u.net.sk = sk;
+}
+
+#else /* no AUDIT */
+
+static inline void smk_ad_init(struct smk_audit_info *a, const char *func,
+			       char type)
+{
+}
+static inline void smk_ad_setfield_u_tsk(struct smk_audit_info *a,
+					 struct task_struct *t)
+{
+}
+static inline void smk_ad_setfield_u_fs_path_dentry(struct smk_audit_info *a,
+						    struct dentry *d)
+{
+}
+static inline void smk_ad_setfield_u_fs_path_mnt(struct smk_audit_info *a,
+						 struct vfsmount *m)
+{
+}
+static inline void smk_ad_setfield_u_fs_inode(struct smk_audit_info *a,
+					      struct inode *i)
+{
+}
+static inline void smk_ad_setfield_u_fs_path(struct smk_audit_info *a,
+					     struct path p)
+{
+}
+static inline void smk_ad_setfield_u_net_sk(struct smk_audit_info *a,
+					    struct sock *sk)
+{
+}
+#endif
 
 #endif  /* _SECURITY_SMACK_H */

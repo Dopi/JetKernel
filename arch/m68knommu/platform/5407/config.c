@@ -12,7 +12,6 @@
 #include <linux/kernel.h>
 #include <linux/param.h>
 #include <linux/init.h>
-#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <asm/machdep.h>
 #include <asm/coldfire.h>
@@ -20,8 +19,6 @@
 #include <asm/mcfuart.h>
 
 /***************************************************************************/
-
-void coldfire_reset(void);
 
 extern unsigned int mcf_timervector;
 extern unsigned int mcf_profilevector;
@@ -56,12 +53,12 @@ static struct platform_device *m5407_devices[] __initdata = {
 static void __init m5407_uart_init_line(int line, int irq)
 {
 	if (line == 0) {
-		writel(MCFSIM_ICR_LEVEL6 | MCFSIM_ICR_PRI1, MCF_MBAR + MCFSIM_UART1ICR);
-		writeb(irq, MCFUART_BASE1 + MCFUART_UIVR);
+		writeb(MCFSIM_ICR_LEVEL6 | MCFSIM_ICR_PRI1, MCF_MBAR + MCFSIM_UART1ICR);
+		writeb(irq, MCF_MBAR + MCFUART_BASE1 + MCFUART_UIVR);
 		mcf_setimr(mcf_getimr() & ~MCFSIM_IMR_UART1);
 	} else if (line == 1) {
-		writel(MCFSIM_ICR_LEVEL6 | MCFSIM_ICR_PRI2, MCF_MBAR + MCFSIM_UART2ICR);
-		writeb(irq, MCFUART_BASE2 + MCFUART_UIVR);
+		writeb(MCFSIM_ICR_LEVEL6 | MCFSIM_ICR_PRI2, MCF_MBAR + MCFSIM_UART2ICR);
+		writeb(irq, MCF_MBAR + MCFUART_BASE2 + MCFUART_UIVR);
 		mcf_setimr(mcf_getimr() & ~MCFSIM_IMR_UART2);
 	}
 }
@@ -110,6 +107,17 @@ void mcf_settimericr(unsigned int timer, unsigned int level)
 
 /***************************************************************************/
 
+void m5407_cpu_reset(void)
+{
+	local_irq_disable();
+	/* set watchdog to soft reset, and enabled */
+	__raw_writeb(0xc0, MCF_MBAR + MCFSIM_SYPCR);
+	for (;;)
+		/* wait for watchdog to timeout */;
+}
+
+/***************************************************************************/
+
 void __init config_BSP(char *commandp, int size)
 {
 	mcf_setimr(MCFSIM_IMR_MASKALL);
@@ -121,7 +129,7 @@ void __init config_BSP(char *commandp, int size)
 	mcf_timerlevel = 6;
 #endif
 
-	mach_reset = coldfire_reset;
+	mach_reset = m5407_cpu_reset;
 }
 
 /***************************************************************************/

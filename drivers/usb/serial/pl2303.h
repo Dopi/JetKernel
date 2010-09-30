@@ -7,6 +7,10 @@
  *	(at your option) any later version.
  * 
  */
+
+#define BENQ_VENDOR_ID			0x04a5
+#define BENQ_PRODUCT_ID_S81		0x4027
+
 #define PL2303_VENDOR_ID	0x067b
 #define PL2303_PRODUCT_ID	0x2303
 #define PL2303_PRODUCT_ID_RSAQ2		0x04bb
@@ -118,3 +122,15 @@
 /* Hewlett-Packard LD220-HP POS Pole Display */
 #define HP_VENDOR_ID		0x03f0
 #define HP_LD220_PRODUCT_ID	0x3524
+
+/* Cressi Edy (diving computer) PC interface */
+#define CRESSI_VENDOR_ID	0x04b8
+#define CRESSI_EDY_PRODUCT_ID	0x0521
+
+/* Sony, USB data cable for CMD-Jxx mobile phones */
+#define SONY_VENDOR_ID		0x054c
+#define SONY_QN3USB_PRODUCT_ID	0x0437
+
+/* Sanwa KB-USB2 multimeter cable (ID: 11ad:0001) */
+#define SANWA_VENDOR_ID		0x11ad
+#define SANWA_PRODUCT_ID	0x0001

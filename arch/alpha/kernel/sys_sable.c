@@ -453,7 +453,7 @@ sable_lynx_enable_irq(unsigned int irq)
 	sable_lynx_irq_swizzle->update_irq_hw(bit, mask);
 	spin_unlock(&sable_lynx_irq_lock);
 #if 0
-	printk("%s: mask 0x%lx bit 0x%x irq 0x%x\n",
+	printk("%s: mask 0x%lx bit 0x%lx irq 0x%x\n",
 	       __func__, mask, bit, irq);
 #endif
 }
@@ -469,7 +469,7 @@ sable_lynx_disable_irq(unsigned int irq)
 	sable_lynx_irq_swizzle->update_irq_hw(bit, mask);
 	spin_unlock(&sable_lynx_irq_lock);
 #if 0
-	printk("%s: mask 0x%lx bit 0x%x irq 0x%x\n",
+	printk("%s: mask 0x%lx bit 0x%lx irq 0x%x\n",
 	       __func__, mask, bit, irq);
 #endif
 }
@@ -501,7 +501,7 @@ sable_lynx_mask_and_ack_irq(unsigned int irq)
 	spin_unlock(&sable_lynx_irq_lock);
 }
 
-static struct hw_interrupt_type sable_lynx_irq_type = {
+static struct irq_chip sable_lynx_irq_type = {
 	.typename	= "SABLE/LYNX",
 	.startup	= sable_lynx_startup_irq,
 	.shutdown	= sable_lynx_disable_irq,

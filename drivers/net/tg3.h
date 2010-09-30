@@ -95,6 +95,8 @@
 #define  CHIPREV_ID_5752_A1		 0x6001
 #define  CHIPREV_ID_5714_A2		 0x9002
 #define  CHIPREV_ID_5906_A1		 0xc001
+#define  CHIPREV_ID_57780_A0		 0x57780000
+#define  CHIPREV_ID_57780_A1		 0x57780001
 #define  GET_ASIC_REV(CHIP_REV_ID)	((CHIP_REV_ID) >> 12)
 #define   ASIC_REV_5700			 0x07
 #define   ASIC_REV_5701			 0x00
@@ -1697,6 +1699,8 @@
 
 #define PCIE_PWR_MGMT_THRESH		0x00007d28
 #define PCIE_PWR_MGMT_L1_THRESH_MSK	 0x0000ff00
+#define PCIE_PWR_MGMT_L1_THRESH_4MS	 0x0000ff00
+#define PCIE_PWR_MGMT_EXT_ASPM_TMR_EN	 0x01000000
 
 
 /* OTP bit definitions */
@@ -1719,6 +1723,12 @@
 
 #define TG3_OTP_DEFAULT			0x286c1640
 
+/* Hardware Selfboot NVRAM layout */
+#define TG3_NVM_HWSB_CFG1		0x00000004
+#define  TG3_NVM_HWSB_CFG1_MAJMSK	0xf8000000
+#define  TG3_NVM_HWSB_CFG1_MAJSFT	27
+#define  TG3_NVM_HWSB_CFG1_MINMSK	0x07c00000
+#define  TG3_NVM_HWSB_CFG1_MINSFT	22
 
 #define TG3_EEPROM_MAGIC		0x669955aa
 #define TG3_EEPROM_MAGIC_FW		0xa5000000
@@ -1737,6 +1747,10 @@
 #define TG3_NVM_DIRENT_SIZE		0xc
 #define TG3_NVM_DIRTYPE_SHIFT		24
 #define TG3_NVM_DIRTYPE_ASFINI		1
+#define TG3_NVM_PTREV_BCVER		0x94
+#define TG3_NVM_BCVER_MAJMSK		0x0000ff00
+#define TG3_NVM_BCVER_MAJSFT		8
+#define TG3_NVM_BCVER_MINMSK		0x000000ff
 
 #define TG3_EEPROM_SB_F1R0_EDH_OFF	0x10
 #define TG3_EEPROM_SB_F1R2_EDH_OFF	0x14
@@ -1967,6 +1981,14 @@
 /* APE shared memory.  Accessible through BAR1 */
 #define TG3_APE_FW_STATUS		0x400c
 #define  APE_FW_STATUS_READY		 0x00000100
+#define TG3_APE_FW_VERSION		0x4018
+#define  APE_FW_VERSION_MAJMSK		 0xff000000
+#define  APE_FW_VERSION_MAJSFT		 24
+#define  APE_FW_VERSION_MINMSK		 0x00ff0000
+#define  APE_FW_VERSION_MINSFT		 16
+#define  APE_FW_VERSION_REVMSK		 0x0000ff00
+#define  APE_FW_VERSION_REVSFT		 8
+#define  APE_FW_VERSION_BLDMSK		 0x000000ff
 #define TG3_APE_HOST_SEG_SIG		0x4200
 #define  APE_HOST_SEG_SIG_MAGIC		 0x484f5354
 #define TG3_APE_HOST_SEG_LEN		0x4204
@@ -2483,6 +2505,7 @@ struct tg3 {
 	struct tg3_hw_status		*hw_status;
 	dma_addr_t			status_mapping;
 	u32				last_tag;
+	u32				last_irq_tag;
 
 	u32				msg_enable;
 
@@ -2617,6 +2640,7 @@ struct tg3 {
 #define TG3_FLG3_CLKREQ_BUG		0x00000800
 #define TG3_FLG3_PHY_ENABLE_APD		0x00001000
 #define TG3_FLG3_5755_PLUS		0x00002000
+#define TG3_FLG3_NO_NVRAM		0x00004000
 
 	struct timer_list		timer;
 	u16				timer_counter;

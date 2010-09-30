@@ -62,7 +62,10 @@
 #define	ModeShift	5
 
 #define MaxFault	50
-#include <linux/raid/md.h>
+#include <linux/blkdev.h>
+#include <linux/raid/md_u.h>
+#include "md.h"
+#include <linux/seq_file.h>
 
 
 static void faulty_fail(struct bio *bio, int error)
@@ -252,14 +255,14 @@ static void status(struct seq_file *seq, mddev_t *mddev)
 }
 
 
-static int reconfig(mddev_t *mddev, int layout, int chunk_size)
+static int reshape(mddev_t *mddev)
 {
-	int mode = layout & ModeMask;
-	int count = layout >> ModeShift;
+	int mode = mddev->new_layout & ModeMask;
+	int count = mddev->new_layout >> ModeShift;
 	conf_t *conf = mddev->private;
 
-	if (chunk_size != -1)
-		return -EINVAL;
+	if (mddev->new_layout < 0)
+		return 0;
 
 	/* new layout */
 	if (mode == ClearFaults)
@@ -276,16 +279,32 @@ static int reconfig(mddev_t *mddev, int layout, int chunk_size)
 		atomic_set(&conf->counters[mode], count);
 	} else
 		return -EINVAL;
+	mddev->new_layout = -1;
 	mddev->layout = -1; /* makes sure further changes come through */
 	return 0;
+}
+
+static sector_t faulty_size(mddev_t *mddev, sector_t sectors, int raid_disks)
+{
+	WARN_ONCE(raid_disks,
+		  "%s does not support generic reshape\n", __func__);
+
+	if (sectors == 0)
+		return mddev->dev_sectors;
+
+	return sectors;
 }
 
 static int run(mddev_t *mddev)
 {
 	mdk_rdev_t *rdev;
 	int i;
+	conf_t *conf;
 
-	conf_t *conf = kmalloc(sizeof(*conf), GFP_KERNEL);
+	if (md_check_no_bitmap(mddev))
+		return -EINVAL;
+
+	conf = kmalloc(sizeof(*conf), GFP_KERNEL);
 	if (!conf)
 		return -ENOMEM;
 
@@ -298,10 +317,10 @@ static int run(mddev_t *mddev)
 	list_for_each_entry(rdev, &mddev->disks, same_set)
 		conf->rdev = rdev;
 
-	mddev->array_sectors = mddev->size * 2;
+	md_set_array_sectors(mddev, faulty_size(mddev, 0, 0));
 	mddev->private = conf;
 
-	reconfig(mddev, mddev->layout, -1);
+	reshape(mddev);
 
 	return 0;
 }
@@ -324,7 +343,8 @@ static struct mdk_personality faulty_personality =
 	.run		= run,
 	.stop		= stop,
 	.status		= status,
-	.reconfig	= reconfig,
+	.check_reshape	= reshape,
+	.size		= faulty_size,
 };
 
 static int __init raid_init(void)

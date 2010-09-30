@@ -880,16 +880,19 @@ static int usblp_wwait(struct usblp *usblp, int nonblock)
 		if (rc <= 0)
 			break;
 
-		if (usblp->flags & LP_ABORT) {
-			if (schedule_timeout(msecs_to_jiffies(5000)) == 0) {
+		if (schedule_timeout(msecs_to_jiffies(1500)) == 0) {
+			if (usblp->flags & LP_ABORT) {
 				err = usblp_check_status(usblp, err);
 				if (err == 1) {	/* Paper out */
 					rc = -ENOSPC;
 					break;
 				}
+			} else {
+				/* Prod the printer, Gentoo#251237. */
+				mutex_lock(&usblp->mut);
+				usblp_read_status(usblp, usblp->statusbuf);
+				mutex_unlock(&usblp->mut);
 			}
-		} else {
-			schedule();
 		}
 	}
 	set_current_state(TASK_RUNNING);
@@ -1054,8 +1057,14 @@ static const struct file_operations usblp_fops = {
 	.release =	usblp_release,
 };
 
+static char *usblp_nodename(struct device *dev)
+{
+	return kasprintf(GFP_KERNEL, "usb/%s", dev_name(dev));
+}
+
 static struct usb_class_driver usblp_class = {
 	.name =		"lp%d",
+	.nodename =	usblp_nodename,
 	.fops =		&usblp_fops,
 	.minor_base =	USBLP_MINOR_BASE,
 };

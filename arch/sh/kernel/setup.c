@@ -29,6 +29,7 @@
 #include <linux/mmzone.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
+#include <linux/platform_device.h>
 #include <asm/uaccess.h>
 #include <asm/io.h>
 #include <asm/page.h>
@@ -103,12 +104,11 @@ static int __init early_parse_mem(char *p)
 	size = memparse(p, &p);
 
 	if (size > __MEMORY_SIZE) {
-		static char msg[] __initdata = KERN_ERR
+		printk(KERN_ERR
 			"Using mem= to increase the size of kernel memory "
 			"is not allowed.\n"
 			"  Recompile the kernel with the correct value for "
-			"CONFIG_MEMORY_SIZE.\n";
-		printk(msg);
+			"CONFIG_MEMORY_SIZE.\n");
 		return 0;
 	}
 
@@ -156,7 +156,7 @@ static void __init reserve_crashkernel(void)
 			&crash_size, &crash_base);
 	if (ret == 0 && crash_size) {
 		if (crash_base <= 0) {
-			vp = alloc_bootmem_nopanic(crash_size); 
+			vp = alloc_bootmem_nopanic(crash_size);
 			if (!vp) {
 				printk(KERN_INFO "crashkernel allocation "
 				       "failed\n");
@@ -185,7 +185,6 @@ static inline void __init reserve_crashkernel(void)
 {}
 #endif
 
-#ifndef CONFIG_GENERIC_CALIBRATE_DELAY
 void __cpuinit calibrate_delay(void)
 {
 	struct clk *clk = clk_get(NULL, "cpu_clk");
@@ -201,7 +200,6 @@ void __cpuinit calibrate_delay(void)
 			 (loops_per_jiffy/(5000/HZ)) % 100,
 			 loops_per_jiffy);
 }
-#endif
 
 void __init __add_active_range(unsigned int nid, unsigned long start_pfn,
 						unsigned long end_pfn)
@@ -329,6 +327,10 @@ static int __init parse_elfcorehdr(char *arg)
 early_param("elfcorehdr", parse_elfcorehdr);
 #endif
 
+void __init __attribute__ ((weak)) plat_early_device_setup(void)
+{
+}
+
 void __init setup_arch(char **cmdline_p)
 {
 	enable_mmu();
@@ -382,6 +384,8 @@ void __init setup_arch(char **cmdline_p)
 
 	parse_early_param();
 
+	plat_early_device_setup();
+
 	sh_mv_setup();
 
 	/*
@@ -416,6 +420,18 @@ void __init setup_arch(char **cmdline_p)
 #endif
 }
 
+/* processor boot mode configuration */
+int generic_mode_pins(void)
+{
+	pr_warning("generic_mode_pins(): missing mode pin configuration\n");
+	return 0;
+}
+
+int test_mode_pin(int pin)
+{
+	return sh_mv.mv_mode_pins() & pin;
+}
+
 static const char *cpu_name[] = {
 	[CPU_SH7201]	= "SH7201",
 	[CPU_SH7203]	= "SH7203",	[CPU_SH7263]	= "SH7263",
@@ -432,10 +448,12 @@ static const char *cpu_name[] = {
 	[CPU_SH7763]	= "SH7763",	[CPU_SH7770]	= "SH7770",
 	[CPU_SH7780]	= "SH7780",	[CPU_SH7781]	= "SH7781",
 	[CPU_SH7343]	= "SH7343",	[CPU_SH7785]	= "SH7785",
+	[CPU_SH7786]	= "SH7786",
 	[CPU_SH7722]	= "SH7722",	[CPU_SHX3]	= "SH-X3",
 	[CPU_SH5_101]	= "SH5-101",	[CPU_SH5_103]	= "SH5-103",
 	[CPU_MXG]	= "MX-G",	[CPU_SH7723]	= "SH7723",
-	[CPU_SH7366]	= "SH7366",	[CPU_SH_NONE]	= "Unknown"
+	[CPU_SH7366]	= "SH7366",	[CPU_SH7724]	= "SH7724",
+	[CPU_SH_NONE]	= "Unknown"
 };
 
 const char *get_cpu_subtype(struct sh_cpuinfo *c)
@@ -448,7 +466,7 @@ EXPORT_SYMBOL(get_cpu_subtype);
 /* Symbolic CPU flags, keep in sync with asm/cpu-features.h */
 static const char *cpu_flags[] = {
 	"none", "fpu", "p2flush", "mmuassoc", "dsp", "perfctr",
-	"ptea", "llsc", "l2", "op32", NULL
+	"ptea", "llsc", "l2", "op32", "pteaex", NULL
 };
 
 static void show_cpuflags(struct seq_file *m, struct sh_cpuinfo *c)

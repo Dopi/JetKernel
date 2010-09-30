@@ -22,6 +22,7 @@
 
 #include <linux/timer.h>
 #include <linux/if.h>
+#include <linux/percpu.h>
 
 #include <scsi/scsi_transport.h>
 #include <scsi/scsi_transport_fc.h>
@@ -33,17 +34,72 @@
 
 #include <scsi/fc_frame.h>
 
-#define LIBFC_DEBUG
+#define FC_LIBFC_LOGGING 0x01 /* General logging, not categorized */
+#define FC_LPORT_LOGGING 0x02 /* lport layer logging */
+#define FC_DISC_LOGGING  0x04 /* discovery layer logging */
+#define FC_RPORT_LOGGING 0x08 /* rport layer logging */
+#define FC_FCP_LOGGING   0x10 /* I/O path logging */
+#define FC_EM_LOGGING    0x20 /* Exchange Manager logging */
+#define FC_EXCH_LOGGING  0x40 /* Exchange/Sequence logging */
+#define FC_SCSI_LOGGING  0x80 /* SCSI logging (mostly error handling) */
 
-#ifdef LIBFC_DEBUG
-/* Log messages */
-#define FC_DBG(fmt, args...)						\
-	do {								\
-		printk(KERN_INFO "%s " fmt, __func__, ##args);		\
-	} while (0)
-#else
-#define FC_DBG(fmt, args...)
-#endif
+extern unsigned int fc_debug_logging;
+
+#define FC_CHECK_LOGGING(LEVEL, CMD)				\
+do {								\
+	if (unlikely(fc_debug_logging & LEVEL))			\
+		do {						\
+			CMD;					\
+		} while (0);					\
+} while (0);
+
+#define FC_LIBFC_DBG(fmt, args...)					\
+	FC_CHECK_LOGGING(FC_LIBFC_LOGGING,				\
+			 printk(KERN_INFO "libfc: " fmt, ##args);)
+
+#define FC_LPORT_DBG(lport, fmt, args...)				\
+	FC_CHECK_LOGGING(FC_LPORT_LOGGING,				\
+			 printk(KERN_INFO "lport: %6x: " fmt,		\
+				fc_host_port_id(lport->host), ##args);)
+
+#define FC_DISC_DBG(disc, fmt, args...)					\
+	FC_CHECK_LOGGING(FC_DISC_LOGGING,				\
+			 printk(KERN_INFO "disc: %6x: " fmt,		\
+				fc_host_port_id(disc->lport->host),	\
+				##args);)
+
+#define FC_RPORT_DBG(rport, fmt, args...)				\
+do {									\
+	struct fc_rport_libfc_priv *rdata = rport->dd_data;		\
+	struct fc_lport *lport = rdata->local_port;			\
+	FC_CHECK_LOGGING(FC_RPORT_LOGGING,				\
+			 printk(KERN_INFO "rport: %6x: %6x: " fmt,	\
+				fc_host_port_id(lport->host),		\
+				rport->port_id, ##args);)		\
+} while (0);
+
+#define FC_FCP_DBG(pkt, fmt, args...)					\
+	FC_CHECK_LOGGING(FC_FCP_LOGGING,				\
+			 printk(KERN_INFO "fcp: %6x: %6x: " fmt,	\
+				fc_host_port_id(pkt->lp->host),		\
+				pkt->rport->port_id, ##args);)
+
+#define FC_EM_DBG(em, fmt, args...)					\
+	FC_CHECK_LOGGING(FC_EM_LOGGING,					\
+			 printk(KERN_INFO "em: %6x: " fmt,		\
+				fc_host_port_id(em->lp->host),		\
+				##args);)
+
+#define FC_EXCH_DBG(exch, fmt, args...)					\
+	FC_CHECK_LOGGING(FC_EXCH_LOGGING,				\
+			 printk(KERN_INFO "exch: %6x: %4x: " fmt,	\
+				fc_host_port_id(exch->lp->host),	\
+				exch->xid, ##args);)
+
+#define FC_SCSI_DBG(lport, fmt, args...)				\
+	FC_CHECK_LOGGING(FC_SCSI_LOGGING,                               \
+			 printk(KERN_INFO "scsi: %6x: " fmt,		\
+				fc_host_port_id(lport->host), ##args);)
 
 /*
  * libfc error codes
@@ -245,6 +301,7 @@ struct fc_fcp_pkt {
 	 */
 	struct fcp_cmnd cdb_cmd;
 	size_t		xfer_len;
+	u16		xfer_ddp;	/* this xfer is ddped */
 	u32		xfer_contig_end; /* offset of end of contiguous xfer */
 	u16		max_payload;	/* max payload size in bytes */
 
@@ -267,6 +324,15 @@ struct fc_fcp_pkt {
 	u8		recov_retry;	/* count of recovery retries */
 	struct fc_seq	*recov_seq;	/* sequence for REC or SRR */
 };
+/*
+ * FC_FCP HELPER FUNCTIONS
+ *****************************/
+static inline bool fc_fcp_is_read(const struct fc_fcp_pkt *fsp)
+{
+	if (fsp && fsp->cmd)
+		return fsp->cmd->sc_data_direction == DMA_FROM_DEVICE;
+	return false;
+}
 
 /*
  * Structure and function definitions for managing Fibre Channel Exchanges
@@ -399,6 +465,21 @@ struct libfc_function_template {
 							   void *arg),
 					void *arg, unsigned int timer_msec);
 
+	/*
+	 * Sets up the DDP context for a given exchange id on the given
+	 * scatterlist if LLD supports DDP for large receive.
+	 *
+	 * STATUS: OPTIONAL
+	 */
+	int (*ddp_setup)(struct fc_lport *lp, u16 xid,
+			 struct scatterlist *sgl, unsigned int sgc);
+	/*
+	 * Completes the DDP transfer and returns the length of data DDPed
+	 * for the given exchange id.
+	 *
+	 * STATUS: OPTIONAL
+	 */
+	int (*ddp_done)(struct fc_lport *lp, u16 xid);
 	/*
 	 * Send a frame using an existing sequence and exchange.
 	 *
@@ -611,6 +692,7 @@ struct fc_disc {
 			      enum fc_disc_event);
 
 	struct list_head	 rports;
+	struct list_head	 rogue_rports;
 	struct fc_lport		*lport;
 	struct mutex		disc_mutex;
 	struct fc_gpn_ft_resp	partial_buf;	/* partial name buffer */
@@ -636,7 +718,8 @@ struct fc_lport {
 	unsigned long		boot_time;
 
 	struct fc_host_statistics host_stats;
-	struct fcoe_dev_stats	*dev_stats[NR_CPUS];
+	struct fcoe_dev_stats	*dev_stats;
+
 	u64			wwpn;
 	u64			wwnn;
 	u8			retry_count;
@@ -651,9 +734,11 @@ struct fc_lport {
 	unsigned int		e_d_tov;
 	unsigned int		r_a_tov;
 	u8			max_retry_count;
+	u8			max_rport_retry_count;
 	u16			link_speed;
 	u16			link_supported_speeds;
 	u16			lro_xid;	/* max xid for fcoe lro */
+	unsigned int		lso_max;	/* max large send size */
 	struct fc_ns_fts	fcts;	        /* FC-4 type masks */
 	struct fc_els_rnid_gen	rnid_gen;	/* RNID information */
 
@@ -668,11 +753,6 @@ struct fc_lport {
 /*
  * FC_LPORT HELPER FUNCTIONS
  *****************************/
-static inline void *lport_priv(const struct fc_lport *lp)
-{
-	return (void *)(lp + 1);
-}
-
 static inline int fc_lport_test_ready(struct fc_lport *lp)
 {
 	return lp->state == LPORT_ST_READY;
@@ -696,6 +776,42 @@ static inline void fc_lport_state_enter(struct fc_lport *lp,
 	lp->state = state;
 }
 
+static inline int fc_lport_init_stats(struct fc_lport *lp)
+{
+	/* allocate per cpu stats block */
+	lp->dev_stats = alloc_percpu(struct fcoe_dev_stats);
+	if (!lp->dev_stats)
+		return -ENOMEM;
+	return 0;
+}
+
+static inline void fc_lport_free_stats(struct fc_lport *lp)
+{
+	free_percpu(lp->dev_stats);
+}
+
+static inline struct fcoe_dev_stats *fc_lport_get_stats(struct fc_lport *lp)
+{
+	return per_cpu_ptr(lp->dev_stats, smp_processor_id());
+}
+
+static inline void *lport_priv(const struct fc_lport *lp)
+{
+	return (void *)(lp + 1);
+}
+
+/**
+ * libfc_host_alloc() - Allocate a Scsi_Host with room for the fc_lport
+ * @sht: ptr to the scsi host templ
+ * @priv_size: size of private data after fc_lport
+ *
+ * Returns: ptr to Scsi_Host
+ */
+static inline struct Scsi_Host *
+libfc_host_alloc(struct scsi_host_template *sht, int priv_size)
+{
+	return scsi_host_alloc(sht, sizeof(struct fc_lport) + priv_size);
+}
 
 /*
  * LOCAL PORT LAYER
@@ -819,6 +935,11 @@ int fc_change_queue_type(struct scsi_device *sdev, int tag_type);
  * Free memory pools used by the FCP layer.
  */
 void fc_fcp_destroy(struct fc_lport *);
+
+/*
+ * Set up direct-data placement for this I/O request
+ */
+void fc_fcp_ddp_setup(struct fc_fcp_pkt *fsp, u16 xid);
 
 /*
  * ELS/CT interface

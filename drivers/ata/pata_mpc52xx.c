@@ -694,7 +694,7 @@ mpc52xx_ata_probe(struct of_device *op, const struct of_device_id *match)
 	struct bcom_task *dmatsk = NULL;
 
 	/* Get ipb frequency */
-	ipb_freq = mpc52xx_find_ipb_freq(op->node);
+	ipb_freq = mpc5xxx_get_bus_frequency(op->node);
 	if (!ipb_freq) {
 		dev_err(&op->dev, "could not determine IPB bus frequency\n");
 		return -ENODEV;
@@ -737,10 +737,10 @@ mpc52xx_ata_probe(struct of_device *op, const struct of_device_id *match)
 	 */
 	prop = of_get_property(op->node, "mwdma-mode", &proplen);
 	if ((prop) && (proplen >= 4))
-		mwdma_mask = 0x7 & ((1 << (*prop + 1)) - 1);
+		mwdma_mask = ATA_MWDMA2 & ((1 << (*prop + 1)) - 1);
 	prop = of_get_property(op->node, "udma-mode", &proplen);
 	if ((prop) && (proplen >= 4))
-		udma_mask = 0x7 & ((1 << (*prop + 1)) - 1);
+		udma_mask = ATA_UDMA2 & ((1 << (*prop + 1)) - 1);
 
 	ata_irq = irq_of_parse_and_map(op->node, 0);
 	if (ata_irq == NO_IRQ) {

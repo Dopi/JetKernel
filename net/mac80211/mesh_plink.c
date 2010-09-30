@@ -93,7 +93,7 @@ static inline void mesh_plink_fsm_restart(struct sta_info *sta)
  *       on it in the lifecycle management section!
  */
 static struct sta_info *mesh_plink_alloc(struct ieee80211_sub_if_data *sdata,
-					 u8 *hw_addr, u64 rates)
+					 u8 *hw_addr, u32 rates)
 {
 	struct ieee80211_local *local = sdata->local;
 	struct sta_info *sta;
@@ -218,11 +218,11 @@ static int mesh_plink_frame_tx(struct ieee80211_sub_if_data *sdata,
 		memcpy(pos, &reason, 2);
 	}
 
-	ieee80211_tx_skb(sdata, skb, 0);
+	ieee80211_tx_skb(sdata, skb, 1);
 	return 0;
 }
 
-void mesh_neighbour_update(u8 *hw_addr, u64 rates, struct ieee80211_sub_if_data *sdata,
+void mesh_neighbour_update(u8 *hw_addr, u32 rates, struct ieee80211_sub_if_data *sdata,
 			   bool peer_accepting_plinks)
 {
 	struct ieee80211_local *local = sdata->local;
@@ -265,6 +265,11 @@ static void mesh_plink_timer(unsigned long data)
 	 * it cannot be readded (by deleting the plink.)
 	 */
 	sta = (struct sta_info *) data;
+
+	if (sta->sdata->local->quiescing) {
+		sta->plink_timer_was_running = true;
+		return;
+	}
 
 	spin_lock_bh(&sta->lock);
 	if (sta->ignore_plink_timer) {
@@ -322,6 +327,22 @@ static void mesh_plink_timer(unsigned long data)
 	}
 }
 
+#ifdef CONFIG_PM
+void mesh_plink_quiesce(struct sta_info *sta)
+{
+	if (del_timer_sync(&sta->plink_timer))
+		sta->plink_timer_was_running = true;
+}
+
+void mesh_plink_restart(struct sta_info *sta)
+{
+	if (sta->plink_timer_was_running) {
+		add_timer(&sta->plink_timer);
+		sta->plink_timer_was_running = false;
+	}
+}
+#endif
+
 static inline void mesh_plink_timer_set(struct sta_info *sta, int timeout)
 {
 	sta->plink_timer.expires = jiffies + (HZ * timeout / 1000);
@@ -361,36 +382,6 @@ void mesh_plink_block(struct sta_info *sta)
 	spin_unlock_bh(&sta->lock);
 }
 
-int mesh_plink_close(struct sta_info *sta)
-{
-	struct ieee80211_sub_if_data *sdata = sta->sdata;
-	__le16 llid, plid, reason;
-
-	mpl_dbg("Mesh plink: closing link with %pM\n", sta->sta.addr);
-	spin_lock_bh(&sta->lock);
-	sta->reason = cpu_to_le16(MESH_LINK_CANCELLED);
-	reason = sta->reason;
-
-	if (sta->plink_state == PLINK_LISTEN ||
-	    sta->plink_state == PLINK_BLOCKED) {
-		mesh_plink_fsm_restart(sta);
-		spin_unlock_bh(&sta->lock);
-		return 0;
-	} else if (sta->plink_state == PLINK_ESTAB) {
-		__mesh_plink_deactivate(sta);
-		/* The timer should not be running */
-		mod_plink_timer(sta, dot11MeshHoldingTimeout(sdata));
-	} else if (!mod_plink_timer(sta, dot11MeshHoldingTimeout(sdata)))
-		sta->ignore_plink_timer = true;
-
-	sta->plink_state = PLINK_HOLDING;
-	llid = sta->llid;
-	plid = sta->plid;
-	spin_unlock_bh(&sta->lock);
-	mesh_plink_frame_tx(sta->sdata, PLINK_CLOSE, sta->sta.addr, llid,
-			    plid, reason);
-	return 0;
-}
 
 void mesh_rx_plink_frame(struct ieee80211_sub_if_data *sdata, struct ieee80211_mgmt *mgmt,
 			 size_t len, struct ieee80211_rx_status *rx_status)
@@ -477,7 +468,7 @@ void mesh_rx_plink_frame(struct ieee80211_sub_if_data *sdata, struct ieee80211_m
 		spin_lock_bh(&sta->lock);
 	} else if (!sta) {
 		/* ftype == PLINK_OPEN */
-		u64 rates;
+		u32 rates;
 		if (!mesh_plink_free_count(sdata)) {
 			mpl_dbg("Mesh plink error: no more free plinks\n");
 			rcu_read_unlock();

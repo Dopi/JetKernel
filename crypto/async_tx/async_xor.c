@@ -30,11 +30,8 @@
 #include <linux/raid/xor.h>
 #include <linux/async_tx.h>
 
-/* do_async_xor - dma map the pages and perform the xor with an engine.
- * 	This routine is marked __always_inline so it can be compiled away
- * 	when CONFIG_DMA_ENGINE=n
- */
-static __always_inline struct dma_async_tx_descriptor *
+/* do_async_xor - dma map the pages and perform the xor with an engine */
+static __async_inline struct dma_async_tx_descriptor *
 do_async_xor(struct dma_chan *chan, struct page *dest, struct page **src_list,
 	     unsigned int offset, int src_cnt, size_t len,
 	     enum async_tx_flags flags,
@@ -303,7 +300,7 @@ EXPORT_SYMBOL_GPL(async_xor_zero_sum);
 
 static int __init async_xor_init(void)
 {
-	#ifdef CONFIG_DMA_ENGINE
+	#ifdef CONFIG_ASYNC_TX_DMA
 	/* To conserve stack space the input src_list (array of page pointers)
 	 * is reused to hold the array of dma addresses passed to the driver.
 	 * This conversion is only possible when dma_addr_t is less than the

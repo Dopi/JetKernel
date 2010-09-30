@@ -7,7 +7,11 @@ ccflags-y := -Werror
 
 extra-y     := head_$(BITS).o
 extra-y     += init_task.o
-extra-y     += vmlinux.lds
+
+# Undefine sparc when processing vmlinux.lds - it is used
+# And teach CPP we are doing $(BITS) builds (for this case)
+CPPFLAGS_vmlinux.lds := -Usparc -m$(BITS)
+extra-y              += vmlinux.lds
 
 obj-$(CONFIG_SPARC32)   += entry.o wof.o wuf.o
 obj-$(CONFIG_SPARC32)   += etrap_32.o
@@ -37,6 +41,7 @@ obj-y                   += una_asm_$(BITS).o
 obj-$(CONFIG_SPARC32)   += muldiv.o
 obj-y                   += prom_common.o
 obj-y                   += prom_$(BITS).o
+obj-y                   += of_device_common.o
 obj-y                   += of_device_$(BITS).o
 obj-$(CONFIG_SPARC64)   += prom_irqtrans.o
 
@@ -54,6 +59,7 @@ obj-$(CONFIG_SPARC64)   += sstate.o
 obj-$(CONFIG_SPARC64)   += mdesc.o
 obj-$(CONFIG_SPARC64)	+= pcr.o
 obj-$(CONFIG_SPARC64)	+= nmi.o
+obj-$(CONFIG_SPARC64_SMP) += cpumap.o
 
 # sparc32 do not use GENERIC_HARDIRQS but uses the generic devres implementation
 obj-$(CONFIG_SPARC32)     += devres.o

@@ -70,7 +70,6 @@
 #undef CCIO_COLLECT_STATS
 #endif
 
-#include <linux/proc_fs.h>
 #include <asm/runway.h>		/* for proc_runway_root */
 
 #ifdef DEBUG_CCIO_INIT
@@ -406,8 +405,6 @@ resource_found:
 	}
 	ioc->avg_search[ioc->avg_idx++] = cr_start;
 	ioc->avg_idx &= CCIO_SEARCH_SAMPLE - 1;
-#endif
-#ifdef CCIO_COLLECT_STATS
 	ioc->used_pages += pages_needed;
 #endif
 	/* 
@@ -453,10 +450,10 @@ ccio_free_range(struct ioc *ioc, dma_addr_t iova, unsigned long pages_mapped)
 		unsigned long mask = ~(~0UL >> pages_mapped);
 		CCIO_FREE_MAPPINGS(ioc, res_idx, mask, 8);
 #else
-		CCIO_FREE_MAPPINGS(ioc, res_idx, 0xff, 8);
+		CCIO_FREE_MAPPINGS(ioc, res_idx, 0xffUL, 8);
 #endif
 	} else if(pages_mapped <= 16) {
-		CCIO_FREE_MAPPINGS(ioc, res_idx, 0xffff, 16);
+		CCIO_FREE_MAPPINGS(ioc, res_idx, 0xffffUL, 16);
 	} else if(pages_mapped <= 32) {
 		CCIO_FREE_MAPPINGS(ioc, res_idx, ~(unsigned int)0, 32);
 #ifdef __LP64__
@@ -1028,8 +1025,10 @@ static int ccio_proc_info(struct seq_file *m, void *p)
 
 	while (ioc != NULL) {
 		unsigned int total_pages = ioc->res_size << 3;
+#ifdef CCIO_COLLECT_STATS
 		unsigned long avg = 0, min, max;
 		int j;
+#endif
 
 		len += seq_printf(m, "%s\n", ioc->name);
 		
@@ -1060,8 +1059,7 @@ static int ccio_proc_info(struct seq_file *m, void *p)
 		avg /= CCIO_SEARCH_SAMPLE;
 		len += seq_printf(m, "  Bitmap search : %ld/%ld/%ld (min/avg/max CPU Cycles)\n",
 				  min, avg, max);
-#endif
-#ifdef CCIO_COLLECT_STATS
+
 		len += seq_printf(m, "pci_map_single(): %8ld calls  %8ld pages (avg %d/1000)\n",
 				  ioc->msingle_calls, ioc->msingle_pages,
 				  (int)((ioc->msingle_pages * 1000)/ioc->msingle_calls));
@@ -1135,7 +1133,7 @@ static const struct file_operations ccio_proc_bitmap_fops = {
 	.llseek = seq_lseek,
 	.release = single_release,
 };
-#endif
+#endif /* CONFIG_PROC_FS */
 
 /**
  * ccio_find_ioc - Find the ioc in the ioc_list
@@ -1268,7 +1266,7 @@ ccio_ioc_init(struct ioc *ioc)
 	** Hot-Plug/Removal of PCI cards. (aka PCI OLARD).
 	*/
 
-	iova_space_size = (u32) (num_physpages / count_parisc_driver(&ccio_driver));
+	iova_space_size = (u32) (totalram_pages / count_parisc_driver(&ccio_driver));
 
 	/* limit IOVA space size to 1MB-1GB */
 
@@ -1307,7 +1305,7 @@ ccio_ioc_init(struct ioc *ioc)
 
 	DBG_INIT("%s() hpa 0x%p mem %luMB IOV %dMB (%d bits)\n",
 			__func__, ioc->ioc_regs,
-			(unsigned long) num_physpages >> (20 - PAGE_SHIFT),
+			(unsigned long) totalram_pages >> (20 - PAGE_SHIFT),
 			iova_space_size>>20,
 			iov_order + PAGE_SHIFT);
 
@@ -1400,7 +1398,7 @@ ccio_init_resource(struct resource *res, char *name, void __iomem *ioaddr)
 	result = insert_resource(&iomem_resource, res);
 	if (result < 0) {
 		printk(KERN_ERR "%s() failed to claim CCIO bus address space (%08lx,%08lx)\n", 
-			__func__, res->start, res->end);
+			__func__, (unsigned long)res->start, (unsigned long)res->end);
 	}
 }
 
@@ -1551,7 +1549,8 @@ static int __init ccio_probe(struct parisc_device *dev)
 
 	ioc->name = dev->id.hversion == U2_IOA_RUNWAY ? "U2" : "UTurn";
 
-	printk(KERN_INFO "Found %s at 0x%lx\n", ioc->name, dev->hpa.start);
+	printk(KERN_INFO "Found %s at 0x%lx\n", ioc->name,
+		(unsigned long)dev->hpa.start);
 
 	for (i = 0; i < ioc_count; i++) {
 		ioc_p = &(*ioc_p)->next;
@@ -1568,14 +1567,15 @@ static int __init ccio_probe(struct parisc_device *dev)
 	/* if this fails, no I/O cards will work, so may as well bug */
 	BUG_ON(dev->dev.platform_data == NULL);
 	HBA_DATA(dev->dev.platform_data)->iommu = ioc;
-	
+
+#ifdef CONFIG_PROC_FS
 	if (ioc_count == 0) {
 		proc_create(MODULE_NAME, 0, proc_runway_root,
 			    &ccio_proc_info_fops);
 		proc_create(MODULE_NAME"-bitmap", 0, proc_runway_root,
 			    &ccio_proc_bitmap_fops);
 	}
-
+#endif
 	ioc_count++;
 
 	parisc_has_iommu();

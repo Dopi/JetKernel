@@ -116,7 +116,7 @@ void __init versatile_init_irq(void)
 {
 	unsigned int i;
 
-	vic_init(VA_VIC_BASE, IRQ_VIC_START, ~0);
+	vic_init(VA_VIC_BASE, IRQ_VIC_START, ~0, 0);
 
 	set_irq_chained_handler(IRQ_VICSOURCE31, sic_handle_irq);
 
@@ -335,10 +335,23 @@ static struct resource versatile_i2c_resource = {
 
 static struct platform_device versatile_i2c_device = {
 	.name			= "versatile-i2c",
-	.id			= -1,
+	.id			= 0,
 	.num_resources		= 1,
 	.resource		= &versatile_i2c_resource,
 };
+
+static struct i2c_board_info versatile_i2c_board_info[] = {
+	{
+		I2C_BOARD_INFO("ds1338", 0xd0 >> 1),
+	},
+};
+
+static int __init versatile_i2c_init(void)
+{
+	return i2c_register_board_info(0, versatile_i2c_board_info,
+				       ARRAY_SIZE(versatile_i2c_board_info));
+}
+arch_initcall(versatile_i2c_init);
 
 #define VERSATILE_SYSMCI	(__io_address(VERSATILE_SYS_BASE) + VERSATILE_SYS_MCI_OFFSET)
 
@@ -399,7 +412,7 @@ static struct clk ref24_clk = {
 	.rate	= 24000000,
 };
 
-static struct clk_lookup lookups[] __initdata = {
+static struct clk_lookup lookups[] = {
 	{	/* UART0 */
 		.dev_id		= "dev:f1",
 		.clk		= &ref24_clk,
@@ -934,7 +947,7 @@ static struct irqaction versatile_timer_irq = {
 	.handler	= versatile_timer_interrupt,
 };
 
-static cycle_t versatile_get_cycles(void)
+static cycle_t versatile_get_cycles(struct clocksource *cs)
 {
 	return ~readl(TIMER3_VA_BASE + TIMER_VALUE);
 }

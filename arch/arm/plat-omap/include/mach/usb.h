@@ -27,7 +27,11 @@
 #define UDC_BASE			OMAP2_UDC_BASE
 #define OMAP_OHCI_BASE			OMAP2_OHCI_BASE
 
+extern void usb_musb_init(void);
+
 #endif
+
+void omap_usb_init(struct omap_usb_config *pdata);
 
 /*-------------------------------------------------------------------------*/
 

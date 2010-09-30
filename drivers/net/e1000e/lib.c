@@ -159,41 +159,6 @@ void e1000e_rar_set(struct e1000_hw *hw, u8 *addr, u32 index)
 }
 
 /**
- *  e1000_mta_set - Set multicast filter table address
- *  @hw: pointer to the HW structure
- *  @hash_value: determines the MTA register and bit to set
- *
- *  The multicast table address is a register array of 32-bit registers.
- *  The hash_value is used to determine what register the bit is in, the
- *  current value is read, the new bit is OR'd in and the new value is
- *  written back into the register.
- **/
-static void e1000_mta_set(struct e1000_hw *hw, u32 hash_value)
-{
-	u32 hash_bit, hash_reg, mta;
-
-	/*
-	 * The MTA is a register array of 32-bit registers. It is
-	 * treated like an array of (32*mta_reg_count) bits.  We want to
-	 * set bit BitArray[hash_value]. So we figure out what register
-	 * the bit is in, read it, OR in the new bit, then write
-	 * back the new value.  The (hw->mac.mta_reg_count - 1) serves as a
-	 * mask to bits 31:5 of the hash value which gives us the
-	 * register we're modifying.  The hash bit within that register
-	 * is determined by the lower 5 bits of the hash value.
-	 */
-	hash_reg = (hash_value >> 5) & (hw->mac.mta_reg_count - 1);
-	hash_bit = hash_value & 0x1F;
-
-	mta = E1000_READ_REG_ARRAY(hw, E1000_MTA, hash_reg);
-
-	mta |= (1 << hash_bit);
-
-	E1000_WRITE_REG_ARRAY(hw, E1000_MTA, hash_reg, mta);
-	e1e_flush();
-}
-
-/**
  *  e1000_hash_mc_addr - Generate a multicast hash value
  *  @hw: pointer to the HW structure
  *  @mc_addr: pointer to a multicast address
@@ -281,8 +246,13 @@ void e1000e_update_mc_addr_list_generic(struct e1000_hw *hw,
 					u8 *mc_addr_list, u32 mc_addr_count,
 					u32 rar_used_count, u32 rar_count)
 {
-	u32 hash_value;
 	u32 i;
+	u32 *mcarray = kzalloc(hw->mac.mta_reg_count * sizeof(u32), GFP_ATOMIC);
+
+	if (!mcarray) {
+		printk(KERN_ERR "multicast array memory allocation failed\n");
+		return;
+	}
 
 	/*
 	 * Load the first set of multicast addresses into the exact
@@ -302,20 +272,24 @@ void e1000e_update_mc_addr_list_generic(struct e1000_hw *hw,
 		}
 	}
 
-	/* Clear the old settings from the MTA */
-	hw_dbg(hw, "Clearing MTA\n");
-	for (i = 0; i < hw->mac.mta_reg_count; i++) {
-		E1000_WRITE_REG_ARRAY(hw, E1000_MTA, i, 0);
-		e1e_flush();
-	}
-
 	/* Load any remaining multicast addresses into the hash table. */
 	for (; mc_addr_count > 0; mc_addr_count--) {
+		u32 hash_value, hash_reg, hash_bit, mta;
 		hash_value = e1000_hash_mc_addr(hw, mc_addr_list);
 		hw_dbg(hw, "Hash value = 0x%03X\n", hash_value);
-		e1000_mta_set(hw, hash_value);
+		hash_reg = (hash_value >> 5) & (hw->mac.mta_reg_count - 1);
+		hash_bit = hash_value & 0x1F;
+		mta = (1 << hash_bit);
+		mcarray[hash_reg] |= mta;
 		mc_addr_list += ETH_ALEN;
 	}
+
+	/* write the hash table completely */
+	for (i = 0; i < hw->mac.mta_reg_count; i++)
+		E1000_WRITE_REG_ARRAY(hw, E1000_MTA, i, mcarray[i]);
+
+	e1e_flush();
+	kfree(mcarray);
 }
 
 /**
@@ -501,7 +475,7 @@ s32 e1000e_check_for_fiber_link(struct e1000_hw *hw)
 		ew32(TXCW, mac->txcw);
 		ew32(CTRL, (ctrl & ~E1000_CTRL_SLU));
 
-		mac->serdes_has_link = 1;
+		mac->serdes_has_link = true;
 	}
 
 	return 0;
@@ -566,7 +540,7 @@ s32 e1000e_check_for_serdes_link(struct e1000_hw *hw)
 		ew32(TXCW, mac->txcw);
 		ew32(CTRL, (ctrl & ~E1000_CTRL_SLU));
 
-		mac->serdes_has_link = 1;
+		mac->serdes_has_link = true;
 	} else if (!(E1000_TXCW_ANE & er32(TXCW))) {
 		/*
 		 * If we force link for non-auto-negotiation switch, check
@@ -1426,6 +1400,38 @@ s32 e1000e_id_led_init(struct e1000_hw *hw)
 			/* Do nothing */
 			break;
 		}
+	}
+
+	return 0;
+}
+
+/**
+ *  e1000e_setup_led_generic - Configures SW controllable LED
+ *  @hw: pointer to the HW structure
+ *
+ *  This prepares the SW controllable LED for use and saves the current state
+ *  of the LED so it can be later restored.
+ **/
+s32 e1000e_setup_led_generic(struct e1000_hw *hw)
+{
+	u32 ledctl;
+
+	if (hw->mac.ops.setup_led != e1000e_setup_led_generic) {
+		return -E1000_ERR_CONFIG;
+	}
+
+	if (hw->phy.media_type == e1000_media_type_fiber) {
+		ledctl = er32(LEDCTL);
+		hw->mac.ledctl_default = ledctl;
+		/* Turn off LED0 */
+		ledctl &= ~(E1000_LEDCTL_LED0_IVRT |
+		            E1000_LEDCTL_LED0_BLINK |
+		            E1000_LEDCTL_LED0_MODE_MASK);
+		ledctl |= (E1000_LEDCTL_MODE_LED_OFF <<
+		           E1000_LEDCTL_LED0_MODE_SHIFT);
+		ew32(LEDCTL, ledctl);
+	} else if (hw->phy.media_type == e1000_media_type_copper) {
+		ew32(LEDCTL, hw->mac.ledctl_mode1);
 	}
 
 	return 0;

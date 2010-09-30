@@ -1,15 +1,34 @@
 config MAC80211
 	tristate "Generic IEEE 802.11 Networking Stack (mac80211)"
+	depends on CFG80211
 	select CRYPTO
 	select CRYPTO_ECB
 	select CRYPTO_ARC4
 	select CRYPTO_AES
 	select CRC32
 	select WIRELESS_EXT
-	select CFG80211
 	---help---
 	  This option enables the hardware independent IEEE 802.11
 	  networking stack.
+
+comment "CFG80211 needs to be enabled for MAC80211"
+	depends on CFG80211=n
+
+config MAC80211_DEFAULT_PS
+	bool "enable powersave by default"
+	depends on MAC80211
+	default y
+	help
+	  This option enables powersave mode by default.
+
+	  If this causes your applications to misbehave you should fix your
+	  applications instead -- they need to register their network
+	  latency requirement, see Documentation/power/pm_qos_interface.txt.
+
+config MAC80211_DEFAULT_PS_VALUE
+	int
+	default 1 if MAC80211_DEFAULT_PS
+	default 0
 
 menu "Rate control algorithm selection"
 	depends on MAC80211 != n
@@ -33,7 +52,7 @@ choice
 	---help---
 	  This option selects the default rate control algorithm
 	  mac80211 will use. Note that this default can still be
-	  overriden through the ieee80211_default_rc_algo module
+	  overridden through the ieee80211_default_rc_algo module
 	  parameter if different algorithms are available.
 
 config MAC80211_RC_DEFAULT_PID
@@ -64,6 +83,7 @@ endmenu
 config MAC80211_MESH
 	bool "Enable mac80211 mesh networking (pre-802.11s) support"
 	depends on MAC80211 && EXPERIMENTAL
+	depends on BROKEN
 	---help---
 	 This options enables support of Draft 802.11s mesh networking.
 	 The implementation is based on Draft 1.08 of the Mesh Networking
@@ -202,10 +222,3 @@ config MAC80211_DEBUG_COUNTERS
 	  and show them in debugfs.
 
 	  If unsure, say N.
-
-config MAC80211_VERBOSE_SPECT_MGMT_DEBUG
-	bool "Verbose Spectrum Management (IEEE 802.11h)debugging"
-	depends on MAC80211_DEBUG_MENU
-	---help---
-	  Say Y here to print out verbose Spectrum Management (IEEE 802.11h)
-	  debug messages.

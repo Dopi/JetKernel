@@ -19,9 +19,9 @@
 #include <linux/ptrace.h>
 #include <linux/mman.h>
 #include <linux/mm.h>
+#include <linux/compat.h>
 #include <linux/smp.h>
 #include <linux/kdebug.h>
-#include <linux/smp_lock.h>
 #include <linux/init.h>
 #include <linux/console.h>
 #include <linux/module.h>
@@ -200,29 +200,6 @@ static void do_low_address(struct pt_regs *regs, unsigned long error_code)
 	do_no_context(regs, error_code, 0);
 }
 
-/*
- * We ran out of memory, or some other thing happened to us that made
- * us unable to handle the page fault gracefully.
- */
-static int do_out_of_memory(struct pt_regs *regs, unsigned long error_code,
-			    unsigned long address)
-{
-	struct task_struct *tsk = current;
-	struct mm_struct *mm = tsk->mm;
-
-	up_read(&mm->mmap_sem);
-	if (is_global_init(tsk)) {
-		yield();
-		down_read(&mm->mmap_sem);
-		return 1;
-	}
-	printk("VM: killing process %s\n", tsk->comm);
-	if (regs->psw.mask & PSW_MASK_PSTATE)
-		do_group_exit(SIGKILL);
-	do_no_context(regs, error_code, address);
-	return 0;
-}
-
 static void do_sigbus(struct pt_regs *regs, unsigned long error_code,
 		      unsigned long address)
 {
@@ -262,7 +239,7 @@ static int signal_return(struct mm_struct *mm, struct pt_regs *regs,
 	up_read(&mm->mmap_sem);
 	clear_tsk_thread_flag(current, TIF_SINGLE_STEP);
 #ifdef CONFIG_COMPAT
-	compat = test_tsk_thread_flag(current, TIF_31BIT);
+	compat = is_compat_task();
 	if (compat && instruction == 0x0a77)
 		sys32_sigreturn();
 	else if (compat && instruction == 0x0aad)
@@ -367,7 +344,6 @@ good_area:
 			goto bad_area;
 	}
 
-survive:
 	if (is_vm_hugetlb_page(vma))
 		address &= HPAGE_MASK;
 	/*
@@ -375,11 +351,11 @@ survive:
 	 * make sure we exit gracefully rather than endlessly redo
 	 * the fault.
 	 */
-	fault = handle_mm_fault(mm, vma, address, write);
+	fault = handle_mm_fault(mm, vma, address, write ? FAULT_FLAG_WRITE : 0);
 	if (unlikely(fault & VM_FAULT_ERROR)) {
 		if (fault & VM_FAULT_OOM) {
-			if (do_out_of_memory(regs, error_code, address))
-				goto survive;
+			up_read(&mm->mmap_sem);
+			pagefault_out_of_memory();
 			return;
 		} else if (fault & VM_FAULT_SIGBUS) {
 			do_sigbus(regs, error_code, address);

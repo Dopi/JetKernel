@@ -895,6 +895,7 @@ static int lance_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct lance_private *lp = netdev_priv(dev);
 	volatile struct lance_regs *ll = lp->ll;
 	volatile u16 *ib = (volatile u16 *)dev->mem_start;
+	unsigned long flags;
 	int entry, len;
 
 	len = skb->len;
@@ -906,6 +907,8 @@ static int lance_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 	dev->stats.tx_bytes += len;
+
+	spin_lock_irqsave(&lp->lock, flags);
 
 	entry = lp->tx_new;
 	*lib_ptr(ib, btx_ring[entry].length, lp->type) = (-len);
@@ -924,6 +927,8 @@ static int lance_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	/* Kick the lance: transmit now */
 	writereg(&ll->rdp, LE_C0_INEA | LE_C0_TDMD);
+
+	spin_unlock_irqrestore(&lp->lock, flags);
 
 	dev->trans_start = jiffies;
 	dev_kfree_skb(skb);
@@ -1010,6 +1015,17 @@ static void lance_set_multicast_retry(unsigned long _opaque)
 	lance_set_multicast(dev);
 }
 
+static const struct net_device_ops lance_netdev_ops = {
+	.ndo_open		= lance_open,
+	.ndo_stop		= lance_close,
+	.ndo_start_xmit		= lance_start_xmit,
+	.ndo_tx_timeout		= lance_tx_timeout,
+	.ndo_set_multicast_list	= lance_set_multicast,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_set_mac_address	= eth_mac_addr,
+};
+
 static int __init dec_lance_probe(struct device *bdev, const int type)
 {
 	static unsigned version_printed;
@@ -1027,7 +1043,7 @@ static int __init dec_lance_probe(struct device *bdev, const int type)
 		printk(version);
 
 	if (bdev)
-		snprintf(name, sizeof(name), "%s", bdev->bus_id);
+		snprintf(name, sizeof(name), "%s", dev_name(bdev));
 	else {
 		i = 0;
 		dev = root_lance_dev;
@@ -1105,10 +1121,10 @@ static int __init dec_lance_probe(struct device *bdev, const int type)
 
 		start = to_tc_dev(bdev)->resource.start;
 		len = to_tc_dev(bdev)->resource.end - start + 1;
-		if (!request_mem_region(start, len, bdev->bus_id)) {
+		if (!request_mem_region(start, len, dev_name(bdev))) {
 			printk(KERN_ERR
 			       "%s: Unable to reserve MMIO resource\n",
-			       bdev->bus_id);
+			       dev_name(bdev));
 			ret = -EBUSY;
 			goto err_out_dev;
 		}
@@ -1223,12 +1239,8 @@ static int __init dec_lance_probe(struct device *bdev, const int type)
 
 	printk(", addr = %pM, irq = %d\n", dev->dev_addr, dev->irq);
 
-	dev->open = &lance_open;
-	dev->stop = &lance_close;
-	dev->hard_start_xmit = &lance_start_xmit;
-	dev->tx_timeout = &lance_tx_timeout;
+	dev->netdev_ops = &lance_netdev_ops;
 	dev->watchdog_timeo = 5*HZ;
-	dev->set_multicast_list = &lance_set_multicast;
 
 	/* lp->ll is the location of the registers for lance card */
 	lp->ll = ll;

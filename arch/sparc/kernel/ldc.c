@@ -1183,8 +1183,7 @@ out_free_txq:
 	free_queue(lp->tx_num_entries, lp->tx_base);
 
 out_free_mssbuf:
-	if (mssbuf)
-		kfree(mssbuf);
+	kfree(mssbuf);
 
 out_free_iommu:
 	ldc_iommu_release(lp);
@@ -1217,8 +1216,7 @@ void ldc_free(struct ldc_channel *lp)
 
 	hlist_del(&lp->list);
 
-	if (lp->mssbuf)
-		kfree(lp->mssbuf);
+	kfree(lp->mssbuf);
 
 	ldc_iommu_release(lp);
 
@@ -1244,13 +1242,13 @@ int ldc_bind(struct ldc_channel *lp, const char *name)
 	snprintf(lp->tx_irq_name, LDC_IRQ_NAME_MAX, "%s TX", name);
 
 	err = request_irq(lp->cfg.rx_irq, ldc_rx,
-			  IRQF_SAMPLE_RANDOM | IRQF_SHARED,
+			  IRQF_SAMPLE_RANDOM | IRQF_DISABLED,
 			  lp->rx_irq_name, lp);
 	if (err)
 		return err;
 
 	err = request_irq(lp->cfg.tx_irq, ldc_tx,
-			  IRQF_SAMPLE_RANDOM | IRQF_SHARED,
+			  IRQF_SAMPLE_RANDOM | IRQF_DISABLED,
 			  lp->tx_irq_name, lp);
 	if (err) {
 		free_irq(lp->cfg.rx_irq, lp);

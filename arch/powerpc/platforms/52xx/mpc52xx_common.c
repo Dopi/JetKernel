@@ -28,9 +28,10 @@ static struct of_device_id mpc52xx_xlb_ids[] __initdata = {
 static struct of_device_id mpc52xx_bus_ids[] __initdata = {
 	{ .compatible = "fsl,mpc5200-immr", },
 	{ .compatible = "fsl,mpc5200b-immr", },
-	{ .compatible = "fsl,lpb", },
+	{ .compatible = "simple-bus", },
 
 	/* depreciated matches; shouldn't be used in new device trees */
+	{ .compatible = "fsl,lpb", },
 	{ .type = "builtin", .compatible = "mpc5200", }, /* efika */
 	{ .type = "soc", .compatible = "mpc5200", }, /* lite5200 */
 	{}
@@ -45,36 +46,6 @@ static struct of_device_id mpc52xx_bus_ids[] __initdata = {
 static DEFINE_SPINLOCK(mpc52xx_lock);
 static struct mpc52xx_gpt __iomem *mpc52xx_wdt;
 static struct mpc52xx_cdm __iomem *mpc52xx_cdm;
-
-/**
- * 	mpc52xx_find_ipb_freq - Find the IPB bus frequency for a device
- * 	@node:	device node
- *
- * 	Returns IPB bus frequency, or 0 if the bus frequency cannot be found.
- */
-unsigned int
-mpc52xx_find_ipb_freq(struct device_node *node)
-{
-	struct device_node *np;
-	const unsigned int *p_ipb_freq = NULL;
-
-	of_node_get(node);
-	while (node) {
-		p_ipb_freq = of_get_property(node, "bus-frequency", NULL);
-		if (p_ipb_freq)
-			break;
-
-		np = of_get_parent(node);
-		of_node_put(node);
-		node = np;
-	}
-	if (node)
-		of_node_put(node);
-
-	return p_ipb_freq ? *p_ipb_freq : 0;
-}
-EXPORT_SYMBOL(mpc52xx_find_ipb_freq);
-
 
 /*
  * Configure the XLB arbiter settings to match what Linux expects.
@@ -203,6 +174,43 @@ int mpc52xx_set_psc_clkdiv(int psc_id, int clkdiv)
 	return 0;
 }
 EXPORT_SYMBOL(mpc52xx_set_psc_clkdiv);
+
+/**
+ * mpc52xx_get_xtal_freq - Get SYS_XTAL_IN frequency for a device
+ *
+ * @node: device node
+ *
+ * Returns the frequency of the external oscillator clock connected
+ * to the SYS_XTAL_IN pin, or 0 if it cannot be determined.
+ */
+unsigned int mpc52xx_get_xtal_freq(struct device_node *node)
+{
+	u32 val;
+	unsigned int freq;
+
+	if (!mpc52xx_cdm)
+		return 0;
+
+	freq = mpc5xxx_get_bus_frequency(node);
+	if (!freq)
+		return 0;
+
+	if (in_8(&mpc52xx_cdm->ipb_clk_sel) & 0x1)
+		freq *= 2;
+
+	val  = in_be32(&mpc52xx_cdm->rstcfg);
+	if (val & (1 << 5))
+		freq *= 8;
+	else
+		freq *= 4;
+	if (val & (1 << 6))
+		freq /= 12;
+	else
+		freq /= 16;
+
+	return freq;
+}
+EXPORT_SYMBOL(mpc52xx_get_xtal_freq);
 
 /**
  * mpc52xx_restart: ppc_md->restart hook for mpc5200 using the watchdog timer

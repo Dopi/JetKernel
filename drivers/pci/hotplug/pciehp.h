@@ -46,10 +46,10 @@ extern int pciehp_force;
 extern struct workqueue_struct *pciehp_wq;
 
 #define dbg(format, arg...)						\
-	do {								\
-		if (pciehp_debug)					\
-			printk("%s: " format, MY_NAME , ## arg);	\
-	} while (0)
+do {									\
+	if (pciehp_debug)						\
+		printk(KERN_DEBUG "%s: " format, MY_NAME , ## arg);	\
+} while (0)
 #define err(format, arg...)						\
 	printk(KERN_ERR "%s: " format, MY_NAME , ## arg)
 #define info(format, arg...)						\
@@ -60,7 +60,7 @@ extern struct workqueue_struct *pciehp_wq;
 #define ctrl_dbg(ctrl, format, arg...)					\
 	do {								\
 		if (pciehp_debug)					\
-			dev_printk(, &ctrl->pcie->device,		\
+			dev_printk(KERN_DEBUG, &ctrl->pcie->device,	\
 					format, ## arg);		\
 	} while (0)
 #define ctrl_err(ctrl, format, arg...)					\
@@ -81,7 +81,6 @@ struct slot {
 	struct hpc_ops *hpc_ops;
 	struct hotplug_slot *hotplug_slot;
 	struct list_head	slot_list;
-	unsigned long last_emi_toggle;
 	struct delayed_work work;	/* work for button event */
 	struct mutex lock;
 };
@@ -108,10 +107,11 @@ struct controller {
 	u32 slot_cap;
 	u8 cap_base;
 	struct timer_list poll_timer;
-	int cmd_busy;
+	unsigned int cmd_busy:1;
 	unsigned int no_cmd_complete:1;
 	unsigned int link_active_reporting:1;
 	unsigned int notification_enabled:1;
+	unsigned int power_fault_detected;
 };
 
 #define INT_BUTTON_IGNORE		0
@@ -202,8 +202,6 @@ struct hpc_ops {
 	int (*set_attention_status)(struct slot *slot, u8 status);
 	int (*get_latch_status)(struct slot *slot, u8 *status);
 	int (*get_adapter_status)(struct slot *slot, u8 *status);
-	int (*get_emi_status)(struct slot *slot, u8 *status);
-	int (*toggle_emi)(struct slot *slot);
 	int (*get_max_bus_speed)(struct slot *slot, enum pci_bus_speed *speed);
 	int (*get_cur_bus_speed)(struct slot *slot, enum pci_bus_speed *speed);
 	int (*get_max_lnk_width)(struct slot *slot, enum pcie_link_width *val);

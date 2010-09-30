@@ -14,6 +14,7 @@
 #include <linux/stddef.h>
 #include <linux/kernel.h>
 #include <linux/errno.h>
+#include <linux/of.h>
 
 #include <asm/io.h>
 #include <asm/prom.h>
@@ -46,25 +47,25 @@ int mpc834x_usb_cfg(void)
 		sccr |= MPC83XX_SCCR_USB_DRCM_11;  /* 1:3 */
 
 		prop = of_get_property(np, "phy_type", NULL);
+		port1_is_dr = 1;
 		if (prop && (!strcmp(prop, "utmi") ||
 					!strcmp(prop, "utmi_wide"))) {
 			sicrl |= MPC834X_SICRL_USB0 | MPC834X_SICRL_USB1;
 			sicrh |= MPC834X_SICRH_USB_UTMI;
-			port1_is_dr = 1;
+			port0_is_dr = 1;
 		} else if (prop && !strcmp(prop, "serial")) {
 			dr_mode = of_get_property(np, "dr_mode", NULL);
 			if (dr_mode && !strcmp(dr_mode, "otg")) {
 				sicrl |= MPC834X_SICRL_USB0 | MPC834X_SICRL_USB1;
-				port1_is_dr = 1;
+				port0_is_dr = 1;
 			} else {
-				sicrl |= MPC834X_SICRL_USB0;
+				sicrl |= MPC834X_SICRL_USB1;
 			}
 		} else if (prop && !strcmp(prop, "ulpi")) {
-			sicrl |= MPC834X_SICRL_USB0;
+			sicrl |= MPC834X_SICRL_USB1;
 		} else {
 			printk(KERN_WARNING "834x USB PHY type not supported\n");
 		}
-		port0_is_dr = 1;
 		of_node_put(np);
 	}
 	np = of_find_compatible_node(NULL, NULL, "fsl-usb2-mph");
@@ -210,7 +211,7 @@ int mpc837x_usb_cfg(void)
 	int ret = 0;
 
 	np = of_find_compatible_node(NULL, NULL, "fsl-usb2-dr");
-	if (!np)
+	if (!np || !of_device_is_available(np))
 		return -ENODEV;
 	prop = of_get_property(np, "phy_type", NULL);
 

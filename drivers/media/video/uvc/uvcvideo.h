@@ -296,17 +296,15 @@ struct uvc_xu_control {
 
 /* Number of isochronous URBs. */
 #define UVC_URBS		5
-/* Maximum number of packets per isochronous URB. */
-#define UVC_MAX_ISO_PACKETS	40
-/* Maximum frame size in bytes, for sanity checking. */
-#define UVC_MAX_FRAME_SIZE	(16*1024*1024)
+/* Maximum number of packets per URB. */
+#define UVC_MAX_PACKETS		32
 /* Maximum number of video buffers. */
 #define UVC_MAX_VIDEO_BUFFERS	32
 /* Maximum status buffer size in bytes of interrupt URB. */
 #define UVC_MAX_STATUS_SIZE	16
 
 #define UVC_CTRL_CONTROL_TIMEOUT	300
-#define UVC_CTRL_STREAMING_TIMEOUT	1000
+#define UVC_CTRL_STREAMING_TIMEOUT	3000
 
 /* Devices quirks */
 #define UVC_QUIRK_STATUS_INTERVAL	0x00000001
@@ -315,7 +313,7 @@ struct uvc_xu_control {
 #define UVC_QUIRK_BUILTIN_ISIGHT	0x00000008
 #define UVC_QUIRK_STREAM_NO_FID		0x00000010
 #define UVC_QUIRK_IGNORE_SELECTOR_UNIT	0x00000020
-#define UVC_QUIRK_PRUNE_CONTROLS	0x00000040
+#define UVC_QUIRK_FIX_BANDWIDTH		0x00000080
 
 /* Format flags */
 #define UVC_FMT_FLAG_COMPRESSED		0x00000001
@@ -635,6 +633,7 @@ struct uvc_device {
 	enum uvc_device_state state;
 	struct kref kref;
 	struct list_head list;
+	atomic_t users;
 
 	/* Video control interface */
 	__u16 uvc_version;
@@ -649,6 +648,7 @@ struct uvc_device {
 	struct urb *int_urb;
 	__u8 *status;
 	struct input_dev *input;
+	char input_phys[64];
 
 	/* Video Streaming interfaces */
 	struct list_head streaming;
@@ -695,6 +695,7 @@ struct uvc_driver {
 
 extern unsigned int uvc_no_drop_param;
 extern unsigned int uvc_trace_param;
+extern unsigned int uvc_timeout_param;
 
 #define uvc_trace(flag, msg...) \
 	do { \
@@ -747,6 +748,7 @@ extern struct uvc_buffer *uvc_queue_next_buffer(struct uvc_video_queue *queue,
 		struct uvc_buffer *buf);
 extern unsigned int uvc_queue_poll(struct uvc_video_queue *queue,
 		struct file *file, poll_table *wait);
+extern int uvc_queue_allocated(struct uvc_video_queue *queue);
 static inline int uvc_queue_streaming(struct uvc_video_queue *queue)
 {
 	return queue->flags & UVC_QUEUE_STREAMING;
@@ -770,6 +772,8 @@ extern int uvc_query_ctrl(struct uvc_device *dev, __u8 query, __u8 unit,
 /* Status */
 extern int uvc_status_init(struct uvc_device *dev);
 extern void uvc_status_cleanup(struct uvc_device *dev);
+extern int uvc_status_start(struct uvc_device *dev);
+extern void uvc_status_stop(struct uvc_device *dev);
 extern int uvc_status_suspend(struct uvc_device *dev);
 extern int uvc_status_resume(struct uvc_device *dev);
 

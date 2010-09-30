@@ -27,6 +27,7 @@
 #include <asm/udbg.h>
 #include <asm/lv1call.h>
 #include <asm/firmware.h>
+#include <asm/iommu.h>
 
 #include "platform.h"
 
@@ -283,7 +284,6 @@ static int ps3_sb_free_mmio_region(struct ps3_mmio_region *r)
 	int result;
 
 	dump_mmio_region(r);
-;
 	result = lv1_unmap_device_mmio_region(r->dev->bus_id, r->dev->dev_id,
 		r->lpar_addr);
 
@@ -376,7 +376,7 @@ static int ps3_system_bus_probe(struct device *_dev)
 	struct ps3_system_bus_driver *drv;
 
 	BUG_ON(!dev);
-	pr_debug(" -> %s:%d: %s\n", __func__, __LINE__, _dev->bus_id);
+	dev_dbg(_dev, "%s:%d\n", __func__, __LINE__);
 
 	drv = ps3_system_bus_dev_to_system_bus_drv(dev);
 	BUG_ON(!drv);
@@ -398,7 +398,7 @@ static int ps3_system_bus_remove(struct device *_dev)
 	struct ps3_system_bus_driver *drv;
 
 	BUG_ON(!dev);
-	pr_debug(" -> %s:%d: %s\n", __func__, __LINE__, _dev->bus_id);
+	dev_dbg(_dev, "%s:%d\n", __func__, __LINE__);
 
 	drv = ps3_system_bus_dev_to_system_bus_drv(dev);
 	BUG_ON(!drv);
@@ -531,7 +531,8 @@ static void * ps3_alloc_coherent(struct device *_dev, size_t size,
 	}
 
 	result = ps3_dma_map(dev->d_region, virt_addr, size, dma_handle,
-			     IOPTE_PP_W | IOPTE_PP_R | IOPTE_SO_RW | IOPTE_M);
+			     CBE_IOPTE_PP_W | CBE_IOPTE_PP_R |
+			     CBE_IOPTE_SO_RW | CBE_IOPTE_M);
 
 	if (result) {
 		pr_debug("%s:%d: ps3_dma_map failed (%d)\n",
@@ -575,7 +576,8 @@ static dma_addr_t ps3_sb_map_page(struct device *_dev, struct page *page,
 
 	result = ps3_dma_map(dev->d_region, (unsigned long)ptr, size,
 			     &bus_addr,
-			     IOPTE_PP_R | IOPTE_PP_W | IOPTE_SO_RW | IOPTE_M);
+			     CBE_IOPTE_PP_R | CBE_IOPTE_PP_W |
+			     CBE_IOPTE_SO_RW | CBE_IOPTE_M);
 
 	if (result) {
 		pr_debug("%s:%d: ps3_dma_map failed (%d)\n",
@@ -596,16 +598,16 @@ static dma_addr_t ps3_ioc0_map_page(struct device *_dev, struct page *page,
 	u64 iopte_flag;
 	void *ptr = page_address(page) + offset;
 
-	iopte_flag = IOPTE_M;
+	iopte_flag = CBE_IOPTE_M;
 	switch (direction) {
 	case DMA_BIDIRECTIONAL:
-		iopte_flag |= IOPTE_PP_R | IOPTE_PP_W | IOPTE_SO_RW;
+		iopte_flag |= CBE_IOPTE_PP_R | CBE_IOPTE_PP_W | CBE_IOPTE_SO_RW;
 		break;
 	case DMA_TO_DEVICE:
-		iopte_flag |= IOPTE_PP_R | IOPTE_SO_R;
+		iopte_flag |= CBE_IOPTE_PP_R | CBE_IOPTE_SO_R;
 		break;
 	case DMA_FROM_DEVICE:
-		iopte_flag |= IOPTE_PP_W | IOPTE_SO_RW;
+		iopte_flag |= CBE_IOPTE_PP_W | CBE_IOPTE_SO_RW;
 		break;
 	default:
 		/* not happned */
@@ -689,7 +691,7 @@ static void ps3_ioc0_unmap_sg(struct device *_dev, struct scatterlist *sg,
 
 static int ps3_dma_supported(struct device *_dev, u64 mask)
 {
-	return mask >= DMA_32BIT_MASK;
+	return mask >= DMA_BIT_MASK(32);
 }
 
 static struct dma_mapping_ops ps3_sb_dma_ops = {

@@ -24,20 +24,11 @@
 #include <sound/pxa2xx-lib.h>
 
 #include <mach/hardware.h>
-#include <mach/pxa-regs.h>
-#include <mach/pxa2xx-gpio.h>
+#include <mach/dma.h>
 #include <mach/audio.h>
 
 #include "pxa2xx-pcm.h"
 #include "pxa2xx-i2s.h"
-
-struct pxa2xx_gpio {
-	u32 sys;
-	u32	rx;
-	u32 tx;
-	u32 clk;
-	u32 frm;
-};
 
 /*
  * I2S Controller Register and Bit Definitions
@@ -106,21 +97,6 @@ static struct pxa2xx_pcm_dma_params pxa2xx_i2s_pcm_stereo_in = {
 				  DCMD_BURST32 | DCMD_WIDTH4,
 };
 
-static struct pxa2xx_gpio gpio_bus[] = {
-	{ /* I2S SoC Slave */
-		.rx = GPIO29_SDATA_IN_I2S_MD,
-		.tx = GPIO30_SDATA_OUT_I2S_MD,
-		.clk = GPIO28_BITCLK_IN_I2S_MD,
-		.frm = GPIO31_SYNC_I2S_MD,
-	},
-	{ /* I2S SoC Master */
-		.rx = GPIO29_SDATA_IN_I2S_MD,
-		.tx = GPIO30_SDATA_OUT_I2S_MD,
-		.clk = GPIO28_BITCLK_OUT_I2S_MD,
-		.frm = GPIO31_SYNC_I2S_MD,
-	},
-};
-
 static int pxa2xx_i2s_startup(struct snd_pcm_substream *substream,
 			      struct snd_soc_dai *dai)
 {
@@ -130,10 +106,8 @@ static int pxa2xx_i2s_startup(struct snd_pcm_substream *substream,
 	if (IS_ERR(clk_i2s))
 		return PTR_ERR(clk_i2s);
 
-	if (!cpu_dai->active) {
-		SACR0 |= SACR0_RST;
+	if (!cpu_dai->active)
 		SACR0 = 0;
-	}
 
 	return 0;
 }
@@ -181,9 +155,6 @@ static int pxa2xx_i2s_set_dai_sysclk(struct snd_soc_dai *cpu_dai,
 	if (clk_id != PXA2XX_I2S_SYSCLK)
 		return -ENODEV;
 
-	if (pxa_i2s.master && dir == SND_SOC_CLOCK_OUT)
-		pxa_gpio_mode(gpio_bus[pxa_i2s.master].sys);
-
 	return 0;
 }
 
@@ -194,12 +165,9 @@ static int pxa2xx_i2s_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai *cpu_dai = rtd->dai->cpu_dai;
 
-	pxa_gpio_mode(gpio_bus[pxa_i2s.master].rx);
-	pxa_gpio_mode(gpio_bus[pxa_i2s.master].tx);
-	pxa_gpio_mode(gpio_bus[pxa_i2s.master].frm);
-	pxa_gpio_mode(gpio_bus[pxa_i2s.master].clk);
 	BUG_ON(IS_ERR(clk_i2s));
 	clk_enable(clk_i2s);
+	dai->private_data = dai;
 	pxa_i2s_wait();
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
@@ -209,9 +177,7 @@ static int pxa2xx_i2s_hw_params(struct snd_pcm_substream *substream,
 
 	/* is port used by another stream */
 	if (!(SACR0 & SACR0_ENB)) {
-
 		SACR0 = 0;
-		SACR1 = 0;
 		if (pxa_i2s.master)
 			SACR0 |= SACR0_BCKD;
 
@@ -257,6 +223,10 @@ static int pxa2xx_i2s_trigger(struct snd_pcm_substream *substream, int cmd,
 
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
+		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+			SACR1 &= ~SACR1_DRPL;
+		else
+			SACR1 &= ~SACR1_DREC;
 		SACR0 |= SACR0_ENB;
 		break;
 	case SNDRV_PCM_TRIGGER_RESUME:
@@ -283,21 +253,19 @@ static void pxa2xx_i2s_shutdown(struct snd_pcm_substream *substream,
 		SAIMR &= ~SAIMR_RFS;
 	}
 
-	if (SACR1 & (SACR1_DREC | SACR1_DRPL)) {
+	if ((SACR1 & (SACR1_DREC | SACR1_DRPL)) == (SACR1_DREC | SACR1_DRPL)) {
 		SACR0 &= ~SACR0_ENB;
 		pxa_i2s_wait();
-		clk_disable(clk_i2s);
+		if (dai->private_data != NULL) {
+			clk_disable(clk_i2s);
+			dai->private_data = NULL;
+		}
 	}
-
-	clk_put(clk_i2s);
 }
 
 #ifdef CONFIG_PM
 static int pxa2xx_i2s_suspend(struct snd_soc_dai *dai)
 {
-	if (!dai->active)
-		return 0;
-
 	/* store registers */
 	pxa_i2s.sacr0 = SACR0;
 	pxa_i2s.sacr1 = SACR1;
@@ -312,16 +280,14 @@ static int pxa2xx_i2s_suspend(struct snd_soc_dai *dai)
 
 static int pxa2xx_i2s_resume(struct snd_soc_dai *dai)
 {
-	if (!dai->active)
-		return 0;
-
 	pxa_i2s_wait();
 
-	SACR0 = pxa_i2s.sacr0 &= ~SACR0_ENB;
+	SACR0 = pxa_i2s.sacr0 & ~SACR0_ENB;
 	SACR1 = pxa_i2s.sacr1;
 	SAIMR = pxa_i2s.saimr;
 	SADIV = pxa_i2s.sadiv;
-	SACR0 |= SACR0_ENB;
+
+	SACR0 = pxa_i2s.sacr0;
 
 	return 0;
 }
@@ -334,6 +300,15 @@ static int pxa2xx_i2s_resume(struct snd_soc_dai *dai)
 #define PXA2XX_I2S_RATES (SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_11025 |\
 		SNDRV_PCM_RATE_16000 | SNDRV_PCM_RATE_22050 | SNDRV_PCM_RATE_44100 | \
 		SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_96000)
+
+static struct snd_soc_dai_ops pxa_i2s_dai_ops = {
+	.startup	= pxa2xx_i2s_startup,
+	.shutdown	= pxa2xx_i2s_shutdown,
+	.trigger	= pxa2xx_i2s_trigger,
+	.hw_params	= pxa2xx_i2s_hw_params,
+	.set_fmt	= pxa2xx_i2s_set_dai_fmt,
+	.set_sysclk	= pxa2xx_i2s_set_dai_sysclk,
+};
 
 struct snd_soc_dai pxa_i2s_dai = {
 	.name = "pxa2xx-i2s",
@@ -350,14 +325,8 @@ struct snd_soc_dai pxa_i2s_dai = {
 		.channels_max = 2,
 		.rates = PXA2XX_I2S_RATES,
 		.formats = SNDRV_PCM_FMTBIT_S16_LE,},
-	.ops = {
-		.startup = pxa2xx_i2s_startup,
-		.shutdown = pxa2xx_i2s_shutdown,
-		.trigger = pxa2xx_i2s_trigger,
-		.hw_params = pxa2xx_i2s_hw_params,
-		.set_fmt = pxa2xx_i2s_set_dai_fmt,
-		.set_sysclk = pxa2xx_i2s_set_dai_sysclk,
-	},
+	.ops = &pxa_i2s_dai_ops,
+	.symmetric_rates = 1,
 };
 
 EXPORT_SYMBOL_GPL(pxa_i2s_dai);
@@ -371,9 +340,23 @@ static int pxa2xx_i2s_probe(struct platform_device *dev)
 		return PTR_ERR(clk_i2s);
 
 	pxa_i2s_dai.dev = &dev->dev;
+	pxa_i2s_dai.private_data = NULL;
 	ret = snd_soc_register_dai(&pxa_i2s_dai);
 	if (ret != 0)
 		clk_put(clk_i2s);
+
+	/*
+	 * PXA Developer's Manual:
+	 * If SACR0[ENB] is toggled in the middle of a normal operation,
+	 * the SACR0[RST] bit must also be set and cleared to reset all
+	 * I2S controller registers.
+	 */
+	SACR0 = SACR0_RST;
+	SACR0 = 0;
+	/* Make sure RPL and REC are disabled */
+	SACR1 = SACR1_DRPL | SACR1_DREC;
+	/* Along with FIFO servicing */
+	SAIMR &= ~(SAIMR_RFS | SAIMR_TFS);
 
 	return ret;
 }
@@ -398,11 +381,6 @@ static struct platform_driver pxa2xx_i2s_driver = {
 
 static int __init pxa2xx_i2s_init(void)
 {
-	if (cpu_is_pxa27x())
-		gpio_bus[1].sys = GPIO113_I2S_SYSCLK_MD;
-	else
-		gpio_bus[1].sys = GPIO32_SYSCLK_I2S_MD;
-
 	clk_i2s = ERR_PTR(-ENOENT);
 	return platform_driver_register(&pxa2xx_i2s_driver);
 }

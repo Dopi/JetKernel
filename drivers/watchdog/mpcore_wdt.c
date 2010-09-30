@@ -5,7 +5,7 @@
  *
  *	Based on the SoftDog driver:
  *	(c) Copyright 1996 Alan Cox <alan@lxorguk.ukuu.org.uk>,
- * 						All Rights Reserved.
+ *						All Rights Reserved.
  *
  *	This program is free software; you can redistribute it and/or
  *	modify it under the terms of the GNU General Public License
@@ -61,7 +61,9 @@ MODULE_PARM_DESC(nowayout,
 #define ONLY_TESTING	0
 static int mpcore_noboot = ONLY_TESTING;
 module_param(mpcore_noboot, int, 0);
-MODULE_PARM_DESC(mpcore_noboot, "MPcore watchdog action, set to 1 to ignore reboots, 0 to reboot (default=" __MODULE_STRING(ONLY_TESTING) ")");
+MODULE_PARM_DESC(mpcore_noboot, "MPcore watchdog action, "
+	"set to 1 to ignore reboots, 0 to reboot (default="
+					__MODULE_STRING(ONLY_TESTING) ")");
 
 /*
  *	This is the interrupt handler.  Note that we only use this
@@ -416,7 +418,8 @@ static struct platform_driver mpcore_wdt_driver = {
 	},
 };
 
-static char banner[] __initdata = KERN_INFO "MPcore Watchdog Timer: 0.1. mpcore_noboot=%d mpcore_margin=%d sec (nowayout= %d)\n";
+static char banner[] __initdata = KERN_INFO "MPcore Watchdog Timer: 0.1. "
+		"mpcore_noboot=%d mpcore_margin=%d sec (nowayout= %d)\n";
 
 static int __init mpcore_wdt_init(void)
 {

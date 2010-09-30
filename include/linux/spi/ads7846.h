@@ -17,6 +17,7 @@ struct ads7846_platform_data {
 	u16	vref_mv;		/* external vref value, milliVolts */
 	bool	keep_vref_on;		/* set to keep vref on for differential
 					 * measurements as well */
+	bool	swap_xy;		/* swap x and y axes */
 
 	/* Settling time of the analog signals; a function of Vcc and the
 	 * capacitance on the X/Y drivers.  If set to non-zero, two samples
@@ -51,5 +52,6 @@ struct ads7846_platform_data {
 				 void **filter_data);
 	int	(*filter)	(void *filter_data, int data_idx, int *val);
 	void	(*filter_cleanup)(void *filter_data);
+	void	(*wait_for_sync)(void);
 };
 

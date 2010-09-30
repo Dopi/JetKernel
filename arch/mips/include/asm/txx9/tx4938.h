@@ -291,6 +291,7 @@ int tx4938_pcic1_map_irq(const struct pci_dev *dev, u8 slot);
 void tx4938_setup_pcierr_irq(void);
 void tx4938_irq_init(void);
 void tx4938_mtd_init(int ch);
+void tx4938_ndfmc_init(unsigned int hold, unsigned int spw);
 
 struct tx4938ide_platform_info {
 	/*
@@ -304,5 +305,8 @@ struct tx4938ide_platform_info {
 };
 
 void tx4938_ata_init(unsigned int irq, unsigned int shift, int tune);
+void tx4938_dmac_init(int memcpy_chan0, int memcpy_chan1);
+void tx4938_aclc_init(void);
+void tx4938_sramc_init(void);
 
 #endif

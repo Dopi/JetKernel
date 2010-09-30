@@ -20,9 +20,6 @@ CONFIG_BOOT_LINK_OFFSET	?= 0x00800000
 CONFIG_ZERO_PAGE_OFFSET	?= 0x00001000
 CONFIG_ENTRY_OFFSET	?= 0x00001000
 
-export CONFIG_PAGE_OFFSET CONFIG_MEMORY_START CONFIG_BOOT_LINK_OFFSET \
-       CONFIG_ZERO_PAGE_OFFSET CONFIG_ENTRY_OFFSET
-
 targets := zImage vmlinux.srec uImage uImage.srec
 subdir- := compressed
 
@@ -33,20 +30,27 @@ $(obj)/zImage: $(obj)/compressed/vmlinux FORCE
 $(obj)/compressed/vmlinux: FORCE
 	$(Q)$(MAKE) $(build)=$(obj)/compressed $@
 
-ifeq ($(CONFIG_32BIT),y)
-KERNEL_LOAD	:= $(shell /bin/bash -c 'printf "0x%08x" \
-		     $$[$(CONFIG_PAGE_OFFSET)  + \
-			$(CONFIG_ZERO_PAGE_OFFSET)]')
-else
-KERNEL_LOAD	:= $(shell /bin/bash -c 'printf "0x%08x" \
-		     $$[$(CONFIG_PAGE_OFFSET)  + \
-			$(CONFIG_MEMORY_START) + \
-			$(CONFIG_ZERO_PAGE_OFFSET)]')
+KERNEL_MEMORY := 0x00000000
+ifeq ($(CONFIG_PMB_FIXED),y)
+KERNEL_MEMORY := $(shell /bin/bash -c 'printf "0x%08x" \
+		     $$[$(CONFIG_MEMORY_START) & 0x1fffffff]')
 endif
+ifeq ($(CONFIG_29BIT),y)
+KERNEL_MEMORY := $(shell /bin/bash -c 'printf "0x%08x" \
+		     $$[$(CONFIG_MEMORY_START)]')
+endif
+
+export CONFIG_PAGE_OFFSET CONFIG_MEMORY_START CONFIG_BOOT_LINK_OFFSET \
+       CONFIG_ZERO_PAGE_OFFSET CONFIG_ENTRY_OFFSET KERNEL_MEMORY
+
+KERNEL_LOAD	:= $(shell /bin/bash -c 'printf "0x%08x" \
+		     $$[$(CONFIG_PAGE_OFFSET)  + \
+			$(KERNEL_MEMORY) + \
+			$(CONFIG_ZERO_PAGE_OFFSET)]')
 
 KERNEL_ENTRY	:= $(shell /bin/bash -c 'printf "0x%08x" \
 		     $$[$(CONFIG_PAGE_OFFSET)  + \
-			$(CONFIG_MEMORY_START) + \
+			$(KERNEL_MEMORY) + \
 			$(CONFIG_ZERO_PAGE_OFFSET) + $(CONFIG_ENTRY_OFFSET)]')
 
 quiet_cmd_uimage = UIMAGE  $@

@@ -130,7 +130,7 @@ static inline int sctp_wspace(struct sctp_association *asoc)
 	if (asoc->ep->sndbuf_policy)
 		amt = asoc->sndbuf_used;
 	else
-		amt = atomic_read(&asoc->base.sk->sk_wmem_alloc);
+		amt = sk_wmem_alloc_get(asoc->base.sk);
 
 	if (amt >= asoc->base.sk->sk_sndbuf) {
 		if (asoc->base.sk->sk_userlocks & SOCK_SNDBUF_LOCK)
@@ -1100,6 +1100,15 @@ static int __sctp_connect(struct sock* sk,
 		goto out_free;
 	}
 
+	/* In case the user of sctp_connectx() wants an association
+	 * id back, assign one now.
+	 */
+	if (assoc_id) {
+		err = sctp_assoc_set_id(asoc, GFP_KERNEL);
+		if (err < 0)
+			goto out_free;
+	}
+
 	err = sctp_primitive_ASSOCIATE(asoc, NULL);
 	if (err < 0) {
 		goto out_free;
@@ -1120,7 +1129,7 @@ static int __sctp_connect(struct sock* sk,
 	timeo = sock_sndtimeo(sk, f_flags & O_NONBLOCK);
 
 	err = sctp_wait_for_connect(asoc, &timeo);
-	if (!err && assoc_id)
+	if ((err == 0 || err == -EINPROGRESS) && assoc_id)
 		*assoc_id = asoc->assoc_id;
 
 	/* Don't free association on exit. */
@@ -1262,6 +1271,34 @@ SCTP_STATIC int sctp_setsockopt_connectx(struct sock* sk,
 		return err;
 	else
 		return assoc_id;
+}
+
+/*
+ * New (hopefully final) interface for the API.  The option buffer is used
+ * both for the returned association id and the addresses.
+ */
+SCTP_STATIC int sctp_getsockopt_connectx3(struct sock* sk, int len,
+					char __user *optval,
+					int __user *optlen)
+{
+	sctp_assoc_t assoc_id = 0;
+	int err = 0;
+
+	if (len < sizeof(assoc_id))
+		return -EINVAL;
+
+	err = __sctp_setsockopt_connectx(sk,
+			(struct sockaddr __user *)(optval + sizeof(assoc_id)),
+			len - sizeof(assoc_id), &assoc_id);
+
+	if (err == 0 || err == -EINPROGRESS) {
+		if (copy_to_user(optval, &assoc_id, sizeof(assoc_id)))
+			return -EFAULT;
+		if (put_user(sizeof(assoc_id), optlen))
+			return -EFAULT;
+	}
+
+	return err;
 }
 
 /* API 3.1.4 close() - UDP Style Syntax
@@ -1844,7 +1881,7 @@ static int sctp_skb_pull(struct sk_buff *skb, int len)
 	len -= skb_len;
 	__skb_pull(skb, skb_len);
 
-	for (list = skb_shinfo(skb)->frag_list; list; list = list->next) {
+	skb_walk_frags(skb, list) {
 		rlen = sctp_skb_pull(list, len);
 		skb->len -= (len-rlen);
 		skb->data_len -= (len-rlen);
@@ -3069,9 +3106,6 @@ static int sctp_setsockopt_maxburst(struct sock *sk,
 	int val;
 	int assoc_id = 0;
 
-	if (optlen < sizeof(int))
-		return -EINVAL;
-
 	if (optlen == sizeof(int)) {
 		printk(KERN_WARNING
 		   "SCTP: Use of int in max_burst socket option deprecated\n");
@@ -3939,7 +3973,6 @@ SCTP_STATIC int sctp_do_peeloff(struct sctp_association *asoc,
 {
 	struct sock *sk = asoc->base.sk;
 	struct socket *sock;
-	struct inet_sock *inetsk;
 	struct sctp_af *af;
 	int err = 0;
 
@@ -3954,18 +3987,18 @@ SCTP_STATIC int sctp_do_peeloff(struct sctp_association *asoc,
 	if (err < 0)
 		return err;
 
-	/* Populate the fields of the newsk from the oldsk and migrate the
-	 * asoc to the newsk.
-	 */
-	sctp_sock_migrate(sk, sock->sk, asoc, SCTP_SOCKET_UDP_HIGH_BANDWIDTH);
+	sctp_copy_sock(sock->sk, sk, asoc);
 
 	/* Make peeled-off sockets more like 1-1 accepted sockets.
 	 * Set the daddr and initialize id to something more random
 	 */
 	af = sctp_get_af_specific(asoc->peer.primary_addr.sa.sa_family);
 	af->to_sk_daddr(&asoc->peer.primary_addr, sk);
-	inetsk = inet_sk(sock->sk);
-	inetsk->id = asoc->next_tsn ^ jiffies;
+
+	/* Populate the fields of the newsk from the oldsk and migrate the
+	 * asoc to the newsk.
+	 */
+	sctp_sock_migrate(sk, sock->sk, asoc, SCTP_SOCKET_UDP_HIGH_BANDWIDTH);
 
 	*sockp = sock;
 
@@ -5284,16 +5317,14 @@ static int sctp_getsockopt_maxburst(struct sock *sk, int len,
 	struct sctp_sock *sp;
 	struct sctp_association *asoc;
 
-	if (len < sizeof(int))
-		return -EINVAL;
-
 	if (len == sizeof(int)) {
 		printk(KERN_WARNING
 		   "SCTP: Use of int in max_burst socket option deprecated\n");
 		printk(KERN_WARNING
 		   "SCTP: Use struct sctp_assoc_value instead\n");
 		params.assoc_id = 0;
-	} else if (len == sizeof (struct sctp_assoc_value)) {
+	} else if (len >= sizeof(struct sctp_assoc_value)) {
+		len = sizeof(struct sctp_assoc_value);
 		if (copy_from_user(&params, optval, len))
 			return -EFAULT;
 	} else
@@ -5584,6 +5615,9 @@ SCTP_STATIC int sctp_getsockopt(struct sock *sk, int level, int optname,
 		retval = sctp_getsockopt_local_addrs(sk, len, optval,
 						     optlen);
 		break;
+	case SCTP_SOCKOPT_CONNECTX3:
+		retval = sctp_getsockopt_connectx3(sk, len, optval, optlen);
+		break;
 	case SCTP_DEFAULT_SEND_PARAM:
 		retval = sctp_getsockopt_default_send_param(sk, len,
 							    optval, optlen);
@@ -5849,127 +5883,13 @@ static int sctp_get_port(struct sock *sk, unsigned short snum)
 }
 
 /*
- * 3.1.3 listen() - UDP Style Syntax
- *
- *   By default, new associations are not accepted for UDP style sockets.
- *   An application uses listen() to mark a socket as being able to
- *   accept new associations.
- */
-SCTP_STATIC int sctp_seqpacket_listen(struct sock *sk, int backlog)
-{
-	struct sctp_sock *sp = sctp_sk(sk);
-	struct sctp_endpoint *ep = sp->ep;
-
-	/* Only UDP style sockets that are not peeled off are allowed to
-	 * listen().
-	 */
-	if (!sctp_style(sk, UDP))
-		return -EINVAL;
-
-	/* If backlog is zero, disable listening. */
-	if (!backlog) {
-		if (sctp_sstate(sk, CLOSED))
-			return 0;
-
-		sctp_unhash_endpoint(ep);
-		sk->sk_state = SCTP_SS_CLOSED;
-		return 0;
-	}
-
-	/* Return if we are already listening. */
-	if (sctp_sstate(sk, LISTENING))
-		return 0;
-
-	/*
-	 * If a bind() or sctp_bindx() is not called prior to a listen()
-	 * call that allows new associations to be accepted, the system
-	 * picks an ephemeral port and will choose an address set equivalent
-	 * to binding with a wildcard address.
-	 *
-	 * This is not currently spelled out in the SCTP sockets
-	 * extensions draft, but follows the practice as seen in TCP
-	 * sockets.
-	 *
-	 * Additionally, turn off fastreuse flag since we are not listening
-	 */
-	sk->sk_state = SCTP_SS_LISTENING;
-	if (!ep->base.bind_addr.port) {
-		if (sctp_autobind(sk))
-			return -EAGAIN;
-	} else {
-		if (sctp_get_port(sk, inet_sk(sk)->num)) {
-			sk->sk_state = SCTP_SS_CLOSED;
-			return -EADDRINUSE;
-		}
-		sctp_sk(sk)->bind_hash->fastreuse = 0;
-	}
-
-	sctp_hash_endpoint(ep);
-	return 0;
-}
-
-/*
- * 4.1.3 listen() - TCP Style Syntax
- *
- *   Applications uses listen() to ready the SCTP endpoint for accepting
- *   inbound associations.
- */
-SCTP_STATIC int sctp_stream_listen(struct sock *sk, int backlog)
-{
-	struct sctp_sock *sp = sctp_sk(sk);
-	struct sctp_endpoint *ep = sp->ep;
-
-	/* If backlog is zero, disable listening. */
-	if (!backlog) {
-		if (sctp_sstate(sk, CLOSED))
-			return 0;
-
-		sctp_unhash_endpoint(ep);
-		sk->sk_state = SCTP_SS_CLOSED;
-		return 0;
-	}
-
-	if (sctp_sstate(sk, LISTENING))
-		return 0;
-
-	/*
-	 * If a bind() or sctp_bindx() is not called prior to a listen()
-	 * call that allows new associations to be accepted, the system
-	 * picks an ephemeral port and will choose an address set equivalent
-	 * to binding with a wildcard address.
-	 *
-	 * This is not currently spelled out in the SCTP sockets
-	 * extensions draft, but follows the practice as seen in TCP
-	 * sockets.
-	 */
-	sk->sk_state = SCTP_SS_LISTENING;
-	if (!ep->base.bind_addr.port) {
-		if (sctp_autobind(sk))
-			return -EAGAIN;
-	} else
-		sctp_sk(sk)->bind_hash->fastreuse = 0;
-
-	sk->sk_max_ack_backlog = backlog;
-	sctp_hash_endpoint(ep);
-	return 0;
-}
-
-/*
  *  Move a socket to LISTENING state.
  */
-int sctp_inet_listen(struct socket *sock, int backlog)
+SCTP_STATIC int sctp_listen_start(struct sock *sk, int backlog)
 {
-	struct sock *sk = sock->sk;
+	struct sctp_sock *sp = sctp_sk(sk);
+	struct sctp_endpoint *ep = sp->ep;
 	struct crypto_hash *tfm = NULL;
-	int err = -EINVAL;
-
-	if (unlikely(backlog < 0))
-		goto out;
-
-	sctp_lock_sock(sk);
-
-	if (sock->state != SS_UNCONNECTED)
-		goto out;
 
 	/* Allocate HMAC for generating cookie. */
 	if (!sctp_sk(sk)->hmac && sctp_hmac_alg) {
@@ -5980,34 +5900,96 @@ int sctp_inet_listen(struct socket *sock, int backlog)
 				       "SCTP: failed to load transform for %s: %ld\n",
 					sctp_hmac_alg, PTR_ERR(tfm));
 			}
-			err = -ENOSYS;
-			goto out;
+			return -ENOSYS;
+		}
+		sctp_sk(sk)->hmac = tfm;
+	}
+
+	/*
+	 * If a bind() or sctp_bindx() is not called prior to a listen()
+	 * call that allows new associations to be accepted, the system
+	 * picks an ephemeral port and will choose an address set equivalent
+	 * to binding with a wildcard address.
+	 *
+	 * This is not currently spelled out in the SCTP sockets
+	 * extensions draft, but follows the practice as seen in TCP
+	 * sockets.
+	 *
+	 */
+	sk->sk_state = SCTP_SS_LISTENING;
+	if (!ep->base.bind_addr.port) {
+		if (sctp_autobind(sk))
+			return -EAGAIN;
+	} else {
+		if (sctp_get_port(sk, inet_sk(sk)->num)) {
+			sk->sk_state = SCTP_SS_CLOSED;
+			return -EADDRINUSE;
 		}
 	}
 
-	switch (sock->type) {
-	case SOCK_SEQPACKET:
-		err = sctp_seqpacket_listen(sk, backlog);
-		break;
-	case SOCK_STREAM:
-		err = sctp_stream_listen(sk, backlog);
-		break;
-	default:
-		break;
+	sk->sk_max_ack_backlog = backlog;
+	sctp_hash_endpoint(ep);
+	return 0;
+}
+
+/*
+ * 4.1.3 / 5.1.3 listen()
+ *
+ *   By default, new associations are not accepted for UDP style sockets.
+ *   An application uses listen() to mark a socket as being able to
+ *   accept new associations.
+ *
+ *   On TCP style sockets, applications use listen() to ready the SCTP
+ *   endpoint for accepting inbound associations.
+ *
+ *   On both types of endpoints a backlog of '0' disables listening.
+ *
+ *  Move a socket to LISTENING state.
+ */
+int sctp_inet_listen(struct socket *sock, int backlog)
+{
+	struct sock *sk = sock->sk;
+	struct sctp_endpoint *ep = sctp_sk(sk)->ep;
+	int err = -EINVAL;
+
+	if (unlikely(backlog < 0))
+		return err;
+
+	sctp_lock_sock(sk);
+
+	/* Peeled-off sockets are not allowed to listen().  */
+	if (sctp_style(sk, UDP_HIGH_BANDWIDTH))
+		goto out;
+
+	if (sock->state != SS_UNCONNECTED)
+		goto out;
+
+	/* If backlog is zero, disable listening. */
+	if (!backlog) {
+		if (sctp_sstate(sk, CLOSED))
+			goto out;
+
+		err = 0;
+		sctp_unhash_endpoint(ep);
+		sk->sk_state = SCTP_SS_CLOSED;
+		if (sk->sk_reuse)
+			sctp_sk(sk)->bind_hash->fastreuse = 1;
+		goto out;
 	}
 
-	if (err)
-		goto cleanup;
+	/* If we are already listening, just update the backlog */
+	if (sctp_sstate(sk, LISTENING))
+		sk->sk_max_ack_backlog = backlog;
+	else {
+		err = sctp_listen_start(sk, backlog);
+		if (err)
+			goto out;
+	}
 
-	/* Store away the transform reference. */
-	if (!sctp_sk(sk)->hmac)
-		sctp_sk(sk)->hmac = tfm;
+	err = 0;
 out:
 	sctp_release_sock(sk);
 	return err;
-cleanup:
-	crypto_free_hash(tfm);
-	goto out;
 }
 
 /*
@@ -6541,7 +6523,7 @@ static int sctp_writeable(struct sock *sk)
 {
 	int amt = 0;
 
-	amt = sk->sk_sndbuf - atomic_read(&sk->sk_wmem_alloc);
+	amt = sk->sk_sndbuf - sk_wmem_alloc_get(sk);
 	if (amt < 0)
 		amt = 0;
 	return amt;
@@ -6670,21 +6652,6 @@ static void sctp_wait_for_close(struct sock *sk, long timeout)
 	finish_wait(sk->sk_sleep, &wait);
 }
 
-static void sctp_sock_rfree_frag(struct sk_buff *skb)
-{
-	struct sk_buff *frag;
-
-	if (!skb->data_len)
-		goto done;
-
-	/* Don't forget the fragments. */
-	for (frag = skb_shinfo(skb)->frag_list; frag; frag = frag->next)
-		sctp_sock_rfree_frag(frag);
-
-done:
-	sctp_sock_rfree(skb);
-}
-
 static void sctp_skb_set_owner_r_frag(struct sk_buff *skb, struct sock *sk)
 {
 	struct sk_buff *frag;
@@ -6693,11 +6660,53 @@ static void sctp_skb_set_owner_r_frag(struct sk_buff *skb, struct sock *sk)
 		goto done;
 
 	/* Don't forget the fragments. */
-	for (frag = skb_shinfo(skb)->frag_list; frag; frag = frag->next)
+	skb_walk_frags(skb, frag)
 		sctp_skb_set_owner_r_frag(frag, sk);
 
 done:
 	sctp_skb_set_owner_r(skb, sk);
+}
+
+void sctp_copy_sock(struct sock *newsk, struct sock *sk,
+		    struct sctp_association *asoc)
+{
+	struct inet_sock *inet = inet_sk(sk);
+	struct inet_sock *newinet = inet_sk(newsk);
+
+	newsk->sk_type = sk->sk_type;
+	newsk->sk_bound_dev_if = sk->sk_bound_dev_if;
+	newsk->sk_flags = sk->sk_flags;
+	newsk->sk_no_check = sk->sk_no_check;
+	newsk->sk_reuse = sk->sk_reuse;
+
+	newsk->sk_shutdown = sk->sk_shutdown;
+	newsk->sk_destruct = inet_sock_destruct;
+	newsk->sk_family = sk->sk_family;
+	newsk->sk_protocol = IPPROTO_SCTP;
+	newsk->sk_backlog_rcv = sk->sk_prot->backlog_rcv;
+	newsk->sk_sndbuf = sk->sk_sndbuf;
+	newsk->sk_rcvbuf = sk->sk_rcvbuf;
+	newsk->sk_lingertime = sk->sk_lingertime;
+	newsk->sk_rcvtimeo = sk->sk_rcvtimeo;
+	newsk->sk_sndtimeo = sk->sk_sndtimeo;
+
+	newinet = inet_sk(newsk);
+
+	/* Initialize sk's sport, dport, rcv_saddr and daddr for
+	 * getsockname() and getpeername()
+	 */
+	newinet->sport = inet->sport;
+	newinet->saddr = inet->saddr;
+	newinet->rcv_saddr = inet->rcv_saddr;
+	newinet->dport = htons(asoc->peer.port);
+	newinet->pmtudisc = inet->pmtudisc;
+	newinet->id = asoc->next_tsn ^ jiffies;
+
+	newinet->uc_ttl = inet->uc_ttl;
+	newinet->mc_loop = 1;
+	newinet->mc_ttl = 1;
+	newinet->mc_index = 0;
+	newinet->mc_list = NULL;
 }
 
 /* Populate the fields of the newsk from the oldsk and migrate the assoc
@@ -6752,7 +6761,6 @@ static void sctp_sock_migrate(struct sock *oldsk, struct sock *newsk,
 	sctp_skb_for_each(skb, &oldsk->sk_receive_queue, tmp) {
 		event = sctp_skb2event(skb);
 		if (event->asoc == assoc) {
-			sctp_sock_rfree_frag(skb);
 			__skb_unlink(skb, &oldsk->sk_receive_queue);
 			__skb_queue_tail(&newsk->sk_receive_queue, skb);
 			sctp_skb_set_owner_r_frag(skb, newsk);
@@ -6783,7 +6791,6 @@ static void sctp_sock_migrate(struct sock *oldsk, struct sock *newsk,
 		sctp_skb_for_each(skb, &oldsp->pd_lobby, tmp) {
 			event = sctp_skb2event(skb);
 			if (event->asoc == assoc) {
-				sctp_sock_rfree_frag(skb);
 				__skb_unlink(skb, &oldsp->pd_lobby);
 				__skb_queue_tail(queue, skb);
 				sctp_skb_set_owner_r_frag(skb, newsk);
@@ -6798,15 +6805,11 @@ static void sctp_sock_migrate(struct sock *oldsk, struct sock *newsk,
 
 	}
 
-	sctp_skb_for_each(skb, &assoc->ulpq.reasm, tmp) {
-		sctp_sock_rfree_frag(skb);
+	sctp_skb_for_each(skb, &assoc->ulpq.reasm, tmp)
 		sctp_skb_set_owner_r_frag(skb, newsk);
-	}
 
-	sctp_skb_for_each(skb, &assoc->ulpq.lobby, tmp) {
-		sctp_sock_rfree_frag(skb);
+	sctp_skb_for_each(skb, &assoc->ulpq.lobby, tmp)
 		sctp_skb_set_owner_r_frag(skb, newsk);
-	}
 
 	/* Set the type of socket to indicate that it is peeled off from the
 	 * original UDP-style socket or created with the accept() call on a

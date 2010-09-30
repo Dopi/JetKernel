@@ -81,16 +81,17 @@ static void sctp_add_backlog(struct sock *sk, struct sk_buff *skb);
 /* Calculate the SCTP checksum of an SCTP packet.  */
 static inline int sctp_rcv_checksum(struct sk_buff *skb)
 {
-	struct sk_buff *list = skb_shinfo(skb)->frag_list;
 	struct sctphdr *sh = sctp_hdr(skb);
-	__be32 cmp = sh->checksum;
-	__be32 val = sctp_start_cksum((__u8 *)sh, skb_headlen(skb));
+	__le32 cmp = sh->checksum;
+	struct sk_buff *list;
+	__le32 val;
+	__u32 tmp = sctp_start_cksum((__u8 *)sh, skb_headlen(skb));
 
-	for (; list; list = list->next)
-		val = sctp_update_cksum((__u8 *)list->data, skb_headlen(list),
-					val);
+	skb_walk_frags(skb, list)
+		tmp = sctp_update_cksum((__u8 *)list->data, skb_headlen(list),
+					tmp);
 
-	val = sctp_end_cksum(val);
+	val = sctp_end_cksum(tmp);
 
 	if (val != cmp) {
 		/* CRC failure, dump it. */
@@ -142,7 +143,8 @@ int sctp_rcv(struct sk_buff *skb)
 	__skb_pull(skb, skb_transport_offset(skb));
 	if (skb->len < sizeof(struct sctphdr))
 		goto discard_it;
-	if (!skb_csum_unnecessary(skb) && sctp_rcv_checksum(skb) < 0)
+	if (!sctp_checksum_disable && !skb_csum_unnecessary(skb) &&
+		  sctp_rcv_checksum(skb) < 0)
 		goto discard_it;
 
 	skb_pull(skb, sizeof(struct sctphdr));

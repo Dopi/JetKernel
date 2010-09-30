@@ -37,6 +37,7 @@
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/init.h>
+#include <linux/videodev.h>
 #include <media/v4l2-ioctl.h>
 
 #include "cpia2.h"
@@ -1063,7 +1064,7 @@ static int ioctl_querymenu(void *arg,struct camera_data *cam)
 
 	switch(m->id) {
 	case CPIA2_CID_FLICKER_MODE:
-		if(m->index < 0 || m->index >= NUM_FLICKER_CONTROLS)
+		if (m->index >= NUM_FLICKER_CONTROLS)
 			return -EINVAL;
 
 		strcpy(m->name, flicker_controls[m->index].name);
@@ -1081,14 +1082,14 @@ static int ioctl_querymenu(void *arg,struct camera_data *cam)
 					maximum = i;
 			}
 		}
-		if(m->index < 0 || m->index > maximum)
+		if (m->index > maximum)
 			return -EINVAL;
 
 		strcpy(m->name, framerate_controls[m->index].name);
 		break;
 	    }
 	case CPIA2_CID_LIGHTS:
-		if(m->index < 0 || m->index >= NUM_LIGHTS_CONTROLS)
+		if (m->index >= NUM_LIGHTS_CONTROLS)
 			return -EINVAL;
 
 		strcpy(m->name, lights_controls[m->index].name);

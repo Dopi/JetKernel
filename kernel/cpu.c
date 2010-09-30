@@ -34,14 +34,11 @@ static struct {
 	 * an ongoing cpu hotplug operation.
 	 */
 	int refcount;
-} cpu_hotplug;
-
-void __init cpu_hotplug_init(void)
-{
-	cpu_hotplug.active_writer = NULL;
-	mutex_init(&cpu_hotplug.lock);
-	cpu_hotplug.refcount = 0;
-}
+} cpu_hotplug = {
+	.active_writer = NULL,
+	.lock = __MUTEX_INITIALIZER(cpu_hotplug.lock),
+	.refcount = 0,
+};
 
 #ifdef CONFIG_HOTPLUG_CPU
 
@@ -281,7 +278,7 @@ int __ref cpu_down(unsigned int cpu)
 		goto out;
 	}
 
-	cpu_clear(cpu, cpu_active_map);
+	set_cpu_active(cpu, false);
 
 	/*
 	 * Make sure the all cpus did the reschedule and are not
@@ -296,7 +293,7 @@ int __ref cpu_down(unsigned int cpu)
 	err = _cpu_down(cpu, 0);
 
 	if (cpu_online(cpu))
-		cpu_set(cpu, cpu_active_map);
+		set_cpu_active(cpu, true);
 
 out:
 	cpu_maps_update_done();
@@ -333,7 +330,7 @@ static int __cpuinit _cpu_up(unsigned int cpu, int tasks_frozen)
 		goto out_notify;
 	BUG_ON(!cpu_online(cpu));
 
-	cpu_set(cpu, cpu_active_map);
+	set_cpu_active(cpu, true);
 
 	/* Now call notifier in preparation. */
 	raw_notifier_call_chain(&cpu_chain, CPU_ONLINE | mod, hcpu);

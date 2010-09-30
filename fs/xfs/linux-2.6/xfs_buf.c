@@ -51,6 +51,7 @@ static struct shrinker xfs_buf_shake = {
 
 static struct workqueue_struct *xfslogd_workqueue;
 struct workqueue_struct *xfsdatad_workqueue;
+struct workqueue_struct *xfsconvertd_workqueue;
 
 #ifdef XFS_BUF_TRACE
 void
@@ -411,7 +412,7 @@ _xfs_buf_lookup_pages(
 
 			XFS_STATS_INC(xb_page_retries);
 			xfsbufd_wakeup(0, gfp_mask);
-			congestion_wait(WRITE, HZ/50);
+			congestion_wait(BLK_RW_ASYNC, HZ/50);
 			goto retry;
 		}
 
@@ -769,7 +770,7 @@ xfs_buf_associate_memory(
 	bp->b_pages = NULL;
 	bp->b_addr = mem;
 
-	rval = _xfs_buf_get_pages(bp, page_count, 0);
+	rval = _xfs_buf_get_pages(bp, page_count, XBF_DONT_BLOCK);
 	if (rval)
 		return rval;
 
@@ -1500,7 +1501,7 @@ xfs_setsize_buftarg_early(
 	struct block_device	*bdev)
 {
 	return xfs_setsize_buftarg_flags(btp,
-			PAGE_CACHE_SIZE, bdev_hardsect_size(bdev), 0);
+			PAGE_CACHE_SIZE, bdev_logical_block_size(bdev), 0);
 }
 
 int
@@ -1775,6 +1776,7 @@ xfs_flush_buftarg(
 	xfs_buf_t	*bp, *n;
 	int		pincount = 0;
 
+	xfs_buf_runall_queues(xfsconvertd_workqueue);
 	xfs_buf_runall_queues(xfsdatad_workqueue);
 	xfs_buf_runall_queues(xfslogd_workqueue);
 
@@ -1831,9 +1833,15 @@ xfs_buf_init(void)
 	if (!xfsdatad_workqueue)
 		goto out_destroy_xfslogd_workqueue;
 
+	xfsconvertd_workqueue = create_workqueue("xfsconvertd");
+	if (!xfsconvertd_workqueue)
+		goto out_destroy_xfsdatad_workqueue;
+
 	register_shrinker(&xfs_buf_shake);
 	return 0;
 
+ out_destroy_xfsdatad_workqueue:
+	destroy_workqueue(xfsdatad_workqueue);
  out_destroy_xfslogd_workqueue:
 	destroy_workqueue(xfslogd_workqueue);
  out_free_buf_zone:
@@ -1849,6 +1857,7 @@ void
 xfs_buf_terminate(void)
 {
 	unregister_shrinker(&xfs_buf_shake);
+	destroy_workqueue(xfsconvertd_workqueue);
 	destroy_workqueue(xfsdatad_workqueue);
 	destroy_workqueue(xfslogd_workqueue);
 	kmem_zone_destroy(xfs_buf_zone);

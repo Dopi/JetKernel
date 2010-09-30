@@ -43,6 +43,7 @@ int seq_release(struct inode *, struct file *);
 int seq_escape(struct seq_file *, const char *, const char *);
 int seq_putc(struct seq_file *m, char c);
 int seq_puts(struct seq_file *m, const char *s);
+int seq_write(struct seq_file *seq, const void *data, size_t len);
 
 int seq_printf(struct seq_file *, const char *, ...)
 	__attribute__ ((format (printf,2,3)));
@@ -55,7 +56,7 @@ int seq_bitmap(struct seq_file *m, const unsigned long *bits,
 				   unsigned int nr_bits);
 static inline int seq_cpumask(struct seq_file *m, const struct cpumask *mask)
 {
-	return seq_bitmap(m, mask->bits, nr_cpu_ids);
+	return seq_bitmap(m, cpumask_bits(mask), nr_cpu_ids);
 }
 
 static inline int seq_nodemask(struct seq_file *m, nodemask_t *mask)
@@ -63,12 +64,13 @@ static inline int seq_nodemask(struct seq_file *m, nodemask_t *mask)
 	return seq_bitmap(m, mask->bits, MAX_NUMNODES);
 }
 
-int seq_bitmap_list(struct seq_file *m, unsigned long *bits,
+int seq_bitmap_list(struct seq_file *m, const unsigned long *bits,
 		unsigned int nr_bits);
 
-static inline int seq_cpumask_list(struct seq_file *m, cpumask_t *mask)
+static inline int seq_cpumask_list(struct seq_file *m,
+				   const struct cpumask *mask)
 {
-	return seq_bitmap_list(m, mask->bits, NR_CPUS);
+	return seq_bitmap_list(m, cpumask_bits(mask), nr_cpu_ids);
 }
 
 static inline int seq_nodemask_list(struct seq_file *m, nodemask_t *mask)

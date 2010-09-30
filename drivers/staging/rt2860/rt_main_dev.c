@@ -40,17 +40,6 @@
 
 #define FORTY_MHZ_INTOLERANT_INTERVAL	(60*1000) // 1 min
 
-#ifdef MULTIPLE_CARD_SUPPORT
-// record whether the card in the card list is used in the card file
-UINT8  MC_CardUsed[MAX_NUM_OF_MULTIPLE_CARD];
-// record used card mac address in the card list
-static UINT8  MC_CardMac[MAX_NUM_OF_MULTIPLE_CARD][6];
-#endif // MULTIPLE_CARD_SUPPORT //
-
-#ifdef CONFIG_APSTA_MIXED_SUPPORT
-UINT32 CW_MAX_IN_BITS;
-#endif // CONFIG_APSTA_MIXED_SUPPORT //
-
 /*---------------------------------------------------------------------*/
 /* Private Variables Used                                              */
 /*---------------------------------------------------------------------*/
@@ -58,26 +47,20 @@ UINT32 CW_MAX_IN_BITS;
 
 char *mac = "";		   // default 00:00:00:00:00:00
 char *hostname = "";		   // default CMPC
-#if LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,12)
-MODULE_PARM (mac, "s");
-#else
 module_param (mac, charp, 0);
-#endif
 MODULE_PARM_DESC (mac, "rt28xx: wireless mac addr");
 
 
 /*---------------------------------------------------------------------*/
 /* Prototypes of Functions Used                                        */
 /*---------------------------------------------------------------------*/
-#ifdef DOT11_N_SUPPORT
 extern BOOLEAN ba_reordering_resource_init(PRTMP_ADAPTER pAd, int num);
 extern void ba_reordering_resource_release(PRTMP_ADAPTER pAd);
-#endif // DOT11_N_SUPPORT //
 extern NDIS_STATUS NICLoadRateSwitchingParams(IN PRTMP_ADAPTER pAd);
 
 #ifdef RT2860
 extern void init_thread_task(PRTMP_ADAPTER pAd);
-#endif // RT2860 //
+#endif
 
 // public function prototype
 INT __devinit rt28xx_probe(IN void *_dev_p, IN void *_dev_id_p,
@@ -87,22 +70,9 @@ INT __devinit rt28xx_probe(IN void *_dev_p, IN void *_dev_id_p,
 static int rt28xx_init(IN struct net_device *net_dev);
 INT rt28xx_send_packets(IN struct sk_buff *skb_p, IN struct net_device *net_dev);
 
-#if LINUX_VERSION_CODE <= 0x20402	// Red Hat 7.1
-struct net_device *alloc_netdev(
-	int sizeof_priv,
-	const char *mask,
-	void (*setup)(struct net_device *));
-#endif // LINUX_VERSION_CODE //
-
 static void CfgInitHook(PRTMP_ADAPTER pAd);
 
-#ifdef CONFIG_STA_SUPPORT
 extern	const struct iw_handler_def rt28xx_iw_handler_def;
-#endif // CONFIG_STA_SUPPORT //
-
-#ifdef CONFIG_APSTA_MIXED_SUPPORT
-extern	const struct iw_handler_def rt28xx_ap_iw_handler_def;
-#endif // CONFIG_APSTA_MIXED_SUPPORT //
 
 #if WIRELESS_EXT >= 12
 // This function will be called when query /proc
@@ -219,6 +189,12 @@ int rt28xx_close(IN PNET_DEV dev)
     RTMP_ADAPTER	*pAd = net_dev->ml_priv;
 	BOOLEAN 		Cancelled = FALSE;
 	UINT32			i = 0;
+#ifdef RT2870
+	DECLARE_WAIT_QUEUE_HEAD(unlink_wakeup);
+	DECLARE_WAITQUEUE(wait, current);
+
+	//RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_REMOVE_IN_PROGRESS);
+#endif // RT2870 //
 
 
     DBGPRINT(RT_DEBUG_TRACE, ("===> rt28xx_close\n"));
@@ -227,55 +203,25 @@ int rt28xx_close(IN PNET_DEV dev)
 	if (pAd == NULL)
 		return 0; // close ok
 
-
-#ifdef WDS_SUPPORT
-	WdsDown(pAd);
-#endif // WDS_SUPPORT //
-
-#ifdef CONFIG_STA_SUPPORT
-	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
 	{
-#ifdef RT2860
-		RTMPPCIeLinkCtrlValueRestore(pAd, RESTORE_CLOSE);
-#endif // RT2860 //
-
 		// If dirver doesn't wake up firmware here,
 		// NICLoadFirmware will hang forever when interface is up again.
+#ifdef RT2860
+		if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_DOZE) ||
+			RTMP_SET_PSFLAG(pAd, fRTMP_PS_SET_PCI_CLK_OFF_COMMAND) ||
+			RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_IDLE_RADIO_OFF))
+#endif
+#ifdef RT2870
 		if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_DOZE))
+#endif
         {
+#ifdef RT2860
+		    AsicForceWakeup(pAd, RTMP_HALT);
+#endif
+#ifdef RT2870
 		    AsicForceWakeup(pAd, TRUE);
+#endif
         }
-
-#ifdef QOS_DLS_SUPPORT
-		// send DLS-TEAR_DOWN message,
-		if (pAd->CommonCfg.bDLSCapable)
-		{
-			UCHAR i;
-
-			// tear down local dls table entry
-			for (i=0; i<MAX_NUM_OF_INIT_DLS_ENTRY; i++)
-			{
-				if (pAd->StaCfg.DLSEntry[i].Valid && (pAd->StaCfg.DLSEntry[i].Status == DLS_FINISH))
-				{
-					RTMPSendDLSTearDownFrame(pAd, pAd->StaCfg.DLSEntry[i].MacAddr);
-					pAd->StaCfg.DLSEntry[i].Status	= DLS_NONE;
-					pAd->StaCfg.DLSEntry[i].Valid	= FALSE;
-				}
-			}
-
-			// tear down peer dls table entry
-			for (i=MAX_NUM_OF_INIT_DLS_ENTRY; i<MAX_NUM_OF_DLS_ENTRY; i++)
-			{
-				if (pAd->StaCfg.DLSEntry[i].Valid && (pAd->StaCfg.DLSEntry[i].Status == DLS_FINISH))
-				{
-					RTMPSendDLSTearDownFrame(pAd, pAd->StaCfg.DLSEntry[i].MacAddr);
-					pAd->StaCfg.DLSEntry[i].Status = DLS_NONE;
-					pAd->StaCfg.DLSEntry[i].Valid	= FALSE;
-				}
-			}
-			RT28XX_MLME_HANDLER(pAd);
-		}
-#endif // QOS_DLS_SUPPORT //
 
 		if (INFRA_ON(pAd) &&
 			(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)))
@@ -302,6 +248,9 @@ int rt28xx_close(IN PNET_DEV dev)
 			RTMPusecDelay(1000);
 		}
 
+#ifdef RT2870
+	RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_REMOVE_IN_PROGRESS);
+#endif // RT2870 //
 
 #ifdef CCX_SUPPORT
 		RTMPCancelTimer(&pAd->StaCfg.LeapAuthTimer, &Cancelled);
@@ -310,24 +259,11 @@ int rt28xx_close(IN PNET_DEV dev)
 		RTMPCancelTimer(&pAd->StaCfg.StaQuickResponeForRateUpTimer, &Cancelled);
 		RTMPCancelTimer(&pAd->StaCfg.WpaDisassocAndBlockAssocTimer, &Cancelled);
 
-#ifdef WPA_SUPPLICANT_SUPPORT
-#ifndef NATIVE_WPA_SUPPLICANT_SUPPORT
-		{
-			union iwreq_data    wrqu;
-			// send wireless event to wpa_supplicant for infroming interface down.
-			memset(&wrqu, 0, sizeof(wrqu));
-			wrqu.data.flags = RT_INTERFACE_DOWN;
-			wireless_send_event(pAd->net_dev, IWEVCUSTOM, &wrqu, NULL);
-		}
-#endif // NATIVE_WPA_SUPPLICANT_SUPPORT //
-#endif // WPA_SUPPLICANT_SUPPORT //
-
 		MlmeRadioOff(pAd);
 #ifdef RT2860
 		pAd->bPCIclkOff = FALSE;
-#endif // RT2860 //
+#endif
 	}
-#endif // CONFIG_STA_SUPPORT //
 
 	RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS);
 
@@ -340,24 +276,50 @@ int rt28xx_close(IN PNET_DEV dev)
 		}
 	}
 
+#ifdef RT2870
+	// ensure there are no more active urbs.
+	add_wait_queue (&unlink_wakeup, &wait);
+	pAd->wait = &unlink_wakeup;
+
+	// maybe wait for deletions to finish.
+	i = 0;
+	//while((i < 25) && atomic_read(&pAd->PendingRx) > 0)
+	while(i < 25)
+	{
+		unsigned long IrqFlags;
+
+		RTMP_IRQ_LOCK(&pAd->BulkInLock, IrqFlags);
+		if (pAd->PendingRx == 0)
+		{
+			RTMP_IRQ_UNLOCK(&pAd->BulkInLock, IrqFlags);
+			break;
+		}
+		RTMP_IRQ_UNLOCK(&pAd->BulkInLock, IrqFlags);
+
+		msleep(UNLINK_TIMEOUT_MS);	//Time in millisecond
+		i++;
+	}
+	pAd->wait = NULL;
+	remove_wait_queue (&unlink_wakeup, &wait);
+#endif // RT2870 //
+
+#ifdef RT2870
+	// We need clear timerQ related structure before exits of the timer thread.
+	RT2870_TimerQ_Exit(pAd);
+	// Close kernel threads or tasklets
+	RT28xxThreadTerminate(pAd);
+#endif // RT2870 //
+
 	// Stop Mlme state machine
 	MlmeHalt(pAd);
 
 	// Close kernel threads or tasklets
 	kill_thread_task(pAd);
 
-
-#ifdef CONFIG_STA_SUPPORT
-	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
-	{
-		MacTableReset(pAd);
-	}
-#endif // CONFIG_STA_SUPPORT //
-
+	MacTableReset(pAd);
 
 	MeasureReqTabExit(pAd);
 	TpcReqTabExit(pAd);
-
 
 #ifdef RT2860
 	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_INTERRUPT_ACTIVE))
@@ -375,19 +337,15 @@ int rt28xx_close(IN PNET_DEV dev)
 		RT28XX_IRQ_RELEASE(net_dev)
 		RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_INTERRUPT_IN_USE);
 	}
-#endif // RT2860 //
-
+#endif
 
 	// Free Ring or USB buffers
 	RTMPFreeTxRxRingMemory(pAd);
 
 	RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS);
 
-#ifdef DOT11_N_SUPPORT
 	// Free BA reorder resource
 	ba_reordering_resource_release(pAd);
-#endif // DOT11_N_SUPPORT //
-
 
 	RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_START_UP);
 
@@ -396,17 +354,19 @@ int rt28xx_close(IN PNET_DEV dev)
 
 static int rt28xx_init(IN struct net_device *net_dev)
 {
+#ifdef RT2860
 	PRTMP_ADAPTER 			pAd = (PRTMP_ADAPTER)net_dev->ml_priv;
+#endif
+#ifdef RT2870
+	PRTMP_ADAPTER 			pAd = net_dev->ml_priv;
+#endif
 	UINT					index;
 	UCHAR					TmpPhy;
 	NDIS_STATUS				Status;
 	UINT32 		MacCsr0 = 0;
 
-
-#ifdef DOT11_N_SUPPORT
 	// Allocate BA Reordering memory
 	ba_reordering_resource_init(pAd, MAX_REORDERING_MPDU_NUM);
-#endif // DOT11_N_SUPPORT //
 
 	// Make sure MAC gets ready.
 	index = 0;
@@ -422,10 +382,10 @@ static int rt28xx_init(IN struct net_device *net_dev)
 	} while (index++ < 100);
 
 	DBGPRINT(RT_DEBUG_TRACE, ("MAC_CSR0  [ Ver:Rev=0x%08x]\n", pAd->MACVersion));
+/*Iverson patch PCIE L1 issue */
 
 	// Disable DMA
 	RT28XXDMADisable(pAd);
-
 
 	// Load 8051 firmware
 	Status = NICLoadFirmware(pAd);
@@ -444,7 +404,7 @@ static int rt28xx_init(IN struct net_device *net_dev)
 	{
 		NICDisableInterrupt(pAd);
 	}
-#endif // RT2860 //
+#endif
 
 	Status = RTMPAllocTxRxRingMemory(pAd);
 	if (Status != NDIS_STATUS_SUCCESS)
@@ -469,6 +429,10 @@ static int rt28xx_init(IN struct net_device *net_dev)
 	//
 	UserCfgInit(pAd);
 
+#ifdef RT2870
+	// We need init timerQ related structure before create the timer thread.
+	RT2870_TimerQ_Init(pAd);
+#endif // RT2870 //
 
 	RT28XX_TASK_THREAD_INIT(pAd, Status);
 	if (Status != NDIS_STATUS_SUCCESS)
@@ -476,15 +440,7 @@ static int rt28xx_init(IN struct net_device *net_dev)
 
 	CfgInitHook(pAd);
 
-
-#ifdef BLOCK_NET_IF
-	initblockQueueTab(pAd);
-#endif // BLOCK_NET_IF //
-
-#ifdef CONFIG_STA_SUPPORT
-	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
-		NdisAllocateSpinLock(&pAd->MacTabLock);
-#endif // CONFIG_STA_SUPPORT //
+	NdisAllocateSpinLock(&pAd->MacTabLock);
 
 	MeasureReqTabInit(pAd);
 	TpcReqTabInit(pAd);
@@ -510,10 +466,17 @@ static int rt28xx_init(IN struct net_device *net_dev)
 		goto err4;
 	}
 
+#ifdef RT2870
+	pAd->CommonCfg.bMultipleIRP = FALSE;
+
+	if (pAd->CommonCfg.bMultipleIRP)
+		pAd->CommonCfg.NumOfBulkInIRP = RX_RING_SIZE;
+	else
+		pAd->CommonCfg.NumOfBulkInIRP = 1;
+#endif // RT2870 //
 
 
    	//Init Ba Capability parameters.
-#ifdef DOT11_N_SUPPORT
 	pAd->CommonCfg.DesiredHtPhy.MpduDensity = (UCHAR)pAd->CommonCfg.BACapability.field.MpduDensity;
 	pAd->CommonCfg.DesiredHtPhy.AmsduEnable = (USHORT)pAd->CommonCfg.BACapability.field.AmsduEnable;
 	pAd->CommonCfg.DesiredHtPhy.AmsduSize = (USHORT)pAd->CommonCfg.BACapability.field.AmsduSize;
@@ -522,7 +485,6 @@ static int rt28xx_init(IN struct net_device *net_dev)
 	pAd->CommonCfg.HtCapability.HtCapInfo.MimoPs = (USHORT)pAd->CommonCfg.BACapability.field.MMPSmode;
 	pAd->CommonCfg.HtCapability.HtCapInfo.AMsduSize = (USHORT)pAd->CommonCfg.BACapability.field.AmsduSize;
 	pAd->CommonCfg.HtCapability.HtCapParm.MpduDensity = (UCHAR)pAd->CommonCfg.BACapability.field.MpduDensity;
-#endif // DOT11_N_SUPPORT //
 
 	printk("2. Phy Mode = %d\n", pAd->CommonCfg.PhyMode);
 
@@ -537,9 +499,7 @@ static int rt28xx_init(IN struct net_device *net_dev)
 	TmpPhy = pAd->CommonCfg.PhyMode;
 	pAd->CommonCfg.PhyMode = 0xff;
 	RTMPSetPhyMode(pAd, TmpPhy);
-#ifdef DOT11_N_SUPPORT
 	SetCommonHT(pAd);
-#endif // DOT11_N_SUPPORT //
 
 	// No valid channels.
 	if (pAd->ChannelListNum == 0)
@@ -548,11 +508,14 @@ static int rt28xx_init(IN struct net_device *net_dev)
 		goto err4;
 	}
 
-#ifdef DOT11_N_SUPPORT
 	printk("MCS Set = %02x %02x %02x %02x %02x\n", pAd->CommonCfg.HtCapability.MCSSet[0],
            pAd->CommonCfg.HtCapability.MCSSet[1], pAd->CommonCfg.HtCapability.MCSSet[2],
            pAd->CommonCfg.HtCapability.MCSSet[3], pAd->CommonCfg.HtCapability.MCSSet[4]);
-#endif // DOT11_N_SUPPORT //
+
+#ifdef RT2870
+    //Init RT30xx RFRegisters after read RFIC type from EEPROM
+	NICInitRT30xxRFRegisters(pAd);
+#endif // RT2870 //
 
 #ifdef IKANOS_VX_1X0
 	VR_IKANOS_FP_Init(pAd->ApCfg.BssidNum, pAd->PermanentAddress);
@@ -564,8 +527,10 @@ static int rt28xx_init(IN struct net_device *net_dev)
 	AsicSwitchChannel(pAd, pAd->CommonCfg.Channel, FALSE);
 	AsicLockChannel(pAd, pAd->CommonCfg.Channel);
 
+#ifndef RT30xx
 	// 8051 firmware require the signal during booting time.
 	AsicSendCommandToMcu(pAd, 0x72, 0xFF, 0x00, 0x00);
+#endif
 
 	if (pAd && (Status != NDIS_STATUS_SUCCESS))
 	{
@@ -582,9 +547,24 @@ static int rt28xx_init(IN struct net_device *net_dev)
 		// Microsoft HCT require driver send a disconnect event after driver initialization.
 		OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED);
 		RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_MEDIA_STATE_CHANGE);
+
 		DBGPRINT(RT_DEBUG_TRACE, ("NDIS_STATUS_MEDIA_DISCONNECT Event B!\n"));
 
 
+#ifdef RT2870
+		RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_RESET_IN_PROGRESS);
+		RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_REMOVE_IN_PROGRESS);
+
+		//
+		// Support multiple BulkIn IRP,
+		// the value on pAd->CommonCfg.NumOfBulkInIRP may be large than 1.
+		//
+		for(index=0; index<pAd->CommonCfg.NumOfBulkInIRP; index++)
+		{
+			RTUSBBulkReceive(pAd);
+			DBGPRINT(RT_DEBUG_TRACE, ("RTUSBBulkReceive!\n" ));
+		}
+#endif // RT2870 //
 	}// end of else
 
 
@@ -599,17 +579,12 @@ err3:
 err2:
 	RTMPFreeTxRxRingMemory(pAd);
 err1:
-
-#ifdef DOT11_N_SUPPORT
 	os_free_mem(pAd, pAd->mpdu_blk_pool.mem); // free BA pool
-#endif // DOT11_N_SUPPORT //
 	RT28XX_IRQ_RELEASE(net_dev);
 
 	// shall not set ml_priv to NULL here because the ml_priv didn't been free yet.
 	//net_dev->ml_priv = 0;
-#ifdef INF_AMAZON_SE
-err0:
-#endif // INF_AMAZON_SE //
+
 	printk("!!! %s Initialized fail !!!\n", RT28xx_CHIP_NAME);
 	return FALSE;
 } /* End of rt28xx_init */
@@ -646,47 +621,6 @@ int rt28xx_open(IN PNET_DEV dev)
 		return -1;
 	}
 
-#ifdef CONFIG_APSTA_MIXED_SUPPORT
-	if (pAd->OpMode == OPMODE_AP)
-	{
-		CW_MAX_IN_BITS = 6;
-	}
-	else if (pAd->OpMode == OPMODE_STA)
-	{
-		CW_MAX_IN_BITS = 10;
-	}
-
-#if WIRELESS_EXT >= 12
-	if (net_dev->priv_flags == INT_MAIN)
-	{
-		if (pAd->OpMode == OPMODE_AP)
-			net_dev->wireless_handlers = (struct iw_handler_def *) &rt28xx_ap_iw_handler_def;
-		else if (pAd->OpMode == OPMODE_STA)
-			net_dev->wireless_handlers = (struct iw_handler_def *) &rt28xx_iw_handler_def;
-	}
-#endif // WIRELESS_EXT >= 12 //
-#endif // CONFIG_APSTA_MIXED_SUPPORT //
-
-#ifdef CONFIG_STA_SUPPORT
-#ifdef RT2860
-	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
-	{
-    	// If dirver doesn't wake up firmware here,
-    	// NICLoadFirmware will hang forever when interface is up again.
-    	// RT2860 PCI
-    	if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_DOZE) &&
-        	OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_ADVANCE_POWER_SAVE_PCIE_DEVICE))
-    	{
-        	AUTO_WAKEUP_STRUC AutoWakeupCfg;
-			AsicForceWakeup(pAd, TRUE);
-        	AutoWakeupCfg.word = 0;
-	    	RTMP_IO_WRITE32(pAd, AUTO_WAKEUP_CFG, AutoWakeupCfg.word);
-        	OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_DOZE);
-    	}
-	}
-#endif // RT2860 //
-#endif // CONFIG_STA_SUPPORT //
-
 	// Init
  	pObj = (POS_COOKIE)pAd->OS_Cookie;
 
@@ -705,13 +639,8 @@ int rt28xx_open(IN PNET_DEV dev)
 	if (rt28xx_init(net_dev) == FALSE)
 		goto err;
 
-#ifdef CONFIG_STA_SUPPORT
-	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
-	{
-		NdisZeroMemory(pAd->StaCfg.dev_name, 16);
-		NdisMoveMemory(pAd->StaCfg.dev_name, net_dev->name, strlen(net_dev->name));
-	}
-#endif // CONFIG_STA_SUPPORT //
+	NdisZeroMemory(pAd->StaCfg.dev_name, 16);
+	NdisMoveMemory(pAd->StaCfg.dev_name, net_dev->name, strlen(net_dev->name));
 
 	// Set up the Mac address
 	NdisMoveMemory(net_dev->dev_addr, (void *) pAd->CurrentAddress, 6);
@@ -720,24 +649,6 @@ int rt28xx_open(IN PNET_DEV dev)
 	RT28XX_IRQ_INIT(pAd);
 
 	// Various AP function init
-
-#ifdef CONFIG_STA_SUPPORT
-	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
-	{
-#ifdef WPA_SUPPLICANT_SUPPORT
-#ifndef NATIVE_WPA_SUPPLICANT_SUPPORT
-		{
-			union iwreq_data    wrqu;
-			// send wireless event to wpa_supplicant for infroming interface down.
-			memset(&wrqu, 0, sizeof(wrqu));
-			wrqu.data.flags = RT_INTERFACE_UP;
-			wireless_send_event(pAd->net_dev, IWEVCUSTOM, &wrqu, NULL);
-		}
-#endif // NATIVE_WPA_SUPPLICANT_SUPPORT //
-#endif // WPA_SUPPLICANT_SUPPORT //
-
-	}
-#endif // CONFIG_STA_SUPPORT //
 
 	// Enable Interrupt
 	RT28XX_IRQ_ENABLE(pAd);
@@ -752,19 +663,29 @@ int rt28xx_open(IN PNET_DEV dev)
 	printk("0x1300 = %08x\n", reg);
 	}
 
-#ifdef CONFIG_STA_SUPPORT
 #ifdef RT2860
-	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
         RTMPInitPCIeLinkCtrlValue(pAd);
-#endif // RT2860 //
-#endif // CONFIG_STA_SUPPORT //
-
+#endif
 	return (retval);
 
 err:
 	return (-1);
 } /* End of rt28xx_open */
 
+static const struct net_device_ops rt2860_netdev_ops = {
+	.ndo_open		= MainVirtualIF_open,
+	.ndo_stop		= MainVirtualIF_close,
+	.ndo_do_ioctl		= rt28xx_ioctl,
+	.ndo_get_stats		= RT28xx_get_ether_stats,
+	.ndo_validate_addr	= NULL,
+	.ndo_set_mac_address	= eth_mac_addr,
+	.ndo_change_mtu		= eth_change_mtu,
+#ifdef IKANOS_VX_1X0
+	.ndo_start_xmit		= IKANOS_DataFramesTx,
+#else
+	.ndo_start_xmit		= rt28xx_send_packets,
+#endif
+};
 
 /* Must not be called for mdev and apdev */
 static NDIS_STATUS rt_ieee80211_if_setup(struct net_device *dev, PRTMP_ADAPTER pAd)
@@ -774,72 +695,28 @@ static NDIS_STATUS rt_ieee80211_if_setup(struct net_device *dev, PRTMP_ADAPTER p
 	CHAR    slot_name[IFNAMSIZ];
 	struct net_device   *device;
 
-
-	//ether_setup(dev);
-	dev->hard_start_xmit = rt28xx_send_packets;
-
-#ifdef IKANOS_VX_1X0
-	dev->hard_start_xmit = IKANOS_DataFramesTx;
-#endif // IKANOS_VX_1X0 //
-
-#ifdef CONFIG_STA_SUPPORT
 #if WIRELESS_EXT >= 12
 	if (pAd->OpMode == OPMODE_STA)
 	{
 		dev->wireless_handlers = &rt28xx_iw_handler_def;
 	}
 #endif //WIRELESS_EXT >= 12
-#endif // CONFIG_STA_SUPPORT //
-
-#ifdef CONFIG_APSTA_MIXED_SUPPORT
-#if WIRELESS_EXT >= 12
-	if (pAd->OpMode == OPMODE_AP)
-	{
-		dev->wireless_handlers = &rt28xx_ap_iw_handler_def;
-	}
-#endif //WIRELESS_EXT >= 12
-#endif // CONFIG_APSTA_MIXED_SUPPORT //
 
 #if WIRELESS_EXT < 21
 		dev->get_wireless_stats = rt28xx_get_wireless_stats;
 #endif
-	dev->get_stats = RT28xx_get_ether_stats;
-	dev->open = MainVirtualIF_open; //rt28xx_open;
-	dev->stop = MainVirtualIF_close; //rt28xx_close;
 	dev->priv_flags = INT_MAIN;
-	dev->do_ioctl = rt28xx_ioctl;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
-    dev->validate_addr = NULL;
-#endif
+	dev->netdev_ops = &rt2860_netdev_ops;
 	// find available device name
 	for (i = 0; i < 8; i++)
 	{
-#ifdef MULTIPLE_CARD_SUPPORT
-		if (pAd->MC_RowID >= 0)
-			sprintf(slot_name, "ra%02d_%d", pAd->MC_RowID, i);
-		else
-#endif // MULTIPLE_CARD_SUPPORT //
 		sprintf(slot_name, "ra%d", i);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,0)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
-        device = dev_get_by_name(dev_net(dev), slot_name);
-#else
-        device = dev_get_by_name(dev->nd_net, slot_name);
-#endif
-#else
-		device = dev_get_by_name(slot_name);
-#endif
-		if (device != NULL) dev_put(device);
-#else
-		for (device = dev_base; device != NULL; device = device->next)
-		{
-			if (strncmp(device->name, slot_name, 4) == 0)
-				break;
-		}
-#endif
-		if(device == NULL)
+		device = dev_get_by_name(dev_net(dev), slot_name);
+		if (device != NULL)
+			dev_put(device);
+
+		if (device == NULL)
 			break;
 	}
 
@@ -850,11 +727,6 @@ static NDIS_STATUS rt_ieee80211_if_setup(struct net_device *dev, PRTMP_ADAPTER p
 	}
 	else
 	{
-#ifdef MULTIPLE_CARD_SUPPORT
-		if (pAd->MC_RowID >= 0)
-	        sprintf(dev->name, "ra%02d_%d", pAd->MC_RowID, i);
-		else
-#endif // MULTIPLE_CARD_SUPPORT //
 		sprintf(dev->name, "ra%d", i);
 		Status = NDIS_STATUS_SUCCESS;
 	}
@@ -862,369 +734,6 @@ static NDIS_STATUS rt_ieee80211_if_setup(struct net_device *dev, PRTMP_ADAPTER p
 	return Status;
 
 }
-
-
-#ifdef MULTIPLE_CARD_SUPPORT
-/*
-========================================================================
-Routine Description:
-    Get card profile path.
-
-Arguments:
-    pAd
-
-Return Value:
-    TRUE		- Find a card profile
-	FALSE		- use default profile
-
-Note:
-========================================================================
-*/
-extern INT RTMPGetKeyParameter(
-    IN  PCHAR   key,
-    OUT PCHAR   dest,
-    IN  INT     destsize,
-    IN  PCHAR   buffer);
-
-BOOLEAN RTMP_CardInfoRead(
-	IN	PRTMP_ADAPTER pAd)
-{
-#define MC_SELECT_CARDID		0	/* use CARD ID (0 ~ 31) to identify different cards */
-#define MC_SELECT_MAC			1	/* use CARD MAC to identify different cards */
-#define MC_SELECT_CARDTYPE		2	/* use CARD type (abgn or bgn) to identify different cards */
-
-#define LETTER_CASE_TRANSLATE(txt_p, card_id)			\
-	{	UINT32 _len; char _char;						\
-		for(_len=0; _len<strlen(card_id); _len++) {		\
-			_char = *(txt_p + _len);					\
-			if (('A' <= _char) && (_char <= 'Z'))		\
-				*(txt_p+_len) = 'a'+(_char-'A');		\
-		} }
-
-	struct file *srcf;
-	INT retval, orgfsuid, orgfsgid;
-   	mm_segment_t orgfs;
-	CHAR *buffer, *tmpbuf, card_id_buf[30], RFIC_word[30];
-	BOOLEAN flg_match_ok = FALSE;
-	INT32 card_select_method;
-	INT32 card_free_id, card_nouse_id, card_same_mac_id, card_match_id;
-	EEPROM_ANTENNA_STRUC antenna;
-	USHORT addr01, addr23, addr45;
-	UINT8 mac[6];
-	UINT32 data, card_index;
-	UCHAR *start_ptr;
-
-
-	// init
-	buffer = kmalloc(MAX_INI_BUFFER_SIZE, MEM_ALLOC_FLAG);
-	if (buffer == NULL)
-        return FALSE;
-
-	tmpbuf = kmalloc(MAX_PARAM_BUFFER_SIZE, MEM_ALLOC_FLAG);
-	if(tmpbuf == NULL)
-	{
-		kfree(buffer);
-        return NDIS_STATUS_FAILURE;
-	}
-
-	orgfsuid = current->fsuid;
-	orgfsgid = current->fsgid;
-	current->fsuid = current->fsgid = 0;
-    orgfs = get_fs();
-    set_fs(KERNEL_DS);
-
-	// get RF IC type
-	RTMP_IO_READ32(pAd, E2PROM_CSR, &data);
-
-	if ((data & 0x30) == 0)
-		pAd->EEPROMAddressNum = 6;	// 93C46
-	else if ((data & 0x30) == 0x10)
-		pAd->EEPROMAddressNum = 8;	// 93C66
-	else
-		pAd->EEPROMAddressNum = 8;	// 93C86
-
-	RT28xx_EEPROM_READ16(pAd, EEPROM_NIC1_OFFSET, antenna.word);
-
-	if ((antenna.field.RfIcType == RFIC_2850) ||
-		(antenna.field.RfIcType == RFIC_2750))
-	{
-		/* ABGN card */
-		strcpy(RFIC_word, "abgn");
-	}
-	else
-	{
-		/* BGN card */
-		strcpy(RFIC_word, "bgn");
-	}
-
-	// get MAC address
-	RT28xx_EEPROM_READ16(pAd, 0x04, addr01);
-	RT28xx_EEPROM_READ16(pAd, 0x06, addr23);
-	RT28xx_EEPROM_READ16(pAd, 0x08, addr45);
-
-	mac[0] = (UCHAR)(addr01 & 0xff);
-	mac[1] = (UCHAR)(addr01 >> 8);
-	mac[2] = (UCHAR)(addr23 & 0xff);
-	mac[3] = (UCHAR)(addr23 >> 8);
-	mac[4] = (UCHAR)(addr45 & 0xff);
-	mac[5] = (UCHAR)(addr45 >> 8);
-
-	// open card information file
-	srcf = filp_open(CARD_INFO_PATH, O_RDONLY, 0);
-	if (IS_ERR(srcf))
-	{
-		/* card information file does not exist */
-			DBGPRINT(RT_DEBUG_TRACE,
-				("--> Error %ld opening %s\n", -PTR_ERR(srcf), CARD_INFO_PATH));
-		return FALSE;
-	}
-
-	if (srcf->f_op && srcf->f_op->read)
-	{
-		/* card information file exists so reading the card information */
-		memset(buffer, 0x00, MAX_INI_BUFFER_SIZE);
-		retval = srcf->f_op->read(srcf, buffer, MAX_INI_BUFFER_SIZE, &srcf->f_pos);
-		if (retval < 0)
-		{
-			/* read fail */
-				DBGPRINT(RT_DEBUG_TRACE,
-					("--> Read %s error %d\n", CARD_INFO_PATH, -retval));
-		}
-		else
-		{
-			/* get card selection method */
-			memset(tmpbuf, 0x00, MAX_PARAM_BUFFER_SIZE);
-			card_select_method = MC_SELECT_CARDTYPE; // default
-
-			if (RTMPGetKeyParameter("SELECT", tmpbuf, 256, buffer))
-			{
-				if (strcmp(tmpbuf, "CARDID") == 0)
-					card_select_method = MC_SELECT_CARDID;
-				else if (strcmp(tmpbuf, "MAC") == 0)
-					card_select_method = MC_SELECT_MAC;
-				else if (strcmp(tmpbuf, "CARDTYPE") == 0)
-					card_select_method = MC_SELECT_CARDTYPE;
-			}
-
-			DBGPRINT(RT_DEBUG_TRACE,
-					("MC> Card Selection = %d\n", card_select_method));
-
-			// init
-			card_free_id = -1;
-			card_nouse_id = -1;
-			card_same_mac_id = -1;
-			card_match_id = -1;
-
-			// search current card information records
-			for(card_index=0;
-				card_index<MAX_NUM_OF_MULTIPLE_CARD;
-				card_index++)
-			{
-				if ((*(UINT32 *)&MC_CardMac[card_index][0] == 0) &&
-					(*(UINT16 *)&MC_CardMac[card_index][4] == 0))
-				{
-					// MAC is all-0 so the entry is available
-					MC_CardUsed[card_index] = 0;
-
-					if (card_free_id < 0)
-						card_free_id = card_index; // 1st free entry
-				}
-				else
-				{
-					if (memcmp(MC_CardMac[card_index], mac, 6) == 0)
-					{
-						// we find the entry with same MAC
-						if (card_same_mac_id < 0)
-							card_same_mac_id = card_index; // 1st same entry
-					}
-					else
-					{
-						// MAC is not all-0 but used flag == 0
-						if ((MC_CardUsed[card_index] == 0) &&
-							(card_nouse_id < 0))
-						{
-							card_nouse_id = card_index; // 1st available entry
-						}
-					}
-				}
-			}
-
-			DBGPRINT(RT_DEBUG_TRACE,
-					("MC> Free = %d, Same = %d, NOUSE = %d\n",
-					card_free_id, card_same_mac_id, card_nouse_id));
-
-			if ((card_same_mac_id >= 0) &&
-				((card_select_method == MC_SELECT_CARDID) ||
-				(card_select_method == MC_SELECT_CARDTYPE)))
-			{
-				// same MAC entry is found
-				card_match_id = card_same_mac_id;
-
-				if (card_select_method == MC_SELECT_CARDTYPE)
-				{
-					// for CARDTYPE
-					sprintf(card_id_buf, "%02dCARDTYPE%s",
-							card_match_id, RFIC_word);
-
-					if ((start_ptr=rtstrstruncasecmp(buffer, card_id_buf)) != NULL)
-					{
-						// we found the card ID
-						LETTER_CASE_TRANSLATE(start_ptr, card_id_buf);
-					}
-				}
-			}
-			else
-			{
-				// the card is 1st plug-in, try to find the match card profile
-				switch(card_select_method)
-				{
-					case MC_SELECT_CARDID: // CARDID
-					default:
-						if (card_free_id >= 0)
-							card_match_id = card_free_id;
-						else
-							card_match_id = card_nouse_id;
-						break;
-
-					case MC_SELECT_MAC: // MAC
-						sprintf(card_id_buf, "MAC%02x:%02x:%02x:%02x:%02x:%02x",
-								mac[0], mac[1], mac[2],
-								mac[3], mac[4], mac[5]);
-
-						/* try to find the key word in the card file */
-						if ((start_ptr=rtstrstruncasecmp(buffer, card_id_buf)) != NULL)
-						{
-							LETTER_CASE_TRANSLATE(start_ptr, card_id_buf);
-
-							/* get the row ID (2 ASCII characters) */
-							start_ptr -= 2;
-							card_id_buf[0] = *(start_ptr);
-							card_id_buf[1] = *(start_ptr+1);
-							card_id_buf[2] = 0x00;
-
-							card_match_id = simple_strtol(card_id_buf, 0, 10);
-						}
-						break;
-
-					case MC_SELECT_CARDTYPE: // CARDTYPE
-						card_nouse_id = -1;
-
-						for(card_index=0;
-							card_index<MAX_NUM_OF_MULTIPLE_CARD;
-							card_index++)
-						{
-							sprintf(card_id_buf, "%02dCARDTYPE%s",
-									card_index, RFIC_word);
-
-							if ((start_ptr=rtstrstruncasecmp(buffer,
-														card_id_buf)) != NULL)
-							{
-								LETTER_CASE_TRANSLATE(start_ptr, card_id_buf);
-
-								if (MC_CardUsed[card_index] == 0)
-								{
-									/* current the card profile is not used */
-									if ((*(UINT32 *)&MC_CardMac[card_index][0] == 0) &&
-										(*(UINT16 *)&MC_CardMac[card_index][4] == 0))
-									{
-										// find it and no previous card use it
-										card_match_id = card_index;
-										break;
-									}
-									else
-									{
-										// ever a card use it
-										if (card_nouse_id < 0)
-											card_nouse_id = card_index;
-									}
-								}
-							}
-						}
-
-						// if not find a free one, use the available one
-						if (card_match_id < 0)
-							card_match_id = card_nouse_id;
-						break;
-				}
-			}
-
-			if (card_match_id >= 0)
-			{
-				// make up search keyword
-				switch(card_select_method)
-				{
-					case MC_SELECT_CARDID: // CARDID
-						sprintf(card_id_buf, "%02dCARDID", card_match_id);
-						break;
-
-					case MC_SELECT_MAC: // MAC
-						sprintf(card_id_buf,
-								"%02dmac%02x:%02x:%02x:%02x:%02x:%02x",
-								card_match_id,
-								mac[0], mac[1], mac[2],
-								mac[3], mac[4], mac[5]);
-						break;
-
-					case MC_SELECT_CARDTYPE: // CARDTYPE
-					default:
-						sprintf(card_id_buf, "%02dcardtype%s",
-								card_match_id, RFIC_word);
-						break;
-				}
-
-				DBGPRINT(RT_DEBUG_TRACE, ("Search Keyword = %s\n", card_id_buf));
-
-				// read card file path
-				if (RTMPGetKeyParameter(card_id_buf, tmpbuf, 256, buffer))
-				{
-					if (strlen(tmpbuf) < sizeof(pAd->MC_FileName))
-					{
-						// backup card information
-						pAd->MC_RowID = card_match_id; /* base 0 */
-						MC_CardUsed[card_match_id] = 1;
-						memcpy(MC_CardMac[card_match_id], mac, sizeof(mac));
-
-						// backup card file path
-						NdisMoveMemory(pAd->MC_FileName, tmpbuf , strlen(tmpbuf));
-						pAd->MC_FileName[strlen(tmpbuf)] = '\0';
-						flg_match_ok = TRUE;
-
-						DBGPRINT(RT_DEBUG_TRACE,
-								("Card Profile Name = %s\n", pAd->MC_FileName));
-					}
-					else
-					{
-						DBGPRINT(RT_DEBUG_ERROR,
-								("Card Profile Name length too large!\n"));
-					}
-				}
-				else
-				{
-					DBGPRINT(RT_DEBUG_ERROR,
-							("Can not find search key word in card.dat!\n"));
-				}
-
-				if ((flg_match_ok != TRUE) &&
-					(card_match_id < MAX_NUM_OF_MULTIPLE_CARD))
-				{
-					MC_CardUsed[card_match_id] = 0;
-					memset(MC_CardMac[card_match_id], 0, sizeof(mac));
-				}
-			} // if (card_match_id >= 0)
-		}
-	}
-
-	// close file
-	retval = filp_close(srcf, NULL);
-	set_fs(orgfs);
-	current->fsuid = orgfsuid;
-	current->fsgid = orgfsgid;
-	kfree(buffer);
-	kfree(tmpbuf);
-	return flg_match_ok;
-}
-#endif // MULTIPLE_CARD_SUPPORT //
-
 
 /*
 ========================================================================
@@ -1254,46 +763,31 @@ INT __devinit   rt28xx_probe(
 	PVOID				handle;
 #ifdef RT2860
 	struct pci_dev *dev_p = (struct pci_dev *)_dev_p;
-#endif // RT2860 //
-
-
-#ifdef CONFIG_STA_SUPPORT
-    DBGPRINT(RT_DEBUG_TRACE, ("STA Driver version-%s\n", STA_DRIVER_VERSION));
-#endif // CONFIG_STA_SUPPORT //
-
-#if LINUX_VERSION_CODE <= 0x20402       // Red Hat 7.1
-    net_dev = alloc_netdev(sizeof(PRTMP_ADAPTER), "eth%d", ether_setup);
-#else
-    net_dev = alloc_etherdev(sizeof(PRTMP_ADAPTER));
 #endif
+#ifdef RT2870
+	struct usb_interface *intf = (struct usb_interface *)_dev_p;
+	struct usb_device *dev_p = interface_to_usbdev(intf);
+
+	dev_p = usb_get_dev(dev_p);
+#endif // RT2870 //
+
+    DBGPRINT(RT_DEBUG_TRACE, ("STA Driver version-%s\n", STA_DRIVER_VERSION));
+
+    net_dev = alloc_etherdev(sizeof(PRTMP_ADAPTER));
     if (net_dev == NULL)
     {
         printk("alloc_netdev failed\n");
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,0)
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,15)
-		module_put(THIS_MODULE);
-#endif //LINUX_VERSION_CODE < KERNEL_VERSION(2,6,15)
-#else
-		MOD_DEC_USE_COUNT;
-#endif
         goto err_out;
     }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
-    SET_MODULE_OWNER(net_dev);
-#endif
-
 	netif_stop_queue(net_dev);
-#ifdef NATIVE_WPA_SUPPLICANT_SUPPORT
+
 /* for supporting Network Manager */
 /* Set the sysfs physical device reference for the network logical device
  * if set prior to registration will cause a symlink during initialization.
  */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,0))
     SET_NETDEV_DEV(net_dev, &(dev_p->dev));
-#endif
-#endif // NATIVE_WPA_SUPPLICANT_SUPPORT //
 
 	// Allocate RTMP_ADAPTER miniport adapter structure
 	handle = kmalloc(sizeof(struct os_cookie), GFP_KERNEL);
@@ -1308,37 +802,13 @@ INT __devinit   rt28xx_probe(
 
 	RT28XXNetDevInit(_dev_p, net_dev, pAd);
 
-#ifdef CONFIG_STA_SUPPORT
     pAd->StaCfg.OriDevType = net_dev->type;
-#endif // CONFIG_STA_SUPPORT //
 
 	// Post config
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0)
-	if (RT28XXProbePostConfig(_dev_p, pAd, argc) == FALSE)
-		goto err_out_unmap;
-#else
 	if (RT28XXProbePostConfig(_dev_p, pAd, 0) == FALSE)
 		goto err_out_unmap;
-#endif // LINUX_VERSION_CODE //
 
-#ifdef CONFIG_STA_SUPPORT
 	pAd->OpMode = OPMODE_STA;
-#endif // CONFIG_STA_SUPPORT //
-
-
-#ifdef MULTIPLE_CARD_SUPPORT
-	// find its profile path
-	pAd->MC_RowID = -1; // use default profile path
-	RTMP_CardInfoRead(pAd);
-
-	if (pAd->MC_RowID == -1)
-#ifdef CONFIG_STA_SUPPORT
-		strcpy(pAd->MC_FileName, STA_PROFILE_PATH);
-#endif // CONFIG_STA_SUPPORT //
-
-	DBGPRINT(RT_DEBUG_TRACE,
-			("MC> ROW = %d, PATH = %s\n", pAd->MC_RowID, pAd->MC_FileName));
-#endif // MULTIPLE_CARD_SUPPORT //
 
 	// sample move
 	if (rt_ieee80211_if_setup(net_dev, pAd) != NDIS_STATUS_SUCCESS)
@@ -1362,20 +832,12 @@ err_out_unmap:
 	RT28XX_UNMAP();
 
 err_out_free_netdev:
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,0)
-    free_netdev(net_dev);
-#else
-	kfree(net_dev);
-#endif
+	free_netdev(net_dev);
 
 err_out:
 	RT28XX_PUT_DEVICE(dev_p);
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0)
-	return (LONG)NULL;
-#else
-    return -ENODEV; /* probe fail */
-#endif // LINUX_VERSION_CODE //
+	return -ENODEV; /* probe fail */
 } /* End of rt28xx_probe */
 
 
@@ -1403,17 +865,6 @@ int rt28xx_packet_xmit(struct sk_buff *skb)
 	int status = 0;
 	PNDIS_PACKET pPacket = (PNDIS_PACKET) skb;
 
-	/* RT2870STA does this in RTMPSendPackets() */
-#ifdef RALINK_ATE
-	if (ATE_ON(pAd))
-	{
-		RELEASE_NDIS_PACKET(pAd, pPacket, NDIS_STATUS_RESOURCES);
-		return 0;
-	}
-#endif // RALINK_ATE //
-
-#ifdef CONFIG_STA_SUPPORT
-	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
 	{
 		// Drop send request since we are in monitor mode
 		if (MONITOR_ON(pAd))
@@ -1422,7 +873,6 @@ int rt28xx_packet_xmit(struct sk_buff *skb)
 			goto done;
 		}
 	}
-#endif // CONFIG_STA_SUPPORT //
 
         // EapolStart size is 18
 	if (skb->len < 14)
@@ -1440,16 +890,7 @@ int rt28xx_packet_xmit(struct sk_buff *skb)
     }
 #endif
 
-
-
-#ifdef CONFIG_STA_SUPPORT
-	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
-	{
-
-		STASendPackets((NDIS_HANDLE)pAd, (PPNDIS_PACKET) &pPacket, 1);
-	}
-
-#endif // CONFIG_STA_SUPPORT //
+	STASendPackets((NDIS_HANDLE)pAd, (PPNDIS_PACKET) &pPacket, 1);
 
 	status = 0;
 done:
@@ -1495,40 +936,6 @@ INT rt28xx_send_packets(
 
 
 
-#if LINUX_VERSION_CODE <= 0x20402	// Red Hat 7.1
-struct net_device *alloc_netdev(
-	int sizeof_priv,
-	const char *mask,
-	void (*setup)(struct net_device *))
-{
-    struct net_device	*dev;
-    INT					alloc_size;
-
-
-    /* ensure 32-byte alignment of the private area */
-    alloc_size = sizeof (*dev) + sizeof_priv + 31;
-
-    dev = (struct net_device *) kmalloc(alloc_size, GFP_KERNEL);
-    if (dev == NULL)
-    {
-        DBGPRINT(RT_DEBUG_ERROR,
-				("alloc_netdev: Unable to allocate device memory.\n"));
-        return NULL;
-    }
-
-    memset(dev, 0, alloc_size);
-
-    if (sizeof_priv)
-        dev->priv = (void *) (((long)(dev + 1) + 31) & ~31);
-
-    setup(dev);
-    strcpy(dev->name, mask);
-
-    return dev;
-}
-#endif // LINUX_VERSION_CODE //
-
-
 void CfgInitHook(PRTMP_ADAPTER pAd)
 {
 	pAd->bBroadComHT = TRUE;
@@ -1552,10 +959,8 @@ struct iw_statistics *rt28xx_get_wireless_stats(
 	if(pAd->iw_stats.qual.qual > 100)
 		pAd->iw_stats.qual.qual = 100;
 
-#ifdef CONFIG_STA_SUPPORT
 	if (pAd->OpMode == OPMODE_STA)
 		pAd->iw_stats.qual.level = RTMPMaxRssi(pAd, pAd->StaCfg.RssiSample.LastRssi0, pAd->StaCfg.RssiSample.LastRssi1, pAd->StaCfg.RssiSample.LastRssi2);
-#endif // CONFIG_STA_SUPPORT //
 
 	pAd->iw_stats.qual.noise = pAd->BbpWriteLatch[66]; // noise level (dBm)
 
@@ -1607,13 +1012,7 @@ INT rt28xx_ioctl(
 		return -ENETDOWN;
 	}
 
-
-#ifdef CONFIG_STA_SUPPORT
-	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
-	{
-		ret = rt28xx_sta_ioctl(net_dev, rq, cmd);
-	}
-#endif // CONFIG_STA_SUPPORT //
+	ret = rt28xx_sta_ioctl(net_dev, rq, cmd);
 
 	return ret;
 }

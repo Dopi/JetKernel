@@ -48,6 +48,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>	/* support for loadable modules */
 #include <linux/slab.h>		/* kmalloc(), kfree() */
+#include <linux/smp_lock.h>
 #include <linux/mm.h>
 #include <linux/string.h>	/* inline mem*, str* functions */
 
@@ -86,8 +87,10 @@ static int wanrouter_device_del_if(struct wan_device *wandev,
 
 static struct wan_device *wanrouter_find_device(char *name);
 static int wanrouter_delete_interface(struct wan_device *wandev, char *name);
-static void lock_adapter_irq(spinlock_t *lock, unsigned long *smp_flags);
-static void unlock_adapter_irq(spinlock_t *lock, unsigned long *smp_flags);
+static void lock_adapter_irq(spinlock_t *lock, unsigned long *smp_flags)
+	__acquires(lock);
+static void unlock_adapter_irq(spinlock_t *lock, unsigned long *smp_flags)
+	__releases(lock);
 
 
 
@@ -763,12 +766,14 @@ static int wanrouter_delete_interface(struct wan_device *wandev, char *name)
 }
 
 static void lock_adapter_irq(spinlock_t *lock, unsigned long *smp_flags)
+	__acquires(lock)
 {
 	spin_lock_irqsave(lock, *smp_flags);
 }
 
 
 static void unlock_adapter_irq(spinlock_t *lock, unsigned long *smp_flags)
+	__releases(lock)
 {
 	spin_unlock_irqrestore(lock, *smp_flags);
 }

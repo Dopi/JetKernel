@@ -19,7 +19,6 @@
 #include <linux/clocksource.h>
 #include <linux/kvm_para.h>
 #include <asm/pvclock.h>
-#include <asm/arch_hooks.h>
 #include <asm/msr.h>
 #include <asm/apic.h>
 #include <linux/percpu.h>
@@ -51,8 +50,8 @@ static unsigned long kvm_get_wallclock(void)
 	struct timespec ts;
 	int low, high;
 
-	low = (int)__pa(&wall_clock);
-	high = ((u64)__pa(&wall_clock) >> 32);
+	low = (int)__pa_symbol(&wall_clock);
+	high = ((u64)__pa_symbol(&wall_clock) >> 32);
 	native_write_msr(MSR_KVM_WALL_CLOCK, low, high);
 
 	vcpu_time = &get_cpu_var(hv_clock);
@@ -76,6 +75,11 @@ static cycle_t kvm_clock_read(void)
 	ret = pvclock_clocksource_read(src);
 	put_cpu_var(hv_clock);
 	return ret;
+}
+
+static cycle_t kvm_clock_get_cycles(struct clocksource *cs)
+{
+	return kvm_clock_read();
 }
 
 /*
@@ -108,7 +112,7 @@ static void kvm_get_preset_lpj(void)
 
 static struct clocksource kvm_clock = {
 	.name = "kvm-clock",
-	.read = kvm_clock_read,
+	.read = kvm_clock_get_cycles,
 	.rating = 400,
 	.mask = CLOCKSOURCE_MASK(64),
 	.mult = 1 << KVM_SCALE,

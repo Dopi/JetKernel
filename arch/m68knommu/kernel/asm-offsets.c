@@ -30,9 +30,6 @@ int main(void)
 	DEFINE(TASK_MM, offsetof(struct task_struct, mm));
 	DEFINE(TASK_ACTIVE_MM, offsetof(struct task_struct, active_mm));
 
-	/* offsets into the kernel_stat struct */
-	DEFINE(STAT_IRQ, offsetof(struct kernel_stat, irqs));
-
 	/* offsets into the irq_cpustat_t struct */
 	DEFINE(CPUSTAT_SOFTIRQ_PENDING, offsetof(irq_cpustat_t, __softirq_pending));
 
@@ -69,9 +66,6 @@ int main(void)
 	DEFINE(PT_VECTOR, offsetof(struct pt_regs, pc) + 4);
 #endif
 
-	/* offsets into the kernel_stat struct */
-	DEFINE(STAT_IRQ, offsetof(struct kernel_stat, irqs));
-
 	/* signal defines */
 	DEFINE(SIGSEGV, SIGSEGV);
 	DEFINE(SEGV_MAPERR, SEGV_MAPERR);
@@ -79,7 +73,6 @@ int main(void)
 	DEFINE(TRAP_TRACE, TRAP_TRACE);
 
 	DEFINE(PT_PTRACED, PT_PTRACED);
-	DEFINE(PT_DTRACE, PT_DTRACE);
 
 	DEFINE(THREAD_SIZE, THREAD_SIZE);
 

@@ -39,34 +39,36 @@ static inline void agnx_interrupt_ack(struct agnx_priv *priv, u32 *reason)
 	void __iomem *ctl = priv->ctl;
 	u32 reg;
 
-	if ( *reason & AGNX_STAT_RX ) {
+	if (*reason & AGNX_STAT_RX) {
 		/* Mark complete RX */
 		reg = ioread32(ctl + AGNX_CIR_RXCTL);
 		reg |= 0x4;
 		iowrite32(reg, ctl + AGNX_CIR_RXCTL);
 		/* disable Rx interrupt */
 	}
-	if ( *reason & AGNX_STAT_TX ) {
+	if (*reason & AGNX_STAT_TX) {
 		reg = ioread32(ctl + AGNX_CIR_TXDCTL);
 		if (reg & 0x4) {
 			iowrite32(reg, ctl + AGNX_CIR_TXDCTL);
 			*reason |= AGNX_STAT_TXD;
 		}
- 		reg = ioread32(ctl + AGNX_CIR_TXMCTL);
+		reg = ioread32(ctl + AGNX_CIR_TXMCTL);
 		if (reg & 0x4) {
 			iowrite32(reg, ctl + AGNX_CIR_TXMCTL);
 			*reason |= AGNX_STAT_TXM;
 		}
 	}
-	if ( *reason & AGNX_STAT_X ) {
-/* 		reg = ioread32(ctl + AGNX_INT_STAT); */
-/* 		iowrite32(reg, ctl + AGNX_INT_STAT); */
-/* 		/\* FIXME reinit interrupt mask *\/ */
-/* 		reg = 0xc390bf9 & ~IRQ_TX_BEACON; */
-/* 		reg &= ~IRQ_TX_DISABLE; */
-/* 		iowrite32(reg, ctl + AGNX_INT_MASK); */
-/* 		iowrite32(0x800, ctl + AGNX_CIR_BLKCTL); */
+#if 0
+	if (*reason & AGNX_STAT_X) {
+		reg = ioread32(ctl + AGNX_INT_STAT);
+		iowrite32(reg, ctl + AGNX_INT_STAT);
+		/* FIXME reinit interrupt mask */
+		reg = 0xc390bf9 & ~IRQ_TX_BEACON;
+		reg &= ~IRQ_TX_DISABLE;
+		iowrite32(reg, ctl + AGNX_INT_MASK);
+		iowrite32(0x800, ctl + AGNX_CIR_BLKCTL);
 	}
+#endif
 } /* agnx_interrupt_ack */
 
 static irqreturn_t agnx_interrupt_handler(int irq, void *dev_id)
@@ -79,7 +81,7 @@ static irqreturn_t agnx_interrupt_handler(int irq, void *dev_id)
 
 	spin_lock(&priv->lock);
 
-//	printk(KERN_ERR PFX "Get a interrupt %s\n", __func__);
+/*	printk(KERN_ERR PFX "Get a interrupt %s\n", __func__); */
 
 	if (priv->init_status != AGNX_START)
 		goto out;
@@ -92,7 +94,7 @@ static irqreturn_t agnx_interrupt_handler(int irq, void *dev_id)
 	ret = IRQ_HANDLED;
 	priv->irq_status = ioread32(ctl + AGNX_INT_STAT);
 
-//	printk(PFX "Interrupt reason is 0x%x\n", irq_reason);
+/*	printk(PFX "Interrupt reason is 0x%x\n", irq_reason); */
 	/* Make sure the txm and txd flags don't conflict with other unknown
 	   interrupt flag, maybe is not necessary */
 	irq_reason &= 0xF;
@@ -101,13 +103,13 @@ static irqreturn_t agnx_interrupt_handler(int irq, void *dev_id)
 	/* TODO Make sure the card finished initialized */
 	agnx_interrupt_ack(priv, &irq_reason);
 
-	if ( irq_reason & AGNX_STAT_RX )
+	if (irq_reason & AGNX_STAT_RX)
 		handle_rx_irq(priv);
-	if ( irq_reason & AGNX_STAT_TXD )
+	if (irq_reason & AGNX_STAT_TXD)
 		handle_txd_irq(priv);
-	if ( irq_reason & AGNX_STAT_TXM )
+	if (irq_reason & AGNX_STAT_TXM)
 		handle_txm_irq(priv);
-	if ( irq_reason & AGNX_STAT_X )
+	if (irq_reason & AGNX_STAT_X)
 		handle_other_irq(priv);
 
 	enable_rx_interrupt(priv);
@@ -150,8 +152,7 @@ static int agnx_get_mac_address(struct agnx_priv *priv)
 	*((u32 *)(priv->mac_addr + 2)) = cpu_to_le32(reg);
 
 	if (!is_valid_ether_addr(priv->mac_addr)) {
-		DECLARE_MAC_BUF(mbuf);
-		printk(KERN_WARNING PFX "read mac %s\n", print_mac(mbuf, priv->mac_addr));
+		printk(KERN_WARNING PFX "read mac %pM\n", priv->mac_addr);
 		printk(KERN_WARNING PFX "Invalid hwaddr! Using random hwaddr\n");
 		random_ether_addr(priv->mac_addr);
 	}
@@ -171,7 +172,7 @@ static int agnx_alloc_rings(struct agnx_priv *priv)
 
 	len = priv->rx.size + priv->txm.size + priv->txd.size;
 
-//	priv->rx.info = kzalloc(sizeof(struct agnx_info) * len, GFP_KERNEL);
+/*	priv->rx.info = kzalloc(sizeof(struct agnx_info) * len, GFP_KERNEL); */
 	priv->rx.info = kzalloc(sizeof(struct agnx_info) * len, GFP_ATOMIC);
 	if (!priv->rx.info)
 		return -ENOMEM;
@@ -210,28 +211,27 @@ static void rings_free(struct agnx_priv *priv)
 #if 0
 static void agnx_periodic_work_handler(struct work_struct *work)
 {
-	struct agnx_priv *priv = container_of(work, struct agnx_priv,
-                                             periodic_work.work);
-//	unsigned long flags;
+	struct agnx_priv *priv = container_of(work, struct agnx_priv, periodic_work.work);
+/*	unsigned long flags; */
 	unsigned long delay;
 
 	/* fixme: using mutex?? */
-//	spin_lock_irqsave(&priv->lock, flags);
+/*	spin_lock_irqsave(&priv->lock, flags); */
 
 	/* TODO Recalibrate*/
-//	calibrate_oscillator(priv);
-//	antenna_calibrate(priv);
-//	agnx_send_packet(priv, 997);
+/*	calibrate_oscillator(priv); */
+/*	antenna_calibrate(priv); */
+/*	agnx_send_packet(priv, 997); */
 	/* FIXME */
 /* 	if (debug == 3) */
 /*                 delay = msecs_to_jiffies(AGNX_PERIODIC_DELAY); */
 /* 	else */
 	delay = msecs_to_jiffies(AGNX_PERIODIC_DELAY);
-//		delay = round_jiffies(HZ * 15);
+/*	delay = round_jiffies(HZ * 15); */
 
 	queue_delayed_work(priv->hw->workqueue, &priv->periodic_work, delay);
 
-//	spin_unlock_irqrestore(&priv->lock, flags);
+/*	spin_unlock_irqrestore(&priv->lock, flags); */
 }
 #endif
 
@@ -255,12 +255,12 @@ static int agnx_start(struct ieee80211_hw *dev)
 		goto out;
 	}
 
-//	mdelay(500);
+/*	mdelay(500); */
 
 	might_sleep();
 	agnx_hw_init(priv);
 
-//	mdelay(500);
+/*	mdelay(500); */
 	might_sleep();
 
 	priv->init_status = AGNX_START;
@@ -280,16 +280,16 @@ static void agnx_stop(struct ieee80211_hw *dev)
 	/* make sure hardware will not generate irq */
 	agnx_hw_reset(priv);
 	free_irq(priv->pdev->irq, dev);
-        flush_workqueue(priv->hw->workqueue);
-//	cancel_delayed_work_sync(&priv->periodic_work);
+	flush_workqueue(priv->hw->workqueue);
+/*	cancel_delayed_work_sync(&priv->periodic_work); */
 	unfill_rings(priv);
 	rings_free(priv);
 }
 
-static int agnx_config(struct ieee80211_hw *dev,
-		       struct ieee80211_conf *conf)
+static int agnx_config(struct ieee80211_hw *dev, u32 changed)
 {
 	struct agnx_priv *priv = dev->priv;
+	struct ieee80211_conf *conf = &dev->conf;
 	int channel = ieee80211_frequency_to_channel(conf->channel->center_freq);
 	AGNX_TRACE;
 
@@ -304,18 +304,21 @@ static int agnx_config(struct ieee80211_hw *dev,
 	return 0;
 }
 
-static int agnx_config_interface(struct ieee80211_hw *dev,
-				 struct ieee80211_vif *vif,
-				 struct ieee80211_if_conf *conf)
+static void agnx_bss_info_changed(struct ieee80211_hw *dev,
+				  struct ieee80211_vif *vif,
+				  struct ieee80211_bss_conf *conf,
+				  u32 changed)
 {
 	struct agnx_priv *priv = dev->priv;
 	void __iomem *ctl = priv->ctl;
 	AGNX_TRACE;
 
+	if (!(changed & BSS_CHANGED_BSSID))
+		return;
+
 	spin_lock(&priv->lock);
 
 	if (memcmp(conf->bssid, priv->bssid, ETH_ALEN)) {
-//		u32 reghi, reglo;
 		agnx_set_bssid(priv, conf->bssid);
 		memcpy(priv->bssid, conf->bssid, ETH_ALEN);
 		hash_write(priv, conf->bssid, BSSID_STAID);
@@ -325,8 +328,7 @@ static int agnx_config_interface(struct ieee80211_hw *dev,
 		agnx_write32(ctl, AGNX_BM_MTSM, 0xff & ~0x1);
 	}
 	spin_unlock(&priv->lock);
-	return 0;
-} /* agnx_config_interface */
+} /* agnx_bss_info_changed */
 
 
 static void agnx_configure_filter(struct ieee80211_hw *dev,
@@ -424,8 +426,8 @@ static struct ieee80211_ops agnx_ops = {
 	.add_interface		= agnx_add_interface,
 	.remove_interface	= agnx_remove_interface,
 	.config			= agnx_config,
-	.config_interface	= agnx_config_interface,
- 	.configure_filter	= agnx_configure_filter,
+	.bss_info_changed	= agnx_bss_info_changed,
+	.configure_filter	= agnx_configure_filter,
 	.get_stats		= agnx_get_stats,
 	.get_tx_stats		= agnx_get_tx_stats,
 	.get_tsf		= agnx_get_tsft
@@ -434,11 +436,12 @@ static struct ieee80211_ops agnx_ops = {
 static void __devexit agnx_pci_remove(struct pci_dev *pdev)
 {
 	struct ieee80211_hw *dev = pci_get_drvdata(pdev);
-	struct agnx_priv *priv = dev->priv;
+	struct agnx_priv *priv;
 	AGNX_TRACE;
 
 	if (!dev)
 		return;
+	priv = dev->priv;
 	ieee80211_unregister_hw(dev);
 	pci_iounmap(pdev, priv->ctl);
 	pci_iounmap(pdev, priv->data);
@@ -453,47 +456,35 @@ static int __devinit agnx_pci_probe(struct pci_dev *pdev,
 {
 	struct ieee80211_hw *dev;
 	struct agnx_priv *priv;
-	u32 mem_addr0, mem_len0;
-	u32 mem_addr1, mem_len1;
 	int err;
-	DECLARE_MAC_BUF(mac);
 
 	err = pci_enable_device(pdev);
 	if (err) {
-		printk(KERN_ERR PFX "Can't enable new PCI device\n");
+		dev_err(&pdev->dev, "can't enable pci device\n");
 		return err;
 	}
-
-	/* get pci resource */
-	mem_addr0 = pci_resource_start(pdev, 0);
-	mem_len0 = pci_resource_len(pdev, 0);
-	mem_addr1 = pci_resource_start(pdev, 1);
-	mem_len1 = pci_resource_len(pdev, 1);
-	printk(KERN_DEBUG PFX "Memaddr0 is %x, length is %x\n", mem_addr0, mem_len0);
-	printk(KERN_DEBUG PFX "Memaddr1 is %x, length is %x\n", mem_addr1, mem_len1);
 
 	err = pci_request_regions(pdev, "agnx-pci");
 	if (err) {
-		printk(KERN_ERR PFX "Can't obtain PCI resource\n");
+		dev_err(&pdev->dev, "can't reserve PCI resources\n");
 		return err;
 	}
 
-	if (pci_set_dma_mask(pdev, DMA_32BIT_MASK) ||
-	    pci_set_consistent_dma_mask(pdev, DMA_32BIT_MASK)) {
-		printk(KERN_ERR PFX "No suitable DMA available\n");
+	if (pci_set_dma_mask(pdev, DMA_BIT_MASK(32)) ||
+	    pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(32))) {
+		dev_err(&pdev->dev, "no suitable DMA available\n");
+		err = -EIO;
 		goto err_free_reg;
 	}
 
 	pci_set_master(pdev);
-	printk(KERN_DEBUG PFX "pdev->irq is %d\n", pdev->irq);
 
 	dev = ieee80211_alloc_hw(sizeof(*priv), &agnx_ops);
 	if (!dev) {
-		printk(KERN_ERR PFX "ieee80211 alloc failed\n");
+		dev_err(&pdev->dev, "ieee80211 alloc failed\n");
 		err = -ENOMEM;
 		goto err_free_reg;
 	}
-	/* init priv  */
 	priv = dev->priv;
 	memset(priv, 0, sizeof(*priv));
 	priv->mode = NL80211_IFTYPE_MONITOR;
@@ -502,17 +493,17 @@ static int __devinit agnx_pci_probe(struct pci_dev *pdev,
 	spin_lock_init(&priv->lock);
 	priv->init_status = AGNX_UNINIT;
 
-	/* Map mem #1 and #2 */
-	priv->ctl = pci_iomap(pdev, 0, mem_len0);
-//	printk(KERN_DEBUG PFX"MEM1 mapped address is 0x%p\n", priv->ctl);
+	priv->ctl = pci_iomap(pdev, 0, 0);
+/*	dev_dbg(&pdev->dev, "MEM1 mapped address is 0x%p\n", priv->ctl); */
 	if (!priv->ctl) {
-		printk(KERN_ERR PFX "Can't map device memory\n");
+		dev_err(&pdev->dev, "can't map device memory\n");
+		err = -ENOMEM;
 		goto err_free_dev;
 	}
-	priv->data = pci_iomap(pdev, 1, mem_len1);
-	printk(KERN_DEBUG PFX "MEM2 mapped address is 0x%p\n", priv->data);
+	priv->data = pci_iomap(pdev, 1, 0);
 	if (!priv->data) {
-		printk(KERN_ERR PFX "Can't map device memory\n");
+		dev_err(&pdev->dev, "can't map device memory\n");
+		err = -ENOMEM;
 		goto err_iounmap2;
 	}
 
@@ -553,15 +544,15 @@ static int __devinit agnx_pci_probe(struct pci_dev *pdev,
 
 	err = ieee80211_register_hw(dev);
 	if (err) {
-		printk(KERN_ERR PFX "Can't register hardware\n");
+		dev_err(&pdev->dev, "can't register hardware\n");
 		goto err_iounmap;
 	}
 
 	agnx_hw_reset(priv);
 
-
-	printk(PFX "%s: hwaddr %s, Rev 0x%02x\n", wiphy_name(dev->wiphy),
-	       print_mac(mac, dev->wiphy->perm_addr), priv->revid);
+	dev_info(&pdev->dev, "%s: hwaddr %pM, Rev 0x%02x\n",
+		wiphy_name(dev->wiphy),
+		dev->wiphy->perm_addr, priv->revid);
 	return 0;
 
  err_iounmap:

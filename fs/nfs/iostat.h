@@ -16,6 +16,9 @@
 
 struct nfs_iostats {
 	unsigned long long	bytes[__NFSIOS_BYTESMAX];
+#ifdef CONFIG_NFS_FSCACHE
+	unsigned long long	fscache[__NFSIOS_FSCACHEMAX];
+#endif
 	unsigned long		events[__NFSIOS_COUNTSMAX];
 } ____cacheline_aligned;
 
@@ -28,7 +31,7 @@ static inline void nfs_inc_server_stats(const struct nfs_server *server,
 	cpu = get_cpu();
 	iostats = per_cpu_ptr(server->io_stats, cpu);
 	iostats->events[stat]++;
-	put_cpu_no_resched();
+	put_cpu();
 }
 
 static inline void nfs_inc_stats(const struct inode *inode,
@@ -47,7 +50,7 @@ static inline void nfs_add_server_stats(const struct nfs_server *server,
 	cpu = get_cpu();
 	iostats = per_cpu_ptr(server->io_stats, cpu);
 	iostats->bytes[stat] += addend;
-	put_cpu_no_resched();
+	put_cpu();
 }
 
 static inline void nfs_add_stats(const struct inode *inode,
@@ -56,6 +59,21 @@ static inline void nfs_add_stats(const struct inode *inode,
 {
 	nfs_add_server_stats(NFS_SERVER(inode), stat, addend);
 }
+
+#ifdef CONFIG_NFS_FSCACHE
+static inline void nfs_add_fscache_stats(struct inode *inode,
+					 enum nfs_stat_fscachecounters stat,
+					 unsigned long addend)
+{
+	struct nfs_iostats *iostats;
+	int cpu;
+
+	cpu = get_cpu();
+	iostats = per_cpu_ptr(NFS_SERVER(inode)->io_stats, cpu);
+	iostats->fscache[stat] += addend;
+	put_cpu();
+}
+#endif
 
 static inline struct nfs_iostats *nfs_alloc_iostats(void)
 {

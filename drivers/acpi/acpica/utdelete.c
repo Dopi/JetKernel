@@ -75,6 +75,7 @@ static void acpi_ut_delete_internal_obj(union acpi_operand_object *object)
 	union acpi_operand_object *handler_desc;
 	union acpi_operand_object *second_desc;
 	union acpi_operand_object *next_desc;
+	union acpi_operand_object **last_obj_ptr;
 
 	ACPI_FUNCTION_TRACE_PTR(ut_delete_internal_obj, object);
 
@@ -86,7 +87,7 @@ static void acpi_ut_delete_internal_obj(union acpi_operand_object *object)
 	 * Must delete or free any pointers within the object that are not
 	 * actual ACPI objects (for example, a raw buffer pointer).
 	 */
-	switch (ACPI_GET_OBJECT_TYPE(object)) {
+	switch (object->common.type) {
 	case ACPI_TYPE_STRING:
 
 		ACPI_DEBUG_PRINT((ACPI_DB_ALLOCATIONS,
@@ -223,6 +224,26 @@ static void acpi_ut_delete_internal_obj(union acpi_operand_object *object)
 			 */
 			handler_desc = object->region.handler;
 			if (handler_desc) {
+				next_desc =
+				    handler_desc->address_space.region_list;
+				last_obj_ptr =
+				    &handler_desc->address_space.region_list;
+
+				/* Remove the region object from the handler's list */
+
+				while (next_desc) {
+					if (next_desc == object) {
+						*last_obj_ptr =
+						    next_desc->region.next;
+						break;
+					}
+
+					/* Walk the linked list of handler */
+
+					last_obj_ptr = &next_desc->region.next;
+					next_desc = next_desc->region.next;
+				}
+
 				if (handler_desc->address_space.handler_flags &
 				    ACPI_ADDR_HANDLER_DEFAULT_INSTALLED) {
 
@@ -382,7 +403,7 @@ acpi_ut_update_ref_count(union acpi_operand_object *object, u32 action)
 					  object, new_count));
 		}
 
-		if (ACPI_GET_OBJECT_TYPE(object) == ACPI_TYPE_METHOD) {
+		if (object->common.type == ACPI_TYPE_METHOD) {
 			ACPI_DEBUG_PRINT((ACPI_DB_ALLOCATIONS,
 					  "Method Obj %p Refs=%X, [Decremented]\n",
 					  object, new_count));
@@ -469,7 +490,7 @@ acpi_ut_update_object_reference(union acpi_operand_object *object, u16 action)
 		 * All sub-objects must have their reference count incremented also.
 		 * Different object types have different subobjects.
 		 */
-		switch (ACPI_GET_OBJECT_TYPE(object)) {
+		switch (object->common.type) {
 		case ACPI_TYPE_DEVICE:
 		case ACPI_TYPE_PROCESSOR:
 		case ACPI_TYPE_POWER:

@@ -1,5 +1,6 @@
 menuconfig ISDN_DRV_GIGASET
-	tristate "Siemens Gigaset support (isdn)"
+	tristate "Siemens Gigaset support"
+	depends on ISDN_I4L
 	select CRC_CCITT
 	select BITREVERSE
 	help
@@ -11,11 +12,11 @@ menuconfig ISDN_DRV_GIGASET
 	  one of the connection specific parts that follow.
 	  This will build a module called "gigaset".
 
-if ISDN_DRV_GIGASET!=n
+if ISDN_DRV_GIGASET
 
 config GIGASET_BASE
 	tristate "Gigaset base station support"
-	depends on ISDN_DRV_GIGASET && USB
+	depends on USB
 	help
 	  Say M here if you want to use the USB interface of the Gigaset
 	  base for connection to your system.
@@ -23,7 +24,7 @@ config GIGASET_BASE
 
 config GIGASET_M105
 	tristate "Gigaset M105 support"
-	depends on ISDN_DRV_GIGASET && USB
+	depends on USB
 	help
 	  Say M here if you want to connect to the Gigaset base via DECT
 	  using a Gigaset M105 (Sinus 45 Data 2) USB DECT device.
@@ -31,7 +32,6 @@ config GIGASET_M105
 
 config GIGASET_M101
 	tristate "Gigaset M101 support"
-	depends on ISDN_DRV_GIGASET
 	help
 	  Say M here if you want to connect to the Gigaset base via DECT
 	  using a Gigaset M101 (Sinus 45 Data 1) RS232 DECT device.
@@ -43,12 +43,4 @@ config GIGASET_DEBUG
 	  This enables debugging code in the Gigaset drivers.
 	  If in doubt, say yes.
 
-config GIGASET_UNDOCREQ
-	bool "Support for undocumented USB requests"
-	help
-	  This enables support for USB requests we only know from
-	  reverse engineering (currently M105 only). If you need
-	  features like configuration mode of M105, say yes. If you
-	  care about your device, say no.
-
-endif # ISDN_DRV_GIGASET != n
+endif # ISDN_DRV_GIGASET

@@ -2,11 +2,24 @@
 #include <linux/wait.h>
 #include <linux/backing-dev.h>
 #include <linux/fs.h>
+#include <linux/pagemap.h>
 #include <linux/sched.h>
 #include <linux/module.h>
 #include <linux/writeback.h>
 #include <linux/device.h>
 
+void default_unplug_io_fn(struct backing_dev_info *bdi, struct page *page)
+{
+}
+EXPORT_SYMBOL(default_unplug_io_fn);
+
+struct backing_dev_info default_backing_dev_info = {
+	.ra_pages	= VM_MAX_READAHEAD * 1024 / PAGE_CACHE_SIZE,
+	.state		= 0,
+	.capabilities	= BDI_CAP_MAP_COPY,
+	.unplug_io_fn	= default_unplug_io_fn,
+};
+EXPORT_SYMBOL_GPL(default_backing_dev_info);
 
 static struct class *bdi_class;
 
@@ -166,8 +179,19 @@ static __init int bdi_class_init(void)
 	bdi_debug_init();
 	return 0;
 }
-
 postcore_initcall(bdi_class_init);
+
+static int __init default_bdi_init(void)
+{
+	int err;
+
+	err = bdi_init(&default_backing_dev_info);
+	if (!err)
+		bdi_register(&default_backing_dev_info, NULL, "default");
+
+	return err;
+}
+subsys_initcall(default_bdi_init);
 
 int bdi_register(struct backing_dev_info *bdi, struct device *parent,
 		const char *fmt, ...)
@@ -259,13 +283,12 @@ static wait_queue_head_t congestion_wqh[2] = {
 		__WAIT_QUEUE_HEAD_INITIALIZER(congestion_wqh[1])
 	};
 
-
-void clear_bdi_congested(struct backing_dev_info *bdi, int rw)
+void clear_bdi_congested(struct backing_dev_info *bdi, int sync)
 {
 	enum bdi_state bit;
-	wait_queue_head_t *wqh = &congestion_wqh[rw];
+	wait_queue_head_t *wqh = &congestion_wqh[sync];
 
-	bit = (rw == WRITE) ? BDI_write_congested : BDI_read_congested;
+	bit = sync ? BDI_sync_congested : BDI_async_congested;
 	clear_bit(bit, &bdi->state);
 	smp_mb__after_clear_bit();
 	if (waitqueue_active(wqh))
@@ -273,29 +296,29 @@ void clear_bdi_congested(struct backing_dev_info *bdi, int rw)
 }
 EXPORT_SYMBOL(clear_bdi_congested);
 
-void set_bdi_congested(struct backing_dev_info *bdi, int rw)
+void set_bdi_congested(struct backing_dev_info *bdi, int sync)
 {
 	enum bdi_state bit;
 
-	bit = (rw == WRITE) ? BDI_write_congested : BDI_read_congested;
+	bit = sync ? BDI_sync_congested : BDI_async_congested;
 	set_bit(bit, &bdi->state);
 }
 EXPORT_SYMBOL(set_bdi_congested);
 
 /**
  * congestion_wait - wait for a backing_dev to become uncongested
- * @rw: READ or WRITE
+ * @sync: SYNC or ASYNC IO
  * @timeout: timeout in jiffies
  *
  * Waits for up to @timeout jiffies for a backing_dev (any backing_dev) to exit
  * write congestion.  If no backing_devs are congested then just wait for the
  * next write to be completed.
  */
-long congestion_wait(int rw, long timeout)
+long congestion_wait(int sync, long timeout)
 {
 	long ret;
 	DEFINE_WAIT(wait);
-	wait_queue_head_t *wqh = &congestion_wqh[rw];
+	wait_queue_head_t *wqh = &congestion_wqh[sync];
 
 	prepare_to_wait(wqh, &wait, TASK_UNINTERRUPTIBLE);
 	ret = io_schedule_timeout(timeout);

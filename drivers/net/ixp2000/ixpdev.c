@@ -41,6 +41,7 @@ static int ixpdev_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct ixpdev_priv *ip = netdev_priv(dev);
 	struct ixpdev_tx_desc *desc;
 	int entry;
+	unsigned long flags;
 
 	if (unlikely(skb->len > PAGE_SIZE)) {
 		/* @@@ Count drops.  */
@@ -63,11 +64,11 @@ static int ixpdev_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	dev->trans_start = jiffies;
 
-	local_irq_disable();
+	local_irq_save(flags);
 	ip->tx_queue_entries++;
 	if (ip->tx_queue_entries == TX_BUF_COUNT_PER_CHAN)
 		netif_stop_queue(dev);
-	local_irq_enable();
+	local_irq_restore(flags);
 
 	return 0;
 }
@@ -141,7 +142,7 @@ static int ixpdev_poll(struct napi_struct *napi, int budget)
 			break;
 	} while (ixp2000_reg_read(IXP2000_IRQ_THD_RAW_STATUS_A_0) & 0x00ff);
 
-	netif_rx_complete(napi);
+	napi_complete(napi);
 	ixp2000_reg_write(IXP2000_IRQ_THD_ENABLE_SET_A_0, 0x00ff);
 
 	return rx;
@@ -204,7 +205,7 @@ static irqreturn_t ixpdev_interrupt(int irq, void *dev_id)
 
 		ixp2000_reg_wrb(IXP2000_IRQ_THD_ENABLE_CLEAR_A_0, 0x00ff);
 		if (likely(napi_schedule_prep(&ip->napi))) {
-			__netif_rx_schedule(&ip->napi);
+			__napi_schedule(&ip->napi);
 		} else {
 			printk(KERN_CRIT "ixp2000: irq while polling!!\n");
 		}
@@ -270,6 +271,18 @@ static int ixpdev_close(struct net_device *dev)
 	return 0;
 }
 
+static const struct net_device_ops ixpdev_netdev_ops = {
+	.ndo_open		= ixpdev_open,
+	.ndo_stop		= ixpdev_close,
+	.ndo_start_xmit		= ixpdev_xmit,
+	.ndo_change_mtu		= eth_change_mtu,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_set_mac_address	= eth_mac_addr,
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	.ndo_poll_controller	= ixpdev_poll_controller,
+#endif
+};
+
 struct net_device *ixpdev_alloc(int channel, int sizeof_priv)
 {
 	struct net_device *dev;
@@ -279,12 +292,7 @@ struct net_device *ixpdev_alloc(int channel, int sizeof_priv)
 	if (dev == NULL)
 		return NULL;
 
-	dev->hard_start_xmit = ixpdev_xmit;
-	dev->open = ixpdev_open;
-	dev->stop = ixpdev_close;
-#ifdef CONFIG_NET_POLL_CONTROLLER
-	dev->poll_controller = ixpdev_poll_controller;
-#endif
+	dev->netdev_ops = &ixpdev_netdev_ops;
 
 	dev->features |= NETIF_F_SG | NETIF_F_HW_CSUM;
 

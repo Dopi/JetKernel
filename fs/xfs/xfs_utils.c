@@ -166,7 +166,7 @@ xfs_dir_ialloc(
 			xfs_buf_relse(ialloc_context);
 			if (dqinfo) {
 				tp->t_dqinfo = dqinfo;
-				XFS_TRANS_FREE_DQINFO(tp->t_mountp, tp);
+				xfs_trans_free_dqinfo(tp);
 			}
 			*tpp = ntp;
 			*ipp = NULL;
@@ -374,7 +374,7 @@ xfs_truncate_file(
 
 	/*
 	 * Follow the normal truncate locking protocol.  Since we
-	 * hold the inode in the transaction, we know that it's number
+	 * hold the inode in the transaction, we know that its number
 	 * of references will stay constant.
 	 */
 	xfs_ilock(ip, XFS_ILOCK_EXCL);

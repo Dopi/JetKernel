@@ -132,7 +132,7 @@ int bf53x_resume_l1_mem(unsigned char *memptr)
 	return 0;
 }
 
-#ifdef CONFIG_BFIN_WB
+#if defined(CONFIG_BFIN_EXTMEM_WRITEBACK) || defined(CONFIG_BFIN_L2_WRITEBACK)
 static void flushinv_all_dcache(void)
 {
 	u32 way, bank, subbank, set;
@@ -175,7 +175,7 @@ static inline void dcache_disable(void)
 #ifdef CONFIG_BFIN_DCACHE
 	unsigned long ctrl;
 
-#ifdef CONFIG_BFIN_WB
+#if defined(CONFIG_BFIN_EXTMEM_WRITEBACK) || defined(CONFIG_BFIN_L2_WRITEBACK)
 	flushinv_all_dcache();
 #endif
 	SSYNC();
@@ -287,7 +287,7 @@ int bfin_pm_suspend_mem_enter(void)
 static int bfin_pm_valid(suspend_state_t state)
 {
 	return (state == PM_SUSPEND_STANDBY
-#ifndef BF533_FAMILY
+#if !(defined(BF533_FAMILY) || defined(CONFIG_BF561))
 	/*
 	 * On BF533/2/1:
 	 * If we enter Hibernate the SCKE Pin is driven Low,

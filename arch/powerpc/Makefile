@@ -142,13 +142,14 @@ head-$(CONFIG_FSL_BOOKE)	:= arch/powerpc/kernel/head_fsl_booke.o
 
 head-$(CONFIG_PPC64)		+= arch/powerpc/kernel/entry_64.o
 head-$(CONFIG_PPC_FPU)		+= arch/powerpc/kernel/fpu.o
+head-$(CONFIG_ALTIVEC)		+= arch/powerpc/kernel/vector.o
 
 core-y				+= arch/powerpc/kernel/ \
 				   arch/powerpc/mm/ \
 				   arch/powerpc/lib/ \
 				   arch/powerpc/sysdev/ \
-				   arch/powerpc/platforms/
-core-$(CONFIG_MATH_EMULATION)	+= arch/powerpc/math-emu/
+				   arch/powerpc/platforms/ \
+				   arch/powerpc/math-emu/
 core-$(CONFIG_XMON)		+= arch/powerpc/xmon/
 core-$(CONFIG_KVM) 		+= arch/powerpc/kvm/
 
@@ -156,8 +157,6 @@ drivers-$(CONFIG_OPROFILE)	+= arch/powerpc/oprofile/
 
 # Default to zImage, override when needed
 all: zImage
-
-CPPFLAGS_vmlinux.lds	:= -Upowerpc
 
 BOOT_TARGETS = zImage zImage.initrd uImage zImage% dtbImage% treeImage.% cuImage.% simpleImage.%
 

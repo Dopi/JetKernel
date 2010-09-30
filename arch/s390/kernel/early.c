@@ -1,15 +1,17 @@
 /*
  *  arch/s390/kernel/early.c
  *
- *    Copyright IBM Corp. 2007
+ *    Copyright IBM Corp. 2007, 2009
  *    Author(s): Hongjie Yang <hongjie@us.ibm.com>,
  *		 Heiko Carstens <heiko.carstens@de.ibm.com>
  */
 
+#include <linux/compiler.h>
 #include <linux/init.h>
 #include <linux/errno.h>
 #include <linux/string.h>
 #include <linux/ctype.h>
+#include <linux/ftrace.h>
 #include <linux/lockdep.h>
 #include <linux/module.h>
 #include <linux/pfn.h>
@@ -20,6 +22,7 @@
 #include <asm/processor.h>
 #include <asm/sections.h>
 #include <asm/setup.h>
+#include <asm/sysinfo.h>
 #include <asm/cpcmd.h>
 #include <asm/sclp.h>
 #include "entry.h"
@@ -32,8 +35,25 @@
 
 char kernel_nss_name[NSS_NAME_SIZE + 1];
 
+static unsigned long machine_flags;
+
 static void __init setup_boot_command_line(void);
 
+/*
+ * Get the TOD clock running.
+ */
+static void __init reset_tod_clock(void)
+{
+	u64 time;
+
+	if (store_clock(&time) == 0)
+		return;
+	/* TOD clock not running. Set the clock to Unix Epoch. */
+	if (set_clock(TOD_UNIX_EPOCH) != 0 || store_clock(&time) != 0)
+		disabled_wait(0);
+
+	sched_clock_base_cc = TOD_UNIX_EPOCH;
+}
 
 #ifdef CONFIG_SHARED_KERNEL
 int __init savesys_ipl_nss(char *cmd, const int cmdlen);
@@ -173,19 +193,24 @@ static noinline __init void init_kernel_storage_key(void)
 		page_set_storage_key(init_pfn << PAGE_SHIFT, PAGE_DEFAULT_KEY);
 }
 
+static __initdata struct sysinfo_3_2_2 vmms __aligned(PAGE_SIZE);
+
 static noinline __init void detect_machine_type(void)
 {
-	struct cpuinfo_S390 *cpuinfo = &S390_lowcore.cpu_data;
+	/* No VM information? Looks like LPAR */
+	if (stsi(&vmms, 3, 2, 2) == -ENOSYS)
+		return;
+	if (!vmms.count)
+		return;
 
-	get_cpu_id(&S390_lowcore.cpu_data.cpu_id);
-
-	/* Running under z/VM ? */
-	if (cpuinfo->cpu_id.version == 0xff)
+	/* Running under KVM? If not we assume z/VM */
+	if (!memcmp(vmms.vm[0].cpi, "\xd2\xe5\xd4", 3))
+		machine_flags |= MACHINE_FLAG_KVM;
+	else
 		machine_flags |= MACHINE_FLAG_VM;
 
-	/* Running under KVM ? */
-	if (cpuinfo->cpu_id.version == 0xfe)
-		machine_flags |= MACHINE_FLAG_KVM;
+	/* Store machine flags for setting up lowcore early */
+	S390_lowcore.machine_flags = machine_flags;
 }
 
 static __init void early_pgm_check_handler(void)
@@ -348,7 +373,6 @@ static void __init setup_boot_command_line(void)
 
 	/* copy arch command line */
 	strlcpy(boot_command_line, COMMAND_LINE, ARCH_COMMAND_LINE_SIZE);
-	boot_command_line[ARCH_COMMAND_LINE_SIZE - 1] = 0;
 
 	/* append IPL PARM data to the boot command line */
 	if (MACHINE_IS_VM) {
@@ -367,6 +391,7 @@ static void __init setup_boot_command_line(void)
  */
 void __init startup_init(void)
 {
+	reset_tod_clock();
 	ipl_save_parameters();
 	rescue_initrd();
 	clear_bss_section();
@@ -388,5 +413,9 @@ void __init startup_init(void)
 	setup_hpage();
 	sclp_facilities_detect();
 	detect_memory_layout(memory_chunk);
+	S390_lowcore.machine_flags = machine_flags;
+#ifdef CONFIG_DYNAMIC_FTRACE
+	S390_lowcore.ftrace_func = (unsigned long)ftrace_caller;
+#endif
 	lockdep_on();
 }

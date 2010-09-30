@@ -18,6 +18,16 @@ config XEN_SCRUB_PAGES
 	  secure, but slightly less efficient.
 	  If in doubt, say yes.
 
+config XEN_DEV_EVTCHN
+	tristate "Xen /dev/xen/evtchn device"
+	depends on XEN
+	default y
+	help
+	  The evtchn driver allows a userspace process to triger event
+	  channels and to receive notification of an event channel
+	  firing.
+	  If in doubt, say yes.
+
 config XENFS
 	tristate "Xen filesystem"
 	depends on XEN
@@ -37,7 +47,17 @@ config XEN_COMPAT_XENFS
          The old xenstore userspace tools expect to find "xenbus"
          under /proc/xen, but "xenbus" is now found at the root of the
          xenfs filesystem.  Selecting this causes the kernel to create
-         the compatibilty mount point /proc/xen if it is running on
+         the compatibility mount point /proc/xen if it is running on
          a xen platform.
          If in doubt, say yes.
 
+config XEN_SYS_HYPERVISOR
+       bool "Create xen entries under /sys/hypervisor"
+       depends on XEN && SYSFS
+       select SYS_HYPERVISOR
+       default y
+       help
+         Create entries under /sys/hypervisor describing the Xen
+	 hypervisor environment.  When running native or in another
+	 virtual environment, /sys/hypervisor will still be present,
+	 but will have no xen contents.

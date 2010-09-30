@@ -108,6 +108,12 @@
  * Don't use skb_push()/skb_pull()/skb_reserve() on the skb, as
  * wimax_msg_send() depends on skb->data being placed at the
  * beginning of the user message.
+ *
+ * Unlike other WiMAX stack calls, this call can be used way early,
+ * even before wimax_dev_add() is called, as long as the
+ * wimax_dev->net_dev pointer is set to point to a proper
+ * net_dev. This is so that drivers can use it early in case they need
+ * to send stuff around or communicate with user space.
  */
 struct sk_buff *wimax_msg_alloc(struct wimax_dev *wimax_dev,
 				const char *pipe_name,
@@ -115,7 +121,7 @@ struct sk_buff *wimax_msg_alloc(struct wimax_dev *wimax_dev,
 				gfp_t gfp_flags)
 {
 	int result;
-	struct device *dev = wimax_dev->net_dev->dev.parent;
+	struct device *dev = wimax_dev_to_dev(wimax_dev);
 	size_t msg_size;
 	void *genl_msg;
 	struct sk_buff *skb;
@@ -161,7 +167,6 @@ error_genlmsg_put:
 error_new:
 	nlmsg_free(skb);
 	return ERR_PTR(result);
-
 }
 EXPORT_SYMBOL_GPL(wimax_msg_alloc);
 
@@ -256,22 +261,25 @@ EXPORT_SYMBOL_GPL(wimax_msg_len);
  * Don't use skb_push()/skb_pull()/skb_reserve() on the skb, as
  * wimax_msg_send() depends on skb->data being placed at the
  * beginning of the user message.
+ *
+ * Unlike other WiMAX stack calls, this call can be used way early,
+ * even before wimax_dev_add() is called, as long as the
+ * wimax_dev->net_dev pointer is set to point to a proper
+ * net_dev. This is so that drivers can use it early in case they need
+ * to send stuff around or communicate with user space.
  */
 int wimax_msg_send(struct wimax_dev *wimax_dev, struct sk_buff *skb)
 {
-	int result;
-	struct device *dev = wimax_dev->net_dev->dev.parent;
+	struct device *dev = wimax_dev_to_dev(wimax_dev);
 	void *msg = skb->data;
 	size_t size = skb->len;
 	might_sleep();
 
 	d_printf(1, dev, "CTX: wimax msg, %zu bytes\n", size);
 	d_dump(2, dev, msg, size);
-	result = genlmsg_multicast(skb, 0, wimax_gnl_mcg.id, GFP_KERNEL);
-	d_printf(1, dev, "CTX: genl multicast result %d\n", result);
-	if (result == -ESRCH)	/* Nobody connected, ignore it */
-		result = 0;	/* btw, the skb is freed already */
-	return result;
+	genlmsg_multicast(skb, 0, wimax_gnl_mcg.id, GFP_KERNEL);
+	d_printf(1, dev, "CTX: genl multicast done\n");
+	return 0;
 }
 EXPORT_SYMBOL_GPL(wimax_msg_send);
 

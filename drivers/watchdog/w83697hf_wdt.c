@@ -413,7 +413,8 @@ static int __init wdt_init(void)
 	w83697hf_init();
 	if (early_disable) {
 		if (wdt_running())
-			printk(KERN_WARNING PFX "Stopping previously enabled watchdog until userland kicks in\n");
+			printk(KERN_WARNING PFX "Stopping previously enabled "
+					"watchdog until userland kicks in\n");
 		wdt_disable();
 	}
 
@@ -462,6 +463,7 @@ module_init(wdt_init);
 module_exit(wdt_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Marcus Junker <junker@anduras.de>, Samuel Tardieu <sam@rfc1149.net>");
+MODULE_AUTHOR("Marcus Junker <junker@anduras.de>, "
+		"Samuel Tardieu <sam@rfc1149.net>");
 MODULE_DESCRIPTION("w83697hf/hg WDT driver");
 MODULE_ALIAS_MISCDEV(WATCHDOG_MINOR);

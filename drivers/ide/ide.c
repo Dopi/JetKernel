@@ -62,160 +62,6 @@
 
 struct class *ide_port_class;
 
-/*
- *	Locks for IDE setting functionality
- */
-
-DEFINE_MUTEX(ide_setting_mtx);
-
-ide_devset_get(io_32bit, io_32bit);
-
-static int set_io_32bit(ide_drive_t *drive, int arg)
-{
-	if (drive->dev_flags & IDE_DFLAG_NO_IO_32BIT)
-		return -EPERM;
-
-	if (arg < 0 || arg > 1 + (SUPPORT_VLB_SYNC << 1))
-		return -EINVAL;
-
-	drive->io_32bit = arg;
-
-	return 0;
-}
-
-ide_devset_get_flag(ksettings, IDE_DFLAG_KEEP_SETTINGS);
-
-static int set_ksettings(ide_drive_t *drive, int arg)
-{
-	if (arg < 0 || arg > 1)
-		return -EINVAL;
-
-	if (arg)
-		drive->dev_flags |= IDE_DFLAG_KEEP_SETTINGS;
-	else
-		drive->dev_flags &= ~IDE_DFLAG_KEEP_SETTINGS;
-
-	return 0;
-}
-
-ide_devset_get_flag(using_dma, IDE_DFLAG_USING_DMA);
-
-static int set_using_dma(ide_drive_t *drive, int arg)
-{
-#ifdef CONFIG_BLK_DEV_IDEDMA
-	int err = -EPERM;
-
-	if (arg < 0 || arg > 1)
-		return -EINVAL;
-
-	if (ata_id_has_dma(drive->id) == 0)
-		goto out;
-
-	if (drive->hwif->dma_ops == NULL)
-		goto out;
-
-	err = 0;
-
-	if (arg) {
-		if (ide_set_dma(drive))
-			err = -EIO;
-	} else
-		ide_dma_off(drive);
-
-out:
-	return err;
-#else
-	if (arg < 0 || arg > 1)
-		return -EINVAL;
-
-	return -EPERM;
-#endif
-}
-
-/*
- * handle HDIO_SET_PIO_MODE ioctl abusers here, eventually it will go away
- */
-static int set_pio_mode_abuse(ide_hwif_t *hwif, u8 req_pio)
-{
-	switch (req_pio) {
-	case 202:
-	case 201:
-	case 200:
-	case 102:
-	case 101:
-	case 100:
-		return (hwif->host_flags & IDE_HFLAG_ABUSE_DMA_MODES) ? 1 : 0;
-	case 9:
-	case 8:
-		return (hwif->host_flags & IDE_HFLAG_ABUSE_PREFETCH) ? 1 : 0;
-	case 7:
-	case 6:
-		return (hwif->host_flags & IDE_HFLAG_ABUSE_FAST_DEVSEL) ? 1 : 0;
-	default:
-		return 0;
-	}
-}
-
-static int set_pio_mode(ide_drive_t *drive, int arg)
-{
-	ide_hwif_t *hwif = drive->hwif;
-	const struct ide_port_ops *port_ops = hwif->port_ops;
-
-	if (arg < 0 || arg > 255)
-		return -EINVAL;
-
-	if (port_ops == NULL || port_ops->set_pio_mode == NULL ||
-	    (hwif->host_flags & IDE_HFLAG_NO_SET_MODE))
-		return -ENOSYS;
-
-	if (set_pio_mode_abuse(drive->hwif, arg)) {
-		if (arg == 8 || arg == 9) {
-			unsigned long flags;
-
-			/* take lock for IDE_DFLAG_[NO_]UNMASK/[NO_]IO_32BIT */
-			spin_lock_irqsave(&hwif->lock, flags);
-			port_ops->set_pio_mode(drive, arg);
-			spin_unlock_irqrestore(&hwif->lock, flags);
-		} else
-			port_ops->set_pio_mode(drive, arg);
-	} else {
-		int keep_dma = !!(drive->dev_flags & IDE_DFLAG_USING_DMA);
-
-		ide_set_pio(drive, arg);
-
-		if (hwif->host_flags & IDE_HFLAG_SET_PIO_MODE_KEEP_DMA) {
-			if (keep_dma)
-				ide_dma_on(drive);
-		}
-	}
-
-	return 0;
-}
-
-ide_devset_get_flag(unmaskirq, IDE_DFLAG_UNMASK);
-
-static int set_unmaskirq(ide_drive_t *drive, int arg)
-{
-	if (drive->dev_flags & IDE_DFLAG_NO_UNMASK)
-		return -EPERM;
-
-	if (arg < 0 || arg > 1)
-		return -EINVAL;
-
-	if (arg)
-		drive->dev_flags |= IDE_DFLAG_UNMASK;
-	else
-		drive->dev_flags &= ~IDE_DFLAG_UNMASK;
-
-	return 0;
-}
-
-ide_ext_devset_rw_sync(io_32bit, io_32bit);
-ide_ext_devset_rw_sync(keepsettings, ksettings);
-ide_ext_devset_rw_sync(unmaskirq, unmaskirq);
-ide_ext_devset_rw_sync(using_dma, using_dma);
-__IDE_DEVSET(pio_mode, DS_SYNC, NULL, set_pio_mode);
-
 /**
  * ide_device_get	-	get an additional reference to a ide_drive_t
  * @drive:	device to get a reference to
@@ -365,6 +211,11 @@ static unsigned int ide_noflush;
 module_param_call(noflush, ide_set_dev_param_mask, NULL, &ide_noflush, 0);
 MODULE_PARM_DESC(noflush, "disable flush requests for a device");
 
+static unsigned int ide_nohpa;
+
+module_param_call(nohpa, ide_set_dev_param_mask, NULL, &ide_nohpa, 0);
+MODULE_PARM_DESC(nohpa, "disable Host Protected Area for a device");
+
 static unsigned int ide_noprobe;
 
 module_param_call(noprobe, ide_set_dev_param_mask, NULL, &ide_noprobe, 0);
@@ -434,6 +285,11 @@ static void ide_dev_apply_params(ide_drive_t *drive, u8 unit)
 		printk(KERN_INFO "ide: disabling flush requests for %s\n",
 				 drive->name);
 		drive->dev_flags |= IDE_DFLAG_NOFLUSH;
+	}
+	if (ide_nohpa & (1 << i)) {
+		printk(KERN_INFO "ide: disabling Host Protected Area for %s\n",
+				 drive->name);
+		drive->dev_flags |= IDE_DFLAG_NOHPA;
 	}
 	if (ide_noprobe & (1 << i)) {
 		printk(KERN_INFO "ide: skipping probe for %s\n", drive->name);
@@ -526,6 +382,8 @@ static int __init ide_init(void)
 		ret = PTR_ERR(ide_port_class);
 		goto out_port_class;
 	}
+
+	ide_acpi_init();
 
 	proc_ide_create();
 

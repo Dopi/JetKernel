@@ -3,13 +3,61 @@
  *
  * Registration and callback for the s390 common I/O layer.
  *
- * Copyright IBM Corporation 2002, 2008
+ * Copyright IBM Corporation 2002, 2009
  */
 
 #define KMSG_COMPONENT "zfcp"
 #define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
 
 #include "zfcp_ext.h"
+
+#define ZFCP_MODEL_PRIV 0x4
+
+static int zfcp_ccw_suspend(struct ccw_device *cdev)
+
+{
+	struct zfcp_adapter *adapter = dev_get_drvdata(&cdev->dev);
+
+	down(&zfcp_data.config_sema);
+
+	zfcp_erp_adapter_shutdown(adapter, 0, "ccsusp1", NULL);
+	zfcp_erp_wait(adapter);
+
+	up(&zfcp_data.config_sema);
+
+	return 0;
+}
+
+static int zfcp_ccw_activate(struct ccw_device *cdev)
+
+{
+	struct zfcp_adapter *adapter = dev_get_drvdata(&cdev->dev);
+
+	zfcp_erp_modify_adapter_status(adapter, "ccresu1", NULL,
+				       ZFCP_STATUS_COMMON_RUNNING, ZFCP_SET);
+	zfcp_erp_adapter_reopen(adapter, ZFCP_STATUS_COMMON_ERP_FAILED,
+				"ccresu2", NULL);
+	zfcp_erp_wait(adapter);
+	flush_work(&adapter->scan_work);
+
+	return 0;
+}
+
+static struct ccw_device_id zfcp_ccw_device_id[] = {
+	{ CCW_DEVICE_DEVTYPE(0x1731, 0x3, 0x1732, 0x3) },
+	{ CCW_DEVICE_DEVTYPE(0x1731, 0x3, 0x1732, ZFCP_MODEL_PRIV) },
+	{},
+};
+MODULE_DEVICE_TABLE(ccw, zfcp_ccw_device_id);
+
+/**
+ * zfcp_ccw_priv_sch - check if subchannel is privileged
+ * @adapter: Adapter/Subchannel to check
+ */
+int zfcp_ccw_priv_sch(struct zfcp_adapter *adapter)
+{
+	return adapter->ccw_device->id.dev_model == ZFCP_MODEL_PRIV;
+}
 
 /**
  * zfcp_ccw_probe - probe function of zfcp driver
@@ -72,8 +120,7 @@ static void zfcp_ccw_remove(struct ccw_device *ccw_device)
 
 	list_for_each_entry_safe(port, p, &port_remove_lh, list) {
 		list_for_each_entry_safe(unit, u, &unit_remove_lh, list) {
-			if (atomic_read(&unit->status) &
-			    ZFCP_STATUS_UNIT_REGISTERED)
+			if (unit->device)
 				scsi_remove_device(unit->device);
 			zfcp_unit_dequeue(unit);
 		}
@@ -110,10 +157,10 @@ static int zfcp_ccw_set_online(struct ccw_device *ccw_device)
 	BUG_ON(!zfcp_reqlist_isempty(adapter));
 	adapter->req_no = 0;
 
-	zfcp_erp_modify_adapter_status(adapter, 10, NULL,
+	zfcp_erp_modify_adapter_status(adapter, "ccsonl1", NULL,
 				       ZFCP_STATUS_COMMON_RUNNING, ZFCP_SET);
-	zfcp_erp_adapter_reopen(adapter, ZFCP_STATUS_COMMON_ERP_FAILED, 85,
-				NULL);
+	zfcp_erp_adapter_reopen(adapter, ZFCP_STATUS_COMMON_ERP_FAILED,
+				"ccsonl2", NULL);
 	zfcp_erp_wait(adapter);
 	up(&zfcp_data.config_sema);
 	flush_work(&adapter->scan_work);
@@ -137,7 +184,7 @@ static int zfcp_ccw_set_offline(struct ccw_device *ccw_device)
 
 	down(&zfcp_data.config_sema);
 	adapter = dev_get_drvdata(&ccw_device->dev);
-	zfcp_erp_adapter_shutdown(adapter, 0, 86, NULL);
+	zfcp_erp_adapter_shutdown(adapter, 0, "ccsoff1", NULL);
 	zfcp_erp_wait(adapter);
 	zfcp_erp_thread_kill(adapter);
 	up(&zfcp_data.config_sema);
@@ -160,21 +207,26 @@ static int zfcp_ccw_notify(struct ccw_device *ccw_device, int event)
 	case CIO_GONE:
 		dev_warn(&adapter->ccw_device->dev,
 			 "The FCP device has been detached\n");
-		zfcp_erp_adapter_shutdown(adapter, 0, 87, NULL);
+		zfcp_erp_adapter_shutdown(adapter, 0, "ccnoti1", NULL);
 		break;
 	case CIO_NO_PATH:
 		dev_warn(&adapter->ccw_device->dev,
 			 "The CHPID for the FCP device is offline\n");
-		zfcp_erp_adapter_shutdown(adapter, 0, 88, NULL);
+		zfcp_erp_adapter_shutdown(adapter, 0, "ccnoti2", NULL);
 		break;
 	case CIO_OPER:
 		dev_info(&adapter->ccw_device->dev,
 			 "The FCP device is operational again\n");
-		zfcp_erp_modify_adapter_status(adapter, 11, NULL,
+		zfcp_erp_modify_adapter_status(adapter, "ccnoti3", NULL,
 					       ZFCP_STATUS_COMMON_RUNNING,
 					       ZFCP_SET);
 		zfcp_erp_adapter_reopen(adapter, ZFCP_STATUS_COMMON_ERP_FAILED,
-					89, NULL);
+					"ccnoti4", NULL);
+		break;
+	case CIO_BOXED:
+		dev_warn(&adapter->ccw_device->dev, "The FCP device "
+			 "did not respond within the specified time\n");
+		zfcp_erp_adapter_shutdown(adapter, 0, "ccnoti5", NULL);
 		break;
 	}
 	return 1;
@@ -190,18 +242,10 @@ static void zfcp_ccw_shutdown(struct ccw_device *cdev)
 
 	down(&zfcp_data.config_sema);
 	adapter = dev_get_drvdata(&cdev->dev);
-	zfcp_erp_adapter_shutdown(adapter, 0, 90, NULL);
+	zfcp_erp_adapter_shutdown(adapter, 0, "ccshut1", NULL);
 	zfcp_erp_wait(adapter);
 	up(&zfcp_data.config_sema);
 }
-
-static struct ccw_device_id zfcp_ccw_device_id[] = {
-	{ CCW_DEVICE_DEVTYPE(0x1731, 0x3, 0x1732, 0x3) },
-	{ CCW_DEVICE_DEVTYPE(0x1731, 0x3, 0x1732, 0x4) }, /* priv. */
-	{},
-};
-
-MODULE_DEVICE_TABLE(ccw, zfcp_ccw_device_id);
 
 static struct ccw_driver zfcp_ccw_driver = {
 	.owner       = THIS_MODULE,
@@ -213,6 +257,9 @@ static struct ccw_driver zfcp_ccw_driver = {
 	.set_offline = zfcp_ccw_set_offline,
 	.notify      = zfcp_ccw_notify,
 	.shutdown    = zfcp_ccw_shutdown,
+	.freeze      = zfcp_ccw_suspend,
+	.thaw	     = zfcp_ccw_activate,
+	.restore     = zfcp_ccw_activate,
 };
 
 /**

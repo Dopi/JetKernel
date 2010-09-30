@@ -1,5 +1,5 @@
 /*
-	Copyright (C) 2004 - 2008 rt2x00 SourceForge Project
+	Copyright (C) 2004 - 2009 rt2x00 SourceForge Project
 	<http://rt2x00.serialmonkey.com>
 
 	This program is free software; you can redistribute it and/or modify
@@ -32,8 +32,8 @@
  * Interval defines
  * Both the link tuner as the rfkill will be called once per second.
  */
-#define LINK_TUNE_INTERVAL	( round_jiffies_relative(HZ) )
-#define RFKILL_POLL_INTERVAL	( round_jiffies_relative(HZ) )
+#define LINK_TUNE_INTERVAL	round_jiffies_relative(HZ)
+#define RFKILL_POLL_INTERVAL	1000
 
 /*
  * rt2x00_rate: Per rate device information
@@ -48,6 +48,7 @@ struct rt2x00_rate {
 	unsigned short ratemask;
 
 	unsigned short plcp;
+	unsigned short mcs;
 };
 
 extern const struct rt2x00_rate rt2x00_supported_rates[12];
@@ -57,13 +58,20 @@ static inline const struct rt2x00_rate *rt2x00_get_rate(const u16 hw_value)
 	return &rt2x00_supported_rates[hw_value & 0xff];
 }
 
+#define RATE_MCS(__mode, __mcs) \
+	( (((__mode) & 0x00ff) << 8) | ((__mcs) & 0x00ff) )
+
+static inline int rt2x00_get_rate_mcs(const u16 mcs_value)
+{
+	return (mcs_value & 0x00ff);
+}
+
 /*
  * Radio control handlers.
  */
 int rt2x00lib_enable_radio(struct rt2x00_dev *rt2x00dev);
 void rt2x00lib_disable_radio(struct rt2x00_dev *rt2x00dev);
 void rt2x00lib_toggle_rx(struct rt2x00_dev *rt2x00dev, enum dev_state state);
-void rt2x00lib_reset_link_tuner(struct rt2x00_dev *rt2x00dev);
 
 /*
  * Initialization handlers.
@@ -77,7 +85,7 @@ void rt2x00lib_stop(struct rt2x00_dev *rt2x00dev);
 void rt2x00lib_config_intf(struct rt2x00_dev *rt2x00dev,
 			   struct rt2x00_intf *intf,
 			   enum nl80211_iftype type,
-			   u8 *mac, u8 *bssid);
+			   const u8 *mac, const u8 *bssid);
 void rt2x00lib_config_erp(struct rt2x00_dev *rt2x00dev,
 			  struct rt2x00_intf *intf,
 			  struct ieee80211_bss_conf *conf);
@@ -114,6 +122,23 @@ void rt2x00queue_unmap_skb(struct rt2x00_dev *rt2x00dev, struct sk_buff *skb);
 void rt2x00queue_free_skb(struct rt2x00_dev *rt2x00dev, struct sk_buff *skb);
 
 /**
+ * rt2x00queue_payload_align - Align 802.11 payload to 4-byte boundary
+ * @skb: The skb to align
+ * @l2pad: Should L2 padding be used
+ * @header_length: Length of 802.11 header
+ *
+ * This function prepares the @skb to be send to the device or mac80211.
+ * If @l2pad is set to true padding will occur between the 802.11 header
+ * and payload. Otherwise the padding will be done in front of the 802.11
+ * header.
+ * When @l2pad is set the function will check for the &SKBDESC_L2_PADDED
+ * flag in &skb_frame_desc. If that flag is set, the padding is removed
+ * and the flag cleared. Otherwise the padding is added and the flag is set.
+ */
+void rt2x00queue_payload_align(struct sk_buff *skb,
+			       bool l2pad, unsigned int header_length);
+
+/**
  * rt2x00queue_write_tx_frame - Write TX frame to hardware
  * @queue: Queue over which the frame should be send
  * @skb: The skb to send
@@ -124,9 +149,11 @@ int rt2x00queue_write_tx_frame(struct data_queue *queue, struct sk_buff *skb);
  * rt2x00queue_update_beacon - Send new beacon from mac80211 to hardware
  * @rt2x00dev: Pointer to &struct rt2x00_dev.
  * @vif: Interface for which the beacon should be updated.
+ * @enable_beacon: Enable beaconing
  */
 int rt2x00queue_update_beacon(struct rt2x00_dev *rt2x00dev,
-			      struct ieee80211_vif *vif);
+			      struct ieee80211_vif *vif,
+			      const bool enable_beacon);
 
 /**
  * rt2x00queue_index_inc - Index incrementation function
@@ -138,6 +165,15 @@ int rt2x00queue_update_beacon(struct rt2x00_dev *rt2x00dev,
  * resetting the index to the start of the queue.
  */
 void rt2x00queue_index_inc(struct data_queue *queue, enum queue_index index);
+
+/**
+ * rt2x00queue_stop_queues - Halt all data queues
+ * @rt2x00dev: Pointer to &struct rt2x00_dev.
+ *
+ * This function will loop through all available queues to stop
+ * any pending outgoing frames.
+ */
+void rt2x00queue_stop_queues(struct rt2x00_dev *rt2x00dev);
 
 /**
  * rt2x00queue_init_queues - Initialize all data queues
@@ -153,6 +189,81 @@ int rt2x00queue_initialize(struct rt2x00_dev *rt2x00dev);
 void rt2x00queue_uninitialize(struct rt2x00_dev *rt2x00dev);
 int rt2x00queue_allocate(struct rt2x00_dev *rt2x00dev);
 void rt2x00queue_free(struct rt2x00_dev *rt2x00dev);
+
+/**
+ * rt2x00link_update_stats - Update link statistics from RX frame
+ * @rt2x00dev: Pointer to &struct rt2x00_dev.
+ * @skb: Received frame
+ * @rxdesc: Received frame descriptor
+ *
+ * Update link statistics based on the information from the
+ * received frame descriptor.
+ */
+void rt2x00link_update_stats(struct rt2x00_dev *rt2x00dev,
+			     struct sk_buff *skb,
+			     struct rxdone_entry_desc *rxdesc);
+
+/**
+ * rt2x00link_calculate_signal - Calculate signal quality
+ * @rt2x00dev: Pointer to &struct rt2x00_dev.
+ * @rssi: RX Frame RSSI
+ *
+ * Calculate the signal quality of a frame based on the rssi
+ * measured during the receiving of the frame and the global
+ * link quality statistics measured since the start of the
+ * link tuning. The result is a value between 0 and 100 which
+ * is an indication of the signal quality.
+ */
+int rt2x00link_calculate_signal(struct rt2x00_dev *rt2x00dev, int rssi);
+
+/**
+ * rt2x00link_start_tuner - Start periodic link tuner work
+ * @rt2x00dev: Pointer to &struct rt2x00_dev.
+ *
+ * This start the link tuner periodic work, this work will
+ * be executed periodically until &rt2x00link_stop_tuner has
+ * been called.
+ */
+void rt2x00link_start_tuner(struct rt2x00_dev *rt2x00dev);
+
+/**
+ * rt2x00link_stop_tuner - Stop periodic link tuner work
+ * @rt2x00dev: Pointer to &struct rt2x00_dev.
+ *
+ * After this function completed the link tuner will not
+ * be running until &rt2x00link_start_tuner is called.
+ */
+void rt2x00link_stop_tuner(struct rt2x00_dev *rt2x00dev);
+
+/**
+ * rt2x00link_reset_tuner - Reset periodic link tuner work
+ * @rt2x00dev: Pointer to &struct rt2x00_dev.
+ * @antenna: Should the antenna tuning also be reset
+ *
+ * The VGC limit configured in the hardware will be reset to 0
+ * which forces the driver to rediscover the correct value for
+ * the current association. This is needed when configuration
+ * options have changed which could drastically change the
+ * SNR level or link quality (i.e. changing the antenna setting).
+ *
+ * Resetting the link tuner will also cause the periodic work counter
+ * to be reset. Any driver which has a fixed limit on the number
+ * of rounds the link tuner is supposed to work will accept the
+ * tuner actions again if this limit was previously reached.
+ *
+ * If @antenna is set to true a the software antenna diversity
+ * tuning will also be reset.
+ */
+void rt2x00link_reset_tuner(struct rt2x00_dev *rt2x00dev, bool antenna);
+
+/**
+ * rt2x00link_register - Initialize link tuning functionality
+ * @rt2x00dev: Pointer to &struct rt2x00_dev.
+ *
+ * Initialize work structure and all link tuning related
+ * parameters. This will not start the link tuning process itself.
+ */
+void rt2x00link_register(struct rt2x00_dev *rt2x00dev);
 
 /*
  * Firmware handlers.
@@ -179,7 +290,7 @@ void rt2x00debug_deregister(struct rt2x00_dev *rt2x00dev);
 void rt2x00debug_dump_frame(struct rt2x00_dev *rt2x00dev,
 			    enum rt2x00_dump_type type, struct sk_buff *skb);
 void rt2x00debug_update_crypto(struct rt2x00_dev *rt2x00dev,
-			       enum cipher cipher, enum rx_crypto status);
+			       struct rxdone_entry_desc *rxdesc);
 #else
 static inline void rt2x00debug_register(struct rt2x00_dev *rt2x00dev)
 {
@@ -196,8 +307,7 @@ static inline void rt2x00debug_dump_frame(struct rt2x00_dev *rt2x00dev,
 }
 
 static inline void rt2x00debug_update_crypto(struct rt2x00_dev *rt2x00dev,
-					     enum cipher cipher,
-					     enum rx_crypto status)
+					     struct rxdone_entry_desc *rxdesc)
 {
 }
 #endif /* CONFIG_RT2X00_LIB_DEBUGFS */
@@ -209,11 +319,14 @@ static inline void rt2x00debug_update_crypto(struct rt2x00_dev *rt2x00dev,
 enum cipher rt2x00crypto_key_to_cipher(struct ieee80211_key_conf *key);
 void rt2x00crypto_create_tx_descriptor(struct queue_entry *entry,
 				       struct txentry_desc *txdesc);
-unsigned int rt2x00crypto_tx_overhead(struct ieee80211_tx_info *tx_info);
-void rt2x00crypto_tx_copy_iv(struct sk_buff *skb, unsigned int iv_len);
-void rt2x00crypto_tx_remove_iv(struct sk_buff *skb, unsigned int iv_len);
-void rt2x00crypto_tx_insert_iv(struct sk_buff *skb);
-void rt2x00crypto_rx_insert_iv(struct sk_buff *skb, unsigned int align,
+unsigned int rt2x00crypto_tx_overhead(struct rt2x00_dev *rt2x00dev,
+				      struct sk_buff *skb);
+void rt2x00crypto_tx_copy_iv(struct sk_buff *skb,
+			     struct txentry_desc *txdesc);
+void rt2x00crypto_tx_remove_iv(struct sk_buff *skb,
+			       struct txentry_desc *txdesc);
+void rt2x00crypto_tx_insert_iv(struct sk_buff *skb, unsigned int header_length);
+void rt2x00crypto_rx_insert_iv(struct sk_buff *skb, bool l2pad,
 			       unsigned int header_length,
 			       struct rxdone_entry_desc *rxdesc);
 #else
@@ -227,27 +340,28 @@ static inline void rt2x00crypto_create_tx_descriptor(struct queue_entry *entry,
 {
 }
 
-static inline unsigned int rt2x00crypto_tx_overhead(struct ieee80211_tx_info *tx_info)
+static inline unsigned int rt2x00crypto_tx_overhead(struct rt2x00_dev *rt2x00dev,
+						    struct sk_buff *skb)
 {
 	return 0;
 }
 
 static inline void rt2x00crypto_tx_copy_iv(struct sk_buff *skb,
-					   unsigned int iv_len)
+					   struct txentry_desc *txdesc)
 {
 }
 
 static inline void rt2x00crypto_tx_remove_iv(struct sk_buff *skb,
-					     unsigned int iv_len)
+					     struct txentry_desc *txdesc)
 {
 }
 
-static inline void rt2x00crypto_tx_insert_iv(struct sk_buff *skb)
+static inline void rt2x00crypto_tx_insert_iv(struct sk_buff *skb,
+					     unsigned int header_length)
 {
 }
 
-static inline void rt2x00crypto_rx_insert_iv(struct sk_buff *skb,
-					     unsigned int align,
+static inline void rt2x00crypto_rx_insert_iv(struct sk_buff *skb, bool l2pad,
 					     unsigned int header_length,
 					     struct rxdone_entry_desc *rxdesc)
 {
@@ -255,17 +369,42 @@ static inline void rt2x00crypto_rx_insert_iv(struct sk_buff *skb,
 #endif /* CONFIG_RT2X00_LIB_CRYPTO */
 
 /*
+ * HT handlers.
+ */
+#ifdef CONFIG_RT2X00_LIB_HT
+void rt2x00ht_create_tx_descriptor(struct queue_entry *entry,
+				   struct txentry_desc *txdesc,
+				   const struct rt2x00_rate *hwrate);
+#else
+static inline void rt2x00ht_create_tx_descriptor(struct queue_entry *entry,
+						 struct txentry_desc *txdesc,
+						 const struct rt2x00_rate *hwrate)
+{
+}
+#endif /* CONFIG_RT2X00_LIB_HT */
+
+/*
  * RFkill handlers.
  */
 #ifdef CONFIG_RT2X00_LIB_RFKILL
 void rt2x00rfkill_register(struct rt2x00_dev *rt2x00dev);
 void rt2x00rfkill_unregister(struct rt2x00_dev *rt2x00dev);
+void rt2x00rfkill_allocate(struct rt2x00_dev *rt2x00dev);
+void rt2x00rfkill_free(struct rt2x00_dev *rt2x00dev);
 #else
 static inline void rt2x00rfkill_register(struct rt2x00_dev *rt2x00dev)
 {
 }
 
 static inline void rt2x00rfkill_unregister(struct rt2x00_dev *rt2x00dev)
+{
+}
+
+static inline void rt2x00rfkill_allocate(struct rt2x00_dev *rt2x00dev)
+{
+}
+
+static inline void rt2x00rfkill_free(struct rt2x00_dev *rt2x00dev)
 {
 }
 #endif /* CONFIG_RT2X00_LIB_RFKILL */

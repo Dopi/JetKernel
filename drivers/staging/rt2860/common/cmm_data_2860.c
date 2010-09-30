@@ -110,10 +110,6 @@ USHORT RtmpPCI_WriteSingleTxResource(
 	UCHAR			*pDMAHeaderBufVA;
 	USHORT			TxIdx, RetTxIdx;
 	PTXD_STRUC		pTxD;
-#ifdef RT_BIG_ENDIAN
-    PTXD_STRUC      pDestTxD;
-    TXD_STRUC       TxD;
-#endif
 	UINT32			BufBasePaLow;
 	PRTMP_TX_RING	pTxRing;
 	USHORT			hwHeaderLen;
@@ -137,13 +133,8 @@ USHORT RtmpPCI_WriteSingleTxResource(
 	//
 	// build Tx Descriptor
 	//
-#ifndef RT_BIG_ENDIAN
 	pTxD = (PTXD_STRUC) pTxRing->Cell[TxIdx].AllocVa;
-#else
-	pDestTxD = (PTXD_STRUC) pTxRing->Cell[TxIdx].AllocVa;
-	TxD = *pDestTxD;
-	pTxD = &TxD;
-#endif
+
 	NdisZeroMemory(pTxD, TXD_SIZE);
 
 	pTxD->SDPtr0 = BufBasePaLow;
@@ -154,12 +145,6 @@ USHORT RtmpPCI_WriteSingleTxResource(
 	pTxD->LastSec1 = (bIsLast) ? 1 : 0;
 
 	RTMPWriteTxDescriptor(pAd, pTxD, FALSE, FIFO_EDCA);
-#ifdef RT_BIG_ENDIAN
-	RTMPWIEndianChange((PUCHAR)(pDMAHeaderBufVA + TXINFO_SIZE), TYPE_TXWI);
-	RTMPFrameEndianChange(pAd, (PUCHAR)(pDMAHeaderBufVA + TXINFO_SIZE + TXWI_SIZE), DIR_WRITE, FALSE);
-	RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-    WriteBackToDescriptor((PUCHAR)pDestTxD, (PUCHAR)pTxD, FALSE, TYPE_TXD);
-#endif // RT_BIG_ENDIAN //
 
 	RetTxIdx = TxIdx;
 	//
@@ -184,10 +169,6 @@ USHORT RtmpPCI_WriteMultiTxResource(
 	UCHAR			*pDMAHeaderBufVA;
 	USHORT			TxIdx, RetTxIdx;
 	PTXD_STRUC		pTxD;
-#ifdef RT_BIG_ENDIAN
-    PTXD_STRUC      pDestTxD;
-    TXD_STRUC       TxD;
-#endif
 	UINT32			BufBasePaLow;
 	PRTMP_TX_RING	pTxRing;
 	USHORT			hwHdrLen;
@@ -231,13 +212,8 @@ USHORT RtmpPCI_WriteMultiTxResource(
 	//
 	// build Tx Descriptor
 	//
-#ifndef RT_BIG_ENDIAN
 	pTxD = (PTXD_STRUC) pTxRing->Cell[TxIdx].AllocVa;
-#else
-	pDestTxD = (PTXD_STRUC) pTxRing->Cell[TxIdx].AllocVa;
-	TxD = *pDestTxD;
-	pTxD = &TxD;
-#endif
+
 	NdisZeroMemory(pTxD, TXD_SIZE);
 
 	pTxD->SDPtr0 = BufBasePaLow;
@@ -248,17 +224,6 @@ USHORT RtmpPCI_WriteMultiTxResource(
 	pTxD->LastSec1 = (bIsLast) ? 1 : 0;
 
 	RTMPWriteTxDescriptor(pAd, pTxD, FALSE, FIFO_EDCA);
-
-#ifdef RT_BIG_ENDIAN
-	if (frameNum == 0)
-		RTMPFrameEndianChange(pAd, (PUCHAR)(pDMAHeaderBufVA+ TXINFO_SIZE + TXWI_SIZE), DIR_WRITE, FALSE);
-
-	if (frameNum != 0)
-		RTMPWIEndianChange((PUCHAR)(pDMAHeaderBufVA + TXINFO_SIZE), TYPE_TXWI);
-
-	RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-	WriteBackToDescriptor((PUCHAR)pDestTxD, (PUCHAR)pTxD, FALSE, TYPE_TXD);
-#endif // RT_BIG_ENDIAN //
 
 	RetTxIdx = TxIdx;
 	//
@@ -290,10 +255,6 @@ VOID RtmpPCI_FinalWriteTxResource(
 	pTxRing = &pAd->TxRing[pTxBlk->QueIdx];
 	pTxWI = (PTXWI_STRUC) pTxRing->Cell[FirstTxIdx].DmaBuf.AllocVa;
 	pTxWI->MPDUtotalByteCount = totalMPDUSize;
-#ifdef RT_BIG_ENDIAN
-	RTMPWIEndianChange((PUCHAR)pTxWI, TYPE_TXWI);
-#endif // RT_BIG_ENDIAN //
-
 }
 
 
@@ -303,10 +264,6 @@ VOID RtmpPCIDataLastTxIdx(
 	IN	USHORT			LastTxIdx)
 {
 	PTXD_STRUC		pTxD;
-#ifdef RT_BIG_ENDIAN
-    PTXD_STRUC      pDestTxD;
-    TXD_STRUC       TxD;
-#endif
 	PRTMP_TX_RING	pTxRing;
 
 	//
@@ -317,21 +274,9 @@ VOID RtmpPCIDataLastTxIdx(
 	//
 	// build Tx Descriptor
 	//
-#ifndef RT_BIG_ENDIAN
 	pTxD = (PTXD_STRUC) pTxRing->Cell[LastTxIdx].AllocVa;
-#else
-	pDestTxD = (PTXD_STRUC) pTxRing->Cell[LastTxIdx].AllocVa;
-	TxD = *pDestTxD;
-	pTxD = &TxD;
-#endif
 
 	pTxD->LastSec1 = 1;
-
-#ifdef RT_BIG_ENDIAN
-	RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-    WriteBackToDescriptor((PUCHAR)pDestTxD, (PUCHAR)pTxD, FALSE, TYPE_TXD);
-#endif // RT_BIG_ENDIAN //
-
 }
 
 
@@ -344,10 +289,6 @@ USHORT	RtmpPCI_WriteFragTxResource(
 	UCHAR			*pDMAHeaderBufVA;
 	USHORT			TxIdx, RetTxIdx;
 	PTXD_STRUC		pTxD;
-#ifdef RT_BIG_ENDIAN
-    PTXD_STRUC      pDestTxD;
-    TXD_STRUC       TxD;
-#endif
 	UINT32			BufBasePaLow;
 	PRTMP_TX_RING	pTxRing;
 	USHORT			hwHeaderLen;
@@ -373,13 +314,8 @@ USHORT	RtmpPCI_WriteFragTxResource(
 	//
 	// Build Tx Descriptor
 	//
-#ifndef RT_BIG_ENDIAN
 	pTxD = (PTXD_STRUC) pTxRing->Cell[TxIdx].AllocVa;
-#else
-	pDestTxD = (PTXD_STRUC) pTxRing->Cell[TxIdx].AllocVa;
-	TxD = *pDestTxD;
-	pTxD = &TxD;
-#endif
+
 	NdisZeroMemory(pTxD, TXD_SIZE);
 
 	if (fragNum == pTxBlk->TotalFragNum)
@@ -396,13 +332,6 @@ USHORT	RtmpPCI_WriteFragTxResource(
 	pTxD->LastSec1 = 1;
 
 	RTMPWriteTxDescriptor(pAd, pTxD, FALSE, FIFO_EDCA);
-
-#ifdef RT_BIG_ENDIAN
-	RTMPWIEndianChange((PUCHAR)(pDMAHeaderBufVA + TXINFO_SIZE), TYPE_TXWI);
-	RTMPFrameEndianChange(pAd, (PUCHAR)(pDMAHeaderBufVA + TXINFO_SIZE + TXWI_SIZE), DIR_WRITE, FALSE);
-	RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-    WriteBackToDescriptor((PUCHAR)pDestTxD, (PUCHAR)pTxD, FALSE, TYPE_TXD);
-#endif // RT_BIG_ENDIAN //
 
 	RetTxIdx = TxIdx;
 	pTxBlk->Priv += pTxBlk->SrcBufLen;
@@ -431,20 +360,11 @@ int RtmpPCIMgmtKickOut(
 	IN UINT 			SrcBufLen)
 {
 	PTXD_STRUC		pTxD;
-#ifdef RT_BIG_ENDIAN
-    PTXD_STRUC      pDestTxD;
-    TXD_STRUC       TxD;
-#endif
 	ULONG			SwIdx = pAd->MgmtRing.TxCpuIdx;
 
-#ifdef RT_BIG_ENDIAN
-    pDestTxD  = (PTXD_STRUC)pAd->MgmtRing.Cell[SwIdx].AllocVa;
-    TxD = *pDestTxD;
-    pTxD = &TxD;
-    RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-#else
 	pTxD  = (PTXD_STRUC) pAd->MgmtRing.Cell[SwIdx].AllocVa;
-#endif
+	if (!pTxD)
+		return 0;
 
 	pAd->MgmtRing.Cell[SwIdx].pNdisPacket = pPacket;
 	pAd->MgmtRing.Cell[SwIdx].pNextNdisPacket = NULL;
@@ -457,11 +377,6 @@ int RtmpPCIMgmtKickOut(
 	pTxD->SDPtr0 = PCI_MAP_SINGLE(pAd, pSrcBufVA, SrcBufLen, 0, PCI_DMA_TODEVICE);;
 	pTxD->SDLen0 = SrcBufLen;
 
-#ifdef RT_BIG_ENDIAN
-	RTMPDescriptorEndianChange((PUCHAR)pTxD, TYPE_TXD);
-    WriteBackToDescriptor((PUCHAR)pDestTxD, (PUCHAR)pTxD, FALSE, TYPE_TXD);
-#endif
-
 	pAd->RalinkCounters.KickTxCount++;
 	pAd->RalinkCounters.OneSecTxDoneCount++;
 
@@ -473,8 +388,6 @@ int RtmpPCIMgmtKickOut(
 	return 0;
 }
 
-
-#ifdef CONFIG_STA_SUPPORT
 /*
 	========================================================================
 
@@ -570,12 +483,11 @@ NDIS_STATUS RTMPCheckRxError(
 		if (pRxD->CipherErr == 2)
 		{
 			pWpaKey = &pAd->SharedKey[BSS0][pRxWI->KeyIndex];
-#ifdef WPA_SUPPLICANT_SUPPORT
+
             if (pAd->StaCfg.WpaSupplicantUP)
                 WpaSendMicFailureToWpaSupplicant(pAd,
                                    (pWpaKey->Type == PAIRWISEKEY) ? TRUE:FALSE);
             else
-#endif // WPA_SUPPLICANT_SUPPORT //
 			    RTMPReportMicError(pAd, pWpaKey);
 
             if (((pRxD->CipherErr & 2) == 2) && pAd->CommonCfg.bWirelessEvent && INFRA_ON(pAd))
@@ -634,7 +546,7 @@ VOID RT28xxPciAsicRadioOff(
 	}
 
     // Once go into this function, disable tx because don't want too many packets in queue to prevent HW stops.
-	pAd->bPCIclkOffDisableTx = TRUE;
+	RTMP_SET_PSFLAG(pAd, fRTMP_PS_DISABLE_TX);
 
 	if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_ADVANCE_POWER_SAVE_PCIE_DEVICE))
 	{
@@ -651,7 +563,7 @@ VOID RT28xxPciAsicRadioOff(
 			{
 				DBGPRINT(RT_DEBUG_TRACE, ("TbTTTime = 0x%x , give up this sleep. \n", TbTTTime));
 	            OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_DOZE);
-	            pAd->bPCIclkOffDisableTx = FALSE;
+				RTMP_CLEAR_PSFLAG(pAd, fRTMP_PS_DISABLE_TX);
 				return;
 			}
 			else
@@ -688,18 +600,25 @@ VOID RT28xxPciAsicRadioOff(
 	if (i >= 50)
 	{
 		DBGPRINT(RT_DEBUG_TRACE, ("DMA keeps busy.  return on RT28xxPciAsicRadioOff ()\n"));
-		pAd->bPCIclkOffDisableTx = FALSE;
 		RTMP_IO_READ32(pAd, WPDMA_GLO_CFG, &DmaCfg.word);
 		DmaCfg.field.EnableTxDMA = 1;
 		RTMP_IO_WRITE32(pAd, WPDMA_GLO_CFG, DmaCfg.word);
+		pAd->CheckDmaBusyCount++;
 		return;
+	}
+	else
+	{
+		pAd->CheckDmaBusyCount = 0;
 	}
 
     RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_IDLE_RADIO_OFF);
 
     // Set to 1R.
-    tempBBP_R3 = (pAd->StaCfg.BBPR3 & 0xE7);
-	RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R3, tempBBP_R3);
+	if (pAd->Antenna.field.RxPath > 1)
+	{
+		tempBBP_R3 = (pAd->StaCfg.BBPR3 & 0xE7);
+		RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R3, tempBBP_R3);
+	}
 
 	// In Radio Off, we turn off RF clk, So now need to call ASICSwitchChannel again.
 	if (INFRA_ON(pAd) && (pAd->CommonCfg.CentralChannel != pAd->CommonCfg.Channel)
@@ -714,8 +633,15 @@ VOID RT28xxPciAsicRadioOff(
 		AsicTurnOffRFClk(pAd, pAd->CommonCfg.Channel);
 	}
 
-    // When PCI clock is off, don't want to service interrupt.
-	RTMP_IO_WRITE32(pAd, INT_MASK_CSR, AutoWakeupInt);
+	if (Level != RTMP_HALT)
+	{
+		// Change Interrupt bitmask.
+		RTMP_IO_WRITE32(pAd, INT_MASK_CSR, AutoWakeupInt);
+	}
+	else
+	{
+		NICDisableInterrupt(pAd);
+	}
 
     RTMP_IO_WRITE32(pAd, RX_CRX_IDX, pAd->RxRing.RxCpuIdx);
 	// Disable MAC Rx
@@ -726,7 +652,8 @@ VOID RT28xxPciAsicRadioOff(
 	//  2. Send Sleep command
 	RTMP_IO_WRITE32(pAd, H2M_MAILBOX_STATUS, 0xffffffff);
 	RTMP_IO_WRITE32(pAd, H2M_MAILBOX_CID, 0xffffffff);
-	AsicSendCommandToMcu(pAd, 0x30, PowerSafeCID, 0xff, 0x00);   // send POWER-SAVE command to MCU. Timeout unit:40us.
+	// send POWER-SAVE command to MCU. high-byte = 1 save power as much as possible. high byte = 0 save less power
+	AsicSendCommandToMcu(pAd, 0x30, PowerSafeCID, 0xff, 0x1);
 	//  2-1. Wait command success
 	// Status = 1 : success, Status = 2, already sleep, Status = 3, Maybe MAC is busy so can't finish this task.
 	brc = AsicCheckCommanOk(pAd, PowerSafeCID);
@@ -734,7 +661,7 @@ VOID RT28xxPciAsicRadioOff(
     if (brc == FALSE)
     {
         // try again
-    	AsicSendCommandToMcu(pAd, 0x30, PowerSafeCID, 0xff, 0x00);   // send POWER-SAVE command to MCU. Timeout unit:40us.
+    	AsicSendCommandToMcu(pAd, 0x30, PowerSafeCID, 0xff, 0x01);   // send POWER-SAVE command to MCU. Timeout unit:40us.
     	//RTMPusecDelay(200);
     	brc = AsicCheckCommanOk(pAd, PowerSafeCID);
     }
@@ -759,7 +686,7 @@ VOID RT28xxPciAsicRadioOff(
 	do
 	{
 		RTMP_IO_READ32(pAd, WPDMA_GLO_CFG, &DmaCfg.word);
-		if (DmaCfg.field.RxDMABusy == 0)
+		if ((DmaCfg.field.RxDMABusy == 0) && (DmaCfg.field.TxDMABusy == 0))
 			break;
 		RTMPusecDelay(20);
 		i++;
@@ -767,13 +694,12 @@ VOID RT28xxPciAsicRadioOff(
 
 	if (i >= 50)
 	{
+		pAd->CheckDmaBusyCount++;
 		DBGPRINT(RT_DEBUG_TRACE, ("DMA Rx keeps busy.  on RT28xxPciAsicRadioOff ()\n"));
 	}
-	// disable DMA Rx.
+	else
 	{
-		RTMP_IO_READ32(pAd, WPDMA_GLO_CFG, &DmaCfg.word);
-		DmaCfg.field.EnableRxDMA = 0;
-		RTMP_IO_WRITE32(pAd, WPDMA_GLO_CFG, DmaCfg.word);
+		pAd->CheckDmaBusyCount = 0;
 	}
 
 	if (Level == DOT11POWERSAVE)
@@ -799,7 +725,7 @@ VOID RT28xxPciAsicRadioOff(
 	if (Level == RTMP_HALT)
 	{
 		if ((brc == TRUE) && (i < 50))
-			RTMPPCIeLinkCtrlSetting(pAd, 1);
+			RTMPPCIeLinkCtrlSetting(pAd, 0);
 	}
 	//  4. Set PCI configuration Space Link Comtrol fields.  Only Radio Off needs to call this function
 	else
@@ -808,7 +734,7 @@ VOID RT28xxPciAsicRadioOff(
 			RTMPPCIeLinkCtrlSetting(pAd, 3);
 	}
 
-    pAd->bPCIclkOffDisableTx = FALSE;
+	RTMP_CLEAR_PSFLAG(pAd, fRTMP_PS_DISABLE_TX);
 }
 
 
@@ -835,7 +761,8 @@ BOOLEAN RT28xxPciAsicRadioOn(
 	{
 	    pAd->Mlme.bPsPollTimerRunning = FALSE;
 		RTMPCancelTimer(&pAd->Mlme.PsPollTimer,	&Cancelled);
-		if ((Level == GUIRADIO_OFF) || (Level == GUI_IDLE_POWER_SAVE))
+		if ((Level == GUIRADIO_OFF) || (Level == GUI_IDLE_POWER_SAVE)
+		|| (RTMP_TEST_PSFLAG(pAd, fRTMP_PS_SET_PCI_CLK_OFF_COMMAND)))
 		{
 			DBGPRINT(RT_DEBUG_TRACE, ("RT28xxPciAsicRadioOn ()\n"));
 			// 1. Set PCI Link Control in Configuration Space.
@@ -845,15 +772,14 @@ BOOLEAN RT28xxPciAsicRadioOn(
 	}
 
     pAd->bPCIclkOff = FALSE;
-
+	RTMP_IO_WRITE32(pAd, PBF_SYS_CTRL, 0x3a80);
 	// 2. Send wake up command.
-	AsicSendCommandToMcu(pAd, 0x31, PowerWakeCID, 0x00, 0x00);
+	AsicSendCommandToMcu(pAd, 0x31, PowerWakeCID, 0x00, 0x02);
 
 	// 2-1. wait command ok.
 	brv = AsicCheckCommanOk(pAd, PowerWakeCID);
     if (brv)
     {
-    	//RTMP_IO_WRITE32(pAd, INT_MASK_CSR, (DELAYINTMASK|RxINT));
     	NICEnableInterrupt(pAd);
 
     	// 3. Enable Tx DMA.
@@ -893,12 +819,9 @@ BOOLEAN RT28xxPciAsicRadioOn(
 
 VOID RT28xxPciStaAsicForceWakeup(
 	IN PRTMP_ADAPTER pAd,
-	IN BOOLEAN       bFromTx)
+	IN UCHAR    	 Level)
 {
     AUTO_WAKEUP_STRUC	AutoWakeupCfg;
-
-    if (!OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_DOZE))
-        return;
 
     if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_WAKEUP_NOW))
     {
@@ -907,38 +830,48 @@ VOID RT28xxPciStaAsicForceWakeup(
     }
 
     OPSTATUS_SET_FLAG(pAd, fOP_STATUS_WAKEUP_NOW);
+	RTMP_CLEAR_PSFLAG(pAd, fRTMP_PS_GO_TO_SLEEP_NOW);
 
     if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_ADVANCE_POWER_SAVE_PCIE_DEVICE))
     {
         // Support PCIe Advance Power Save
-    	if (bFromTx == TRUE)
+    	if (((Level == FROM_TX) && (pAd->Mlme.bPsPollTimerRunning == TRUE)) ||
+			(Level == RTMP_HALT))
     	{
             pAd->Mlme.bPsPollTimerRunning = FALSE;
     		RTMPPCIeLinkCtrlValueRestore(pAd, RESTORE_WAKEUP);
-    		RTMPusecDelay(3000);
+    		RTMPusecDelay(5000);
             DBGPRINT(RT_DEBUG_TRACE, ("=======AsicForceWakeup===bFromTx\n"));
     	}
 
 		AutoWakeupCfg.word = 0;
 		RTMP_IO_WRITE32(pAd, AUTO_WAKEUP_CFG, AutoWakeupCfg.word);
 
-        if (RT28xxPciAsicRadioOn(pAd, DOT11POWERSAVE))
-        {
-            // In Radio Off, we turn off RF clk, So now need to call ASICSwitchChannel again.
-        	if (INFRA_ON(pAd) && (pAd->CommonCfg.CentralChannel != pAd->CommonCfg.Channel)
-        		&& (pAd->MlmeAux.HtCapability.HtCapInfo.ChannelWidth == BW_40))
-        	{
-        		// Must using 40MHz.
-        		AsicSwitchChannel(pAd, pAd->CommonCfg.CentralChannel, FALSE);
-        		AsicLockChannel(pAd, pAd->CommonCfg.CentralChannel);
-        	}
-        	else
-        	{
-        		// Must using 20MHz.
-        		AsicSwitchChannel(pAd, pAd->CommonCfg.Channel, FALSE);
-        		AsicLockChannel(pAd, pAd->CommonCfg.Channel);
-        	}
-        }
+		// If this is called from Halt. ALWAYS force wakeup!!!
+		if (Level == RTMP_HALT)
+		{
+			RT28xxPciAsicRadioOn(pAd, RTMP_HALT);
+		}
+		else
+		{
+			if (RT28xxPciAsicRadioOn(pAd, DOT11POWERSAVE))
+			{
+				// In Radio Off, we turn off RF clk, So now need to call ASICSwitchChannel again.
+				if (INFRA_ON(pAd) && (pAd->CommonCfg.CentralChannel != pAd->CommonCfg.Channel)
+					&& (pAd->MlmeAux.HtCapability.HtCapInfo.ChannelWidth == BW_40))
+				{
+					// Must using 40MHz.
+					AsicSwitchChannel(pAd, pAd->CommonCfg.CentralChannel, FALSE);
+					AsicLockChannel(pAd, pAd->CommonCfg.CentralChannel);
+				}
+				else
+				{
+					// Must using 20MHz.
+					AsicSwitchChannel(pAd, pAd->CommonCfg.Channel, FALSE);
+					AsicLockChannel(pAd, pAd->CommonCfg.Channel);
+				}
+			}
+		}
     }
     else
     {
@@ -1107,8 +1040,6 @@ VOID  RadioOnExec(
 	}
 }
 
-#endif // CONFIG_STA_SUPPORT //
-
 VOID RT28xxPciMlmeRadioOn(
 	IN PRTMP_ADAPTER pAd)
 {
@@ -1122,6 +1053,7 @@ VOID RT28xxPciMlmeRadioOn(
     {
     	NICResetFromError(pAd);
 
+    	/*
     	RTMPRingCleanUp(pAd, QID_AC_BK);
     	RTMPRingCleanUp(pAd, QID_AC_BE);
     	RTMPRingCleanUp(pAd, QID_AC_VI);
@@ -1129,6 +1061,7 @@ VOID RT28xxPciMlmeRadioOn(
     	RTMPRingCleanUp(pAd, QID_HCCA);
     	RTMPRingCleanUp(pAd, QID_MGMT);
     	RTMPRingCleanUp(pAd, QID_RX);
+		*/
 
     	// Enable Tx/Rx
     	RTMPEnableRxTx(pAd);
@@ -1140,7 +1073,6 @@ VOID RT28xxPciMlmeRadioOn(
 	    RTMPSetLED(pAd, LED_RADIO_ON);
     }
 
-#ifdef CONFIG_STA_SUPPORT
     if ((pAd->OpMode == OPMODE_STA) &&
         (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_ADVANCE_POWER_SAVE_PCIE_DEVICE)))
     {
@@ -1153,7 +1085,6 @@ VOID RT28xxPciMlmeRadioOn(
     	RTMPCancelTimer(&pAd->Mlme.RadioOnOffTimer,	&Cancelled);
     	RTMPSetTimer(&pAd->Mlme.RadioOnOffTimer, 10);
     }
-#endif // CONFIG_STA_SUPPORT //
 }
 
 VOID RT28xxPciMlmeRadioOFF(
@@ -1162,6 +1093,12 @@ VOID RT28xxPciMlmeRadioOFF(
     WPDMA_GLO_CFG_STRUC	GloCfg;
 	UINT32	i;
 
+	if (pAd->StaCfg.bRadio == TRUE)
+	{
+		DBGPRINT(RT_DEBUG_TRACE,("-->MlmeRadioOff() return on bRadio == TRUE; \n"));
+		return;
+	}
+
     if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF))
     	return;
 
@@ -1169,13 +1106,10 @@ VOID RT28xxPciMlmeRadioOFF(
 
 	// Set LED
 	RTMPSetLED(pAd, LED_RADIO_OFF);
-	// Set Radio off flag
-	RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF);
 
-#ifdef CONFIG_STA_SUPPORT
-	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
     {
     	BOOLEAN		Cancelled;
+
     	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS))
     	{
 			RTMPCancelTimer(&pAd->MlmeAux.ScanTimer, &Cancelled);
@@ -1185,6 +1119,15 @@ VOID RT28xxPciMlmeRadioOFF(
 		if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_ADVANCE_POWER_SAVE_PCIE_DEVICE))
         {
             BOOLEAN Cancelled;
+
+			// Always radio on since the NIC needs to set the MCU command (LED_RADIO_OFF).
+			if ((pAd->OpMode == OPMODE_STA) && 
+			     (IDLE_ON(pAd)) && 
+			     (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_IDLE_RADIO_OFF)))
+			{
+				RT28xxPciAsicRadioOn(pAd, GUI_IDLE_POWER_SAVE);
+			}
+
             pAd->Mlme.bPsPollTimerRunning = FALSE;
             RTMPCancelTimer(&pAd->Mlme.PsPollTimer,	&Cancelled);
 	        RTMPCancelTimer(&pAd->Mlme.RadioOnOffTimer,	&Cancelled);
@@ -1197,8 +1140,24 @@ VOID RT28xxPciMlmeRadioOFF(
         //==========================================
         // Clean up old bss table
         BssTableInit(&pAd->ScanTab);
+
+		RTMPRingCleanUp(pAd, QID_AC_BK);
+    	RTMPRingCleanUp(pAd, QID_AC_BE);
+    	RTMPRingCleanUp(pAd, QID_AC_VI);
+    	RTMPRingCleanUp(pAd, QID_AC_VO);
+    	RTMPRingCleanUp(pAd, QID_HCCA);
+    	RTMPRingCleanUp(pAd, QID_MGMT);
+    	RTMPRingCleanUp(pAd, QID_RX);
+
+		if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_ADVANCE_POWER_SAVE_PCIE_DEVICE))
+		{
+			RTMPSetTimer(&pAd->Mlme.RadioOnOffTimer, 500);
+			return;
+		}
     }
-#endif // CONFIG_STA_SUPPORT //
+
+	// Set Radio off flag
+	RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF);
 
 	// Disable Tx/Rx DMA
 	RTMP_IO_READ32(pAd, WPDMA_GLO_CFG, &GloCfg.word);	   // disable DMA

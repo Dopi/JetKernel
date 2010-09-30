@@ -143,7 +143,7 @@ static int set_bud_lprops(struct ubifs_info *c, struct replay_entry *r)
 		dirty -= c->leb_size - lp->free;
 		/*
 		 * If the replay order was perfect the dirty space would now be
-		 * zero. The order is not perfect because the the journal heads
+		 * zero. The order is not perfect because the journal heads
 		 * race with each other. This is not a problem but is does mean
 		 * that the dirty space may temporarily exceed c->leb_size
 		 * during the replay.
@@ -837,9 +837,10 @@ static int replay_log_leb(struct ubifs_info *c, int lnum, int offs, void *sbuf)
 
 	dbg_mnt("replay log LEB %d:%d", lnum, offs);
 	sleb = ubifs_scan(c, lnum, offs, sbuf);
-	if (IS_ERR(sleb)) {
-		if (c->need_recovery)
-			sleb = ubifs_recover_log_leb(c, lnum, offs, sbuf);
+	if (IS_ERR(sleb) ) {
+		if (PTR_ERR(sleb) != -EUCLEAN || !c->need_recovery)
+			return PTR_ERR(sleb);
+		sleb = ubifs_recover_log_leb(c, lnum, offs, sbuf);
 		if (IS_ERR(sleb))
 			return PTR_ERR(sleb);
 	}
@@ -957,7 +958,7 @@ out:
 	return err;
 
 out_dump:
-	ubifs_err("log error detected while replying the log at LEB %d:%d",
+	ubifs_err("log error detected while replaying the log at LEB %d:%d",
 		  lnum, offs + snod->offs);
 	dbg_dump_node(c, snod->node);
 	ubifs_scan_destroy(sleb);

@@ -590,8 +590,8 @@ static int __init omap_hdq_probe(struct platform_device *pdev)
 	}
 
 	/* get interface & functional clock objects */
-	hdq_data->hdq_ick = clk_get(&pdev->dev, "hdq_ick");
-	hdq_data->hdq_fck = clk_get(&pdev->dev, "hdq_fck");
+	hdq_data->hdq_ick = clk_get(&pdev->dev, "ick");
+	hdq_data->hdq_fck = clk_get(&pdev->dev, "fck");
 
 	if (IS_ERR(hdq_data->hdq_ick) || IS_ERR(hdq_data->hdq_fck)) {
 		dev_dbg(&pdev->dev, "Can't get HDQ clock objects\n");
@@ -687,6 +687,7 @@ static int omap_hdq_remove(struct platform_device *pdev)
 
 	if (hdq_data->hdq_usecount) {
 		dev_dbg(&pdev->dev, "removed when use count is not zero\n");
+		mutex_unlock(&hdq_data->hdq_mutex);
 		return -EBUSY;
 	}
 

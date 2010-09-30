@@ -2,8 +2,11 @@
  * NFS internal definitions
  */
 
+#include "nfs4_fs.h"
 #include <linux/mount.h>
 #include <linux/security.h>
+
+#define NFS_MS_MASK (MS_RDONLY|MS_NOSUID|MS_NODEV|MS_NOEXEC|MS_SYNCHRONOUS)
 
 struct nfs_string;
 
@@ -14,6 +17,18 @@ struct nfs_string;
  *        interactive response.
  */
 #define NFS_MAX_READAHEAD	(RPC_DEF_SLOT_TABLE - 1)
+
+/*
+ * Determine if sessions are in use.
+ */
+static inline int nfs4_has_session(const struct nfs_client *clp)
+{
+#ifdef CONFIG_NFS_V4_1
+	if (clp->cl_session)
+		return 1;
+#endif /* CONFIG_NFS_V4_1 */
+	return 0;
+}
 
 struct nfs_clone_mount {
 	const struct super_block *sb;
@@ -28,6 +43,12 @@ struct nfs_clone_mount {
 };
 
 /*
+ * Note: RFC 1813 doesn't limit the number of auth flavors that
+ * a server can return, so make something up.
+ */
+#define NFS_MAX_SECFLAVORS	(12)
+
+/*
  * In-kernel mount arguments
  */
 struct nfs_parsed_mount_data {
@@ -37,10 +58,13 @@ struct nfs_parsed_mount_data {
 	int			acregmin, acregmax,
 				acdirmin, acdirmax;
 	int			namlen;
+	unsigned int		options;
 	unsigned int		bsize;
 	unsigned int		auth_flavor_len;
 	rpc_authflavor_t	auth_flavors[1];
 	char			*client_address;
+	unsigned int		minorversion;
+	char			*fscache_uniq;
 
 	struct {
 		struct sockaddr_storage	address;
@@ -73,6 +97,8 @@ struct nfs_mount_request {
 	unsigned short		protocol;
 	struct nfs_fh		*fh;
 	int			noresvport;
+	unsigned int		*auth_flav_len;
+	rpc_authflavor_t	*auth_flavs;
 };
 
 extern int nfs_mount(struct nfs_mount_request *info);
@@ -95,6 +121,8 @@ extern void nfs_free_server(struct nfs_server *server);
 extern struct nfs_server *nfs_clone_server(struct nfs_server *,
 					   struct nfs_fh *,
 					   struct nfs_fattr *);
+extern void nfs_mark_client_ready(struct nfs_client *clp, int state);
+extern int nfs4_check_client_ready(struct nfs_client *clp);
 #ifdef CONFIG_PROC_FS
 extern int __init nfs_fs_proc_init(void);
 extern void nfs_fs_proc_exit(void);
@@ -142,6 +170,20 @@ extern __be32 * nfs_decode_dirent(__be32 *, struct nfs_entry *, int);
 extern struct rpc_procinfo nfs3_procedures[];
 extern __be32 *nfs3_decode_dirent(__be32 *, struct nfs_entry *, int);
 
+/* nfs4proc.c */
+static inline void nfs4_restart_rpc(struct rpc_task *task,
+				    const struct nfs_client *clp)
+{
+#ifdef CONFIG_NFS_V4_1
+	if (nfs4_has_session(clp) &&
+	    test_bit(NFS4CLNT_SESSION_SETUP, &clp->cl_state)) {
+		rpc_restart_call_prepare(task);
+		return;
+	}
+#endif /* CONFIG_NFS_V4_1 */
+	rpc_restart_call(task);
+}
+
 /* nfs4xdr.c */
 #ifdef CONFIG_NFS_V4
 extern __be32 *nfs4_decode_dirent(__be32 *p, struct nfs_entry *entry, int plus);
@@ -151,6 +193,9 @@ extern __be32 *nfs4_decode_dirent(__be32 *p, struct nfs_entry *entry, int plus);
 #ifdef CONFIG_NFS_V4
 extern struct rpc_procinfo nfs4_procedures[];
 #endif
+
+/* proc.c */
+void nfs_close_context(struct nfs_open_context *ctx, int is_sync);
 
 /* dir.c */
 extern int nfs_access_cache_shrinker(int nr_to_scan, gfp_t gfp_mask);
@@ -165,6 +210,7 @@ extern void nfs_clear_inode(struct inode *);
 extern void nfs4_clear_inode(struct inode *);
 #endif
 void nfs_zap_acl_cache(struct inode *inode);
+extern int nfs_wait_bit_killable(void *word);
 
 /* super.c */
 void nfs_parse_ip_address(char *, size_t, struct sockaddr *, size_t *);
@@ -196,6 +242,38 @@ extern int nfs4_path_walk(struct nfs_server *server,
 			  struct nfs_fh *mntfh,
 			  const char *path);
 #endif
+
+/* read.c */
+extern void nfs_read_prepare(struct rpc_task *task, void *calldata);
+
+/* write.c */
+extern void nfs_write_prepare(struct rpc_task *task, void *calldata);
+
+/* nfs4proc.c */
+extern int _nfs4_call_sync(struct nfs_server *server,
+			   struct rpc_message *msg,
+			   struct nfs4_sequence_args *args,
+			   struct nfs4_sequence_res *res,
+			   int cache_reply);
+extern int _nfs4_call_sync_session(struct nfs_server *server,
+				   struct rpc_message *msg,
+				   struct nfs4_sequence_args *args,
+				   struct nfs4_sequence_res *res,
+				   int cache_reply);
+
+#ifdef CONFIG_NFS_V4_1
+extern void nfs41_sequence_free_slot(const struct nfs_client *,
+				     struct nfs4_sequence_res *res);
+#endif /* CONFIG_NFS_V4_1 */
+
+static inline void nfs4_sequence_free_slot(const struct nfs_client *clp,
+					   struct nfs4_sequence_res *res)
+{
+#ifdef CONFIG_NFS_V4_1
+	if (nfs4_has_session(clp))
+		nfs41_sequence_free_slot(clp, res);
+#endif /* CONFIG_NFS_V4_1 */
+}
 
 /*
  * Determine the device name as a string

@@ -3,7 +3,7 @@
  *
  * Global definitions for the zfcp device driver.
  *
- * Copyright IBM Corporation 2002, 2008
+ * Copyright IBM Corporation 2002, 2009
  */
 
 #ifndef ZFCP_DEF_H
@@ -22,6 +22,8 @@
 #include <linux/syscalls.h>
 #include <linux/scatterlist.h>
 #include <linux/ioctl.h>
+#include <scsi/fc/fc_fs.h>
+#include <scsi/fc/fc_gs.h>
 #include <scsi/scsi.h>
 #include <scsi/scsi_tcq.h>
 #include <scsi/scsi_cmnd.h>
@@ -29,6 +31,7 @@
 #include <scsi/scsi_host.h>
 #include <scsi/scsi_transport.h>
 #include <scsi/scsi_transport_fc.h>
+#include <scsi/scsi_bsg_fc.h>
 #include <asm/ccwdev.h>
 #include <asm/qdio.h>
 #include <asm/debug.h>
@@ -46,13 +49,6 @@
 #define ZFCP_SCSI_ER_TIMEOUT                    (10*HZ)
 
 /********************* CIO/QDIO SPECIFIC DEFINES *****************************/
-
-/* Adapter Identification Parameters */
-#define ZFCP_CONTROL_UNIT_TYPE  0x1731
-#define ZFCP_CONTROL_UNIT_MODEL 0x03
-#define ZFCP_DEVICE_TYPE        0x1732
-#define ZFCP_DEVICE_MODEL       0x03
-#define ZFCP_DEVICE_MODEL_PRIV	0x04
 
 /* DMQ bug workaround: don't use last SBALE */
 #define ZFCP_MAX_SBALES_PER_SBAL	(QDIO_MAX_ELEMENTS_PER_BUFFER - 1)
@@ -235,17 +231,9 @@ struct zfcp_ls_adisc {
 
 /* FC-PH/FC-GS well-known address identifiers for generic services */
 #define ZFCP_DID_WKA				0xFFFFF0
-#define ZFCP_DID_MANAGEMENT_SERVICE		0xFFFFFA
-#define ZFCP_DID_TIME_SERVICE			0xFFFFFB
-#define ZFCP_DID_DIRECTORY_SERVICE		0xFFFFFC
-#define ZFCP_DID_ALIAS_SERVICE			0xFFFFF8
-#define ZFCP_DID_KEY_DISTRIBUTION_SERVICE	0xFFFFF7
 
 /* remote port status */
 #define ZFCP_STATUS_PORT_PHYS_OPEN		0x00000001
-#define ZFCP_STATUS_PORT_PHYS_CLOSING		0x00000004
-#define ZFCP_STATUS_PORT_NO_WWPN		0x00000008
-#define ZFCP_STATUS_PORT_INVALID_WWPN		0x00000020
 
 /* well known address (WKA) port status*/
 enum zfcp_wka_status {
@@ -258,8 +246,6 @@ enum zfcp_wka_status {
 /* logical unit status */
 #define ZFCP_STATUS_UNIT_SHARED			0x00000004
 #define ZFCP_STATUS_UNIT_READONLY		0x00000008
-#define ZFCP_STATUS_UNIT_REGISTERED		0x00000010
-#define ZFCP_STATUS_UNIT_SCSI_WORK_PENDING	0x00000020
 
 /* FSF request status (this does not have a common part) */
 #define ZFCP_STATUS_FSFREQ_TASK_MANAGEMENT	0x00000002
@@ -388,6 +374,14 @@ struct zfcp_wka_port {
 	struct delayed_work	work;
 };
 
+struct zfcp_wka_ports {
+	struct zfcp_wka_port ms; 	/* management service */
+	struct zfcp_wka_port ts; 	/* time service */
+	struct zfcp_wka_port ds; 	/* directory service */
+	struct zfcp_wka_port as; 	/* alias service */
+	struct zfcp_wka_port ks; 	/* key distribution service */
+};
+
 struct zfcp_qdio_queue {
 	struct qdio_buffer *sbal[QDIO_MAX_BUFFERS_PER_Q];
 	u8		   first;	/* index of next free bfr in queue */
@@ -447,8 +441,9 @@ struct zfcp_adapter {
 	spinlock_t		req_list_lock;	   /* request list lock */
 	struct zfcp_qdio_queue	req_q;		   /* request queue */
 	spinlock_t		req_q_lock;	   /* for operations on queue */
-	int			req_q_pci_batch;   /* SBALs since PCI indication
-						      was last set */
+	ktime_t			req_q_time; /* time of last fill level change */
+	u64			req_q_util; /* for accounting */
+	spinlock_t		qdio_stat_lock;
 	u32			fsf_req_seq_no;	   /* FSF cmnd seq number */
 	wait_queue_head_t	request_wq;	   /* can be used to wait for
 						      more avaliable SBALs */
@@ -472,7 +467,7 @@ struct zfcp_adapter {
 						      actions */
 	u32			erp_low_mem_count; /* nr of erp actions waiting
 						      for memory */
-	struct zfcp_wka_port	nsp;		   /* adapter's nameserver */
+	struct zfcp_wka_ports	*gs;		   /* generic services */
 	debug_info_t		*rec_dbf;
 	debug_info_t		*hba_dbf;
 	debug_info_t		*san_dbf;          /* debug feature areas */
@@ -514,6 +509,9 @@ struct zfcp_port {
 	u32                    maxframe_size;
 	u32                    supported_classes;
 	struct work_struct     gid_pn_work;
+	struct work_struct     test_link_work;
+	struct work_struct     rport_work;
+	enum { RPORT_NONE, RPORT_ADD, RPORT_DEL }  rport_task;
 };
 
 struct zfcp_unit {
@@ -530,6 +528,7 @@ struct zfcp_unit {
 	struct zfcp_erp_action erp_action;     /* pending error recovery */
         atomic_t               erp_counter;
 	struct zfcp_latencies	latencies;
+	struct work_struct	scsi_work;
 };
 
 /* FSF request */
@@ -586,9 +585,6 @@ struct zfcp_fsf_req_qtcb {
 };
 
 /********************** ZFCP SPECIFIC DEFINES ********************************/
-
-#define ZFCP_REQ_AUTO_CLEANUP	0x00000002
-#define ZFCP_REQ_NO_QTCB	0x00000008
 
 #define ZFCP_SET                0x00000100
 #define ZFCP_CLEAR              0x00000200

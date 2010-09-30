@@ -57,7 +57,7 @@ ACPI_MODULE_NAME("pci_slot");
 				MY_NAME , ## arg);		\
 	} while (0)
 
-#define SLOT_NAME_SIZE 20		/* Inspired by #define in acpiphp.h */
+#define SLOT_NAME_SIZE 21		/* Inspired by #define in acpiphp.h */
 
 struct acpi_pci_slot {
 	acpi_handle root_handle;	/* handle of the root bridge */
@@ -149,7 +149,7 @@ register_slot(acpi_handle handle, u32 lvl, void *context, void **rv)
 		return AE_OK;
 	}
 
-	snprintf(name, sizeof(name), "%u", (u32)sun);
+	snprintf(name, sizeof(name), "%llu", sun);
 	pci_slot = pci_create_slot(pci_bus, device, name, NULL);
 	if (IS_ERR(pci_slot)) {
 		err("pci_create_slot returned %ld\n", PTR_ERR(pci_slot));
@@ -163,6 +163,8 @@ register_slot(acpi_handle handle, u32 lvl, void *context, void **rv)
 	mutex_lock(&slot_list_lock);
 	list_add(&slot->list, &slot_list);
 	mutex_unlock(&slot_list_lock);
+
+	get_device(&pci_bus->dev);
 
 	dbg("pci_slot: %p, pci_bus: %x, device: %d, name: %s\n",
 		pci_slot, pci_bus->number, device, name);
@@ -310,12 +312,15 @@ static void
 acpi_pci_slot_remove(acpi_handle handle)
 {
 	struct acpi_pci_slot *slot, *tmp;
+	struct pci_bus *pbus;
 
 	mutex_lock(&slot_list_lock);
 	list_for_each_entry_safe(slot, tmp, &slot_list, list) {
 		if (slot->root_handle == handle) {
 			list_del(&slot->list);
+			pbus = slot->pci_slot->bus;
 			pci_destroy_slot(slot->pci_slot);
+			put_device(&pbus->dev);
 			kfree(slot);
 		}
 	}

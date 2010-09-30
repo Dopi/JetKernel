@@ -366,9 +366,8 @@ static int gfar_scoalesce(struct net_device *dev, struct ethtool_coalesce *cvals
 		return -EINVAL;
 	}
 
-	priv->rxic = mk_ic_value(
-		gfar_usecs2ticks(priv, cvals->rx_coalesce_usecs),
-		cvals->rx_max_coalesced_frames);
+	priv->rxic = mk_ic_value(cvals->rx_max_coalesced_frames,
+		gfar_usecs2ticks(priv, cvals->rx_coalesce_usecs));
 
 	/* Set up tx coalescing */
 	if ((cvals->tx_coalesce_usecs == 0) ||
@@ -390,9 +389,8 @@ static int gfar_scoalesce(struct net_device *dev, struct ethtool_coalesce *cvals
 		return -EINVAL;
 	}
 
-	priv->txic = mk_ic_value(
-		gfar_usecs2ticks(priv, cvals->tx_coalesce_usecs),
-		cvals->tx_max_coalesced_frames);
+	priv->txic = mk_ic_value(cvals->tx_max_coalesced_frames,
+		gfar_usecs2ticks(priv, cvals->tx_coalesce_usecs));
 
 	gfar_write(&priv->regs->rxic, 0);
 	if (priv->rxcoalescing)
@@ -600,6 +598,7 @@ static int gfar_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 
 	spin_lock_irqsave(&priv->bflock, flags);
 	priv->wol_en = wol->wolopts & WAKE_MAGIC ? 1 : 0;
+	device_set_wakeup_enable(&dev->dev, priv->wol_en);
 	spin_unlock_irqrestore(&priv->bflock, flags);
 
 	return 0;

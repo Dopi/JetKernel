@@ -25,6 +25,7 @@
 #include <linux/errno.h>
 #include <linux/time.h>
 #include <linux/sysdev.h>
+#include <linux/gpio.h>
 #include <linux/io.h>
 
 #include <mach/hardware.h>
@@ -37,21 +38,14 @@
 #include <plat/cpu.h>
 #include <plat/pm.h>
 
-#ifdef CONFIG_S3C2410_PM_DEBUG
-extern void pm_dbg(const char *fmt, ...);
-#define DBG(fmt...) pm_dbg(fmt)
-#else
-#define DBG(fmt...) printk(KERN_DEBUG fmt)
-#endif
-
 static void s3c2410_pm_prepare(void)
 {
 	/* ensure at least GSTATUS3 has the resume address */
 
-	__raw_writel(virt_to_phys(s3c2410_cpu_resume), S3C2410_GSTATUS3);
+	__raw_writel(virt_to_phys(s3c_cpu_resume), S3C2410_GSTATUS3);
 
-	DBG("GSTATUS3 0x%08x\n", __raw_readl(S3C2410_GSTATUS3));
-	DBG("GSTATUS4 0x%08x\n", __raw_readl(S3C2410_GSTATUS4));
+	S3C_PMDBG("GSTATUS3 0x%08x\n", __raw_readl(S3C2410_GSTATUS3));
+	S3C_PMDBG("GSTATUS4 0x%08x\n", __raw_readl(S3C2410_GSTATUS4));
 
 	if (machine_is_h1940()) {
 		void *base = phys_to_virt(H1940_SUSPEND_CHECK);
@@ -83,7 +77,7 @@ static void s3c2410_pm_prepare(void)
 	}
 
 	if ( machine_is_aml_m5900() )
-		s3c2410_gpio_setpin(S3C2410_GPF2, 1);
+		s3c2410_gpio_setpin(S3C2410_GPF(2), 1);
 
 }
 
@@ -98,7 +92,7 @@ static int s3c2410_pm_resume(struct sys_device *dev)
 	__raw_writel(tmp, S3C2410_GSTATUS2);
 
 	if ( machine_is_aml_m5900() )
-		s3c2410_gpio_setpin(S3C2410_GPF2, 0);
+		s3c2410_gpio_setpin(S3C2410_GPF(2), 0);
 
 	return 0;
 }

@@ -162,6 +162,14 @@ static int efx_enqueue_skb(struct efx_tx_queue *tx_queue,
 	/* Get size of the initial fragment */
 	len = skb_headlen(skb);
 
+	/* Pad if necessary */
+	if (EFX_WORKAROUND_15592(efx) && skb->len <= 32) {
+		EFX_BUG_ON_PARANOID(skb->data_len);
+		len = 32 + 1;
+		if (skb_pad(skb, len - skb->len))
+			return NETDEV_TX_OK;
+	}
+
 	fill_level = tx_queue->insert_count - tx_queue->old_read_count;
 	q_space = efx->type->txd_ring_mask - 1 - fill_level;
 
@@ -352,13 +360,6 @@ inline int efx_xmit(struct efx_nic *efx,
 
 	/* Map fragments for DMA and add to TX queue */
 	rc = efx_enqueue_skb(tx_queue, skb);
-	if (unlikely(rc != NETDEV_TX_OK))
-		goto out;
-
-	/* Update last TX timer */
-	efx->net_dev->trans_start = jiffies;
-
- out:
 	return rc;
 }
 
@@ -375,6 +376,9 @@ int efx_hard_start_xmit(struct sk_buff *skb, struct net_device *net_dev)
 {
 	struct efx_nic *efx = netdev_priv(net_dev);
 	struct efx_tx_queue *tx_queue;
+
+	if (unlikely(efx->port_inhibited))
+		return NETDEV_TX_BUSY;
 
 	if (likely(skb->ip_summed == CHECKSUM_PARTIAL))
 		tx_queue = &efx->tx_queue[EFX_TX_QUEUE_OFFLOAD_CSUM];
@@ -397,7 +401,7 @@ void efx_xmit_done(struct efx_tx_queue *tx_queue, unsigned int index)
 	 * separates the update of read_count from the test of
 	 * stopped. */
 	smp_mb();
-	if (unlikely(tx_queue->stopped)) {
+	if (unlikely(tx_queue->stopped) && likely(efx->port_enabled)) {
 		fill_level = tx_queue->insert_count - tx_queue->read_count;
 		if (fill_level < EFX_NETDEV_TX_THRESHOLD(tx_queue)) {
 			EFX_BUG_ON_PARANOID(!efx_dev_registered(efx));
@@ -819,8 +823,6 @@ static void efx_enqueue_unwind(struct efx_tx_queue *tx_queue)
 					   tx_queue->efx->type->txd_ring_mask];
 		efx_tsoh_free(tx_queue, buffer);
 		EFX_BUG_ON_PARANOID(buffer->skb);
-		buffer->len = 0;
-		buffer->continuation = true;
 		if (buffer->unmap_len) {
 			unmap_addr = (buffer->dma_addr + buffer->len -
 				      buffer->unmap_len);
@@ -834,6 +836,8 @@ static void efx_enqueue_unwind(struct efx_tx_queue *tx_queue)
 					       PCI_DMA_TODEVICE);
 			buffer->unmap_len = 0;
 		}
+		buffer->len = 0;
+		buffer->continuation = true;
 	}
 }
 

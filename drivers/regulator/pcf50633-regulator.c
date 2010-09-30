@@ -284,7 +284,8 @@ static int __devinit pcf50633_regulator_probe(struct platform_device *pdev)
 	/* Already set by core driver */
 	pcf = platform_get_drvdata(pdev);
 
-	rdev = regulator_register(&regulators[pdev->id], &pdev->dev, pcf);
+	rdev = regulator_register(&regulators[pdev->id], &pdev->dev,
+				  pdev->dev.platform_data, pcf);
 	if (IS_ERR(rdev))
 		return PTR_ERR(rdev);
 
@@ -315,7 +316,7 @@ static int __init pcf50633_regulator_init(void)
 {
 	return platform_driver_register(&pcf50633_regulator_driver);
 }
-module_init(pcf50633_regulator_init);
+subsys_initcall(pcf50633_regulator_init);
 
 static void __exit pcf50633_regulator_exit(void)
 {

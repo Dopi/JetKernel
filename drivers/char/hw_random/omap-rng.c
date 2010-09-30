@@ -89,7 +89,7 @@ static struct hwrng omap_rng_ops = {
 	.data_read	= omap_rng_data_read,
 };
 
-static int __init omap_rng_probe(struct platform_device *pdev)
+static int __devinit omap_rng_probe(struct platform_device *pdev)
 {
 	struct resource *res, *mem;
 	int ret;
@@ -102,7 +102,7 @@ static int __init omap_rng_probe(struct platform_device *pdev)
 		return -EBUSY;
 
 	if (cpu_is_omap24xx()) {
-		rng_ick = clk_get(&pdev->dev, "rng_ick");
+		rng_ick = clk_get(&pdev->dev, "ick");
 		if (IS_ERR(rng_ick)) {
 			dev_err(&pdev->dev, "Could not get rng_ick\n");
 			ret = PTR_ERR(rng_ick);

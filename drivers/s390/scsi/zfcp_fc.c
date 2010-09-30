@@ -3,7 +3,7 @@
  *
  * Fibre Channel related functions for the zfcp device driver.
  *
- * Copyright IBM Corporation 2008
+ * Copyright IBM Corporation 2008, 2009
  */
 
 #define KMSG_COMPONENT "zfcp"
@@ -79,11 +79,9 @@ static int zfcp_wka_port_get(struct zfcp_wka_port *wka_port)
 
 	mutex_unlock(&wka_port->mutex);
 
-	wait_event_timeout(
-		wka_port->completion_wq,
-		wka_port->status == ZFCP_WKA_PORT_ONLINE ||
-		wka_port->status == ZFCP_WKA_PORT_OFFLINE,
-		HZ >> 1);
+	wait_event(wka_port->completion_wq,
+		   wka_port->status == ZFCP_WKA_PORT_ONLINE ||
+		   wka_port->status == ZFCP_WKA_PORT_OFFLINE);
 
 	if (wka_port->status == ZFCP_WKA_PORT_ONLINE) {
 		atomic_inc(&wka_port->refcount);
@@ -94,12 +92,9 @@ static int zfcp_wka_port_get(struct zfcp_wka_port *wka_port)
 
 static void zfcp_wka_port_offline(struct work_struct *work)
 {
-	struct delayed_work *dw = container_of(work, struct delayed_work, work);
+	struct delayed_work *dw = to_delayed_work(work);
 	struct zfcp_wka_port *wka_port =
 			container_of(dw, struct zfcp_wka_port, work);
-
-	wait_event(wka_port->completion_wq,
-			atomic_read(&wka_port->refcount) == 0);
 
 	mutex_lock(&wka_port->mutex);
 	if ((atomic_read(&wka_port->refcount) != 0) ||
@@ -119,23 +114,41 @@ static void zfcp_wka_port_put(struct zfcp_wka_port *wka_port)
 {
 	if (atomic_dec_return(&wka_port->refcount) != 0)
 		return;
-	/* wait 10 miliseconds, other reqs might pop in */
+	/* wait 10 milliseconds, other reqs might pop in */
 	schedule_delayed_work(&wka_port->work, HZ / 100);
 }
 
-void zfcp_fc_nameserver_init(struct zfcp_adapter *adapter)
+static void zfcp_fc_wka_port_init(struct zfcp_wka_port *wka_port, u32 d_id,
+				  struct zfcp_adapter *adapter)
 {
-	struct zfcp_wka_port *wka_port = &adapter->nsp;
-
 	init_waitqueue_head(&wka_port->completion_wq);
 
 	wka_port->adapter = adapter;
-	wka_port->d_id = ZFCP_DID_DIRECTORY_SERVICE;
+	wka_port->d_id = d_id;
 
 	wka_port->status = ZFCP_WKA_PORT_OFFLINE;
 	atomic_set(&wka_port->refcount, 0);
 	mutex_init(&wka_port->mutex);
 	INIT_DELAYED_WORK(&wka_port->work, zfcp_wka_port_offline);
+}
+
+void zfcp_fc_wka_port_force_offline(struct zfcp_wka_port *wka)
+{
+	cancel_delayed_work_sync(&wka->work);
+	mutex_lock(&wka->mutex);
+	wka->status = ZFCP_WKA_PORT_OFFLINE;
+	mutex_unlock(&wka->mutex);
+}
+
+void zfcp_fc_wka_ports_init(struct zfcp_adapter *adapter)
+{
+	struct zfcp_wka_ports *gs = adapter->gs;
+
+	zfcp_fc_wka_port_init(&gs->ms, FC_FID_MGMT_SERV, adapter);
+	zfcp_fc_wka_port_init(&gs->ts, FC_FID_TIME_SERV, adapter);
+	zfcp_fc_wka_port_init(&gs->ds, FC_FID_DIR_SERV, adapter);
+	zfcp_fc_wka_port_init(&gs->as, FC_FID_ALIASES, adapter);
+	zfcp_fc_wka_port_init(&gs->ks, FC_FID_SEC_KEY, adapter);
 }
 
 static void _zfcp_fc_incoming_rscn(struct zfcp_fsf_req *fsf_req, u32 range,
@@ -146,15 +159,14 @@ static void _zfcp_fc_incoming_rscn(struct zfcp_fsf_req *fsf_req, u32 range,
 
 	read_lock_irqsave(&zfcp_data.config_lock, flags);
 	list_for_each_entry(port, &fsf_req->adapter->port_list_head, list) {
-		if (!(atomic_read(&port->status) & ZFCP_STATUS_PORT_PHYS_OPEN))
-			/* Try to connect to unused ports anyway. */
+		if ((port->d_id & range) == (elem->nport_did & range))
+			zfcp_test_link(port);
+		if (!port->d_id)
 			zfcp_erp_port_reopen(port,
 					     ZFCP_STATUS_COMMON_ERP_FAILED,
-					     82, fsf_req);
-		else if ((port->d_id & range) == (elem->nport_did & range))
-			/* Check connection status for connected ports */
-			zfcp_test_link(port);
+					     "fcrscn1", NULL);
 	}
+
 	read_unlock_irqrestore(&zfcp_data.config_lock, flags);
 }
 
@@ -196,7 +208,7 @@ static void zfcp_fc_incoming_wwpn(struct zfcp_fsf_req *req, u64 wwpn)
 	read_unlock_irqrestore(&zfcp_data.config_lock, flags);
 
 	if (port && (port->wwpn == wwpn))
-		zfcp_erp_port_forced_reopen(port, 0, 83, req);
+		zfcp_erp_port_forced_reopen(port, 0, "fciwwp1", req);
 }
 
 static void zfcp_fc_incoming_plogi(struct zfcp_fsf_req *req)
@@ -259,10 +271,9 @@ static void zfcp_fc_ns_gid_pn_eval(unsigned long data)
 
 	if (ct->status)
 		return;
-	if (ct_iu_resp->header.cmd_rsp_code != ZFCP_CT_ACCEPT) {
-		atomic_set_mask(ZFCP_STATUS_PORT_INVALID_WWPN, &port->status);
+	if (ct_iu_resp->header.cmd_rsp_code != ZFCP_CT_ACCEPT)
 		return;
-	}
+
 	/* paranoia */
 	if (ct_iu_req->wwpn != port->wwpn)
 		return;
@@ -279,7 +290,7 @@ int static zfcp_fc_ns_gid_pn_request(struct zfcp_erp_action *erp_action,
 
 	/* setup parameters for send generic command */
 	gid_pn->port = erp_action->port;
-	gid_pn->ct.wka_port = &adapter->nsp;
+	gid_pn->ct.wka_port = &adapter->gs->ds;
 	gid_pn->ct.handler = zfcp_fc_ns_handler;
 	gid_pn->ct.handler_data = (unsigned long) &compl_rec;
 	gid_pn->ct.timeout = ZFCP_NS_GID_PN_TIMEOUT;
@@ -326,13 +337,13 @@ int zfcp_fc_ns_gid_pn(struct zfcp_erp_action *erp_action)
 
 	memset(gid_pn, 0, sizeof(*gid_pn));
 
-	ret = zfcp_wka_port_get(&adapter->nsp);
+	ret = zfcp_wka_port_get(&adapter->gs->ds);
 	if (ret)
 		goto out;
 
 	ret = zfcp_fc_ns_gid_pn_request(erp_action, gid_pn);
 
-	zfcp_wka_port_put(&adapter->nsp);
+	zfcp_wka_port_put(&adapter->gs->ds);
 out:
 	mempool_free(gid_pn, adapter->pool.data_gid_pn);
 	return ret;
@@ -375,16 +386,23 @@ static void zfcp_fc_adisc_handler(unsigned long data)
 
 	if (adisc->els.status) {
 		/* request rejected or timed out */
-		zfcp_erp_port_forced_reopen(port, 0, 63, NULL);
+		zfcp_erp_port_forced_reopen(port, ZFCP_STATUS_COMMON_ERP_FAILED,
+					    "fcadh_1", NULL);
 		goto out;
 	}
 
 	if (!port->wwnn)
 		port->wwnn = ls_adisc->wwnn;
 
-	if (port->wwpn != ls_adisc->wwpn)
-		zfcp_erp_port_reopen(port, 0, 64, NULL);
+	if ((port->wwpn != ls_adisc->wwpn) ||
+	    !(atomic_read(&port->status) & ZFCP_STATUS_COMMON_OPEN)) {
+		zfcp_erp_port_reopen(port, ZFCP_STATUS_COMMON_ERP_FAILED,
+				     "fcadh_2", NULL);
+		goto out;
+	}
 
+	/* port is good, unblock rport without going through erp */
+	zfcp_scsi_schedule_rport_register(port);
  out:
 	zfcp_port_put(port);
 	kfree(adisc);
@@ -422,6 +440,26 @@ static int zfcp_fc_adisc(struct zfcp_port *port)
 	return zfcp_fsf_send_els(&adisc->els);
 }
 
+void zfcp_fc_link_test_work(struct work_struct *work)
+{
+	struct zfcp_port *port =
+		container_of(work, struct zfcp_port, test_link_work);
+	int retval;
+
+	zfcp_port_get(port);
+	port->rport_task = RPORT_DEL;
+	zfcp_scsi_rport_work(&port->rport_work);
+
+	retval = zfcp_fc_adisc(port);
+	if (retval == 0)
+		return;
+
+	/* send of ADISC was not possible */
+	zfcp_erp_port_forced_reopen(port, 0, "fcltwk1", NULL);
+
+	zfcp_port_put(port);
+}
+
 /**
  * zfcp_test_link - lightweight link test procedure
  * @port: port to be tested
@@ -432,17 +470,9 @@ static int zfcp_fc_adisc(struct zfcp_port *port)
  */
 void zfcp_test_link(struct zfcp_port *port)
 {
-	int retval;
-
 	zfcp_port_get(port);
-	retval = zfcp_fc_adisc(port);
-	if (retval == 0)
-		return;
-
-	/* send of ADISC was not possible */
-	zfcp_port_put(port);
-	if (retval != -EBUSY)
-		zfcp_erp_port_forced_reopen(port, 0, 65, NULL);
+	if (!queue_work(zfcp_data.work_queue, &port->test_link_work))
+		zfcp_port_put(port);
 }
 
 static void zfcp_free_sg_env(struct zfcp_gpn_ft *gpn_ft, int buf_num)
@@ -503,7 +533,7 @@ static int zfcp_scan_issue_gpn_ft(struct zfcp_gpn_ft *gpn_ft,
 	req->fc4_type = ZFCP_CT_SCSI_FCP;
 
 	/* prepare zfcp_send_ct */
-	ct->wka_port = &adapter->nsp;
+	ct->wka_port = &adapter->gs->ds;
 	ct->handler = zfcp_fc_ns_handler;
 	ct->handler_data = (unsigned long)&compl_rec;
 	ct->timeout = 10;
@@ -522,6 +552,9 @@ static void zfcp_validate_port(struct zfcp_port *port)
 {
 	struct zfcp_adapter *adapter = port->adapter;
 
+	if (!(atomic_read(&port->status) & ZFCP_STATUS_COMMON_NOESC))
+		return;
+
 	atomic_clear_mask(ZFCP_STATUS_COMMON_NOESC, &port->status);
 
 	if ((port->supported_classes != 0) ||
@@ -529,7 +562,7 @@ static void zfcp_validate_port(struct zfcp_port *port)
 		zfcp_port_put(port);
 		return;
 	}
-	zfcp_erp_port_shutdown(port, 0, 151, NULL);
+	zfcp_erp_port_shutdown(port, 0, "fcpval1", NULL);
 	zfcp_erp_wait(adapter);
 	zfcp_port_put(port);
 	zfcp_port_dequeue(port);
@@ -582,17 +615,15 @@ static int zfcp_scan_eval_gpn_ft(struct zfcp_gpn_ft *gpn_ft, int max_entries)
 		if (acc->wwpn == fc_host_port_name(adapter->scsi_host))
 			continue;
 		port = zfcp_get_port_by_wwpn(adapter, acc->wwpn);
-		if (port) {
-			zfcp_port_get(port);
+		if (port)
 			continue;
-		}
 
 		port = zfcp_port_enqueue(adapter, acc->wwpn,
 					 ZFCP_STATUS_COMMON_NOESC, d_id);
 		if (IS_ERR(port))
 			ret = PTR_ERR(port);
 		else
-			zfcp_erp_port_reopen(port, 0, 149, NULL);
+			zfcp_erp_port_reopen(port, 0, "fcegpf1", NULL);
 	}
 
 	zfcp_erp_wait(adapter);
@@ -617,10 +648,11 @@ int zfcp_scan_ports(struct zfcp_adapter *adapter)
 	max_entries = chain ? ZFCP_GPN_FT_MAX_ENTRIES : ZFCP_GPN_FT_ENTRIES;
 	max_bytes = chain ? ZFCP_GPN_FT_MAX_SIZE : ZFCP_CT_SIZE_ONE_PAGE;
 
-	if (fc_host_port_type(adapter->scsi_host) != FC_PORTTYPE_NPORT)
+	if (fc_host_port_type(adapter->scsi_host) != FC_PORTTYPE_NPORT &&
+	    fc_host_port_type(adapter->scsi_host) != FC_PORTTYPE_NPIV)
 		return 0;
 
-	ret = zfcp_wka_port_get(&adapter->nsp);
+	ret = zfcp_wka_port_get(&adapter->gs->ds);
 	if (ret)
 		return ret;
 
@@ -642,7 +674,7 @@ int zfcp_scan_ports(struct zfcp_adapter *adapter)
 	}
 	zfcp_free_sg_env(gpn_ft, buf_num);
 out:
-	zfcp_wka_port_put(&adapter->nsp);
+	zfcp_wka_port_put(&adapter->gs->ds);
 	return ret;
 }
 
@@ -650,4 +682,159 @@ out:
 void _zfcp_scan_ports_later(struct work_struct *work)
 {
 	zfcp_scan_ports(container_of(work, struct zfcp_adapter, scan_work));
+}
+
+struct zfcp_els_fc_job {
+	struct zfcp_send_els els;
+	struct fc_bsg_job *job;
+};
+
+static void zfcp_fc_generic_els_handler(unsigned long data)
+{
+	struct zfcp_els_fc_job *els_fc_job = (struct zfcp_els_fc_job *) data;
+	struct fc_bsg_job *job = els_fc_job->job;
+	struct fc_bsg_reply *reply = job->reply;
+
+	if (els_fc_job->els.status) {
+		/* request rejected or timed out */
+		reply->reply_data.ctels_reply.status = FC_CTELS_STATUS_REJECT;
+		goto out;
+	}
+
+	reply->reply_data.ctels_reply.status = FC_CTELS_STATUS_OK;
+	reply->reply_payload_rcv_len = job->reply_payload.payload_len;
+
+out:
+	job->state_flags = FC_RQST_STATE_DONE;
+	job->job_done(job);
+	kfree(els_fc_job);
+}
+
+int zfcp_fc_execute_els_fc_job(struct fc_bsg_job *job)
+{
+	struct zfcp_els_fc_job *els_fc_job;
+	struct fc_rport *rport = job->rport;
+	struct Scsi_Host *shost;
+	struct zfcp_adapter *adapter;
+	struct zfcp_port *port;
+	u8 *port_did;
+
+	shost = rport ? rport_to_shost(rport) : job->shost;
+	adapter = (struct zfcp_adapter *)shost->hostdata[0];
+
+	if (!(atomic_read(&adapter->status) & ZFCP_STATUS_COMMON_OPEN))
+		return -EINVAL;
+
+	els_fc_job = kzalloc(sizeof(struct zfcp_els_fc_job), GFP_KERNEL);
+	if (!els_fc_job)
+		return -ENOMEM;
+
+	els_fc_job->els.adapter = adapter;
+	if (rport) {
+		read_lock_irq(&zfcp_data.config_lock);
+		port = rport->dd_data;
+		if (port)
+			els_fc_job->els.d_id = port->d_id;
+		read_unlock_irq(&zfcp_data.config_lock);
+		if (!port) {
+			kfree(els_fc_job);
+			return -EINVAL;
+		}
+	} else {
+		port_did = job->request->rqst_data.h_els.port_id;
+		els_fc_job->els.d_id = (port_did[0] << 16) +
+					(port_did[1] << 8) + port_did[2];
+	}
+
+	els_fc_job->els.req = job->request_payload.sg_list;
+	els_fc_job->els.resp = job->reply_payload.sg_list;
+	els_fc_job->els.handler = zfcp_fc_generic_els_handler;
+	els_fc_job->els.handler_data = (unsigned long) els_fc_job;
+	els_fc_job->job = job;
+
+	return zfcp_fsf_send_els(&els_fc_job->els);
+}
+
+struct zfcp_ct_fc_job {
+	struct zfcp_send_ct ct;
+	struct fc_bsg_job *job;
+};
+
+static void zfcp_fc_generic_ct_handler(unsigned long data)
+{
+	struct zfcp_ct_fc_job *ct_fc_job = (struct zfcp_ct_fc_job *) data;
+	struct fc_bsg_job *job = ct_fc_job->job;
+
+	job->reply->reply_data.ctels_reply.status = ct_fc_job->ct.status ?
+				FC_CTELS_STATUS_REJECT : FC_CTELS_STATUS_OK;
+	job->reply->reply_payload_rcv_len = job->reply_payload.payload_len;
+	job->state_flags = FC_RQST_STATE_DONE;
+	job->job_done(job);
+
+	zfcp_wka_port_put(ct_fc_job->ct.wka_port);
+
+	kfree(ct_fc_job);
+}
+
+int zfcp_fc_execute_ct_fc_job(struct fc_bsg_job *job)
+{
+	int ret;
+	u8 gs_type;
+	struct fc_rport *rport = job->rport;
+	struct Scsi_Host *shost;
+	struct zfcp_adapter *adapter;
+	struct zfcp_ct_fc_job *ct_fc_job;
+	u32 preamble_word1;
+
+	shost = rport ? rport_to_shost(rport) : job->shost;
+
+	adapter = (struct zfcp_adapter *)shost->hostdata[0];
+	if (!(atomic_read(&adapter->status) & ZFCP_STATUS_COMMON_OPEN))
+		return -EINVAL;
+
+	ct_fc_job = kzalloc(sizeof(struct zfcp_ct_fc_job), GFP_KERNEL);
+	if (!ct_fc_job)
+		return -ENOMEM;
+
+	preamble_word1 = job->request->rqst_data.r_ct.preamble_word1;
+	gs_type = (preamble_word1 & 0xff000000) >> 24;
+
+	switch (gs_type) {
+	case FC_FST_ALIAS:
+		ct_fc_job->ct.wka_port = &adapter->gs->as;
+		break;
+	case FC_FST_MGMT:
+		ct_fc_job->ct.wka_port = &adapter->gs->ms;
+		break;
+	case FC_FST_TIME:
+		ct_fc_job->ct.wka_port = &adapter->gs->ts;
+		break;
+	case FC_FST_DIR:
+		ct_fc_job->ct.wka_port = &adapter->gs->ds;
+		break;
+	default:
+		kfree(ct_fc_job);
+		return -EINVAL; /* no such service */
+	}
+
+	ret = zfcp_wka_port_get(ct_fc_job->ct.wka_port);
+	if (ret) {
+		kfree(ct_fc_job);
+		return ret;
+	}
+
+	ct_fc_job->ct.req = job->request_payload.sg_list;
+	ct_fc_job->ct.resp = job->reply_payload.sg_list;
+	ct_fc_job->ct.timeout = ZFCP_FSF_REQUEST_TIMEOUT;
+	ct_fc_job->ct.handler = zfcp_fc_generic_ct_handler;
+	ct_fc_job->ct.handler_data = (unsigned long) ct_fc_job;
+	ct_fc_job->ct.completion = NULL;
+	ct_fc_job->job = job;
+
+	ret = zfcp_fsf_send_ct(&ct_fc_job->ct, NULL, NULL);
+	if (ret) {
+		kfree(ct_fc_job);
+		zfcp_wka_port_put(ct_fc_job->ct.wka_port);
+	}
+	return ret;
 }

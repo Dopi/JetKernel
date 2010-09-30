@@ -10,6 +10,7 @@
 
 #include <linux/netdevice.h>
 #include <linux/ethtool.h>
+#include <linux/mdio.h>
 #include <linux/rtnetlink.h>
 #include "net_driver.h"
 #include "workarounds.h"
@@ -345,8 +346,8 @@ static int efx_ethtool_fill_self_tests(struct efx_nic *efx,
 	unsigned int n = 0, i;
 	enum efx_loopback_mode mode;
 
-	efx_fill_test(n++, strings, data, &tests->mii,
-		      "core", 0, "mii", NULL);
+	efx_fill_test(n++, strings, data, &tests->mdio,
+		      "core", 0, "mdio", NULL);
 	efx_fill_test(n++, strings, data, &tests->nvram,
 		      "core", 0, "nvram", NULL);
 	efx_fill_test(n++, strings, data, &tests->interrupt,
@@ -529,7 +530,7 @@ static int efx_ethtool_nway_reset(struct net_device *net_dev)
 {
 	struct efx_nic *efx = netdev_priv(net_dev);
 
-	return mii_nway_restart(&efx->mii);
+	return mdio45_nway_restart(&efx->mdio);
 }
 
 static u32 efx_ethtool_get_link(struct net_device *net_dev)
@@ -597,7 +598,6 @@ static int efx_ethtool_get_coalesce(struct net_device *net_dev,
 {
 	struct efx_nic *efx = netdev_priv(net_dev);
 	struct efx_tx_queue *tx_queue;
-	struct efx_rx_queue *rx_queue;
 	struct efx_channel *channel;
 
 	memset(coalesce, 0, sizeof(*coalesce));
@@ -615,14 +615,8 @@ static int efx_ethtool_get_coalesce(struct net_device *net_dev,
 		}
 	}
 
-	/* Find lowest IRQ moderation across all used RX queues */
-	coalesce->rx_coalesce_usecs_irq = ~((u32) 0);
-	efx_for_each_rx_queue(rx_queue, efx) {
-		channel = rx_queue->channel;
-		if (channel->irq_moderation < coalesce->rx_coalesce_usecs_irq)
-			coalesce->rx_coalesce_usecs_irq =
-				channel->irq_moderation;
-	}
+	coalesce->use_adaptive_rx_coalesce = efx->irq_rx_adaptive;
+	coalesce->rx_coalesce_usecs_irq = efx->irq_rx_moderation;
 
 	return 0;
 }
@@ -636,10 +630,9 @@ static int efx_ethtool_set_coalesce(struct net_device *net_dev,
 	struct efx_nic *efx = netdev_priv(net_dev);
 	struct efx_channel *channel;
 	struct efx_tx_queue *tx_queue;
-	unsigned tx_usecs, rx_usecs;
+	unsigned tx_usecs, rx_usecs, adaptive;
 
-	if (coalesce->use_adaptive_rx_coalesce ||
-	    coalesce->use_adaptive_tx_coalesce)
+	if (coalesce->use_adaptive_tx_coalesce)
 		return -EOPNOTSUPP;
 
 	if (coalesce->rx_coalesce_usecs || coalesce->tx_coalesce_usecs) {
@@ -650,6 +643,7 @@ static int efx_ethtool_set_coalesce(struct net_device *net_dev,
 
 	rx_usecs = coalesce->rx_coalesce_usecs_irq;
 	tx_usecs = coalesce->tx_coalesce_usecs_irq;
+	adaptive = coalesce->use_adaptive_rx_coalesce;
 
 	/* If the channel is shared only allow RX parameters to be set */
 	efx_for_each_tx_queue(tx_queue, efx) {
@@ -661,7 +655,7 @@ static int efx_ethtool_set_coalesce(struct net_device *net_dev,
 		}
 	}
 
-	efx_init_irq_moderation(efx, tx_usecs, rx_usecs);
+	efx_init_irq_moderation(efx, tx_usecs, rx_usecs, adaptive);
 
 	/* Reset channel to pick up new moderation value.  Note that
 	 * this may change the value of the irq_moderation field
@@ -689,7 +683,7 @@ static int efx_ethtool_set_pauseparam(struct net_device *net_dev,
 		return -EINVAL;
 	}
 
-	if (!(efx->phy_op->mmds & DEV_PRESENT_BIT(MDIO_MMD_AN)) &&
+	if (!(efx->phy_op->mmds & MDIO_DEVS_AN) &&
 	    (wanted_fc & EFX_FC_AUTO)) {
 		EFX_LOG(efx, "PHY does not support flow control "
 			"autonegotiation\n");
@@ -717,7 +711,8 @@ static int efx_ethtool_set_pauseparam(struct net_device *net_dev,
 	mutex_lock(&efx->mac_lock);
 
 	efx->wanted_fc = wanted_fc;
-	mdio_clause45_set_pause(efx);
+	if (efx->phy_op->mmds & MDIO_DEVS_AN)
+		mdio45_ethtool_spauseparam_an(&efx->mdio, pause);
 	__efx_reconfigure_port(efx);
 
 	mutex_unlock(&efx->mac_lock);

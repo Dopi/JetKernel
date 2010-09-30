@@ -56,7 +56,9 @@
 	US_FLAG(SANE_SENSE,     0x00008000)			\
 		/* Sane Sense (> 18 bytes) */			\
 	US_FLAG(CAPACITY_OK,	0x00010000)			\
-		/* READ CAPACITY response is correct */
+		/* READ CAPACITY response is correct */		\
+	US_FLAG(BAD_SENSE,	0x00020000)			\
+		/* Bad Sense (never more than 18 bytes) */
 
 #define US_FLAG(name, value)	US_FL_##name = value ,
 enum { US_DO_ALL_FLAGS };
@@ -96,39 +98,26 @@ enum { US_DO_ALL_FLAGS };
 #define US_PR_CBI	0x00		/* Control/Bulk/Interrupt */
 #define US_PR_CB	0x01		/* Control/Bulk w/o interrupt */
 #define US_PR_BULK	0x50		/* bulk only */
-#ifdef CONFIG_USB_STORAGE_USBAT
+
 #define US_PR_USBAT	0x80		/* SCM-ATAPI bridge */
-#endif
-#ifdef CONFIG_USB_STORAGE_SDDR09
 #define US_PR_EUSB_SDDR09	0x81	/* SCM-SCSI bridge for SDDR-09 */
-#endif
-#ifdef CONFIG_USB_STORAGE_SDDR55
 #define US_PR_SDDR55	0x82		/* SDDR-55 (made up) */
-#endif
 #define US_PR_DPCM_USB  0xf0		/* Combination CB/SDDR09 */
-#ifdef CONFIG_USB_STORAGE_FREECOM
 #define US_PR_FREECOM   0xf1		/* Freecom */
-#endif
-#ifdef CONFIG_USB_STORAGE_DATAFAB
 #define US_PR_DATAFAB   0xf2		/* Datafab chipsets */
-#endif
-#ifdef CONFIG_USB_STORAGE_JUMPSHOT
 #define US_PR_JUMPSHOT  0xf3		/* Lexar Jumpshot */
-#endif
-#ifdef CONFIG_USB_STORAGE_ALAUDA
 #define US_PR_ALAUDA    0xf4		/* Alauda chipsets */
-#endif
-#ifdef CONFIG_USB_STORAGE_KARMA
 #define US_PR_KARMA     0xf5		/* Rio Karma */
-#endif
 
 #define US_PR_DEVICE	0xff		/* Use device's value */
 
 /*
  */
+extern int usb_usual_ignore_device(struct usb_interface *intf);
+extern struct usb_device_id usb_storage_usb_ids[];
+
 #ifdef CONFIG_USB_LIBUSUAL
 
-extern struct usb_device_id storage_usb_ids[];
 extern void usb_usual_set_present(int type);
 extern void usb_usual_clear_present(int type);
 extern int usb_usual_check_type(const struct usb_device_id *, int type);

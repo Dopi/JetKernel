@@ -308,11 +308,14 @@
 #define __NR_dup3			1316
 #define __NR_pipe2			1317
 #define __NR_inotify_init1		1318
+#define __NR_preadv			1319
+#define __NR_pwritev			1320
+#define __NR_rt_tgsigqueueinfo		1321
 
 #ifdef __KERNEL__
 
 
-#define NR_syscalls			295 /* length of syscall table */
+#define NR_syscalls			298 /* length of syscall table */
 
 /*
  * The following defines stop scripts/checksyscalls.sh from complaining about
@@ -326,6 +329,7 @@
 #define __IGNORE_utime		/* utimes() */
 #define __IGNORE_getpgrp	/* getpgid() */
 #define __IGNORE_vfork		/* clone() */
+#define __IGNORE_umount2	/* umount() */
 
 #define __ARCH_WANT_SYS_RT_SIGACTION
 #define __ARCH_WANT_SYS_RT_SIGSUSPEND

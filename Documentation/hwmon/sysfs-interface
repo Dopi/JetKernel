@@ -70,6 +70,7 @@ are interpreted as 0! For more on how written strings are interpreted see the
 [0-*]	denotes any positive number starting from 0
 [1-*]	denotes any positive number starting from 1
 RO	read only value
+WO	write only value
 RW	read/write value
 
 Read/write values may be read-only for some chips, depending on the
@@ -148,6 +149,11 @@ Also see the Alarms section for status flags associated with voltages.
 
 fan[1-*]_min	Fan minimum value
 		Unit: revolution/min (RPM)
+		RW
+
+fan[1-*]_max	Fan maximum value
+		Unit: revolution/min (RPM)
+		Only rarely supported by the hardware.
 		RW
 
 fan[1-*]_input	Fan input value.
@@ -290,6 +296,24 @@ temp[1-*]_label	Suggested temperature channel label.
 		user-space.
 		RO
 
+temp[1-*]_lowest
+		Historical minimum temperature
+		Unit: millidegree Celsius
+		RO
+
+temp[1-*]_highest
+		Historical maximum temperature
+		Unit: millidegree Celsius
+		RO
+
+temp[1-*]_reset_history
+		Reset temp_lowest and temp_highest
+		WO
+
+temp_reset_history
+		Reset temp_lowest and temp_highest for all sensors
+		WO
+
 Some chips measure temperature using external thermistors and an ADC, and
 report the temperature measurement as a voltage. Converting this voltage
 back to a temperature (or the other way around for limits) requires
@@ -365,6 +389,7 @@ energy[1-*]_input		Cumulative energy use
 				Unit: microJoule
 				RO
 
+
 **********
 * Alarms *
 **********
@@ -389,6 +414,7 @@ OR
 in[0-*]_min_alarm
 in[0-*]_max_alarm
 fan[1-*]_min_alarm
+fan[1-*]_max_alarm
 temp[1-*]_min_alarm
 temp[1-*]_max_alarm
 temp[1-*]_crit_alarm
@@ -450,6 +476,27 @@ beep_mask	Bitmask for beep.
 		Same format as 'alarms' with the same bit locations,
 		use discouraged for the same reason. Use individual
 		*_beep files instead.
+		RW
+
+
+***********************
+* Intrusion detection *
+***********************
+
+intrusion[0-*]_alarm
+		Chassis intrusion detection
+		0: OK
+		1: intrusion detected
+		RW
+		Contrary to regular alarm flags which clear themselves
+		automatically when read, this one sticks until cleared by
+		the user. This is done by writing 0 to the file. Writing
+		other values is unsupported.
+
+intrusion[0-*]_beep
+		Chassis intrusion beep
+		0: disable
+		1: enable
 		RW
 
 

@@ -27,13 +27,13 @@
 #include <linux/mm.h>
 #include <linux/highmem.h>
 #include <linux/hardirq.h>
+#include <asm/timer.h>
 
 #define MMU_QUEUE_SIZE 1024
 
 struct kvm_para_state {
 	u8 mmu_queue[MMU_QUEUE_SIZE];
 	int mmu_queue_len;
-	enum paravirt_lazy_mode mode;
 };
 
 static DEFINE_PER_CPU(struct kvm_para_state, para_state);
@@ -76,7 +76,7 @@ static void kvm_deferred_mmu_op(void *buffer, int len)
 {
 	struct kvm_para_state *state = kvm_para_state();
 
-	if (state->mode != PARAVIRT_LAZY_MMU) {
+	if (paravirt_get_lazy_mode() != PARAVIRT_LAZY_MMU) {
 		kvm_mmu_op(buffer, len);
 		return;
 	}
@@ -138,12 +138,6 @@ static void kvm_set_pte_atomic(pte_t *ptep, pte_t pte)
 	kvm_mmu_write(ptep, pte_val(pte));
 }
 
-static void kvm_set_pte_present(struct mm_struct *mm, unsigned long addr,
-				pte_t *ptep, pte_t pte)
-{
-	kvm_mmu_write(ptep, pte_val(pte));
-}
-
 static void kvm_pte_clear(struct mm_struct *mm,
 			  unsigned long addr, pte_t *ptep)
 {
@@ -190,10 +184,7 @@ static void kvm_release_pt(unsigned long pfn)
 
 static void kvm_enter_lazy_mmu(void)
 {
-	struct kvm_para_state *state = kvm_para_state();
-
 	paravirt_enter_lazy_mmu();
-	state->mode = paravirt_get_lazy_mode();
 }
 
 static void kvm_leave_lazy_mmu(void)
@@ -201,11 +192,10 @@ static void kvm_leave_lazy_mmu(void)
 	struct kvm_para_state *state = kvm_para_state();
 
 	mmu_queue_flush(state);
-	paravirt_leave_lazy(paravirt_get_lazy_mode());
-	state->mode = paravirt_get_lazy_mode();
+	paravirt_leave_lazy_mmu();
 }
 
-static void paravirt_ops_setup(void)
+static void __init paravirt_ops_setup(void)
 {
 	pv_info.name = "KVM";
 	pv_info.paravirt_enabled = 1;
@@ -220,7 +210,6 @@ static void paravirt_ops_setup(void)
 #if PAGETABLE_LEVELS >= 3
 #ifdef CONFIG_X86_PAE
 		pv_mmu_ops.set_pte_atomic = kvm_set_pte_atomic;
-		pv_mmu_ops.set_pte_present = kvm_set_pte_present;
 		pv_mmu_ops.pte_clear = kvm_pte_clear;
 		pv_mmu_ops.pmd_clear = kvm_pmd_clear;
 #endif
@@ -237,6 +226,9 @@ static void paravirt_ops_setup(void)
 		pv_mmu_ops.lazy_mode.enter = kvm_enter_lazy_mmu;
 		pv_mmu_ops.lazy_mode.leave = kvm_leave_lazy_mmu;
 	}
+#ifdef CONFIG_X86_IO_APIC
+	no_timer_check = 1;
+#endif
 }
 
 void __init kvm_guest_init(void)

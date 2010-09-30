@@ -181,7 +181,7 @@ static void *autofs4_follow_link(struct dentry *dentry, struct nameidata *nd)
 		nd->flags);
 	/*
 	 * For an expire of a covered direct or offset mount we need
-	 * to beeak out of follow_down() at the autofs mount trigger
+	 * to break out of follow_down() at the autofs mount trigger
 	 * (d_mounted--), so we can see the expiring flag, and manage
 	 * the blocking and following here until the expire is completed.
 	 */
@@ -190,7 +190,7 @@ static void *autofs4_follow_link(struct dentry *dentry, struct nameidata *nd)
 		if (ino->flags & AUTOFS_INF_EXPIRING) {
 			spin_unlock(&sbi->fs_lock);
 			/* Follow down to our covering mount. */
-			if (!follow_down(&nd->path.mnt, &nd->path.dentry))
+			if (!follow_down(&nd->path))
 				goto done;
 			goto follow;
 		}
@@ -230,8 +230,7 @@ follow:
 	 * to follow it.
 	 */
 	if (d_mountpoint(dentry)) {
-		if (!autofs4_follow_mount(&nd->path.mnt,
-					  &nd->path.dentry)) {
+		if (!autofs4_follow_mount(&nd->path)) {
 			status = -ENOENT;
 			goto out_error;
 		}
@@ -349,13 +348,13 @@ void autofs4_dentry_release(struct dentry *de)
 }
 
 /* For dentries of directories in the root dir */
-static struct dentry_operations autofs4_root_dentry_operations = {
+static const struct dentry_operations autofs4_root_dentry_operations = {
 	.d_revalidate	= autofs4_revalidate,
 	.d_release	= autofs4_dentry_release,
 };
 
 /* For other dentries */
-static struct dentry_operations autofs4_dentry_operations = {
+static const struct dentry_operations autofs4_dentry_operations = {
 	.d_revalidate	= autofs4_revalidate,
 	.d_release	= autofs4_dentry_release,
 };
@@ -485,22 +484,6 @@ static struct dentry *autofs4_lookup(struct inode *dir, struct dentry *dentry, s
 	DPRINTK("pid = %u, pgrp = %u, catatonic = %d, oz_mode = %d",
 		 current->pid, task_pgrp_nr(current), sbi->catatonic, oz_mode);
 
-	expiring = autofs4_lookup_expiring(sbi, dentry->d_parent, &dentry->d_name);
-	if (expiring) {
-		/*
-		 * If we are racing with expire the request might not
-		 * be quite complete but the directory has been removed
-		 * so it must have been successful, so just wait for it.
-		 */
-		ino = autofs4_dentry_ino(expiring);
-		autofs4_expire_wait(expiring);
-		spin_lock(&sbi->lookup_lock);
-		if (!list_empty(&ino->expiring))
-			list_del_init(&ino->expiring);
-		spin_unlock(&sbi->lookup_lock);
-		dput(expiring);
-	}
-
 	unhashed = autofs4_lookup_active(sbi, dentry->d_parent, &dentry->d_name);
 	if (unhashed)
 		dentry = unhashed;
@@ -538,14 +521,31 @@ static struct dentry *autofs4_lookup(struct inode *dir, struct dentry *dentry, s
 	}
 
 	if (!oz_mode) {
+		mutex_unlock(&dir->i_mutex);
+		expiring = autofs4_lookup_expiring(sbi,
+						   dentry->d_parent,
+						   &dentry->d_name);
+		if (expiring) {
+			/*
+			 * If we are racing with expire the request might not
+			 * be quite complete but the directory has been removed
+			 * so it must have been successful, so just wait for it.
+			 */
+			ino = autofs4_dentry_ino(expiring);
+			autofs4_expire_wait(expiring);
+			spin_lock(&sbi->lookup_lock);
+			if (!list_empty(&ino->expiring))
+				list_del_init(&ino->expiring);
+			spin_unlock(&sbi->lookup_lock);
+			dput(expiring);
+		}
+
 		spin_lock(&dentry->d_lock);
 		dentry->d_flags |= DCACHE_AUTOFS_PENDING;
 		spin_unlock(&dentry->d_lock);
-		if (dentry->d_op && dentry->d_op->d_revalidate) {
-			mutex_unlock(&dir->i_mutex);
+		if (dentry->d_op && dentry->d_op->d_revalidate)
 			(dentry->d_op->d_revalidate)(dentry, nd);
-			mutex_lock(&dir->i_mutex);
-		}
+		mutex_lock(&dir->i_mutex);
 	}
 
 	/*

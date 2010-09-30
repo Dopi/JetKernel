@@ -15,16 +15,11 @@
 #include <linux/kernel.h>
 #include <linux/param.h>
 #include <linux/init.h>
-#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <asm/machdep.h>
 #include <asm/coldfire.h>
 #include <asm/mcfsim.h>
 #include <asm/mcfuart.h>
-
-/***************************************************************************/
-
-void coldfire_reset(void);
 
 /***************************************************************************/
 
@@ -50,8 +45,39 @@ static struct platform_device m523x_uart = {
 	.dev.platform_data	= m523x_uart_platform,
 };
 
+static struct resource m523x_fec_resources[] = {
+	{
+		.start		= MCF_MBAR + 0x1000,
+		.end		= MCF_MBAR + 0x1000 + 0x7ff,
+		.flags		= IORESOURCE_MEM,
+	},
+	{
+		.start		= 64 + 23,
+		.end		= 64 + 23,
+		.flags		= IORESOURCE_IRQ,
+	},
+	{
+		.start		= 64 + 27,
+		.end		= 64 + 27,
+		.flags		= IORESOURCE_IRQ,
+	},
+	{
+		.start		= 64 + 29,
+		.end		= 64 + 29,
+		.flags		= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device m523x_fec = {
+	.name			= "fec",
+	.id			= 0,
+	.num_resources		= ARRAY_SIZE(m523x_fec_resources),
+	.resource		= m523x_fec_resources,
+};
+
 static struct platform_device *m523x_devices[] __initdata = {
 	&m523x_uart,
+	&m523x_fec,
 };
 
 /***************************************************************************/
@@ -83,6 +109,25 @@ static void __init m523x_uarts_init(void)
 
 /***************************************************************************/
 
+static void __init m523x_fec_init(void)
+{
+	u32 imr;
+
+	/* Unmask FEC interrupts at ColdFire interrupt controller */
+	writeb(0x28, MCF_IPSBAR + MCFICM_INTC0 + MCFINTC_ICR0 + 23);
+	writeb(0x27, MCF_IPSBAR + MCFICM_INTC0 + MCFINTC_ICR0 + 27);
+	writeb(0x26, MCF_IPSBAR + MCFICM_INTC0 + MCFINTC_ICR0 + 29);
+
+	imr = readl(MCF_IPSBAR + MCFICM_INTC0 + MCFINTC_IMRH);
+	imr &= ~0xf;
+	writel(imr, MCF_IPSBAR + MCFICM_INTC0 + MCFINTC_IMRH);
+	imr = readl(MCF_IPSBAR + MCFICM_INTC0 + MCFINTC_IMRL);
+	imr &= ~0xff800001;
+	writel(imr, MCF_IPSBAR + MCFICM_INTC0 + MCFINTC_IMRL);
+}
+
+/***************************************************************************/
+
 void mcf_disableall(void)
 {
 	*((volatile unsigned long *) (MCF_IPSBAR + MCFICM_INTC0 + MCFINTC_IMRH)) = 0xffffffff;
@@ -95,14 +140,22 @@ void mcf_autovector(unsigned int vec)
 {
 	/* Everything is auto-vectored on the 523x */
 }
+/***************************************************************************/
+
+static void m523x_cpu_reset(void)
+{
+	local_irq_disable();
+	__raw_writeb(MCF_RCR_SWRESET, MCF_IPSBAR + MCF_RCR);
+}
 
 /***************************************************************************/
 
 void __init config_BSP(char *commandp, int size)
 {
 	mcf_disableall();
-	mach_reset = coldfire_reset;
+	mach_reset = m523x_cpu_reset;
 	m523x_uarts_init();
+	m523x_fec_init();
 }
 
 /***************************************************************************/

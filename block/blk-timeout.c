@@ -122,10 +122,8 @@ void blk_rq_timed_out_timer(unsigned long data)
 			if (blk_mark_rq_complete(rq))
 				continue;
 			blk_rq_timed_out(rq);
-		} else {
-			if (!next || time_after(next, rq->deadline))
-				next = rq->deadline;
-		}
+		} else if (!next || time_after(next, rq->deadline))
+			next = rq->deadline;
 	}
 
 	/*
@@ -176,16 +174,14 @@ void blk_add_timer(struct request *req)
 	BUG_ON(!list_empty(&req->timeout_list));
 	BUG_ON(test_bit(REQ_ATOM_COMPLETE, &req->atomic_flags));
 
-	if (req->timeout)
-		req->deadline = jiffies + req->timeout;
-	else {
-		req->deadline = jiffies + q->rq_timeout;
-		/*
-		 * Some LLDs, like scsi, peek at the timeout to prevent
-		 * a command from being retried forever.
-		 */
+	/*
+	 * Some LLDs, like scsi, peek at the timeout to prevent a
+	 * command from being retried forever.
+	 */
+	if (!req->timeout)
 		req->timeout = q->rq_timeout;
-	}
+
+	req->deadline = jiffies + req->timeout;
 	list_add_tail(&req->timeout_list, &q->timeout_list);
 
 	/*
@@ -211,6 +207,12 @@ void blk_abort_queue(struct request_queue *q)
 	struct request *rq, *tmp;
 	LIST_HEAD(list);
 
+	/*
+	 * Not a request based block device, nothing to abort
+	 */
+	if (!q->request_fn)
+		return;
+
 	spin_lock_irqsave(q->queue_lock, flags);
 
 	elv_abort_queue(q);
@@ -223,6 +225,13 @@ void blk_abort_queue(struct request_queue *q)
 
 	list_for_each_entry_safe(rq, tmp, &list, timeout_list)
 		blk_abort_request(rq);
+
+	/*
+	 * Occasionally, blk_abort_request() will return without
+	 * deleting the element from the list. Make sure we add those back
+	 * instead of leaving them on the local stack list.
+	 */
+	list_splice(&list, &q->timeout_list);
 
 	spin_unlock_irqrestore(q->queue_lock, flags);
 

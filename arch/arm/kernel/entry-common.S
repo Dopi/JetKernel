@@ -11,6 +11,7 @@
 #include <asm/unistd.h>
 #include <asm/ftrace.h>
 #include <mach/entry-macro.S>
+#include <asm/unwind.h>
 
 #include "entry-header.S"
 
@@ -22,6 +23,8 @@
  * stack.
  */
 ret_fast_syscall:
+ UNWIND(.fnstart	)
+ UNWIND(.cantunwind	)
 	disable_irq				@ disable interrupts
 	ldr	r1, [tsk, #TI_FLAGS]
 	tst	r1, #_TIF_WORK_MASK
@@ -38,6 +41,7 @@ ret_fast_syscall:
 	mov	r0, r0
 	add	sp, sp, #S_FRAME_SIZE - S_PC
 	movs	pc, lr				@ return & move spsr_svc into cpsr
+ UNWIND(.fnend		)
 
 /*
  * Ok, we need to do extra processing, enter the slow path.
@@ -144,7 +148,7 @@ trace:
 	sub r0, r0, #MCOUNT_INSN_SIZE
 	mov lr, pc
 	mov pc, r2
-	mov lr, r1				@ restore lr
+	ldr lr, [fp, #-4]			@ restore lr
 	ldmia sp!, {r0-r3, pc}
 
 #endif /* CONFIG_DYNAMIC_FTRACE */
@@ -205,6 +209,9 @@ ENTRY(vector_swi)
   A710(	and	ip, r10, #0x0f000000		@ check for SWI		)
   A710(	teq	ip, #0x0f000000						)
   A710(	bne	.Larm710bug						)
+#endif
+#ifdef CONFIG_CPU_ENDIAN_BE8
+	rev	r10, r10			@ little endian instruction
 #endif
 
 #elif defined(CONFIG_AEABI)

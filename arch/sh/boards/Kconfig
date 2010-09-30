@@ -46,6 +46,15 @@ config SH_7722_SOLUTION_ENGINE
 	  Select 7722 SolutionEngine if configuring for a Hitachi SH772
 	  evaluation board.
 
+config SH_7724_SOLUTION_ENGINE
+	bool "SolutionEngine7724"
+	select SOLUTION_ENGINE
+	depends on CPU_SUBTYPE_SH7724
+	select ARCH_REQUIRE_GPIOLIB
+	help
+	  Select 7724 SolutionEngine if configuring for a Hitachi SH7724
+	  evaluation board.
+
 config SH_7751_SOLUTION_ENGINE
 	bool "SolutionEngine7751"
 	select SOLUTION_ENGINE
@@ -121,7 +130,7 @@ config SH_RTS7751R2D
 	bool "RTS7751R2D"
 	depends on CPU_SUBTYPE_SH7751R
 	select SYS_SUPPORTS_PCI
-	select IO_TRAPPED
+	select IO_TRAPPED if MMU
 	help
 	  Select RTS7751R2D if configuring for a Renesas Technology
 	  Sales SH-Graphics board.
@@ -145,27 +154,33 @@ config SH_HIGHLANDER
 	bool "Highlander"
 	depends on CPU_SUBTYPE_SH7780 || CPU_SUBTYPE_SH7785
 	select SYS_SUPPORTS_PCI
-	select IO_TRAPPED
+	select IO_TRAPPED if MMU
 
 config SH_SH7785LCR
 	bool "SH7785LCR"
 	depends on CPU_SUBTYPE_SH7785
 	select SYS_SUPPORTS_PCI
-	select IO_TRAPPED
+	select IO_TRAPPED if MMU
 
 config SH_SH7785LCR_29BIT_PHYSMAPS
 	bool "SH7785LCR 29bit physmaps"
-	depends on SH_SH7785LCR
+	depends on SH_SH7785LCR && 29BIT
 	default y
 	help
 	  This board has 2 physical memory maps. It can be changed with
 	  DIP switch(S2-5). If you set the DIP switch for S2-5 = ON,
 	  you can access all on-board device in 29bit address mode.
 
+config SH_URQUELL
+	bool "Urquell"
+	depends on CPU_SUBTYPE_SH7786
+	select ARCH_REQUIRE_GPIOLIB
+	select SYS_SUPPORTS_PCI
+
 config SH_MIGOR
 	bool "Migo-R"
 	depends on CPU_SUBTYPE_SH7722
-	select GENERIC_GPIO
+	select ARCH_REQUIRE_GPIOLIB
 	help
 	  Select Migo-R if configuring for the SH7722 Migo-R platform
           by Renesas System Solutions Asia Pte. Ltd.
@@ -173,7 +188,7 @@ config SH_MIGOR
 config SH_AP325RXA
 	bool "AP-325RXA"
 	depends on CPU_SUBTYPE_SH7723
-	select GENERIC_GPIO
+	select ARCH_REQUIRE_GPIOLIB
 	help
 	  Renesas "AP-325RXA" support.
 	  Compatible with ALGO SYSTEM CO.,LTD. "AP-320A"
@@ -184,6 +199,13 @@ config SH_SH7763RDP
 	help
 	  Select SH7763RDP if configuring for a Renesas SH7763
 	  evaluation board.
+
+config SH_ESPT
+	bool "ESPT"
+	depends on CPU_SUBTYPE_SH7763
+	help
+	  Select ESPT if configuring for a Renesas SH7763
+	  with gigabit ether evaluation board.
 
 config SH_EDOSK7705
 	bool "EDOSK7705"
@@ -240,7 +262,7 @@ config SH_X3PROTO
 config SH_MAGIC_PANEL_R2
 	bool "Magic Panel R2"
 	depends on CPU_SUBTYPE_SH7720
-	select GENERIC_GPIO
+	select ARCH_REQUIRE_GPIOLIB
 	help
 	  Select Magic Panel R2 if configuring for Magic Panel R2.
 
@@ -248,6 +270,13 @@ config SH_CAYMAN
 	bool "Hitachi Cayman"
 	depends on CPU_SUBTYPE_SH5_101 || CPU_SUBTYPE_SH5_103
 	select SYS_SUPPORTS_PCI
+
+config SH_POLARIS
+	bool "SMSC Polaris"
+	select CPU_HAS_IPR_IRQ
+	depends on CPU_SUBTYPE_SH7709
+	help
+	  Select if configuring for an SMSC Polaris development board
 
 endmenu
 

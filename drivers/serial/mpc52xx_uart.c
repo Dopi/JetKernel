@@ -50,8 +50,8 @@
 /* OF Platform device Usage :
  *
  * This driver is only used for PSCs configured in uart mode.  The device
- * tree will have a node for each PSC in uart mode w/ device_type = "serial"
- * and "mpc52xx-psc-uart" in the compatible string
+ * tree will have a node for each PSC with "mpc52xx-psc-uart" in the compatible
+ * list.
  *
  * By default, PSC devices are enumerated in the order they are found.  However
  * a particular PSC number can be forces by adding 'device_no = <port#>'
@@ -76,7 +76,6 @@
 #include <linux/of_platform.h>
 
 #include <asm/mpc52xx.h>
-#include <asm/mpc512x.h>
 #include <asm/mpc52xx_psc.h>
 
 #if defined(CONFIG_SERIAL_MPC52xx_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
@@ -254,7 +253,7 @@ static unsigned long mpc52xx_getuartclk(void *p)
 	 * but the generic serial code assumes 16
 	 * so return ipb freq / 2
 	 */
-	return mpc52xx_find_ipb_freq(p) / 2;
+	return mpc5xxx_get_bus_frequency(p) / 2;
 }
 
 static struct psc_ops mpc52xx_psc_ops = {
@@ -391,7 +390,7 @@ static void mpc512x_psc_cw_restore_ints(struct uart_port *port)
 
 static unsigned long mpc512x_getuartclk(void *p)
 {
-	return mpc512x_find_ips_freq(p);
+	return mpc5xxx_get_bus_frequency(p);
 }
 
 static struct psc_ops mpc512x_psc_ops = {
@@ -1212,30 +1211,18 @@ mpc52xx_uart_of_resume(struct of_device *op)
 #endif
 
 static void
-mpc52xx_uart_of_assign(struct device_node *np, int idx)
+mpc52xx_uart_of_assign(struct device_node *np)
 {
-	int free_idx = -1;
 	int i;
 
-	/* Find the first free node */
+	/* Find the first free PSC number */
 	for (i = 0; i < MPC52xx_PSC_MAXNUM; i++) {
 		if (mpc52xx_uart_nodes[i] == NULL) {
-			free_idx = i;
-			break;
+			of_node_get(np);
+			mpc52xx_uart_nodes[i] = np;
+			return;
 		}
 	}
-
-	if ((idx < 0) || (idx >= MPC52xx_PSC_MAXNUM))
-		idx = free_idx;
-
-	if (idx < 0)
-		return; /* No free slot; abort */
-
-	of_node_get(np);
-	/* If the slot is already occupied, then swap slots */
-	if (mpc52xx_uart_nodes[idx] && (free_idx != -1))
-		mpc52xx_uart_nodes[free_idx] = mpc52xx_uart_nodes[idx];
-	mpc52xx_uart_nodes[idx] = np;
 }
 
 static void
@@ -1243,23 +1230,17 @@ mpc52xx_uart_of_enumerate(void)
 {
 	static int enum_done;
 	struct device_node *np;
-	const unsigned int *devno;
 	const struct  of_device_id *match;
 	int i;
 
 	if (enum_done)
 		return;
 
-	for_each_node_by_type(np, "serial") {
+	/* Assign index to each PSC in device tree */
+	for_each_matching_node(np, mpc52xx_uart_of_match) {
 		match = of_match_node(mpc52xx_uart_of_match, np);
-		if (!match)
-			continue;
-
 		psc_ops = match->data;
-
-		/* Is a particular device number requested? */
-		devno = of_get_property(np, "port-number", NULL);
-		mpc52xx_uart_of_assign(np, devno ? *devno : -1);
+		mpc52xx_uart_of_assign(np);
 	}
 
 	enum_done = 1;

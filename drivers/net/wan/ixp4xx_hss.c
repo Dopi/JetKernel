@@ -579,7 +579,8 @@ static inline void queue_put_desc(unsigned int queue, u32 phys,
 	debug_desc(phys, desc);
 	BUG_ON(phys & 0x1F);
 	qmgr_put_entry(queue, phys);
-	BUG_ON(qmgr_stat_overflow(queue));
+	/* Don't check for queue overflow here, we've allocated sufficient
+	   length and queues >= 32 don't support this check anyway. */
 }
 
 
@@ -622,7 +623,7 @@ static void hss_hdlc_rx_irq(void *pdev)
 	printk(KERN_DEBUG "%s: hss_hdlc_rx_irq\n", dev->name);
 #endif
 	qmgr_disable_irq(queue_ids[port->id].rx);
-	netif_rx_schedule(&port->napi);
+	napi_schedule(&port->napi);
 }
 
 static int hss_hdlc_poll(struct napi_struct *napi, int budget)
@@ -649,15 +650,15 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 		if ((n = queue_get_desc(rxq, port, 0)) < 0) {
 #if DEBUG_RX
 			printk(KERN_DEBUG "%s: hss_hdlc_poll"
-			       " netif_rx_complete\n", dev->name);
+			       " napi_complete\n", dev->name);
 #endif
-			netif_rx_complete(napi);
+			napi_complete(napi);
 			qmgr_enable_irq(rxq);
 			if (!qmgr_stat_empty(rxq) &&
-			    netif_rx_reschedule(napi)) {
+			    napi_reschedule(napi)) {
 #if DEBUG_RX
 				printk(KERN_DEBUG "%s: hss_hdlc_poll"
-				       " netif_rx_reschedule succeeded\n",
+				       " napi_reschedule succeeded\n",
 				       dev->name);
 #endif
 				qmgr_disable_irq(rxq);
@@ -731,8 +732,8 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 		dma_unmap_single(&dev->dev, desc->data,
 				 RX_SIZE, DMA_FROM_DEVICE);
 #else
-		dma_sync_single(&dev->dev, desc->data,
-				RX_SIZE, DMA_FROM_DEVICE);
+		dma_sync_single_for_cpu(&dev->dev, desc->data,
+					RX_SIZE, DMA_FROM_DEVICE);
 		memcpy_swab32((u32 *)skb->data, (u32 *)port->rx_buff_tab[n],
 			      ALIGN(desc->pkt_len, 4) / 4);
 #endif
@@ -789,10 +790,10 @@ static void hss_hdlc_txdone_irq(void *pdev)
 		free_buffer_irq(port->tx_buff_tab[n_desc]);
 		port->tx_buff_tab[n_desc] = NULL;
 
-		start = qmgr_stat_empty(port->plat->txreadyq);
+		start = qmgr_stat_below_low_watermark(port->plat->txreadyq);
 		queue_put_desc(port->plat->txreadyq,
 			       tx_desc_phys(port, n_desc), desc);
-		if (start) {
+		if (start) { /* TX-ready queue was empty */
 #if DEBUG_TX
 			printk(KERN_DEBUG "%s: hss_hdlc_txdone_irq xmit"
 			       " ready\n", dev->name);
@@ -867,13 +868,13 @@ static int hss_hdlc_xmit(struct sk_buff *skb, struct net_device *dev)
 	queue_put_desc(queue_ids[port->id].tx, tx_desc_phys(port, n), desc);
 	dev->trans_start = jiffies;
 
-	if (qmgr_stat_empty(txreadyq)) {
+	if (qmgr_stat_below_low_watermark(txreadyq)) { /* empty */
 #if DEBUG_TX
 		printk(KERN_DEBUG "%s: hss_hdlc_xmit queue full\n", dev->name);
 #endif
 		netif_stop_queue(dev);
 		/* we could miss TX ready interrupt */
-		if (!qmgr_stat_empty(txreadyq)) {
+		if (!qmgr_stat_below_low_watermark(txreadyq)) {
 #if DEBUG_TX
 			printk(KERN_DEBUG "%s: hss_hdlc_xmit ready again\n",
 			       dev->name);
@@ -1069,7 +1070,7 @@ static int hss_hdlc_open(struct net_device *dev)
 	hss_start_hdlc(port);
 
 	/* we may already have RX data, enables IRQ */
-	netif_rx_schedule(&port->napi);
+	napi_schedule(&port->napi);
 	return 0;
 
 err_unlock:
@@ -1230,6 +1231,14 @@ static int hss_hdlc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
  * initialization
  ****************************************************************************/
 
+static const struct net_device_ops hss_hdlc_ops = {
+	.ndo_open       = hss_hdlc_open,
+	.ndo_stop       = hss_hdlc_close,
+	.ndo_change_mtu = hdlc_change_mtu,
+	.ndo_start_xmit = hdlc_start_xmit,
+	.ndo_do_ioctl   = hss_hdlc_ioctl,
+};
+
 static int __devinit hss_init_one(struct platform_device *pdev)
 {
 	struct port *port;
@@ -1241,7 +1250,7 @@ static int __devinit hss_init_one(struct platform_device *pdev)
 		return -ENOMEM;
 
 	if ((port->npe = npe_request(0)) == NULL) {
-		err = -ENOSYS;
+		err = -ENODEV;
 		goto err_free;
 	}
 
@@ -1254,9 +1263,7 @@ static int __devinit hss_init_one(struct platform_device *pdev)
 	hdlc = dev_to_hdlc(dev);
 	hdlc->attach = hss_hdlc_attach;
 	hdlc->xmit = hss_hdlc_xmit;
-	dev->open = hss_hdlc_open;
-	dev->stop = hss_hdlc_close;
-	dev->do_ioctl = hss_hdlc_ioctl;
+	dev->netdev_ops = &hss_hdlc_ops;
 	dev->tx_queue_len = 100;
 	port->clock_type = CLOCK_EXT;
 	port->clock_rate = 2048000;
@@ -1305,7 +1312,7 @@ static int __init hss_init_module(void)
 	if ((ixp4xx_read_feature_bits() &
 	     (IXP4XX_FEATURE_HDLC | IXP4XX_FEATURE_HSS)) !=
 	    (IXP4XX_FEATURE_HDLC | IXP4XX_FEATURE_HSS))
-		return -ENOSYS;
+		return -ENODEV;
 
 	spin_lock_init(&npe_lock);
 

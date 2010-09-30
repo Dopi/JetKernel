@@ -33,8 +33,8 @@
 /* #define ENABLE_DEBUG_ISOC_FRAMES */
 
 static unsigned int core_debug;
-module_param(core_debug,int,0644);
-MODULE_PARM_DESC(core_debug,"enable debug messages [core]");
+module_param(core_debug, int, 0644);
+MODULE_PARM_DESC(core_debug, "enable debug messages [core]");
 
 #define em28xx_coredbg(fmt, arg...) do {\
 	if (core_debug) \
@@ -42,8 +42,8 @@ MODULE_PARM_DESC(core_debug,"enable debug messages [core]");
 			 dev->name, __func__ , ##arg); } while (0)
 
 static unsigned int reg_debug;
-module_param(reg_debug,int,0644);
-MODULE_PARM_DESC(reg_debug,"enable debug messages [URB reg]");
+module_param(reg_debug, int, 0644);
+MODULE_PARM_DESC(reg_debug, "enable debug messages [URB reg]");
 
 #define em28xx_regdbg(fmt, arg...) do {\
 	if (reg_debug) \
@@ -77,7 +77,7 @@ int em28xx_read_reg_req_len(struct em28xx *dev, u8 req, u16 reg,
 		return -EINVAL;
 
 	if (reg_debug) {
-		printk( KERN_DEBUG "(pipe 0x%08x): "
+		printk(KERN_DEBUG "(pipe 0x%08x): "
 			"IN:  %02x %02x %02x %02x %02x %02x %02x %02x ",
 			pipe,
 			USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
@@ -154,7 +154,7 @@ int em28xx_write_regs_req(struct em28xx *dev, u8 req, u16 reg, char *buf,
 	if (reg_debug) {
 		int byte;
 
-		printk( KERN_DEBUG "(pipe 0x%08x): "
+		printk(KERN_DEBUG "(pipe 0x%08x): "
 			"OUT: %02x %02x %02x %02x %02x %02x %02x %02x >>>",
 			pipe,
 			USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
@@ -378,6 +378,11 @@ static int em28xx_set_audio_source(struct em28xx *dev)
 		}
 	}
 
+	if (dev->board.mute_gpio && dev->mute)
+		em28xx_gpio_set(dev, dev->board.mute_gpio);
+	else
+		em28xx_gpio_set(dev, INPUT(dev->ctl_input)->gpio);
+
 	ret = em28xx_write_reg_bits(dev, EM28XX_R0E_AUDIOSRC, input, 0xc0);
 	if (ret < 0)
 		return ret;
@@ -424,7 +429,7 @@ int em28xx_audio_analog_set(struct em28xx *dev)
 
 	xclk = dev->board.xclk & 0x7f;
 	if (!dev->mute)
-		xclk |= 0x80;
+		xclk |= EM28XX_XCLK_AUDIO_UNMUTE;
 
 	ret = em28xx_write_reg(dev, EM28XX_R0F_XCLK, xclk);
 	if (ret < 0)
@@ -462,7 +467,8 @@ int em28xx_audio_analog_set(struct em28xx *dev)
 		if (dev->ctl_aoutput & EM28XX_AOUT_PCM_IN) {
 			int sel = ac97_return_record_select(dev->ctl_aoutput);
 
-			/* Use the same input for both left and right channels */
+			/* Use the same input for both left and right
+			   channels */
 			sel |= (sel << 8);
 
 			em28xx_write_ac97(dev, AC97_RECORD_SELECT, sel);
@@ -494,18 +500,21 @@ int em28xx_audio_setup(struct em28xx *dev)
 
 	/* See how this device is configured */
 	cfg = em28xx_read_reg(dev, EM28XX_R00_CHIPCFG);
-	if (cfg < 0)
+	em28xx_info("Config register raw data: 0x%02x\n", cfg);
+	if (cfg < 0) {
+		/* Register read error?  */
 		cfg = EM28XX_CHIPCFG_AC97; /* Be conservative */
-	else
-		em28xx_info("Config register raw data: 0x%02x\n", cfg);
-
-	if ((cfg & EM28XX_CHIPCFG_AUDIOMASK) ==
-		    EM28XX_CHIPCFG_I2S_3_SAMPRATES) {
+	} else if ((cfg & EM28XX_CHIPCFG_AUDIOMASK) == 0x00) {
+		/* The device doesn't have vendor audio at all */
+		dev->has_alsa_audio = 0;
+		dev->audio_mode.has_audio = 0;
+		return 0;
+	} else if ((cfg & EM28XX_CHIPCFG_AUDIOMASK) ==
+		   EM28XX_CHIPCFG_I2S_3_SAMPRATES) {
 		em28xx_info("I2S Audio (3 sample rates)\n");
 		dev->audio_mode.i2s_3rates = 1;
-	}
-	if ((cfg & EM28XX_CHIPCFG_AUDIOMASK) ==
-		    EM28XX_CHIPCFG_I2S_5_SAMPRATES) {
+	} else if ((cfg & EM28XX_CHIPCFG_AUDIOMASK) ==
+		   EM28XX_CHIPCFG_I2S_5_SAMPRATES) {
 		em28xx_info("I2S Audio (5 sample rates)\n");
 		dev->audio_mode.i2s_5rates = 1;
 	}
@@ -623,6 +632,9 @@ int em28xx_capture_start(struct em28xx *dev, int start)
 		return rc;
 	}
 
+	if (dev->board.is_webcam)
+		rc = em28xx_write_reg(dev, 0x13, 0x0c);
+
 	/* enable video capture */
 	rc = em28xx_write_reg(dev, 0x48, 0x00);
 
@@ -641,15 +653,15 @@ int em28xx_set_outfmt(struct em28xx *dev)
 	int ret;
 
 	ret = em28xx_write_reg_bits(dev, EM28XX_R27_OUTFMT,
-				    dev->format->reg | 0x20, 0x3f);
+				dev->format->reg | 0x20, 0xff);
+	if (ret < 0)
+			return ret;
+
+	ret = em28xx_write_reg(dev, EM28XX_R10_VINMODE, dev->vinmode);
 	if (ret < 0)
 		return ret;
 
-	ret = em28xx_write_reg(dev, EM28XX_R10_VINMODE, 0x10);
-	if (ret < 0)
-		return ret;
-
-	return em28xx_write_reg(dev, EM28XX_R11_VINCTRL, 0x11);
+	return em28xx_write_reg(dev, EM28XX_R11_VINCTRL, dev->vinctl);
 }
 
 static int em28xx_accumulator_set(struct em28xx *dev, u8 xmin, u8 xmax,
@@ -686,19 +698,22 @@ static int em28xx_scaler_set(struct em28xx *dev, u16 h, u16 v)
 {
 	u8 mode;
 	/* the em2800 scaler only supports scaling down to 50% */
-	if (dev->board.is_em2800)
+
+	if (dev->board.is_em2800) {
 		mode = (v ? 0x20 : 0x00) | (h ? 0x10 : 0x00);
-	else {
+	} else {
 		u8 buf[2];
+
 		buf[0] = h;
 		buf[1] = h >> 8;
 		em28xx_write_regs(dev, EM28XX_R30_HSCALELOW, (char *)buf, 2);
+
 		buf[0] = v;
 		buf[1] = v >> 8;
 		em28xx_write_regs(dev, EM28XX_R32_VSCALELOW, (char *)buf, 2);
 		/* it seems that both H and V scalers must be active
 		   to work correctly */
-		mode = (h || v)? 0x30: 0x00;
+		mode = (h || v) ? 0x30 : 0x00;
 	}
 	return em28xx_write_reg_bits(dev, EM28XX_R26_COMPR, mode, 0x30);
 }
@@ -708,11 +723,17 @@ int em28xx_resolution_set(struct em28xx *dev)
 {
 	int width, height;
 	width = norm_maxw(dev);
-	height = norm_maxh(dev) >> 1;
+	height = norm_maxh(dev);
+
+	if (!dev->progressive)
+		height >>= norm_maxh(dev);
 
 	em28xx_set_outfmt(dev);
+
+
 	em28xx_accumulator_set(dev, 1, (width - 4) >> 2, 1, (height - 4) >> 2);
 	em28xx_capture_area_set(dev, 0, 0, width >> 2, height >> 2);
+
 	return em28xx_scaler_set(dev, dev->hscale, dev->vscale);
 }
 
@@ -827,6 +848,19 @@ static void em28xx_irq_callback(struct urb *urb)
 	struct em28xx *dev = container_of(dma_q, struct em28xx, vidq);
 	int rc, i;
 
+	switch (urb->status) {
+	case 0:             /* success */
+	case -ETIMEDOUT:    /* NAK */
+		break;
+	case -ECONNRESET:   /* kill */
+	case -ENOENT:
+	case -ESHUTDOWN:
+		return;
+	default:            /* error */
+		em28xx_isocdbg("urb completition error %d.\n", urb->status);
+		break;
+	}
+
 	/* Copy data from URB */
 	spin_lock(&dev->slock);
 	rc = dev->isoc_ctl.isoc_copy(dev, urb);
@@ -919,7 +953,7 @@ int em28xx_init_isoc(struct em28xx *dev, int max_packets,
 	dev->isoc_ctl.transfer_buffer = kzalloc(sizeof(void *)*num_bufs,
 					      GFP_KERNEL);
 	if (!dev->isoc_ctl.transfer_buffer) {
-		em28xx_errdev("cannot allocate memory for usbtransfer\n");
+		em28xx_errdev("cannot allocate memory for usb transfer\n");
 		kfree(dev->isoc_ctl.urb);
 		return -ENOMEM;
 	}
@@ -945,7 +979,7 @@ int em28xx_init_isoc(struct em28xx *dev, int max_packets,
 			em28xx_err("unable to allocate %i bytes for transfer"
 					" buffer %i%s\n",
 					sb_size, i,
-					in_interrupt()?" while in int":"");
+					in_interrupt() ? " while in int" : "");
 			em28xx_uninit_isoc(dev);
 			return -ENOMEM;
 		}
@@ -963,7 +997,7 @@ int em28xx_init_isoc(struct em28xx *dev, int max_packets,
 				 em28xx_irq_callback, dma_q, 1);
 
 		urb->number_of_packets = max_packets;
-		urb->transfer_flags = URB_ISO_ASAP;
+		urb->transfer_flags = URB_ISO_ASAP | URB_NO_TRANSFER_DMA_MAP;
 
 		k = 0;
 		for (j = 0; j < max_packets; j++) {
@@ -993,20 +1027,51 @@ int em28xx_init_isoc(struct em28xx *dev, int max_packets,
 }
 EXPORT_SYMBOL_GPL(em28xx_init_isoc);
 
+/* Determine the packet size for the DVB stream for the given device
+   (underlying value programmed into the eeprom) */
+int em28xx_isoc_dvb_max_packetsize(struct em28xx *dev)
+{
+	unsigned int chip_cfg2;
+	unsigned int packet_size = 564;
+
+	if (dev->chip_id == CHIP_ID_EM2874) {
+		/* FIXME - for now assume 564 like it was before, but the
+		   em2874 code should be added to return the proper value... */
+		packet_size = 564;
+	} else {
+		/* TS max packet size stored in bits 1-0 of R01 */
+		chip_cfg2 = em28xx_read_reg(dev, EM28XX_R01_CHIPCFG2);
+		switch (chip_cfg2 & EM28XX_CHIPCFG2_TS_PACKETSIZE_MASK) {
+		case EM28XX_CHIPCFG2_TS_PACKETSIZE_188:
+			packet_size = 188;
+			break;
+		case EM28XX_CHIPCFG2_TS_PACKETSIZE_376:
+			packet_size = 376;
+			break;
+		case EM28XX_CHIPCFG2_TS_PACKETSIZE_564:
+			packet_size = 564;
+			break;
+		case EM28XX_CHIPCFG2_TS_PACKETSIZE_752:
+			packet_size = 752;
+			break;
+		}
+	}
+
+	em28xx_coredbg("dvb max packet size=%d\n", packet_size);
+	return packet_size;
+}
+EXPORT_SYMBOL_GPL(em28xx_isoc_dvb_max_packetsize);
+
 /*
  * em28xx_wake_i2c()
  * configure i2c attached devices
  */
 void em28xx_wake_i2c(struct em28xx *dev)
 {
-	struct v4l2_routing route;
-	int zero = 0;
-
-	route.input = INPUT(dev->ctl_input)->vmux;
-	route.output = 0;
-	em28xx_i2c_call_clients(dev, VIDIOC_INT_RESET, &zero);
-	em28xx_i2c_call_clients(dev, VIDIOC_INT_S_VIDEO_ROUTING, &route);
-	em28xx_i2c_call_clients(dev, VIDIOC_STREAMON, NULL);
+	v4l2_device_call_all(&dev->v4l2_dev, 0, core,  reset, 0);
+	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_routing,
+			INPUT(dev->ctl_input)->vmux, 0, 0);
+	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_stream, 0);
 }
 
 /*

@@ -262,10 +262,11 @@ A partial list of the supported mount options follows:
 		mount.	
   domain	Set the SMB/CIFS workgroup name prepended to the
 		username during CIFS session establishment
-  uid		Set the default uid for inodes. For mounts to servers
+  forceuid	Set the default uid for inodes to the uid
+		passed in on mount. For mounts to servers
 		which do support the CIFS Unix extensions, such as a
 		properly configured Samba server, the server provides
-		the uid, gid and mode so this parameter should  not be
+		the uid, gid and mode so this parameter should not be
 		specified unless the server and clients uid and gid
 		numbering differ.  If the server and client are in the
 		same domain (e.g. running winbind or nss_ldap) and
@@ -277,11 +278,7 @@ A partial list of the supported mount options follows:
 		of existing files will be the uid (gid) of the person
 		who executed the mount (root, except when mount.cifs
 		is configured setuid for user mounts) unless the "uid=" 
-		(gid) mount option is specified.  For the uid (gid) of newly
-		created files and directories, ie files created since 
-		the last mount of the server share, the expected uid 
-		(gid) is cached as long as the inode remains in 
-		memory on the client.   Also note that permission
+		(gid) mount option is specified. Also note that permission
 		checks (authorization checks) on accesses to a file occur
 		at the server, but there are cases in which an administrator
 		may want to restrict at the client as well.  For those
@@ -289,9 +286,18 @@ A partial list of the supported mount options follows:
 		(such as Windows), permissions can also be checked at the
 		client, and a crude form of client side permission checking 
 		can be enabled by specifying file_mode and dir_mode on 
-		the client.  Note that the mount.cifs helper must be
-		at version 1.10 or higher to support specifying the uid
-		(or gid) in non-numeric form.
+		the client.  (default)
+  forcegid	(similar to above but for the groupid instead of uid) (default)
+  noforceuid	Fill in file owner information (uid) by requesting it from
+		the server if possible. With this option, the value given in
+		the uid= option (on mount) will only be used if the server
+		can not support returning uids on inodes.
+  noforcegid	(similar to above but for the group owner, gid, instead of uid)
+  uid		Set the default uid for inodes, and indicate to the
+		cifs kernel driver which local user mounted. If the server
+		supports the unix extensions the default uid is
+		not used to fill in the owner fields of inodes (files)
+		unless the "forceuid" parameter is specified.
   gid		Set the default gid for inodes (similar to above).
   file_mode     If CIFS Unix extensions are not supported by the server
 		this overrides the default mode for file inodes.
@@ -388,8 +394,13 @@ A partial list of the supported mount options follows:
 		or the CIFS Unix Extensions equivalent and for those
 		this mount option will have no effect.  Exporting cifs mounts
 		under nfsd requires this mount option on the cifs mount.
+		This is now the default if server supports the 
+		required network operation.
   noserverino   Client generates inode numbers (rather than using the actual one
-		from the server) by default.
+		from the server). These inode numbers will vary after
+		unmount or reboot which can confuse some applications,
+		but not all server filesystems support unique inode
+		numbers.
   setuids       If the CIFS Unix extensions are negotiated with the server
 		the client will attempt to set the effective uid and gid of
 		the local process on newly created files, directories, and
@@ -472,6 +483,19 @@ A partial list of the supported mount options follows:
 		even if the cifs server would support posix advisory locks.
 		"forcemand" is accepted as a shorter form of this mount
 		option.
+ nostrictsync   If this mount option is set, when an application does an
+		fsync call then the cifs client does not send an SMB Flush
+		to the server (to force the server to write all dirty data
+		for this file immediately to disk), although cifs still sends
+		all dirty (cached) file data to the server and waits for the
+		server to respond to the write.  Since SMB Flush can be
+		very slow, and some servers may be reliable enough (to risk
+		delaying slightly flushing the data to disk on the server),
+		turning on this option may be useful to improve performance for
+		applications that fsync too much, at a small risk of server
+		crash.  If this mount option is not set, by default cifs will
+		send an SMB flush request (and wait for a response) on every
+		fsync call.
  nodfs          Disable DFS (global name space support) even if the
 		server claims to support it.  This can help work around
 		a problem with parsing of DFS paths with Samba server
@@ -638,7 +662,15 @@ Experimental            When set to 1 used to enable certain experimental
 			signing turned on in case buffer was modified
 			just before it was sent, also this flag will
 			be used to use the new experimental directory change 
-			notification code).
+			notification code).  When set to 2 enables
+			an additional experimental feature, "raw ntlmssp"
+			session establishment support (which allows
+			specifying "sec=ntlmssp" on mount). The Linux cifs
+			module will use ntlmv2 authentication encapsulated
+			in "raw ntlmssp" (not using SPNEGO) when
+			"sec=ntlmssp" is specified on mount.
+			This support also requires building cifs with
+			the CONFIG_CIFS_EXPERIMENTAL configuration flag.
 
 These experimental features and tracing can be enabled by changing flags in 
 /proc/fs/cifs (after the cifs module has been installed or built into the 
@@ -692,13 +724,14 @@ require this helper. Note that NTLMv2 security (which does not require the
 cifs.upcall helper program), instead of using Kerberos, is sufficient for
 some use cases.
 
-Enabling DFS support (used to access shares transparently in an MS-DFS
-global name space) requires that CONFIG_CIFS_EXPERIMENTAL be enabled.  In
-addition, DFS support for target shares which are specified as UNC
+DFS support allows transparent redirection to shares in an MS-DFS name space.
+In addition, DFS support for target shares which are specified as UNC
 names which begin with host names (rather than IP addresses) requires
 a user space helper (such as cifs.upcall) to be present in order to
 translate host names to ip address, and the user space helper must also
-be configured in the file /etc/request-key.conf
+be configured in the file /etc/request-key.conf.  Samba, Windows servers and
+many NAS appliances support DFS as a way of constructing a global name
+space to ease network configuration and improve reliability.
 
 To use cifs Kerberos and DFS support, the Linux keyutils package should be
 installed and something like the following lines should be added to the

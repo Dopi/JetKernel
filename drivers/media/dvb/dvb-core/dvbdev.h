@@ -27,7 +27,6 @@
 #include <linux/poll.h>
 #include <linux/fs.h>
 #include <linux/list.h>
-#include <linux/smp_lock.h>
 
 #define DVB_MAJOR 212
 
@@ -71,7 +70,7 @@ struct dvb_adapter {
 
 struct dvb_device {
 	struct list_head list_head;
-	struct file_operations *fops;
+	const struct file_operations *fops;
 	struct dvb_adapter *adapter;
 	int type;
 	int minor;

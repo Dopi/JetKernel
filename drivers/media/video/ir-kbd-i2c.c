@@ -16,6 +16,8 @@
  *      Henry Wong <henry@stuffedcow.net>
  *      Mark Schultz <n9xmj@yahoo.com>
  *      Brian Rogers <brian_rogers@comcast.net>
+ * modified for AVerMedia Cardbus by
+ *      Oldrich Jedlicka <oldium.pro@seznam.cz>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -72,7 +74,7 @@ static int get_key_haup_common(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw,
 	int start, range, toggle, dev, code, ircode;
 
 	/* poll IR chip */
-	if (size != i2c_master_recv(&ir->c,buf,size))
+	if (size != i2c_master_recv(ir->c, buf, size))
 		return -EIO;
 
 	/* split rc5 data block ... */
@@ -135,7 +137,7 @@ static int get_key_pixelview(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 	unsigned char b;
 
 	/* poll IR chip */
-	if (1 != i2c_master_recv(&ir->c,&b,1)) {
+	if (1 != i2c_master_recv(ir->c, &b, 1)) {
 		dprintk(1,"read error\n");
 		return -EIO;
 	}
@@ -149,7 +151,7 @@ static int get_key_pv951(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 	unsigned char b;
 
 	/* poll IR chip */
-	if (1 != i2c_master_recv(&ir->c,&b,1)) {
+	if (1 != i2c_master_recv(ir->c, &b, 1)) {
 		dprintk(1,"read error\n");
 		return -EIO;
 	}
@@ -169,7 +171,7 @@ static int get_key_fusionhdtv(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 	unsigned char buf[4];
 
 	/* poll IR chip */
-	if (4 != i2c_master_recv(&ir->c,buf,4)) {
+	if (4 != i2c_master_recv(ir->c, buf, 4)) {
 		dprintk(1,"read error\n");
 		return -EIO;
 	}
@@ -193,7 +195,7 @@ static int get_key_knc1(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 	unsigned char b;
 
 	/* poll IR chip */
-	if (1 != i2c_master_recv(&ir->c,&b,1)) {
+	if (1 != i2c_master_recv(ir->c, &b, 1)) {
 		dprintk(1,"read error\n");
 		return -EIO;
 	}
@@ -213,6 +215,46 @@ static int get_key_knc1(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 
 	*ir_key = b;
 	*ir_raw = b;
+	return 1;
+}
+
+static int get_key_avermedia_cardbus(struct IR_i2c *ir,
+				     u32 *ir_key, u32 *ir_raw)
+{
+	unsigned char subaddr, key, keygroup;
+	struct i2c_msg msg[] = { { .addr = ir->c->addr, .flags = 0,
+				   .buf = &subaddr, .len = 1},
+				 { .addr = ir->c->addr, .flags = I2C_M_RD,
+				  .buf = &key, .len = 1} };
+	subaddr = 0x0d;
+	if (2 != i2c_transfer(ir->c->adapter, msg, 2)) {
+		dprintk(1, "read error\n");
+		return -EIO;
+	}
+
+	if (key == 0xff)
+		return 0;
+
+	subaddr = 0x0b;
+	msg[1].buf = &keygroup;
+	if (2 != i2c_transfer(ir->c->adapter, msg, 2)) {
+		dprintk(1, "read error\n");
+		return -EIO;
+	}
+
+	if (keygroup == 0xff)
+		return 0;
+
+	dprintk(1, "read key 0x%02x/0x%02x\n", key, keygroup);
+	if (keygroup < 2 || keygroup > 3) {
+		/* Only a warning */
+		dprintk(1, "warning: invalid key group 0x%02x for key 0x%02x\n",
+								keygroup, key);
+	}
+	key |= (keygroup & 1) << 6;
+
+	*ir_key = key;
+	*ir_raw = key;
 	return 1;
 }
 
@@ -237,56 +279,31 @@ static void ir_key_poll(struct IR_i2c *ir)
 	}
 }
 
-static void ir_timer(unsigned long data)
-{
-	struct IR_i2c *ir = (struct IR_i2c*)data;
-	schedule_work(&ir->work);
-}
-
 static void ir_work(struct work_struct *work)
 {
-	struct IR_i2c *ir = container_of(work, struct IR_i2c, work);
+	struct IR_i2c *ir = container_of(work, struct IR_i2c, work.work);
 	int polling_interval = 100;
 
 	/* MSI TV@nywhere Plus requires more frequent polling
 	   otherwise it will miss some keypresses */
-	if (ir->c.adapter->id == I2C_HW_SAA7134 && ir->c.addr == 0x30)
+	if (ir->c->adapter->id == I2C_HW_SAA7134 && ir->c->addr == 0x30)
 		polling_interval = 50;
 
 	ir_key_poll(ir);
-	mod_timer(&ir->timer, jiffies + msecs_to_jiffies(polling_interval));
+	schedule_delayed_work(&ir->work, msecs_to_jiffies(polling_interval));
 }
 
 /* ----------------------------------------------------------------------- */
 
-static int ir_attach(struct i2c_adapter *adap, int addr,
-		      unsigned short flags, int kind);
-static int ir_detach(struct i2c_client *client);
-static int ir_probe(struct i2c_adapter *adap);
-
-static struct i2c_driver driver = {
-	.driver = {
-		.name   = "ir-kbd-i2c",
-	},
-	.id             = I2C_DRIVERID_INFRARED,
-	.attach_adapter = ir_probe,
-	.detach_client  = ir_detach,
-};
-
-static struct i2c_client client_template =
-{
-	.name = "unset",
-	.driver = &driver
-};
-
-static int ir_attach(struct i2c_adapter *adap, int addr,
-		     unsigned short flags, int kind)
+static int ir_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	IR_KEYTAB_TYPE *ir_codes = NULL;
-	char *name;
+	const char *name = NULL;
 	int ir_type;
 	struct IR_i2c *ir;
 	struct input_dev *input_dev;
+	struct i2c_adapter *adap = client->adapter;
+	unsigned short addr = client->addr;
 	int err;
 
 	ir = kzalloc(sizeof(struct IR_i2c),GFP_KERNEL);
@@ -296,13 +313,9 @@ static int ir_attach(struct i2c_adapter *adap, int addr,
 		goto err_out_free;
 	}
 
-	ir->c = client_template;
+	ir->c = client;
 	ir->input = input_dev;
-
-	ir->c.adapter = adap;
-	ir->c.addr    = addr;
-
-	i2c_set_clientdata(&ir->c, ir);
+	i2c_set_clientdata(client, ir);
 
 	switch(addr) {
 	case 0x64:
@@ -360,172 +373,99 @@ static int ir_attach(struct i2c_adapter *adap, int addr,
 			ir_type     = IR_TYPE_OTHER;
 		}
 		break;
+	case 0x40:
+		name        = "AVerMedia Cardbus remote";
+		ir->get_key = get_key_avermedia_cardbus;
+		ir_type     = IR_TYPE_OTHER;
+		ir_codes    = ir_codes_avermedia_cardbus;
+		break;
 	default:
-		/* shouldn't happen */
-		printk(DEVNAME ": Huh? unknown i2c address (0x%02x)?\n", addr);
+		dprintk(1, DEVNAME ": Unsupported i2c address 0x%02x\n", addr);
+		err = -ENODEV;
+		goto err_out_free;
+	}
+
+	/* Let the caller override settings */
+	if (client->dev.platform_data) {
+		const struct IR_i2c_init_data *init_data =
+						client->dev.platform_data;
+
+		ir_codes = init_data->ir_codes;
+		name = init_data->name;
+		ir->get_key = init_data->get_key;
+	}
+
+	/* Make sure we are all setup before going on */
+	if (!name || !ir->get_key || !ir_codes) {
+		dprintk(1, DEVNAME ": Unsupported device at address 0x%02x\n",
+			addr);
 		err = -ENODEV;
 		goto err_out_free;
 	}
 
 	/* Sets name */
-	snprintf(ir->c.name, sizeof(ir->c.name), "i2c IR (%s)", name);
+	snprintf(ir->name, sizeof(ir->name), "i2c IR (%s)", name);
 	ir->ir_codes = ir_codes;
 
-	/* register i2c device
-	 * At device register, IR codes may be changed to be
-	 * board dependent.
-	 */
-	err = i2c_attach_client(&ir->c);
-	if (err)
-		goto err_out_free;
-
-	/* If IR not supported or disabled, unregisters driver */
-	if (ir->get_key == NULL) {
-		err = -ENODEV;
-		goto err_out_detach;
-	}
-
-	/* Phys addr can only be set after attaching (for ir->c.dev) */
 	snprintf(ir->phys, sizeof(ir->phys), "%s/%s/ir0",
-		 dev_name(&ir->c.adapter->dev),
-		 dev_name(&ir->c.dev));
+		 dev_name(&adap->dev),
+		 dev_name(&client->dev));
 
 	/* init + register input device */
 	ir_input_init(input_dev, &ir->ir, ir_type, ir->ir_codes);
 	input_dev->id.bustype = BUS_I2C;
-	input_dev->name       = ir->c.name;
+	input_dev->name       = ir->name;
 	input_dev->phys       = ir->phys;
 
 	err = input_register_device(ir->input);
 	if (err)
-		goto err_out_detach;
+		goto err_out_free;
 
 	printk(DEVNAME ": %s detected at %s [%s]\n",
 	       ir->input->name, ir->input->phys, adap->name);
 
 	/* start polling via eventd */
-	INIT_WORK(&ir->work, ir_work);
-	init_timer(&ir->timer);
-	ir->timer.function = ir_timer;
-	ir->timer.data     = (unsigned long)ir;
-	schedule_work(&ir->work);
+	INIT_DELAYED_WORK(&ir->work, ir_work);
+	schedule_delayed_work(&ir->work, 0);
 
 	return 0;
 
- err_out_detach:
-	i2c_detach_client(&ir->c);
  err_out_free:
 	input_free_device(input_dev);
 	kfree(ir);
 	return err;
 }
 
-static int ir_detach(struct i2c_client *client)
+static int ir_remove(struct i2c_client *client)
 {
 	struct IR_i2c *ir = i2c_get_clientdata(client);
 
 	/* kill outstanding polls */
-	del_timer_sync(&ir->timer);
-	flush_scheduled_work();
+	cancel_delayed_work_sync(&ir->work);
 
-	/* unregister devices */
+	/* unregister device */
 	input_unregister_device(ir->input);
-	i2c_detach_client(&ir->c);
 
 	/* free memory */
 	kfree(ir);
 	return 0;
 }
 
-static int ir_probe(struct i2c_adapter *adap)
-{
+static const struct i2c_device_id ir_kbd_id[] = {
+	/* Generic entry for any IR receiver */
+	{ "ir_video", 0 },
+	/* IR device specific entries could be added here */
+	{ }
+};
 
-	/* The external IR receiver is at i2c address 0x34 (0x35 for
-	   reads).  Future Hauppauge cards will have an internal
-	   receiver at 0x30 (0x31 for reads).  In theory, both can be
-	   fitted, and Hauppauge suggest an external overrides an
-	   internal.
-
-	   That's why we probe 0x1a (~0x34) first. CB
-	*/
-
-	static const int probe_bttv[] = { 0x1a, 0x18, 0x4b, 0x64, 0x30, -1};
-	static const int probe_saa7134[] = { 0x7a, 0x47, 0x71, 0x2d, -1 };
-	static const int probe_em28XX[] = { 0x30, 0x47, -1 };
-	static const int probe_cx88[] = { 0x18, 0x6b, 0x71, -1 };
-	static const int probe_cx23885[] = { 0x6b, -1 };
-	const int *probe;
-	struct i2c_msg msg = {
-		.flags = I2C_M_RD,
-		.len = 0,
-		.buf = NULL,
-	};
-	int i, rc;
-
-	switch (adap->id) {
-	case I2C_HW_B_BT848:
-		probe = probe_bttv;
-		break;
-	case I2C_HW_B_CX2341X:
-		probe = probe_bttv;
-		break;
-	case I2C_HW_SAA7134:
-		probe = probe_saa7134;
-		break;
-	case I2C_HW_B_EM28XX:
-		probe = probe_em28XX;
-		break;
-	case I2C_HW_B_CX2388x:
-		probe = probe_cx88;
-		break;
-	case I2C_HW_B_CX23885:
-		probe = probe_cx23885;
-		break;
-	default:
-		return 0;
-	}
-
-	for (i = 0; -1 != probe[i]; i++) {
-		msg.addr = probe[i];
-		rc = i2c_transfer(adap, &msg, 1);
-		dprintk(1,"probe 0x%02x @ %s: %s\n",
-			probe[i], adap->name,
-			(1 == rc) ? "yes" : "no");
-		if (1 == rc) {
-			ir_attach(adap, probe[i], 0, 0);
-			return 0;
-		}
-	}
-
-	/* Special case for MSI TV@nywhere Plus remote */
-	if (adap->id == I2C_HW_SAA7134) {
-		u8 temp;
-
-		/* MSI TV@nywhere Plus controller doesn't seem to
-		   respond to probes unless we read something from
-		   an existing device. Weird... */
-
-		msg.addr = 0x50;
-		rc = i2c_transfer(adap, &msg, 1);
-			dprintk(1, "probe 0x%02x @ %s: %s\n",
-			msg.addr, adap->name,
-			(1 == rc) ? "yes" : "no");
-
-		/* Now do the probe. The controller does not respond
-		   to 0-byte reads, so we use a 1-byte read instead. */
-		msg.addr = 0x30;
-		msg.len = 1;
-		msg.buf = &temp;
-		rc = i2c_transfer(adap, &msg, 1);
-		dprintk(1, "probe 0x%02x @ %s: %s\n",
-			msg.addr, adap->name,
-			(1 == rc) ? "yes" : "no");
-		if (1 == rc)
-			ir_attach(adap, msg.addr, 0, 0);
-	}
-
-	return 0;
-}
+static struct i2c_driver driver = {
+	.driver = {
+		.name   = "ir-kbd-i2c",
+	},
+	.probe          = ir_probe,
+	.remove         = ir_remove,
+	.id_table       = ir_kbd_id,
+};
 
 /* ----------------------------------------------------------------------- */
 

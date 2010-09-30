@@ -19,6 +19,7 @@
 #include <linux/init.h>
 #include <linux/linkage.h>
 #include <linux/interrupt.h>
+#include <linux/smp.h>
 #include <linux/spinlock.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
@@ -50,7 +51,7 @@ static void enable_bcm1480_irq(unsigned int irq);
 static void disable_bcm1480_irq(unsigned int irq);
 static void ack_bcm1480_irq(unsigned int irq);
 #ifdef CONFIG_SMP
-static void bcm1480_set_affinity(unsigned int irq, const struct cpumask *mask);
+static int bcm1480_set_affinity(unsigned int irq, const struct cpumask *mask);
 #endif
 
 #ifdef CONFIG_PCI
@@ -109,17 +110,16 @@ void bcm1480_unmask_irq(int cpu, int irq)
 }
 
 #ifdef CONFIG_SMP
-static void bcm1480_set_affinity(unsigned int irq, const struct cpumask *mask)
+static int bcm1480_set_affinity(unsigned int irq, const struct cpumask *mask)
 {
 	int i = 0, old_cpu, cpu, int_on, k;
 	u64 cur_ints;
-	struct irq_desc *desc = irq_desc + irq;
 	unsigned long flags;
 	unsigned int irq_dirty;
 
 	if (cpumask_weight(mask) != 1) {
 		printk("attempted to set irq affinity for irq %d to multiple CPUs\n", irq);
-		return;
+		return -1;
 	}
 	i = cpumask_first(mask);
 
@@ -127,8 +127,7 @@ static void bcm1480_set_affinity(unsigned int irq, const struct cpumask *mask)
 	cpu = cpu_logical_map(i);
 
 	/* Protect against other affinity changers and IMR manipulation */
-	spin_lock_irqsave(&desc->lock, flags);
-	spin_lock(&bcm1480_imr_lock);
+	spin_lock_irqsave(&bcm1480_imr_lock, flags);
 
 	/* Swizzle each CPU's IMR (but leave the IP selection alone) */
 	old_cpu = bcm1480_irq_owner[irq];
@@ -153,8 +152,9 @@ static void bcm1480_set_affinity(unsigned int irq, const struct cpumask *mask)
 			____raw_writeq(cur_ints, IOADDR(A_BCM1480_IMR_MAPPER(cpu) + R_BCM1480_IMR_INTERRUPT_MASK_H + (k*BCM1480_IMR_HL_SPACING)));
 		}
 	}
-	spin_unlock(&bcm1480_imr_lock);
-	spin_unlock_irqrestore(&desc->lock, flags);
+	spin_unlock_irqrestore(&bcm1480_imr_lock, flags);
+
+	return 0;
 }
 #endif
 
@@ -236,7 +236,7 @@ void __init init_bcm1480_irqs(void)
 	int i;
 
 	for (i = 0; i < BCM1480_NR_IRQS; i++) {
-		set_irq_chip(i, &bcm1480_irq_type);
+		set_irq_chip_and_handler(i, &bcm1480_irq_type, handle_level_irq);
 		bcm1480_irq_owner[i] = 0;
 	}
 }

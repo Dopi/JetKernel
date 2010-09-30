@@ -19,6 +19,7 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/irq.h>
+#include <linux/nmi.h>
 #include <linux/kernel.h>
 #include <linux/miscdevice.h>
 #include <linux/mm.h>
@@ -47,6 +48,7 @@
 #define PCI_BIOS32_PARAGRAPH_LEN	16
 #define PCI_ROM_BASE1			0x000F0000
 #define ROM_SIZE			0x10000
+#define HPWDT_VERSION			"1.1.1"
 
 struct bios32_service_dir {
 	u32 signature;
@@ -118,6 +120,8 @@ static int nowayout = WATCHDOG_NOWAYOUT;
 static char expect_release;
 static unsigned long hpwdt_is_open;
 static unsigned int allow_kdump;
+static unsigned int hpwdt_nmi_sourcing;
+static unsigned int priority;		/* hpwdt at end of die_notify list */
 
 static void __iomem *pci_mem_addr;		/* the PCI-memory address */
 static unsigned long __iomem *hpwdt_timer_reg;
@@ -130,17 +134,14 @@ static void *cru_rom_addr;
 static struct cmn_registers cmn_regs;
 
 static struct pci_device_id hpwdt_devices[] = {
-	{
-	 .vendor = PCI_VENDOR_ID_COMPAQ,
-	 .device = 0xB203,
-	 .subvendor = PCI_ANY_ID,
-	 .subdevice = PCI_ANY_ID,
-	},
+	{ PCI_DEVICE(PCI_VENDOR_ID_COMPAQ, 0xB203) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_HP, 0x3306) },
 	{0},			/* terminate list */
 };
 MODULE_DEVICE_TABLE(pci, hpwdt_devices);
 
-extern asmlinkage void asminline_call(struct cmn_registers *pi86Regs, unsigned long *pRomEntry);
+extern asmlinkage void asminline_call(struct cmn_registers *pi86Regs,
+						unsigned long *pRomEntry);
 
 #ifndef CONFIG_X86_64
 /* --32 Bit Bios------------------------------------------------------------ */
@@ -382,7 +383,7 @@ asm(".text                      \n\t"
  *	This function checks whether or not a SMBIOS/DMI record is
  *	the 64bit CRU info or not
  */
-static void __devinit dmi_find_cru(const struct dmi_header *dm)
+static void __devinit dmi_find_cru(const struct dmi_header *dm, void *dummy)
 {
 	struct smbios_cru64_info *smbios_cru64_ptr;
 	unsigned long cru_physical_address;
@@ -405,7 +406,7 @@ static int __devinit detect_cru_service(void)
 {
 	cru_rom_addr = NULL;
 
-	dmi_walk(dmi_find_cru);
+	dmi_walk(dmi_find_cru, NULL);
 
 	/* if cru_rom_addr has been set then we found a CRU service */
 	return ((cru_rom_addr != NULL) ? 0 : -ENODEV);
@@ -470,21 +471,22 @@ static int hpwdt_pretimeout(struct notifier_block *nb, unsigned long ulReason,
 	if (ulReason != DIE_NMI && ulReason != DIE_NMI_IPI)
 		return NOTIFY_OK;
 
-	spin_lock_irqsave(&rom_lock, rom_pl);
-	if (!die_nmi_called)
-		asminline_call(&cmn_regs, cru_rom_addr);
-	die_nmi_called = 1;
-	spin_unlock_irqrestore(&rom_lock, rom_pl);
-	if (cmn_regs.u1.ral == 0) {
-		printk(KERN_WARNING "hpwdt: An NMI occurred, "
-			"but unable to determine source.\n");
-	} else {
-		if (allow_kdump)
-			hpwdt_stop();
-		panic("An NMI occurred, please see the Integrated "
-			"Management Log for details.\n");
+	if (hpwdt_nmi_sourcing) {
+		spin_lock_irqsave(&rom_lock, rom_pl);
+		if (!die_nmi_called)
+			asminline_call(&cmn_regs, cru_rom_addr);
+		die_nmi_called = 1;
+		spin_unlock_irqrestore(&rom_lock, rom_pl);
+		if (cmn_regs.u1.ral == 0) {
+			printk(KERN_WARNING "hpwdt: An NMI occurred, "
+				"but unable to determine source.\n");
+		} else {
+			if (allow_kdump)
+				hpwdt_stop();
+			panic("An NMI occurred, please see the Integrated "
+				"Management Log for details.\n");
+		}
 	}
-
 	return NOTIFY_OK;
 }
 
@@ -605,7 +607,7 @@ static long hpwdt_ioctl(struct file *file, unsigned int cmd,
 /*
  *	Kernel interfaces
  */
-static struct file_operations hpwdt_fops = {
+static const struct file_operations hpwdt_fops = {
 	.owner = THIS_MODULE,
 	.llseek = no_llseek,
 	.write = hpwdt_write,
@@ -622,17 +624,44 @@ static struct miscdevice hpwdt_miscdev = {
 
 static struct notifier_block die_notifier = {
 	.notifier_call = hpwdt_pretimeout,
-	.priority = 0x7FFFFFFF,
+	.priority = 0,
 };
 
 /*
  *	Init & Exit
  */
 
+#ifdef ARCH_HAS_NMI_WATCHDOG
+static void __devinit hpwdt_check_nmi_sourcing(struct pci_dev *dev)
+{
+	/*
+	 * If nmi_watchdog is turned off then we can turn on
+	 * our nmi sourcing capability.
+	 */
+	if (!nmi_watchdog_active())
+		hpwdt_nmi_sourcing = 1;
+	else
+		dev_warn(&dev->dev, "NMI sourcing is disabled. To enable this "
+			"functionality you must reboot with nmi_watchdog=0 "
+			"and load the hpwdt driver with priority=1.\n");
+}
+#else
+static void __devinit hpwdt_check_nmi_sourcing(struct pci_dev *dev)
+{
+	dev_warn(&dev->dev, "NMI sourcing is disabled. "
+		"Your kernel does not support a NMI Watchdog.\n");
+}
+#endif
+
 static int __devinit hpwdt_init_one(struct pci_dev *dev,
 					const struct pci_device_id *ent)
 {
 	int retval;
+
+	/*
+	 * Check if we can do NMI sourcing or not
+	 */
+	hpwdt_check_nmi_sourcing(dev);
 
 	/*
 	 * First let's find out if we are on an iLO2 server. We will
@@ -687,6 +716,14 @@ static int __devinit hpwdt_init_one(struct pci_dev *dev,
 	cmn_regs.u1.rah = 0x0D;
 	cmn_regs.u1.ral = 0x02;
 
+	/*
+	 * If the priority is set to 1, then we will be put first on the
+	 * die notify list to handle a critical NMI. The default is to
+	 * be last so other users of the NMI signal can function.
+	 */
+	if (priority)
+		die_notifier.priority = 0x7FFFFFFF;
+
 	retval = register_die_notifier(&die_notifier);
 	if (retval != 0) {
 		dev_warn(&dev->dev,
@@ -704,10 +741,13 @@ static int __devinit hpwdt_init_one(struct pci_dev *dev,
 	}
 
 	printk(KERN_INFO
-		"hp Watchdog Timer Driver: 1.00"
+		"hp Watchdog Timer Driver: %s"
 		", timer margin: %d seconds (nowayout=%d)"
-		", allow kernel dump: %s (default = 0/OFF).\n",
-		soft_margin, nowayout, (allow_kdump == 0) ? "OFF" : "ON");
+		", allow kernel dump: %s (default = 0/OFF)"
+		", priority: %s (default = 0/LAST).\n",
+		HPWDT_VERSION, soft_margin, nowayout,
+		(allow_kdump == 0) ? "OFF" : "ON",
+		(priority == 0) ? "LAST" : "FIRST");
 
 	return 0;
 
@@ -757,6 +797,7 @@ static int __init hpwdt_init(void)
 MODULE_AUTHOR("Tom Mingarelli");
 MODULE_DESCRIPTION("hp watchdog driver");
 MODULE_LICENSE("GPL");
+MODULE_VERSION(HPWDT_VERSION);
 MODULE_ALIAS_MISCDEV(WATCHDOG_MINOR);
 
 module_param(soft_margin, int, 0);
@@ -768,6 +809,10 @@ MODULE_PARM_DESC(allow_kdump, "Start a kernel dump after NMI occurs");
 module_param(nowayout, int, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
 		__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
+
+module_param(priority, int, 0);
+MODULE_PARM_DESC(priority, "The hpwdt driver handles NMIs first or last"
+		" (default = 0/Last)\n");
 
 module_init(hpwdt_init);
 module_exit(hpwdt_cleanup);

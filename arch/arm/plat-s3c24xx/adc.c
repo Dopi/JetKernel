@@ -45,7 +45,8 @@ struct s3c_adc_client {
 	unsigned char		 channel;
 
 	void	(*select_cb)(unsigned selected);
-	void	(*convert_cb)(unsigned val1, unsigned val2);
+	void	(*convert_cb)(unsigned val1, unsigned val2,
+			      unsigned *samples_left);
 };
 
 struct adc_device {
@@ -100,7 +101,7 @@ static void s3c_adc_dbgshow(struct adc_device *adc)
 		readl(adc->regs + S3C2410_ADCDLY));
 }
 
-void s3c_adc_try(struct adc_device *adc)
+static void s3c_adc_try(struct adc_device *adc)
 {
 	struct s3c_adc_client *next = adc->ts_pend;
 
@@ -158,7 +159,8 @@ static void s3c_adc_default_select(unsigned select)
 
 struct s3c_adc_client *s3c_adc_register(struct platform_device *pdev,
 					void (*select)(unsigned int selected),
-					void (*conv)(unsigned d0, unsigned d1),
+					void (*conv)(unsigned d0, unsigned d1,
+						     unsigned *samples_left),
 					unsigned int is_ts)
 {
 	struct s3c_adc_client *client;
@@ -190,6 +192,23 @@ EXPORT_SYMBOL_GPL(s3c_adc_register);
 void s3c_adc_release(struct s3c_adc_client *client)
 {
 	/* We should really check that nothing is in progress. */
+	if (adc_dev->cur == client)
+		adc_dev->cur = NULL;
+	if (adc_dev->ts_pend == client)
+		adc_dev->ts_pend = NULL;
+	else {
+		struct list_head *p, *n;
+		struct s3c_adc_client *tmp;
+
+		list_for_each_safe(p, n, &adc_pending) {
+			tmp = list_entry(p, struct s3c_adc_client, pend);
+			if (tmp == client)
+				list_del(&tmp->pend);
+		}
+	}
+
+	if (adc_dev->cur == NULL)
+		s3c_adc_try(adc_dev);
 	kfree(client);
 }
 EXPORT_SYMBOL_GPL(s3c_adc_release);
@@ -210,9 +229,10 @@ static irqreturn_t s3c_adc_irq(int irq, void *pw)
 	data1 = readl(adc->regs + S3C2410_ADCDAT1);
 	adc_dbg(adc, "read %d: 0x%04x, 0x%04x\n", client->nr_samples, data0, data1);
 
-	(client->convert_cb)(data0 & 0x3ff, data1 & 0x3ff);
+	client->nr_samples--;
+	(client->convert_cb)(data0 & 0x3ff, data1 & 0x3ff, &client->nr_samples);
 
-	if (--client->nr_samples > 0) {
+	if (client->nr_samples > 0) {
 		/* fire another conversion for this */
 
 		client->select_cb(1);

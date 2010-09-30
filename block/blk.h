@@ -13,6 +13,9 @@ extern struct kobj_type blk_queue_ktype;
 void init_request_from_bio(struct request *req, struct bio *bio);
 void blk_rq_bio_prep(struct request_queue *q, struct request *rq,
 			struct bio *bio);
+int blk_rq_append_bio(struct request_queue *q, struct request *rq,
+		      struct bio *bio);
+void blk_dequeue_request(struct request *rq);
 void __blk_queue_free_tags(struct request_queue *q);
 
 void blk_unplug_work(struct work_struct *work);
@@ -43,6 +46,43 @@ static inline void blk_clear_rq_complete(struct request *rq)
 	clear_bit(REQ_ATOM_COMPLETE, &rq->atomic_flags);
 }
 
+/*
+ * Internal elevator interface
+ */
+#define ELV_ON_HASH(rq)		(!hlist_unhashed(&(rq)->hash))
+
+static inline struct request *__elv_next_request(struct request_queue *q)
+{
+	struct request *rq;
+
+	while (1) {
+		while (!list_empty(&q->queue_head)) {
+			rq = list_entry_rq(q->queue_head.next);
+			if (blk_do_ordered(q, &rq))
+				return rq;
+		}
+
+		if (!q->elevator->ops->elevator_dispatch_fn(q, 0))
+			return NULL;
+	}
+}
+
+static inline void elv_activate_rq(struct request_queue *q, struct request *rq)
+{
+	struct elevator_queue *e = q->elevator;
+
+	if (e->ops->elevator_activate_req_fn)
+		e->ops->elevator_activate_req_fn(q, rq);
+}
+
+static inline void elv_deactivate_rq(struct request_queue *q, struct request *rq)
+{
+	struct elevator_queue *e = q->elevator;
+
+	if (e->ops->elevator_deactivate_req_fn)
+		e->ops->elevator_deactivate_req_fn(q, rq);
+}
+
 #ifdef CONFIG_FAIL_IO_TIMEOUT
 int blk_should_fake_timeout(struct request_queue *);
 ssize_t part_timeout_show(struct device *, struct device_attribute *, char *);
@@ -64,11 +104,14 @@ int ll_front_merge_fn(struct request_queue *q, struct request *req,
 int attempt_back_merge(struct request_queue *q, struct request *rq);
 int attempt_front_merge(struct request_queue *q, struct request *rq);
 void blk_recalc_rq_segments(struct request *rq);
-void blk_recalc_rq_sectors(struct request *rq, int nsect);
 
 void blk_queue_congestion_threshold(struct request_queue *q);
 
 int blk_dev_init(void);
+
+void elv_quiesce_start(struct request_queue *q);
+void elv_quiesce_end(struct request_queue *q);
+
 
 /*
  * Return the threshold (number of used requests) at which the queue is
@@ -102,18 +145,23 @@ static inline int blk_cpu_to_group(int cpu)
 	const struct cpumask *mask = cpu_coregroup_mask(cpu);
 	return cpumask_first(mask);
 #elif defined(CONFIG_SCHED_SMT)
-	return first_cpu(per_cpu(cpu_sibling_map, cpu));
+	return cpumask_first(topology_thread_cpumask(cpu));
 #else
 	return cpu;
 #endif
 }
 
-static inline int blk_do_io_stat(struct request_queue *q)
+/*
+ * Contribute to IO statistics IFF:
+ *
+ *	a) it's attached to a gendisk, and
+ *	b) the queue had IO stats enabled when this request was started, and
+ *	c) it's a file system request or a discard request
+ */
+static inline int blk_do_io_stat(struct request *rq)
 {
-	if (q)
-		return blk_queue_io_stat(q);
-
-	return 0;
+	return rq->rq_disk && blk_rq_io_stat(rq) &&
+	       (blk_fs_request(rq) || blk_discard_rq(rq));
 }
 
 #endif

@@ -143,10 +143,10 @@ struct oti6858_control_pkt {
 /* function prototypes */
 static int oti6858_open(struct tty_struct *tty,
 			struct usb_serial_port *port, struct file *filp);
-static void oti6858_close(struct tty_struct *tty,
-			struct usb_serial_port *port, struct file *filp);
+static void oti6858_close(struct usb_serial_port *port);
 static void oti6858_set_termios(struct tty_struct *tty,
 			struct usb_serial_port *port, struct ktermios *old);
+static void oti6858_init_termios(struct tty_struct *tty);
 static int oti6858_ioctl(struct tty_struct *tty, struct file *file,
 			unsigned int cmd, unsigned long arg);
 static void oti6858_read_int_callback(struct urb *urb);
@@ -160,7 +160,7 @@ static int oti6858_tiocmget(struct tty_struct *tty, struct file *file);
 static int oti6858_tiocmset(struct tty_struct *tty, struct file *file,
 				unsigned int set, unsigned int clear);
 static int oti6858_startup(struct usb_serial *serial);
-static void oti6858_shutdown(struct usb_serial *serial);
+static void oti6858_release(struct usb_serial *serial);
 
 /* functions operating on buffers */
 static struct oti6858_buf *oti6858_buf_alloc(unsigned int size);
@@ -187,6 +187,7 @@ static struct usb_serial_driver oti6858_device = {
 	.write =		oti6858_write,
 	.ioctl =		oti6858_ioctl,
 	.set_termios =		oti6858_set_termios,
+	.init_termios = 	oti6858_init_termios,
 	.tiocmget =		oti6858_tiocmget,
 	.tiocmset =		oti6858_tiocmset,
 	.read_bulk_callback =	oti6858_read_bulk_callback,
@@ -195,7 +196,7 @@ static struct usb_serial_driver oti6858_device = {
 	.write_room =		oti6858_write_room,
 	.chars_in_buffer =	oti6858_chars_in_buffer,
 	.attach =		oti6858_startup,
-	.shutdown =		oti6858_shutdown,
+	.release =		oti6858_release,
 };
 
 struct oti6858_private {
@@ -207,7 +208,6 @@ struct oti6858_private {
 	struct {
 		u8 read_urb_in_use;
 		u8 write_urb_in_use;
-		u8 termios_initialized;
 	} flags;
 	struct delayed_work delayed_write_work;
 
@@ -448,6 +448,14 @@ static int oti6858_chars_in_buffer(struct tty_struct *tty)
 	return chars;
 }
 
+static void oti6858_init_termios(struct tty_struct *tty)
+{
+	*(tty->termios) = tty_std_termios;
+	tty->termios->c_cflag = B38400 | CS8 | CREAD | HUPCL | CLOCAL;
+	tty->termios->c_ispeed = 38400;
+	tty->termios->c_ospeed = 38400;
+}
+
 static void oti6858_set_termios(struct tty_struct *tty,
 		struct usb_serial_port *port, struct ktermios *old_termios)
 {
@@ -464,16 +472,6 @@ static void oti6858_set_termios(struct tty_struct *tty,
 		dbg("%s(): no tty structures", __func__);
 		return;
 	}
-
-	spin_lock_irqsave(&priv->lock, flags);
-	if (!priv->flags.termios_initialized) {
-		*(tty->termios) = tty_std_termios;
-		tty->termios->c_cflag = B38400 | CS8 | CREAD | HUPCL | CLOCAL;
-		tty->termios->c_ispeed = 38400;
-		tty->termios->c_ospeed = 38400;
-		priv->flags.termios_initialized = 1;
-	}
-	spin_unlock_irqrestore(&priv->lock, flags);
 
 	cflag = tty->termios->c_cflag;
 
@@ -622,67 +620,30 @@ static int oti6858_open(struct tty_struct *tty,
 	if (result != 0) {
 		dev_err(&port->dev, "%s(): usb_submit_urb() failed"
 			       " with error %d\n", __func__, result);
-		oti6858_close(tty, port, NULL);
+		oti6858_close(port);
 		return -EPROTO;
 	}
 
 	/* setup termios */
 	if (tty)
 		oti6858_set_termios(tty, port, &tmp_termios);
-
+	port->port.drain_delay = 256;	/* FIXME: check the FIFO length */
 	return 0;
 }
 
-static void oti6858_close(struct tty_struct *tty,
-			struct usb_serial_port *port, struct file *filp)
+static void oti6858_close(struct usb_serial_port *port)
 {
 	struct oti6858_private *priv = usb_get_serial_port_data(port);
 	unsigned long flags;
-	long timeout;
-	wait_queue_t wait;
 
 	dbg("%s(port = %d)", __func__, port->number);
 
-	/* wait for data to drain from the buffer */
 	spin_lock_irqsave(&priv->lock, flags);
-	timeout = 30 * HZ;	/* PL2303_CLOSING_WAIT */
-	init_waitqueue_entry(&wait, current);
-	add_wait_queue(&tty->write_wait, &wait);
-	dbg("%s(): entering wait loop", __func__);
-	for (;;) {
-		set_current_state(TASK_INTERRUPTIBLE);
-		if (oti6858_buf_data_avail(priv->buf) == 0
-		|| timeout == 0 || signal_pending(current)
-		|| port->serial->disconnected)
-			break;
-		spin_unlock_irqrestore(&priv->lock, flags);
-		timeout = schedule_timeout(timeout);
-		spin_lock_irqsave(&priv->lock, flags);
-	}
-	set_current_state(TASK_RUNNING);
-	remove_wait_queue(&tty->write_wait, &wait);
-	dbg("%s(): after wait loop", __func__);
-
 	/* clear out any remaining data in the buffer */
 	oti6858_buf_clear(priv->buf);
 	spin_unlock_irqrestore(&priv->lock, flags);
 
-	/* wait for characters to drain from the device */
-	/* (this is long enough for the entire 256 byte */
-	/* pl2303 hardware buffer to drain with no flow */
-	/* control for data rates of 1200 bps or more, */
-	/* for lower rates we should really know how much */
-	/* data is in the buffer to compute a delay */
-	/* that is not unnecessarily long) */
-	/* FIXME
-	bps = tty_get_baud_rate(tty);
-	if (bps > 1200)
-		timeout = max((HZ*2560)/bps,HZ/10);
-	else
-	*/
-		timeout = 2*HZ;
-	schedule_timeout_interruptible(timeout);
-	dbg("%s(): after schedule_timeout_interruptible()", __func__);
+	dbg("%s(): after buf_clear()", __func__);
 
 	/* cancel scheduled setup */
 	cancel_delayed_work(&priv->delayed_setup_work);
@@ -694,15 +655,6 @@ static void oti6858_close(struct tty_struct *tty,
 	usb_kill_urb(port->write_urb);
 	usb_kill_urb(port->read_urb);
 	usb_kill_urb(port->interrupt_in_urb);
-
-	/*
-	if (tty && (tty->termios->c_cflag) & HUPCL) {
-		// drop DTR and RTS
-		spin_lock_irqsave(&priv->lock, flags);
-		priv->pending_setup.control &= ~CONTROL_MASK;
-		spin_unlock_irqrestore(&priv->lock, flags);
-	}
-	*/
 }
 
 static int oti6858_tiocmset(struct tty_struct *tty, struct file *file,
@@ -829,7 +781,7 @@ static int oti6858_ioctl(struct tty_struct *tty, struct file *file,
 }
 
 
-static void oti6858_shutdown(struct usb_serial *serial)
+static void oti6858_release(struct usb_serial *serial)
 {
 	struct oti6858_private *priv;
 	int i;
@@ -841,7 +793,6 @@ static void oti6858_shutdown(struct usb_serial *serial)
 		if (priv) {
 			oti6858_buf_free(priv->buf);
 			kfree(priv);
-			usb_set_serial_port_data(serial->port[i], NULL);
 		}
 	}
 }

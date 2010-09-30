@@ -1,4 +1,5 @@
 #include <asm-generic/vmlinux.lds.h>
+#include <asm/thread_info.h>
 #include <asm/page.h>
 
 OUTPUT_FORMAT("elf64-alpha")
@@ -16,7 +17,7 @@ SECTIONS
 
 	_text = .;	/* Text and read-only data */
 	.text : {
-	*(.text.head)
+		HEAD_TEXT
 		TEXT_TEXT
 		SCHED_TEXT
 		LOCK_TEXT

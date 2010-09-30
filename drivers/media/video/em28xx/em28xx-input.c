@@ -40,7 +40,7 @@ MODULE_PARM_DESC(ir_debug, "enable debug messages [IR]");
 
 #define i2cdprintk(fmt, arg...) \
 	if (ir_debug) { \
-		printk(KERN_DEBUG "%s/ir: " fmt, ir->c.name , ## arg); \
+		printk(KERN_DEBUG "%s/ir: " fmt, ir->name , ## arg); \
 	}
 
 #define dprintk(fmt, arg...) \
@@ -68,8 +68,7 @@ struct em28xx_IR {
 
 	/* poll external decoder */
 	int polling;
-	struct work_struct work;
-	struct timer_list timer;
+	struct delayed_work work;
 	unsigned int last_toggle:1;
 	unsigned int last_readcount;
 	unsigned int repeat_interval;
@@ -86,7 +85,7 @@ int em28xx_get_key_terratec(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 	unsigned char b;
 
 	/* poll IR chip */
-	if (1 != i2c_master_recv(&ir->c, &b, 1)) {
+	if (1 != i2c_master_recv(ir->c, &b, 1)) {
 		i2cdprintk("read error\n");
 		return -EIO;
 	}
@@ -115,7 +114,7 @@ int em28xx_get_key_em_haup(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 	unsigned char code;
 
 	/* poll IR chip */
-	if (2 != i2c_master_recv(&ir->c, buf, 2))
+	if (2 != i2c_master_recv(ir->c, buf, 2))
 		return -EIO;
 
 	/* Does eliminate repeated parity code */
@@ -148,7 +147,7 @@ int em28xx_get_key_pinnacle_usb_grey(struct IR_i2c *ir, u32 *ir_key,
 
 	/* poll IR chip */
 
-	if (3 != i2c_master_recv(&ir->c, buf, 3)) {
+	if (3 != i2c_master_recv(ir->c, buf, 3)) {
 		i2cdprintk("read error\n");
 		return -EIO;
 	}
@@ -292,32 +291,23 @@ static void em28xx_ir_handle_key(struct em28xx_IR *ir)
 	return;
 }
 
-static void ir_timer(unsigned long data)
-{
-	struct em28xx_IR *ir = (struct em28xx_IR *)data;
-
-	schedule_work(&ir->work);
-}
-
 static void em28xx_ir_work(struct work_struct *work)
 {
-	struct em28xx_IR *ir = container_of(work, struct em28xx_IR, work);
+	struct em28xx_IR *ir = container_of(work, struct em28xx_IR, work.work);
 
 	em28xx_ir_handle_key(ir);
-	mod_timer(&ir->timer, jiffies + msecs_to_jiffies(ir->polling));
+	schedule_delayed_work(&ir->work, msecs_to_jiffies(ir->polling));
 }
 
 static void em28xx_ir_start(struct em28xx_IR *ir)
 {
-	setup_timer(&ir->timer, ir_timer, (unsigned long)ir);
-	INIT_WORK(&ir->work, em28xx_ir_work);
-	schedule_work(&ir->work);
+	INIT_DELAYED_WORK(&ir->work, em28xx_ir_work);
+	schedule_delayed_work(&ir->work, 0);
 }
 
 static void em28xx_ir_stop(struct em28xx_IR *ir)
 {
-	del_timer_sync(&ir->timer);
-	flush_scheduled_work();
+	cancel_delayed_work_sync(&ir->work);
 }
 
 int em28xx_ir_init(struct em28xx *dev)

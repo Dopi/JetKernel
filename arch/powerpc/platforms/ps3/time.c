@@ -19,7 +19,9 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/platform_device.h>
 
+#include <asm/firmware.h>
 #include <asm/rtc.h>
 #include <asm/lv1call.h>
 #include <asm/ps3.h>
@@ -74,23 +76,23 @@ static u64 read_rtc(void)
 	return rtc_val;
 }
 
-int ps3_set_rtc_time(struct rtc_time *tm)
-{
-	u64 now = mktime(tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
-		tm->tm_hour, tm->tm_min, tm->tm_sec);
-
-	ps3_os_area_set_rtc_diff(now - read_rtc());
-	return 0;
-}
-
-void ps3_get_rtc_time(struct rtc_time *tm)
-{
-	to_tm(read_rtc() + ps3_os_area_get_rtc_diff(), tm);
-	tm->tm_year -= 1900;
-	tm->tm_mon -= 1;
-}
-
 unsigned long __init ps3_get_boot_time(void)
 {
 	return read_rtc() + ps3_os_area_get_rtc_diff();
 }
+
+static int __init ps3_rtc_init(void)
+{
+	struct platform_device *pdev;
+
+	if (!firmware_has_feature(FW_FEATURE_PS3_LV1))
+		return -ENODEV;
+
+	pdev = platform_device_register_simple("rtc-ps3", -1, NULL, 0);
+	if (IS_ERR(pdev))
+		return PTR_ERR(pdev);
+
+	return 0;
+}
+
+module_init(ps3_rtc_init);

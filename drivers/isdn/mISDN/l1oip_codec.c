@@ -48,6 +48,7 @@ NOTE: The bytes are handled as they are law-encoded.
 
 #include <linux/vmalloc.h>
 #include <linux/mISDNif.h>
+#include <linux/in.h>
 #include "core.h"
 #include "l1oip.h"
 
@@ -331,7 +332,7 @@ l1oip_4bit_alloc(int ulaw)
 	/* alloc conversion tables */
 	table_com = vmalloc(65536);
 	table_dec = vmalloc(512);
-	if (!table_com | !table_dec) {
+	if (!table_com || !table_dec) {
 		l1oip_4bit_free();
 		return -ENOMEM;
 	}

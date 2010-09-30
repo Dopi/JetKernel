@@ -17,7 +17,6 @@
 #include <linux/pagemap.h>
 #include <linux/mount.h>
 #include <linux/namei.h>
-#include <linux/mnt_namespace.h>
 #include "internal.h"
 
 
@@ -173,9 +172,9 @@ static struct vfsmount *afs_mntpt_do_automount(struct dentry *mntpt)
 	if (PageError(page))
 		goto error;
 
-	buf = kmap(page);
+	buf = kmap_atomic(page, KM_USER0);
 	memcpy(devname, buf, size);
-	kunmap(page);
+	kunmap_atomic(buf, KM_USER0);
 	page_cache_release(page);
 	page = NULL;
 
@@ -244,7 +243,7 @@ static void *afs_mntpt_follow_link(struct dentry *dentry, struct nameidata *nd)
 	case -EBUSY:
 		/* someone else made a mount here whilst we were busy */
 		while (d_mountpoint(nd->path.dentry) &&
-		       follow_down(&nd->path.mnt, &nd->path.dentry))
+		       follow_down(&nd->path))
 			;
 		err = 0;
 	default:

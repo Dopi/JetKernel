@@ -26,7 +26,7 @@
 #define __raw_spin_is_locked(x)		((x)->lock <= 0)
 #define __raw_spin_lock_flags(lock, flags) __raw_spin_lock(lock)
 #define __raw_spin_unlock_wait(x) \
-	do { cpu_relax(); } while ((x)->lock)
+	do { while (__raw_spin_is_locked(x)) cpu_relax(); } while (0)
 
 /*
  * Simple spin lock operations.  There are two variants, one clears IRQ's
@@ -215,6 +215,9 @@ static inline int __raw_write_trylock(raw_rwlock_t *rw)
 
 	return (oldval > (RW_LOCK_BIAS - 1));
 }
+
+#define __raw_read_lock_flags(lock, flags) __raw_read_lock(lock)
+#define __raw_write_lock_flags(lock, flags) __raw_write_lock(lock)
 
 #define _raw_spin_relax(lock)	cpu_relax()
 #define _raw_read_relax(lock)	cpu_relax()

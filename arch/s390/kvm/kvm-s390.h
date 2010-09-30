@@ -14,6 +14,7 @@
 #ifndef ARCH_S390_KVM_S390_H
 #define ARCH_S390_KVM_S390_H
 
+#include <linux/hrtimer.h>
 #include <linux/kvm.h>
 #include <linux/kvm_host.h>
 
@@ -41,7 +42,8 @@ static inline int __cpu_is_stopped(struct kvm_vcpu *vcpu)
 }
 
 int kvm_s390_handle_wait(struct kvm_vcpu *vcpu);
-void kvm_s390_idle_wakeup(unsigned long data);
+enum hrtimer_restart kvm_s390_idle_wakeup(struct hrtimer *timer);
+void kvm_s390_tasklet(unsigned long parm);
 void kvm_s390_deliver_pending_interrupts(struct kvm_vcpu *vcpu);
 int kvm_s390_inject_vm(struct kvm *kvm,
 		struct kvm_s390_interrupt *s390int);
@@ -50,7 +52,7 @@ int kvm_s390_inject_vcpu(struct kvm_vcpu *vcpu,
 int kvm_s390_inject_program_int(struct kvm_vcpu *vcpu, u16 code);
 
 /* implemented in priv.c */
-int kvm_s390_handle_priv(struct kvm_vcpu *vcpu);
+int kvm_s390_handle_b2(struct kvm_vcpu *vcpu);
 
 /* implemented in sigp.c */
 int kvm_s390_handle_sigp(struct kvm_vcpu *vcpu);

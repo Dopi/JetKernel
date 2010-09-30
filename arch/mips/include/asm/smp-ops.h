@@ -15,6 +15,8 @@
 
 #include <linux/cpumask.h>
 
+struct task_struct;
+
 struct plat_smp_ops {
 	void (*send_ipi_single)(int cpu, unsigned int action);
 	void (*send_ipi_mask)(cpumask_t mask, unsigned int action);
@@ -24,6 +26,10 @@ struct plat_smp_ops {
 	void (*boot_secondary)(int cpu, struct task_struct *idle);
 	void (*smp_setup)(void);
 	void (*prepare_cpus)(unsigned int max_cpus);
+#ifdef CONFIG_HOTPLUG_CPU
+	int (*cpu_disable)(void);
+	void (*cpu_die)(unsigned int cpu);
+#endif
 };
 
 extern void register_smp_ops(struct plat_smp_ops *ops);

@@ -24,15 +24,15 @@
 #include "comedidev.h"
 #include <asm/uaccess.h>
 
-const comedi_lrange range_bipolar10 = { 1, {BIP_RANGE(10)} };
-const comedi_lrange range_bipolar5 = { 1, {BIP_RANGE(5)} };
-const comedi_lrange range_bipolar2_5 = { 1, {BIP_RANGE(2.5)} };
-const comedi_lrange range_unipolar10 = { 1, {UNI_RANGE(10)} };
-const comedi_lrange range_unipolar5 = { 1, {UNI_RANGE(5)} };
-const comedi_lrange range_unknown = { 1, {{0, 1000000, UNIT_none}} };
+const struct comedi_lrange range_bipolar10 = { 1, {BIP_RANGE(10)} };
+const struct comedi_lrange range_bipolar5 = { 1, {BIP_RANGE(5)} };
+const struct comedi_lrange range_bipolar2_5 = { 1, {BIP_RANGE(2.5)} };
+const struct comedi_lrange range_unipolar10 = { 1, {UNI_RANGE(10)} };
+const struct comedi_lrange range_unipolar5 = { 1, {UNI_RANGE(5)} };
+const struct comedi_lrange range_unknown = { 1, {{0, 1000000, UNIT_none}} };
 
 /*
-   	COMEDI_RANGEINFO
+	COMEDI_RANGEINFO
 	range information ioctl
 
 	arg:
@@ -42,16 +42,16 @@ const comedi_lrange range_unknown = { 1, {{0, 1000000, UNIT_none}} };
 		range info structure
 
 	writes:
-		n comedi_krange structures to rangeinfo->range_ptr
+		n struct comedi_krange structures to rangeinfo->range_ptr
 */
-int do_rangeinfo_ioctl(comedi_device * dev, comedi_rangeinfo * arg)
+int do_rangeinfo_ioctl(struct comedi_device *dev, struct comedi_rangeinfo *arg)
 {
-	comedi_rangeinfo it;
+	struct comedi_rangeinfo it;
 	int subd, chan;
-	const comedi_lrange *lr;
-	comedi_subdevice *s;
+	const struct comedi_lrange *lr;
+	struct comedi_subdevice *s;
 
-	if (copy_from_user(&it, arg, sizeof(comedi_rangeinfo)))
+	if (copy_from_user(&it, arg, sizeof(struct comedi_rangeinfo)))
 		return -EFAULT;
 	subd = (it.range_type >> 24) & 0xf;
 	chan = (it.range_type >> 16) & 0xff;
@@ -78,17 +78,17 @@ int do_rangeinfo_ioctl(comedi_device * dev, comedi_rangeinfo * arg)
 	}
 
 	if (copy_to_user(it.range_ptr, lr->range,
-			sizeof(comedi_krange) * lr->length))
+			sizeof(struct comedi_krange) * lr->length))
 		return -EFAULT;
 
 	return 0;
 }
 
-static int aref_invalid(comedi_subdevice * s, unsigned int chanspec)
+static int aref_invalid(struct comedi_subdevice *s, unsigned int chanspec)
 {
 	unsigned int aref;
 
-	// disable reporting invalid arefs... maybe someday
+	/*  disable reporting invalid arefs... maybe someday */
 	return 0;
 
 	aref = CR_AREF(chanspec);
@@ -120,7 +120,7 @@ static int aref_invalid(comedi_subdevice * s, unsigned int chanspec)
    This function checks each element in a channel/gain list to make
    make sure it is valid.
 */
-int check_chanlist(comedi_subdevice * s, int n, unsigned int *chanlist)
+int check_chanlist(struct comedi_subdevice *s, int n, unsigned int *chanlist)
 {
 	int i;
 	int chan;
@@ -130,14 +130,12 @@ int check_chanlist(comedi_subdevice * s, int n, unsigned int *chanlist)
 			if (CR_CHAN(chanlist[i]) >= s->n_chan ||
 				CR_RANGE(chanlist[i]) >= s->range_table->length
 				|| aref_invalid(s, chanlist[i])) {
-				rt_printk
-					("bad chanlist[%d]=0x%08x n_chan=%d range length=%d\n",
+				printk("bad chanlist[%d]=0x%08x n_chan=%d range length=%d\n",
 					i, chanlist[i], s->n_chan,
 					s->range_table->length);
 #if 0
-				for (i = 0; i < n; i++) {
+				for (i = 0; i < n; i++)
 					printk("[%d]=0x%08x\n", i, chanlist[i]);
-				}
 #endif
 				return -EINVAL;
 			}
@@ -148,13 +146,13 @@ int check_chanlist(comedi_subdevice * s, int n, unsigned int *chanlist)
 				CR_RANGE(chanlist[i]) >=
 				s->range_table_list[chan]->length
 				|| aref_invalid(s, chanlist[i])) {
-				rt_printk("bad chanlist[%d]=0x%08x\n", i,
+				printk("bad chanlist[%d]=0x%08x\n", i,
 					chanlist[i]);
 				return -EINVAL;
 			}
 		}
 	} else {
-		rt_printk("comedi: (bug) no range type list!\n");
+		printk("comedi: (bug) no range type list!\n");
 		return -EINVAL;
 	}
 	return 0;

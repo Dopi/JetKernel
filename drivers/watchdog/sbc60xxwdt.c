@@ -1,7 +1,7 @@
 /*
  *	60xx Single Board Computer Watchdog Timer driver for Linux 2.2.x
  *
- *      Based on acquirewdt.c by Alan Cox.
+ *	Based on acquirewdt.c by Alan Cox.
  *
  *	This program is free software; you can redistribute it and/or
  *	modify it under the terms of the GNU General Public License
@@ -372,8 +372,9 @@ static int __init sbc60xxwdt_init(void)
 						wdt_miscdev.minor, rc);
 		goto err_out_reboot;
 	}
-	printk(KERN_INFO PFX "WDT driver for 60XX single board computer initialised. timeout=%d sec (nowayout=%d)\n",
-		timeout, nowayout);
+	printk(KERN_INFO PFX
+		"WDT driver for 60XX single board computer initialised. "
+		"timeout=%d sec (nowayout=%d)\n", timeout, nowayout);
 
 	return 0;
 

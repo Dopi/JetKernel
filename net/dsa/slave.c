@@ -1,6 +1,6 @@
 /*
  * net/dsa/slave.c - Slave device handling
- * Copyright (c) 2008 Marvell Semiconductor
+ * Copyright (c) 2008-2009 Marvell Semiconductor
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@ static int dsa_slave_phy_read(struct mii_bus *bus, int addr, int reg)
 {
 	struct dsa_switch *ds = bus->priv;
 
-	if (ds->valid_port_mask & (1 << addr))
+	if (ds->phys_port_mask & (1 << addr))
 		return ds->drv->phy_read(ds, addr, reg);
 
 	return 0xffff;
@@ -29,7 +29,7 @@ static int dsa_slave_phy_write(struct mii_bus *bus, int addr, int reg, u16 val)
 {
 	struct dsa_switch *ds = bus->priv;
 
-	if (ds->valid_port_mask & (1 << addr))
+	if (ds->phys_port_mask & (1 << addr))
 		return ds->drv->phy_write(ds, addr, reg, val);
 
 	return 0;
@@ -43,22 +43,31 @@ void dsa_slave_mii_bus_init(struct dsa_switch *ds)
 	ds->slave_mii_bus->write = dsa_slave_phy_write;
 	snprintf(ds->slave_mii_bus->id, MII_BUS_ID_SIZE, "%s:%.2x",
 			ds->master_mii_bus->id, ds->pd->sw_addr);
-	ds->slave_mii_bus->parent = &(ds->master_mii_bus->dev);
+	ds->slave_mii_bus->parent = &ds->master_mii_bus->dev;
 }
 
 
 /* slave device handling ****************************************************/
+static int dsa_slave_init(struct net_device *dev)
+{
+	struct dsa_slave_priv *p = netdev_priv(dev);
+
+	dev->iflink = p->parent->dst->master_netdev->ifindex;
+
+	return 0;
+}
+
 static int dsa_slave_open(struct net_device *dev)
 {
 	struct dsa_slave_priv *p = netdev_priv(dev);
-	struct net_device *master = p->parent->master_netdev;
+	struct net_device *master = p->parent->dst->master_netdev;
 	int err;
 
 	if (!(master->flags & IFF_UP))
 		return -ENETDOWN;
 
 	if (compare_ether_addr(dev->dev_addr, master->dev_addr)) {
-		err = dev_unicast_add(master, dev->dev_addr, ETH_ALEN);
+		err = dev_unicast_add(master, dev->dev_addr);
 		if (err < 0)
 			goto out;
 	}
@@ -81,7 +90,7 @@ clear_allmulti:
 		dev_set_allmulti(master, -1);
 del_unicast:
 	if (compare_ether_addr(dev->dev_addr, master->dev_addr))
-		dev_unicast_delete(master, dev->dev_addr, ETH_ALEN);
+		dev_unicast_delete(master, dev->dev_addr);
 out:
 	return err;
 }
@@ -89,7 +98,7 @@ out:
 static int dsa_slave_close(struct net_device *dev)
 {
 	struct dsa_slave_priv *p = netdev_priv(dev);
-	struct net_device *master = p->parent->master_netdev;
+	struct net_device *master = p->parent->dst->master_netdev;
 
 	dev_mc_unsync(master, dev);
 	dev_unicast_unsync(master, dev);
@@ -99,7 +108,7 @@ static int dsa_slave_close(struct net_device *dev)
 		dev_set_promiscuity(master, -1);
 
 	if (compare_ether_addr(dev->dev_addr, master->dev_addr))
-		dev_unicast_delete(master, dev->dev_addr, ETH_ALEN);
+		dev_unicast_delete(master, dev->dev_addr);
 
 	return 0;
 }
@@ -107,7 +116,7 @@ static int dsa_slave_close(struct net_device *dev)
 static void dsa_slave_change_rx_flags(struct net_device *dev, int change)
 {
 	struct dsa_slave_priv *p = netdev_priv(dev);
-	struct net_device *master = p->parent->master_netdev;
+	struct net_device *master = p->parent->dst->master_netdev;
 
 	if (change & IFF_ALLMULTI)
 		dev_set_allmulti(master, dev->flags & IFF_ALLMULTI ? 1 : -1);
@@ -118,7 +127,7 @@ static void dsa_slave_change_rx_flags(struct net_device *dev, int change)
 static void dsa_slave_set_rx_mode(struct net_device *dev)
 {
 	struct dsa_slave_priv *p = netdev_priv(dev);
-	struct net_device *master = p->parent->master_netdev;
+	struct net_device *master = p->parent->dst->master_netdev;
 
 	dev_mc_sync(master, dev);
 	dev_unicast_sync(master, dev);
@@ -127,7 +136,7 @@ static void dsa_slave_set_rx_mode(struct net_device *dev)
 static int dsa_slave_set_mac_address(struct net_device *dev, void *a)
 {
 	struct dsa_slave_priv *p = netdev_priv(dev);
-	struct net_device *master = p->parent->master_netdev;
+	struct net_device *master = p->parent->dst->master_netdev;
 	struct sockaddr *addr = a;
 	int err;
 
@@ -138,13 +147,13 @@ static int dsa_slave_set_mac_address(struct net_device *dev, void *a)
 		goto out;
 
 	if (compare_ether_addr(addr->sa_data, master->dev_addr)) {
-		err = dev_unicast_add(master, addr->sa_data, ETH_ALEN);
+		err = dev_unicast_add(master, addr->sa_data);
 		if (err < 0)
 			return err;
 	}
 
 	if (compare_ether_addr(dev->dev_addr, master->dev_addr))
-		dev_unicast_delete(master, dev->dev_addr, ETH_ALEN);
+		dev_unicast_delete(master, dev->dev_addr);
 
 out:
 	memcpy(dev->dev_addr, addr->sa_data, ETH_ALEN);
@@ -288,6 +297,7 @@ static const struct ethtool_ops dsa_slave_ethtool_ops = {
 
 #ifdef CONFIG_NET_DSA_TAG_DSA
 static const struct net_device_ops dsa_netdev_ops = {
+	.ndo_init		= dsa_slave_init,
 	.ndo_open	 	= dsa_slave_open,
 	.ndo_stop		= dsa_slave_close,
 	.ndo_start_xmit		= dsa_xmit,
@@ -300,6 +310,7 @@ static const struct net_device_ops dsa_netdev_ops = {
 #endif
 #ifdef CONFIG_NET_DSA_TAG_EDSA
 static const struct net_device_ops edsa_netdev_ops = {
+	.ndo_init		= dsa_slave_init,
 	.ndo_open	 	= dsa_slave_open,
 	.ndo_stop		= dsa_slave_close,
 	.ndo_start_xmit		= edsa_xmit,
@@ -312,6 +323,7 @@ static const struct net_device_ops edsa_netdev_ops = {
 #endif
 #ifdef CONFIG_NET_DSA_TAG_TRAILER
 static const struct net_device_ops trailer_netdev_ops = {
+	.ndo_init		= dsa_slave_init,
 	.ndo_open	 	= dsa_slave_open,
 	.ndo_stop		= dsa_slave_close,
 	.ndo_start_xmit		= trailer_xmit,
@@ -328,7 +340,7 @@ struct net_device *
 dsa_slave_create(struct dsa_switch *ds, struct device *parent,
 		 int port, char *name)
 {
-	struct net_device *master = ds->master_netdev;
+	struct net_device *master = ds->dst->master_netdev;
 	struct net_device *slave_dev;
 	struct dsa_slave_priv *p;
 	int ret;
@@ -343,7 +355,7 @@ dsa_slave_create(struct dsa_switch *ds, struct device *parent,
 	memcpy(slave_dev->dev_addr, master->dev_addr, ETH_ALEN);
 	slave_dev->tx_queue_len = 0;
 
-	switch (ds->tag_protocol) {
+	switch (ds->dst->tag_protocol) {
 #ifdef CONFIG_NET_DSA_TAG_DSA
 	case htons(ETH_P_DSA):
 		slave_dev->netdev_ops = &dsa_netdev_ops;

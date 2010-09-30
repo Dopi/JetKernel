@@ -21,14 +21,13 @@
 #include <mach/hardware.h>
 #include <asm/irq.h>
 #include <mach/irqs.h>
-#include <mach/pxa-regs.h>
-#include <mach/pxa2xx-regs.h>
-#include <mach/mfp-pxa27x.h>
+#include <mach/gpio.h>
+#include <mach/pxa27x.h>
 #include <mach/reset.h>
 #include <mach/ohci.h>
 #include <mach/pm.h>
 #include <mach/dma.h>
-#include <mach/i2c.h>
+#include <plat/i2c.h>
 
 #include "generic.h"
 #include "devices.h"
@@ -205,6 +204,23 @@ static struct clk_lookup pxa27x_clkregs[] = {
 #define RESTORE(x)	x = sleep_save[SLEEP_SAVE_##x]
 
 /*
+ * allow platforms to override default PWRMODE setting used for PM_SUSPEND_MEM
+ */
+static unsigned int pwrmode = PWRMODE_SLEEP;
+
+int __init pxa27x_set_pwrmode(unsigned int mode)
+{
+	switch (mode) {
+	case PWRMODE_SLEEP:
+	case PWRMODE_DEEPSLEEP:
+		pwrmode = mode;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+/*
  * List of global PXA peripheral registers to preserve.
  * More ones like CP and general purpose register values are preserved
  * with the stack pointer in sleep.S.
@@ -255,7 +271,7 @@ void pxa27x_cpu_pm_enter(suspend_state_t state)
 		pxa_cpu_standby();
 		break;
 	case PM_SUSPEND_MEM:
-		pxa27x_cpu_suspend(PWRMODE_SLEEP);
+		pxa27x_cpu_suspend(pwrmode);
 		break;
 	}
 }
@@ -332,7 +348,7 @@ static int pxa27x_set_wake(unsigned int irq, unsigned int on)
 void __init pxa27x_init_irq(void)
 {
 	pxa_init_irq(34, pxa27x_set_wake);
-	pxa_init_gpio(121, pxa27x_set_wake);
+	pxa_init_gpio(IRQ_GPIO_2_x, 2, 120, pxa27x_set_wake);
 }
 
 /*
@@ -381,7 +397,7 @@ static int __init pxa27x_init(void)
 
 		clks_register(pxa27x_clkregs, ARRAY_SIZE(pxa27x_clkregs));
 
-		if ((ret = pxa_init_dma(32)))
+		if ((ret = pxa_init_dma(IRQ_DMA, 32)))
 			return ret;
 
 		pxa27x_init_pm();

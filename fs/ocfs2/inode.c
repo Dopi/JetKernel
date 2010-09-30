@@ -38,6 +38,7 @@
 #include "ocfs2.h"
 
 #include "alloc.h"
+#include "dir.h"
 #include "blockcheck.h"
 #include "dlmglue.h"
 #include "extent_map.h"
@@ -112,6 +113,17 @@ void ocfs2_get_inode_flags(struct ocfs2_inode_info *oi)
 		oi->ip_attr |= OCFS2_DIRSYNC_FL;
 }
 
+struct inode *ocfs2_ilookup(struct super_block *sb, u64 blkno)
+{
+	struct ocfs2_find_inode_args args;
+
+	args.fi_blkno = blkno;
+	args.fi_flags = 0;
+	args.fi_ino = ino_from_blkno(sb, blkno);
+	args.fi_sysfile_type = 0;
+
+	return ilookup5(sb, blkno, ocfs2_find_actor, &args);
+}
 struct inode *ocfs2_iget(struct ocfs2_super *osb, u64 blkno, unsigned flags,
 			 int sysfile_type)
 {
@@ -203,6 +215,8 @@ bail:
 static int ocfs2_init_locked_inode(struct inode *inode, void *opaque)
 {
 	struct ocfs2_find_inode_args *args = opaque;
+	static struct lock_class_key ocfs2_quota_ip_alloc_sem_key,
+				     ocfs2_file_ip_alloc_sem_key;
 
 	mlog_entry("inode = %p, opaque = %p\n", inode, opaque);
 
@@ -211,6 +225,15 @@ static int ocfs2_init_locked_inode(struct inode *inode, void *opaque)
 	if (args->fi_sysfile_type != 0)
 		lockdep_set_class(&inode->i_mutex,
 			&ocfs2_sysfile_lock_key[args->fi_sysfile_type]);
+	if (args->fi_sysfile_type == USER_QUOTA_SYSTEM_INODE ||
+	    args->fi_sysfile_type == GROUP_QUOTA_SYSTEM_INODE ||
+	    args->fi_sysfile_type == LOCAL_USER_QUOTA_SYSTEM_INODE ||
+	    args->fi_sysfile_type == LOCAL_GROUP_QUOTA_SYSTEM_INODE)
+		lockdep_set_class(&OCFS2_I(inode)->ip_alloc_sem,
+				  &ocfs2_quota_ip_alloc_sem_key);
+	else
+		lockdep_set_class(&OCFS2_I(inode)->ip_alloc_sem,
+				  &ocfs2_file_ip_alloc_sem_key);
 
 	mlog_exit(0);
 	return 0;
@@ -275,7 +298,7 @@ void ocfs2_populate_inode(struct inode *inode, struct ocfs2_dinode *fe,
 		     (unsigned long long)OCFS2_I(inode)->ip_blkno,
 		     (unsigned long long)le64_to_cpu(fe->i_blkno));
 
-	inode->i_nlink = le16_to_cpu(fe->i_links_count);
+	inode->i_nlink = ocfs2_read_links_count(fe);
 
 	if (fe->i_flags & cpu_to_le32(OCFS2_SYSTEM_FL)) {
 		OCFS2_I(inode)->ip_flags |= OCFS2_INODE_SYSTEM_FILE;
@@ -351,6 +374,8 @@ void ocfs2_populate_inode(struct inode *inode, struct ocfs2_dinode *fe,
 
 	ocfs2_set_inode_flags(inode);
 
+	OCFS2_I(inode)->ip_last_used_slot = 0;
+	OCFS2_I(inode)->ip_last_used_group = 0;
 	mlog_exit_void();
 }
 
@@ -606,7 +631,7 @@ static int ocfs2_remove_inode(struct inode *inode,
 	}
 
 	handle = ocfs2_start_trans(osb, OCFS2_DELETE_INODE_CREDITS +
-					ocfs2_quota_trans_credits(inode->i_sb));
+				   ocfs2_quota_trans_credits(inode->i_sb));
 	if (IS_ERR(handle)) {
 		status = PTR_ERR(handle);
 		mlog_errno(status);
@@ -738,6 +763,15 @@ static int ocfs2_wipe_inode(struct inode *inode,
 	if (status < 0) {
 		mlog_errno(status);
 		goto bail_unlock_dir;
+	}
+
+	/* Remove any dir index tree */
+	if (S_ISDIR(inode->i_mode)) {
+		status = ocfs2_dx_dir_truncate(inode, di_bh);
+		if (status) {
+			mlog_errno(status);
+			goto bail_unlock_dir;
+		}
 	}
 
 	/*Free extended attribute resources associated with this inode.*/
@@ -949,6 +983,17 @@ void ocfs2_delete_inode(struct inode *inode)
 		goto bail;
 	}
 
+	/*
+	 * Synchronize us against ocfs2_get_dentry. We take this in
+	 * shared mode so that all nodes can still concurrently
+	 * process deletes.
+	 */
+	status = ocfs2_nfs_sync_lock(OCFS2_SB(inode->i_sb), 0);
+	if (status < 0) {
+		mlog(ML_ERROR, "getting nfs sync lock(PR) failed %d\n", status);
+		ocfs2_cleanup_delete_inode(inode, 0);
+		goto bail_unblock;
+	}
 	/* Lock down the inode. This gives us an up to date view of
 	 * it's metadata (for verification), and allows us to
 	 * serialize delete_inode on multiple nodes.
@@ -962,7 +1007,7 @@ void ocfs2_delete_inode(struct inode *inode)
 		if (status != -ENOENT)
 			mlog_errno(status);
 		ocfs2_cleanup_delete_inode(inode, 0);
-		goto bail_unblock;
+		goto bail_unlock_nfs_sync;
 	}
 
 	/* Query the cluster. This will be the final decision made
@@ -1005,6 +1050,10 @@ void ocfs2_delete_inode(struct inode *inode)
 bail_unlock_inode:
 	ocfs2_inode_unlock(inode, 1);
 	brelse(di_bh);
+
+bail_unlock_nfs_sync:
+	ocfs2_nfs_sync_unlock(OCFS2_SB(inode->i_sb), 0);
+
 bail_unblock:
 	status = sigprocmask(SIG_SETMASK, &oldset, NULL);
 	if (status < 0)
@@ -1205,7 +1254,7 @@ int ocfs2_mark_inode_dirty(handle_t *handle,
 	spin_unlock(&OCFS2_I(inode)->ip_lock);
 
 	fe->i_size = cpu_to_le64(i_size_read(inode));
-	fe->i_links_count = cpu_to_le16(inode->i_nlink);
+	ocfs2_set_links_count(fe, inode->i_nlink);
 	fe->i_uid = cpu_to_le32(inode->i_uid);
 	fe->i_gid = cpu_to_le32(inode->i_gid);
 	fe->i_mode = cpu_to_le16(inode->i_mode);
@@ -1242,7 +1291,7 @@ void ocfs2_refresh_inode(struct inode *inode,
 	OCFS2_I(inode)->ip_dyn_features = le16_to_cpu(fe->i_dyn_features);
 	ocfs2_set_inode_flags(inode);
 	i_size_write(inode, le64_to_cpu(fe->i_size));
-	inode->i_nlink = le16_to_cpu(fe->i_links_count);
+	inode->i_nlink = ocfs2_read_links_count(fe);
 	inode->i_uid = le32_to_cpu(fe->i_uid);
 	inode->i_gid = le32_to_cpu(fe->i_gid);
 	inode->i_mode = le16_to_cpu(fe->i_mode);

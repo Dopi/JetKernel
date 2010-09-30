@@ -43,18 +43,6 @@ unsigned long pci_probe_only = 1;
 unsigned long pci_io_base = ISA_IO_BASE;
 EXPORT_SYMBOL(pci_io_base);
 
-LIST_HEAD(hose_list);
-
-static void fixup_broken_pcnet32(struct pci_dev* dev)
-{
-	if ((dev->class>>8 == PCI_CLASS_NETWORK_ETHERNET)) {
-		dev->vendor = PCI_VENDOR_ID_AMD;
-		pci_write_config_word(dev, PCI_VENDOR_ID, PCI_VENDOR_ID_AMD);
-	}
-}
-DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_TRIDENT, PCI_ANY_ID, fixup_broken_pcnet32);
-
-
 static u32 get_int_prop(struct device_node *np, const char *name, u32 def)
 {
 	const u32 *prop;
@@ -66,7 +54,7 @@ static u32 get_int_prop(struct device_node *np, const char *name, u32 def)
 	return def;
 }
 
-static unsigned int pci_parse_of_flags(u32 addr0)
+static unsigned int pci_parse_of_flags(u32 addr0, int bridge)
 {
 	unsigned int flags = 0;
 
@@ -77,8 +65,17 @@ static unsigned int pci_parse_of_flags(u32 addr0)
 		if (addr0 & 0x40000000)
 			flags |= IORESOURCE_PREFETCH
 				 | PCI_BASE_ADDRESS_MEM_PREFETCH;
+		/* Note: We don't know whether the ROM has been left enabled
+		 * by the firmware or not. We mark it as disabled (ie, we do
+		 * not set the IORESOURCE_ROM_ENABLE flag) for now rather than
+		 * do a config space read, it will be force-enabled if needed
+		 */
+		if (!bridge && (addr0 & 0xff) == 0x30)
+			flags |= IORESOURCE_READONLY;
 	} else if (addr0 & 0x01000000)
 		flags = IORESOURCE_IO | PCI_BASE_ADDRESS_SPACE_IO;
+	if (flags)
+		flags |= IORESOURCE_SIZEALIGN;
 	return flags;
 }
 
@@ -97,7 +94,7 @@ static void pci_parse_of_addrs(struct device_node *node, struct pci_dev *dev)
 		return;
 	pr_debug("    parse addresses (%d bytes) @ %p\n", proplen, addrs);
 	for (; proplen >= 20; proplen -= 20, addrs += 5) {
-		flags = pci_parse_of_flags(addrs[0]);
+		flags = pci_parse_of_flags(addrs[0], 0);
 		if (!flags)
 			continue;
 		base = of_read_number(&addrs[1], 2);
@@ -295,7 +292,7 @@ void __devinit of_scan_pci_bridge(struct device_node *node,
 	}
 	i = 1;
 	for (; len >= 32; len -= 32, ranges += 8) {
-		flags = pci_parse_of_flags(ranges[0]);
+		flags = pci_parse_of_flags(ranges[0], 1);
 		size = of_read_number(&ranges[6], 2);
 		if (flags == 0 || size == 0)
 			continue;
@@ -423,6 +420,9 @@ int pcibios_unmap_io_space(struct pci_bus *bus)
 	 * so flushing the hash table is the only sane way to make sure
 	 * that no hash entries are covering that removed bridge area
 	 * while still allowing other busses overlapping those pages
+	 *
+	 * Note: If we ever support P2P hotplug on Book3E, we'll have
+	 * to do an appropriate TLB flush here too
 	 */
 	if (bus->self) {
 		struct resource *res = bus->resource[0];
@@ -430,8 +430,10 @@ int pcibios_unmap_io_space(struct pci_bus *bus)
 		pr_debug("IO unmapping for PCI-PCI bridge %s\n",
 			 pci_name(bus->self));
 
+#ifdef CONFIG_PPC_STD_MMU_64
 		__flush_hash_table_range(&init_mm, res->start + _IO_BASE,
 					 res->end + _IO_BASE + 1);
+#endif
 		return 0;
 	}
 
@@ -504,7 +506,7 @@ int __devinit pcibios_map_io_space(struct pci_bus *bus)
 	pr_debug("IO mapping for PHB %s\n", hose->dn->full_name);
 	pr_debug("  phys=0x%016llx, virt=0x%p (alloc=0x%p)\n",
 		 hose->io_base_phys, hose->io_base_virt, hose->io_base_alloc);
-	pr_debug("  size=0x%016lx (alloc=0x%016lx)\n",
+	pr_debug("  size=0x%016llx (alloc=0x%016lx)\n",
 		 hose->pci_io_size, size_page);
 
 	/* Establish the mapping */
@@ -523,23 +525,6 @@ int __devinit pcibios_map_io_space(struct pci_bus *bus)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(pcibios_map_io_space);
-
-unsigned long pci_address_to_pio(phys_addr_t address)
-{
-	struct pci_controller *hose, *tmp;
-
-	list_for_each_entry_safe(hose, tmp, &hose_list, list_node) {
-		if (address >= hose->io_base_phys &&
-		    address < (hose->io_base_phys + hose->pci_io_size)) {
-			unsigned long base =
-				(unsigned long)hose->io_base_virt - _IO_BASE;
-			return base + (address - hose->io_base_phys);
-		}
-	}
-	return (unsigned int)-1;
-}
-EXPORT_SYMBOL_GPL(pci_address_to_pio);
-
 
 #define IOBASE_BRIDGE_NUMBER	0
 #define IOBASE_MEMORY		1

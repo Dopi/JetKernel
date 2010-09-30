@@ -107,7 +107,9 @@ static unsigned char vx2_inb(struct vx_core *chip, int offset)
 static void vx2_outb(struct vx_core *chip, int offset, unsigned char val)
 {
 	outb(val, vx2_reg_addr(chip, offset));
-	//printk("outb: %x -> %x\n", val, vx2_reg_addr(chip, offset));
+	/*
+	printk(KERN_DEBUG "outb: %x -> %x\n", val, vx2_reg_addr(chip, offset));
+	*/
 }
 
 /**
@@ -126,7 +128,9 @@ static unsigned int vx2_inl(struct vx_core *chip, int offset)
  */
 static void vx2_outl(struct vx_core *chip, int offset, unsigned int val)
 {
-	// printk("outl: %x -> %x\n", val, vx2_reg_addr(chip, offset));
+	/*
+	printk(KERN_DEBUG "outl: %x -> %x\n", val, vx2_reg_addr(chip, offset));
+	*/
 	outl(val, vx2_reg_addr(chip, offset));
 }
 
@@ -363,7 +367,7 @@ static int vx2_load_xilinx_binary(struct vx_core *chip, const struct firmware *x
 	unsigned int port;
 	const unsigned char *image;
 
-	/* XILINX reset (wait at least 1 milisecond between reset on and off). */
+	/* XILINX reset (wait at least 1 millisecond between reset on and off). */
 	vx_outl(chip, CNTRL, VX_CNTRL_REGISTER_VALUE | VX_XILINX_RESET_MASK);
 	vx_inl(chip, CNTRL);
 	msleep(10);
@@ -881,10 +885,10 @@ static int vx_input_level_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem
 	struct vx_core *_chip = snd_kcontrol_chip(kcontrol);
 	struct snd_vx222 *chip = (struct snd_vx222 *)_chip;
 	if (ucontrol->value.integer.value[0] < 0 ||
-	    ucontrol->value.integer.value[0] < MIC_LEVEL_MAX)
+	    ucontrol->value.integer.value[0] > MIC_LEVEL_MAX)
 		return -EINVAL;
 	if (ucontrol->value.integer.value[1] < 0 ||
-	    ucontrol->value.integer.value[1] < MIC_LEVEL_MAX)
+	    ucontrol->value.integer.value[1] > MIC_LEVEL_MAX)
 		return -EINVAL;
 	mutex_lock(&_chip->mixer_mutex);
 	if (chip->input_level[0] != ucontrol->value.integer.value[0] ||

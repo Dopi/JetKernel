@@ -42,10 +42,10 @@ MODULE_AUTHOR("David Schleef <ds@schleef.org>");
 MODULE_DESCRIPTION("Comedi kernel library");
 MODULE_LICENSE("GPL");
 
-comedi_t *comedi_open(const char *filename)
+void *comedi_open(const char *filename)
 {
 	struct comedi_device_file_info *dev_file_info;
-	comedi_device *dev;
+	struct comedi_device *dev;
 	unsigned int minor;
 
 	if (strncmp(filename, "/dev/comedi", 11) != 0)
@@ -57,41 +57,41 @@ comedi_t *comedi_open(const char *filename)
 		return NULL;
 
 	dev_file_info = comedi_get_device_file_info(minor);
-	if(dev_file_info == NULL)
+	if (dev_file_info == NULL)
 		return NULL;
 	dev = dev_file_info->device;
 
-	if(dev == NULL || !dev->attached)
+	if (dev == NULL || !dev->attached)
 		return NULL;
 
 	if (!try_module_get(dev->driver->module))
 		return NULL;
 
-	return (comedi_t *) dev;
+	return (void *) dev;
 }
 
-comedi_t *comedi_open_old(unsigned int minor)
+void *comedi_open_old(unsigned int minor)
 {
 	struct comedi_device_file_info *dev_file_info;
-	comedi_device *dev;
+	struct comedi_device *dev;
 
 	if (minor >= COMEDI_NUM_MINORS)
 		return NULL;
 
 	dev_file_info = comedi_get_device_file_info(minor);
-	if(dev_file_info == NULL)
+	if (dev_file_info == NULL)
 		return NULL;
 	dev = dev_file_info->device;
 
-	if(dev == NULL || !dev->attached)
+	if (dev == NULL || !dev->attached)
 		return NULL;
 
-	return (comedi_t *) dev;
+	return (void *) dev;
 }
 
-int comedi_close(comedi_t * d)
+int comedi_close(void *d)
 {
-	comedi_device *dev = (comedi_device *) d;
+	struct comedi_device *dev = (struct comedi_device *) d;
 
 	module_put(dev->driver->module);
 
@@ -105,7 +105,7 @@ int comedi_loglevel(int newlevel)
 
 void comedi_perror(const char *message)
 {
-	rt_printk("%s: unknown error\n", message);
+	printk("%s: unknown error\n", message);
 }
 
 char *comedi_strerror(int err)
@@ -113,19 +113,19 @@ char *comedi_strerror(int err)
 	return "unknown error";
 }
 
-int comedi_fileno(comedi_t * d)
+int comedi_fileno(void *d)
 {
-	comedi_device *dev = (comedi_device *) d;
+	struct comedi_device *dev = (struct comedi_device *) d;
 
 	/* return something random */
 	return dev->minor;
 }
 
-int comedi_command(comedi_t * d, comedi_cmd * cmd)
+int comedi_command(void *d, struct comedi_cmd *cmd)
 {
-	comedi_device *dev = (comedi_device *) d;
-	comedi_subdevice *s;
-	comedi_async *async;
+	struct comedi_device *dev = (struct comedi_device *) d;
+	struct comedi_subdevice *s;
+	struct comedi_async *async;
 	unsigned runflags;
 
 	if (cmd->subdev >= dev->n_subdevices)
@@ -150,10 +150,6 @@ int comedi_command(comedi_t * d, comedi_cmd * cmd)
 
 	runflags = SRF_RUNNING;
 
-#ifdef CONFIG_COMEDI_RT
-	if (comedi_switch_to_rt(dev) == 0)
-		runflags |= SRF_RT;
-#endif
 	comedi_set_subdevice_runflags(s, ~0, runflags);
 
 	comedi_reset_async_buf(async);
@@ -161,10 +157,10 @@ int comedi_command(comedi_t * d, comedi_cmd * cmd)
 	return s->do_cmd(dev, s);
 }
 
-int comedi_command_test(comedi_t * d, comedi_cmd * cmd)
+int comedi_command_test(void *d, struct comedi_cmd *cmd)
 {
-	comedi_device *dev = (comedi_device *) d;
-	comedi_subdevice *s;
+	struct comedi_device *dev = (struct comedi_device *) d;
+	struct comedi_subdevice *s;
 
 	if (cmd->subdev >= dev->n_subdevices)
 		return -ENODEV;
@@ -183,10 +179,10 @@ int comedi_command_test(comedi_t * d, comedi_cmd * cmd)
  *	COMEDI_INSN
  *	perform an instruction
  */
-int comedi_do_insn(comedi_t * d, comedi_insn * insn)
+int comedi_do_insn(void *d, struct comedi_insn *insn)
 {
-	comedi_device *dev = (comedi_device *) d;
-	comedi_subdevice *s;
+	struct comedi_device *dev = (struct comedi_device *) d;
+	struct comedi_subdevice *s;
 	int ret = 0;
 
 	if (insn->insn & INSN_MASK_SPECIAL) {
@@ -208,7 +204,7 @@ int comedi_do_insn(comedi_t * d, comedi_insn * insn)
 				ret = -EINVAL;
 				break;
 			}
-			comedi_udelay(insn->data[0]);
+			udelay(insn->data[0]);
 			ret = 1;
 			break;
 		case INSN_INTTRIG:
@@ -217,19 +213,19 @@ int comedi_do_insn(comedi_t * d, comedi_insn * insn)
 				break;
 			}
 			if (insn->subdev >= dev->n_subdevices) {
-				rt_printk("%d not usable subdevice\n",
+				printk("%d not usable subdevice\n",
 					insn->subdev);
 				ret = -EINVAL;
 				break;
 			}
 			s = dev->subdevices + insn->subdev;
 			if (!s->async) {
-				rt_printk("no async\n");
+				printk("no async\n");
 				ret = -EINVAL;
 				break;
 			}
 			if (!s->async->inttrig) {
-				rt_printk("no inttrig\n");
+				printk("no inttrig\n");
 				ret = -EAGAIN;
 				break;
 			}
@@ -249,15 +245,16 @@ int comedi_do_insn(comedi_t * d, comedi_insn * insn)
 		s = dev->subdevices + insn->subdev;
 
 		if (s->type == COMEDI_SUBD_UNUSED) {
-			rt_printk("%d not useable subdevice\n", insn->subdev);
+			printk("%d not useable subdevice\n", insn->subdev);
 			ret = -EIO;
 			goto error;
 		}
 
 		/* XXX check lock */
 
-		if ((ret = check_chanlist(s, 1, &insn->chanspec)) < 0) {
-			rt_printk("bad chanspec\n");
+		ret = check_chanlist(s, 1, &insn->chanspec);
+		if (ret < 0) {
+			printk("bad chanspec\n");
 			ret = -EINVAL;
 			goto error;
 		}
@@ -294,7 +291,7 @@ int comedi_do_insn(comedi_t * d, comedi_insn * insn)
 #if 0
 	/* XXX do we want this? -- abbotti #if'ed it out for now. */
 	if (ret != insn->n) {
-		rt_printk("BUG: result of insn != insn.n\n");
+		printk("BUG: result of insn != insn.n\n");
 		ret = -EINVAL;
 		goto error;
 	}
@@ -323,19 +320,19 @@ int comedi_do_insn(comedi_t * d, comedi_insn * insn)
 	- lock while subdevice being programmed
 
 */
-int comedi_lock(comedi_t * d, unsigned int subdevice)
+int comedi_lock(void *d, unsigned int subdevice)
 {
-	comedi_device *dev = (comedi_device *) d;
-	comedi_subdevice *s;
+	struct comedi_device *dev = (struct comedi_device *) d;
+	struct comedi_subdevice *s;
 	unsigned long flags;
 	int ret = 0;
 
-	if (subdevice >= dev->n_subdevices) {
+	if (subdevice >= dev->n_subdevices)
 		return -EINVAL;
-	}
+
 	s = dev->subdevices + subdevice;
 
-	comedi_spin_lock_irqsave(&s->spin_lock, flags);
+	spin_lock_irqsave(&s->spin_lock, flags);
 
 	if (s->busy) {
 		ret = -EBUSY;
@@ -347,7 +344,7 @@ int comedi_lock(comedi_t * d, unsigned int subdevice)
 		}
 	}
 
-	comedi_spin_unlock_irqrestore(&s->spin_lock, flags);
+	spin_unlock_irqrestore(&s->spin_lock, flags);
 
 	return ret;
 }
@@ -366,22 +363,22 @@ int comedi_lock(comedi_t * d, unsigned int subdevice)
 		none
 
 */
-int comedi_unlock(comedi_t * d, unsigned int subdevice)
+int comedi_unlock(void *d, unsigned int subdevice)
 {
-	comedi_device *dev = (comedi_device *) d;
-	comedi_subdevice *s;
+	struct comedi_device *dev = (struct comedi_device *) d;
+	struct comedi_subdevice *s;
 	unsigned long flags;
-	comedi_async *async;
+	struct comedi_async *async;
 	int ret;
 
-	if (subdevice >= dev->n_subdevices) {
+	if (subdevice >= dev->n_subdevices)
 		return -EINVAL;
-	}
+
 	s = dev->subdevices + subdevice;
 
 	async = s->async;
 
-	comedi_spin_lock_irqsave(&s->spin_lock, flags);
+	spin_lock_irqsave(&s->spin_lock, flags);
 
 	if (s->busy) {
 		ret = -EBUSY;
@@ -399,7 +396,7 @@ int comedi_unlock(comedi_t * d, unsigned int subdevice)
 		ret = 0;
 	}
 
-	comedi_spin_unlock_irqrestore(&s->spin_lock, flags);
+	spin_unlock_irqrestore(&s->spin_lock, flags);
 
 	return ret;
 }
@@ -418,15 +415,15 @@ int comedi_unlock(comedi_t * d, unsigned int subdevice)
 		nothing
 
 */
-int comedi_cancel(comedi_t * d, unsigned int subdevice)
+int comedi_cancel(void *d, unsigned int subdevice)
 {
-	comedi_device *dev = (comedi_device *) d;
-	comedi_subdevice *s;
+	struct comedi_device *dev = (struct comedi_device *) d;
+	struct comedi_subdevice *s;
 	int ret = 0;
 
-	if (subdevice >= dev->n_subdevices) {
+	if (subdevice >= dev->n_subdevices)
 		return -EINVAL;
-	}
+
 	s = dev->subdevices + subdevice;
 
 	if (s->lock && s->lock != d)
@@ -443,14 +440,11 @@ int comedi_cancel(comedi_t * d, unsigned int subdevice)
 	if (!s->cancel || !s->async)
 		return -EINVAL;
 
-	if ((ret = s->cancel(dev, s)))
+	ret = s->cancel(dev, s);
+
+	if (ret)
 		return ret;
 
-#ifdef CONFIG_COMEDI_RT
-	if (comedi_get_subdevice_runflags(s) & SRF_RT) {
-		comedi_switch_to_non_rt(dev);
-	}
-#endif
 	comedi_set_subdevice_runflags(s, SRF_RUNNING | SRF_RT, 0);
 	s->async->inttrig = NULL;
 	s->busy = NULL;
@@ -461,16 +455,16 @@ int comedi_cancel(comedi_t * d, unsigned int subdevice)
 /*
    registration of callback functions
  */
-int comedi_register_callback(comedi_t * d, unsigned int subdevice,
+int comedi_register_callback(void *d, unsigned int subdevice,
 	unsigned int mask, int (*cb) (unsigned int, void *), void *arg)
 {
-	comedi_device *dev = (comedi_device *) d;
-	comedi_subdevice *s;
-	comedi_async *async;
+	struct comedi_device *dev = (struct comedi_device *) d;
+	struct comedi_subdevice *s;
+	struct comedi_async *async;
 
-	if (subdevice >= dev->n_subdevices) {
+	if (subdevice >= dev->n_subdevices)
 		return -EINVAL;
-	}
+
 	s = dev->subdevices + subdevice;
 
 	async = s->async;
@@ -498,15 +492,15 @@ int comedi_register_callback(comedi_t * d, unsigned int subdevice,
 	return 0;
 }
 
-int comedi_poll(comedi_t * d, unsigned int subdevice)
+int comedi_poll(void *d, unsigned int subdevice)
 {
-	comedi_device *dev = (comedi_device *) d;
-	comedi_subdevice *s = dev->subdevices;
-	comedi_async *async;
+	struct comedi_device *dev = (struct comedi_device *) d;
+	struct comedi_subdevice *s = dev->subdevices;
+	struct comedi_async *async;
 
-	if (subdevice >= dev->n_subdevices) {
+	if (subdevice >= dev->n_subdevices)
 		return -EINVAL;
-	}
+
 	s = dev->subdevices + subdevice;
 
 	async = s->async;
@@ -525,22 +519,21 @@ int comedi_poll(comedi_t * d, unsigned int subdevice)
 }
 
 /* WARNING: not portable */
-int comedi_map(comedi_t * d, unsigned int subdevice, void *ptr)
+int comedi_map(void *d, unsigned int subdevice, void *ptr)
 {
-	comedi_device *dev = (comedi_device *) d;
-	comedi_subdevice *s;
+	struct comedi_device *dev = (struct comedi_device *) d;
+	struct comedi_subdevice *s;
 
-	if (subdevice >= dev->n_subdevices) {
+	if (subdevice >= dev->n_subdevices)
 		return -EINVAL;
-	}
+
 	s = dev->subdevices + subdevice;
 
 	if (!s->async)
 		return -EINVAL;
 
-	if (ptr) {
+	if (ptr)
 		*((void **)ptr) = s->async->prealloc_buf;
-	}
 
 	/* XXX no reference counting */
 
@@ -548,14 +541,14 @@ int comedi_map(comedi_t * d, unsigned int subdevice, void *ptr)
 }
 
 /* WARNING: not portable */
-int comedi_unmap(comedi_t * d, unsigned int subdevice)
+int comedi_unmap(void *d, unsigned int subdevice)
 {
-	comedi_device *dev = (comedi_device *) d;
-	comedi_subdevice *s;
+	struct comedi_device *dev = (struct comedi_device *) d;
+	struct comedi_subdevice *s;
 
-	if (subdevice >= dev->n_subdevices) {
+	if (subdevice >= dev->n_subdevices)
 		return -EINVAL;
-	}
+
 	s = dev->subdevices + subdevice;
 
 	if (!s->async)

@@ -27,6 +27,7 @@
 #include <linux/kernel.h>
 #include <linux/errno.h>
 #include <linux/slab.h>
+#include <linux/smp_lock.h>
 
 #include <linux/usb.h>
 #include <linux/mm.h>
@@ -933,8 +934,6 @@ static int stk_vidioc_s_ctrl(struct file *filp,
 static int stk_vidioc_enum_fmt_vid_cap(struct file *filp,
 		void *priv, struct v4l2_fmtdesc *fmtd)
 {
-	fmtd->flags = 0;
-
 	switch (fmtd->index) {
 	case 0:
 		fmtd->pixelformat = V4L2_PIX_FMT_RGB565;
@@ -992,7 +991,6 @@ static int stk_vidioc_g_fmt_vid_cap(struct file *filp,
 	pix_format->height = stk_sizes[i].h;
 	pix_format->field = V4L2_FIELD_NONE;
 	pix_format->colorspace = V4L2_COLORSPACE_SRGB;
-	pix_format->priv = 0;
 	pix_format->pixelformat = dev->vsettings.palette;
 	if (dev->vsettings.palette == V4L2_PIX_FMT_SBGGR8)
 		pix_format->bytesperline = pix_format->width;
@@ -1052,8 +1050,8 @@ static int stk_setup_format(struct stk_camera *dev)
 		depth = 1;
 	else
 		depth = 2;
-	while (stk_sizes[i].m != dev->vsettings.mode
-			&& i < ARRAY_SIZE(stk_sizes))
+	while (i < ARRAY_SIZE(stk_sizes) &&
+			stk_sizes[i].m != dev->vsettings.mode)
 		i++;
 	if (i == ARRAY_SIZE(stk_sizes)) {
 		STK_ERROR("Something is broken in %s\n", __func__);
@@ -1115,8 +1113,6 @@ static int stk_vidioc_reqbufs(struct file *filp,
 
 	if (dev == NULL)
 		return -ENODEV;
-	if (rb->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
-		return -EINVAL;
 	if (rb->memory != V4L2_MEMORY_MMAP)
 		return -EINVAL;
 	if (is_streaming(dev)
@@ -1139,16 +1135,10 @@ static int stk_vidioc_reqbufs(struct file *filp,
 static int stk_vidioc_querybuf(struct file *filp,
 		void *priv, struct v4l2_buffer *buf)
 {
-	int index;
 	struct stk_camera *dev = priv;
 	struct stk_sio_buffer *sbuf;
 
-	if (buf->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
-		return -EINVAL;
-
-	index = buf->index;
-
-	if (index < 0 || index >= dev->n_sbufs)
+	if (buf->index >= dev->n_sbufs)
 		return -EINVAL;
 	sbuf = dev->sio_bufs + buf->index;
 	*buf = sbuf->v4lbuf;
@@ -1161,13 +1151,11 @@ static int stk_vidioc_qbuf(struct file *filp,
 	struct stk_camera *dev = priv;
 	struct stk_sio_buffer *sbuf;
 	unsigned long flags;
-	if (buf->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
-		return -EINVAL;
 
 	if (buf->memory != V4L2_MEMORY_MMAP)
 		return -EINVAL;
 
-	if (buf->index < 0 || buf->index >= dev->n_sbufs)
+	if (buf->index >= dev->n_sbufs)
 		return -EINVAL;
 	sbuf = dev->sio_bufs + buf->index;
 	if (sbuf->v4lbuf.flags & V4L2_BUF_FLAG_QUEUED)
@@ -1189,8 +1177,7 @@ static int stk_vidioc_dqbuf(struct file *filp,
 	unsigned long flags;
 	int ret;
 
-	if (buf->type != V4L2_BUF_TYPE_VIDEO_CAPTURE
-		|| !is_streaming(dev))
+	if (!is_streaming(dev))
 		return -EINVAL;
 
 	if (filp->f_flags & O_NONBLOCK && list_empty(&dev->sio_full))
@@ -1249,16 +1236,10 @@ static int stk_vidioc_streamoff(struct file *filp,
 static int stk_vidioc_g_parm(struct file *filp,
 		void *priv, struct v4l2_streamparm *sp)
 {
-	if (sp->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
-		return -EINVAL;
-
-	sp->parm.capture.capability = 0;
-	sp->parm.capture.capturemode = 0;
 	/*FIXME This is not correct */
 	sp->parm.capture.timeperframe.numerator = 1;
 	sp->parm.capture.timeperframe.denominator = 30;
 	sp->parm.capture.readbuffers = 2;
-	sp->parm.capture.extendedmode = 0;
 	return 0;
 }
 

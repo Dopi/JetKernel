@@ -10,6 +10,7 @@
 #ifndef _IPC_UTIL_H
 #define _IPC_UTIL_H
 
+#include <linux/unistd.h>
 #include <linux/err.h>
 
 #define SEQ_MULTIPLIER	(IPCMNI)
@@ -20,6 +21,15 @@ void shm_init (void);
 
 struct ipc_namespace;
 
+#ifdef CONFIG_POSIX_MQUEUE
+extern void mq_clear_sbinfo(struct ipc_namespace *ns);
+extern void mq_put_mnt(struct ipc_namespace *ns);
+#else
+static inline void mq_clear_sbinfo(struct ipc_namespace *ns) { }
+static inline void mq_put_mnt(struct ipc_namespace *ns) { }
+#endif
+
+#ifdef CONFIG_SYSVIPC
 void sem_init_ns(struct ipc_namespace *ns);
 void msg_init_ns(struct ipc_namespace *ns);
 void shm_init_ns(struct ipc_namespace *ns);
@@ -27,6 +37,15 @@ void shm_init_ns(struct ipc_namespace *ns);
 void sem_exit_ns(struct ipc_namespace *ns);
 void msg_exit_ns(struct ipc_namespace *ns);
 void shm_exit_ns(struct ipc_namespace *ns);
+#else
+static inline void sem_init_ns(struct ipc_namespace *ns) { }
+static inline void msg_init_ns(struct ipc_namespace *ns) { }
+static inline void shm_init_ns(struct ipc_namespace *ns) { }
+
+static inline void sem_exit_ns(struct ipc_namespace *ns) { }
+static inline void msg_exit_ns(struct ipc_namespace *ns) { }
+static inline void shm_exit_ns(struct ipc_namespace *ns) { }
+#endif
 
 /*
  * Structure that holds the parameters needed by the ipc operations
@@ -110,7 +129,7 @@ void ipc_update_perm(struct ipc64_perm *in, struct kern_ipc_perm *out);
 struct kern_ipc_perm *ipcctl_pre_down(struct ipc_ids *ids, int id, int cmd,
 				      struct ipc64_perm *perm, int extra_perm);
 
-#if defined(__ia64__) || defined(__x86_64__) || defined(__hppa__) || defined(__XTENSA__)
+#ifndef __ARCH_WANT_IPC_PARSE_VERSION
   /* On IA-64, we always use the "64-bit version" of the IPC structures.  */ 
 # define ipc_parse_version(cmd)	IPC_64
 #else
@@ -153,5 +172,6 @@ static inline void ipc_unlock(struct kern_ipc_perm *perm)
 struct kern_ipc_perm *ipc_lock_check(struct ipc_ids *ids, int id);
 int ipcget(struct ipc_namespace *ns, struct ipc_ids *ids,
 			struct ipc_ops *ops, struct ipc_params *params);
-
+void free_ipcs(struct ipc_namespace *ns, struct ipc_ids *ids,
+		void (*free)(struct ipc_namespace *, struct kern_ipc_perm *));
 #endif

@@ -192,7 +192,7 @@ struct salinfo_platform_oemdata_parms {
 static void
 salinfo_work_to_do(struct salinfo_data *data)
 {
-	down_trylock(&data->mutex);
+	(void)(down_trylock(&data->mutex) ?: 0);
 	up(&data->mutex);
 }
 
@@ -317,7 +317,7 @@ retry:
 	}
 
 	n = data->cpu_check;
-	for (i = 0; i < NR_CPUS; i++) {
+	for (i = 0; i < nr_cpu_ids; i++) {
 		if (cpu_isset(n, data->cpu_event)) {
 			if (!cpu_online(n)) {
 				cpu_clear(n, data->cpu_event);
@@ -326,7 +326,7 @@ retry:
 			cpu = n;
 			break;
 		}
-		if (++n == NR_CPUS)
+		if (++n == nr_cpu_ids)
 			n = 0;
 	}
 
@@ -337,7 +337,7 @@ retry:
 
 	/* for next read, start checking at next CPU */
 	data->cpu_check = cpu;
-	if (++data->cpu_check == NR_CPUS)
+	if (++data->cpu_check == nr_cpu_ids)
 		data->cpu_check = 0;
 
 	snprintf(cmd, sizeof(cmd), "read %d\n", cpu);

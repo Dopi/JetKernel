@@ -512,7 +512,7 @@ int ocfs2_calc_xattr_init(struct inode *dir,
 			  struct ocfs2_security_xattr_info *si,
 			  int *want_clusters,
 			  int *xattr_credits,
-			  struct ocfs2_alloc_context **xattr_ac)
+			  int *want_meta)
 {
 	int ret = 0;
 	struct ocfs2_super *osb = OCFS2_SB(dir->i_sb);
@@ -554,11 +554,7 @@ int ocfs2_calc_xattr_init(struct inode *dir,
 	if (dir->i_sb->s_blocksize == OCFS2_MIN_BLOCKSIZE ||
 	    (S_ISDIR(mode) && ocfs2_supports_inline_data(osb)) ||
 	    (s_size + a_size) > OCFS2_XATTR_FREE_IN_IBODY) {
-		ret = ocfs2_reserve_new_metadata_blocks(osb, 1, xattr_ac);
-		if (ret) {
-			mlog_errno(ret);
-			return ret;
-		}
+		*want_meta = *want_meta + 1;
 		*xattr_credits += OCFS2_XATTR_BLOCK_CREATE_CREDITS;
 	}
 
@@ -1056,7 +1052,8 @@ static int ocfs2_xattr_block_get(struct inode *inode,
 	struct ocfs2_xattr_block *xb;
 	struct ocfs2_xattr_value_root *xv;
 	size_t size;
-	int ret = -ENODATA, name_offset, name_len, block_off, i;
+	int ret = -ENODATA, name_offset, name_len, i;
+	int uninitialized_var(block_off);
 
 	xs->bucket = ocfs2_xattr_bucket_new(inode);
 	if (!xs->bucket) {
@@ -3158,7 +3155,7 @@ static int ocfs2_iterate_xattr_buckets(struct inode *inode,
 		     le32_to_cpu(bucket_xh(bucket)->xh_entries[0].xe_name_hash));
 		if (func) {
 			ret = func(inode, bucket, para);
-			if (ret)
+			if (ret && ret != -ERANGE)
 				mlog_errno(ret);
 			/* Fall through to bucket_relse() */
 		}
@@ -3265,7 +3262,8 @@ static int ocfs2_xattr_tree_list_index_block(struct inode *inode,
 						  ocfs2_list_xattr_bucket,
 						  &xl);
 		if (ret) {
-			mlog_errno(ret);
+			if (ret != -ERANGE)
+				mlog_errno(ret);
 			goto out;
 		}
 

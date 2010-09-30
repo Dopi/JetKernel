@@ -19,7 +19,6 @@
 #include <linux/signal.h>
 #include <linux/rcupdate.h>
 #include <linux/pid_namespace.h>
-#include <linux/smp_lock.h>
 
 #include <asm/poll.h>
 #include <asm/siginfo.h>
@@ -143,7 +142,7 @@ SYSCALL_DEFINE1(dup, unsigned int, fildes)
 	return ret;
 }
 
-#define SETFL_MASK (O_APPEND | O_NONBLOCK | O_NDELAY | FASYNC | O_DIRECT | O_NOATIME)
+#define SETFL_MASK (O_APPEND | O_NONBLOCK | O_NDELAY | O_DIRECT | O_NOATIME)
 
 static int setfl(int fd, struct file * filp, unsigned long arg)
 {
@@ -179,34 +178,38 @@ static int setfl(int fd, struct file * filp, unsigned long arg)
 		return error;
 
 	/*
-	 * We still need a lock here for now to keep multiple FASYNC calls
-	 * from racing with each other.
+	 * ->fasync() is responsible for setting the FASYNC bit.
 	 */
-	lock_kernel();
-	if ((arg ^ filp->f_flags) & FASYNC) {
-		if (filp->f_op && filp->f_op->fasync) {
-			error = filp->f_op->fasync(fd, filp, (arg & FASYNC) != 0);
-			if (error < 0)
-				goto out;
-		}
+	if (((arg ^ filp->f_flags) & FASYNC) && filp->f_op &&
+			filp->f_op->fasync) {
+		error = filp->f_op->fasync(fd, filp, (arg & FASYNC) != 0);
+		if (error < 0)
+			goto out;
+		if (error > 0)
+			error = 0;
 	}
-
+	spin_lock(&filp->f_lock);
 	filp->f_flags = (arg & SETFL_MASK) | (filp->f_flags & ~SETFL_MASK);
+	spin_unlock(&filp->f_lock);
+
  out:
-	unlock_kernel();
 	return error;
 }
 
 static void f_modown(struct file *filp, struct pid *pid, enum pid_type type,
-                     uid_t uid, uid_t euid, int force)
+                     int force)
 {
 	write_lock_irq(&filp->f_owner.lock);
 	if (force || !filp->f_owner.pid) {
 		put_pid(filp->f_owner.pid);
 		filp->f_owner.pid = get_pid(pid);
 		filp->f_owner.pid_type = type;
-		filp->f_owner.uid = uid;
-		filp->f_owner.euid = euid;
+
+		if (pid) {
+			const struct cred *cred = current_cred();
+			filp->f_owner.uid = cred->uid;
+			filp->f_owner.euid = cred->euid;
+		}
 	}
 	write_unlock_irq(&filp->f_owner.lock);
 }
@@ -214,14 +217,13 @@ static void f_modown(struct file *filp, struct pid *pid, enum pid_type type,
 int __f_setown(struct file *filp, struct pid *pid, enum pid_type type,
 		int force)
 {
-	const struct cred *cred = current_cred();
 	int err;
-	
+
 	err = security_file_set_fowner(filp);
 	if (err)
 		return err;
 
-	f_modown(filp, pid, type, cred->uid, cred->euid, force);
+	f_modown(filp, pid, type, force);
 	return 0;
 }
 EXPORT_SYMBOL(__f_setown);
@@ -247,7 +249,7 @@ EXPORT_SYMBOL(f_setown);
 
 void f_delown(struct file *filp)
 {
-	f_modown(filp, NULL, PIDTYPE_PID, 0, 0, 1);
+	f_modown(filp, NULL, PIDTYPE_PID, 1);
 }
 
 pid_t f_getown(struct file *filp)
@@ -425,14 +427,20 @@ static inline int sigio_perm(struct task_struct *p,
 }
 
 static void send_sigio_to_task(struct task_struct *p,
-			       struct fown_struct *fown, 
+			       struct fown_struct *fown,
 			       int fd,
 			       int reason)
 {
-	if (!sigio_perm(p, fown, fown->signum))
+	/*
+	 * F_SETSIG can change ->signum lockless in parallel, make
+	 * sure we read it once and use the same value throughout.
+	 */
+	int signum = ACCESS_ONCE(fown->signum);
+
+	if (!sigio_perm(p, fown, signum))
 		return;
 
-	switch (fown->signum) {
+	switch (signum) {
 		siginfo_t si;
 		default:
 			/* Queue a rt signal with the appropriate fd as its
@@ -441,7 +449,7 @@ static void send_sigio_to_task(struct task_struct *p,
 			   delivered even if we can't queue.  Failure to
 			   queue in this case _should_ be reported; we fall
 			   back to SIGIO in that case. --sct */
-			si.si_signo = fown->signum;
+			si.si_signo = signum;
 			si.si_errno = 0;
 		        si.si_code  = reason;
 			/* Make sure we are called with one of the POLL_*
@@ -453,7 +461,7 @@ static void send_sigio_to_task(struct task_struct *p,
 			else
 				si.si_band = band_table[reason - POLL_IN];
 			si.si_fd    = fd;
-			if (!group_send_sig_info(fown->signum, &si, p))
+			if (!group_send_sig_info(signum, &si, p))
 				break;
 		/* fall-through: fall back on the old plain SIGIO signal */
 		case 0:
@@ -518,47 +526,88 @@ static DEFINE_RWLOCK(fasync_lock);
 static struct kmem_cache *fasync_cache __read_mostly;
 
 /*
- * fasync_helper() is used by some character device drivers (mainly mice)
- * to set up the fasync queue. It returns negative on error, 0 if it did
- * no changes and positive if it added/deleted the entry.
+ * Remove a fasync entry. If successfully removed, return
+ * positive and clear the FASYNC flag. If no entry exists,
+ * do nothing and return 0.
+ *
+ * NOTE! It is very important that the FASYNC flag always
+ * match the state "is the filp on a fasync list".
+ *
+ * We always take the 'filp->f_lock', in since fasync_lock
+ * needs to be irq-safe.
+ */
+static int fasync_remove_entry(struct file *filp, struct fasync_struct **fapp)
+{
+	struct fasync_struct *fa, **fp;
+	int result = 0;
+
+	spin_lock(&filp->f_lock);
+	write_lock_irq(&fasync_lock);
+	for (fp = fapp; (fa = *fp) != NULL; fp = &fa->fa_next) {
+		if (fa->fa_file != filp)
+			continue;
+		*fp = fa->fa_next;
+		kmem_cache_free(fasync_cache, fa);
+		filp->f_flags &= ~FASYNC;
+		result = 1;
+		break;
+	}
+	write_unlock_irq(&fasync_lock);
+	spin_unlock(&filp->f_lock);
+	return result;
+}
+
+/*
+ * Add a fasync entry. Return negative on error, positive if
+ * added, and zero if did nothing but change an existing one.
+ *
+ * NOTE! It is very important that the FASYNC flag always
+ * match the state "is the filp on a fasync list".
+ */
+static int fasync_add_entry(int fd, struct file *filp, struct fasync_struct **fapp)
+{
+	struct fasync_struct *new, *fa, **fp;
+	int result = 0;
+
+	new = kmem_cache_alloc(fasync_cache, GFP_KERNEL);
+	if (!new)
+		return -ENOMEM;
+
+	spin_lock(&filp->f_lock);
+	write_lock_irq(&fasync_lock);
+	for (fp = fapp; (fa = *fp) != NULL; fp = &fa->fa_next) {
+		if (fa->fa_file != filp)
+			continue;
+		fa->fa_fd = fd;
+		kmem_cache_free(fasync_cache, new);
+		goto out;
+	}
+
+	new->magic = FASYNC_MAGIC;
+	new->fa_file = filp;
+	new->fa_fd = fd;
+	new->fa_next = *fapp;
+	*fapp = new;
+	result = 1;
+	filp->f_flags |= FASYNC;
+
+out:
+	write_unlock_irq(&fasync_lock);
+	spin_unlock(&filp->f_lock);
+	return result;
+}
+
+/*
+ * fasync_helper() is used by almost all character device drivers
+ * to set up the fasync queue, and for regular files by the file
+ * lease code. It returns negative on error, 0 if it did no changes
+ * and positive if it added/deleted the entry.
  */
 int fasync_helper(int fd, struct file * filp, int on, struct fasync_struct **fapp)
 {
-	struct fasync_struct *fa, **fp;
-	struct fasync_struct *new = NULL;
-	int result = 0;
-
-	if (on) {
-		new = kmem_cache_alloc(fasync_cache, GFP_KERNEL);
-		if (!new)
-			return -ENOMEM;
-	}
-	write_lock_irq(&fasync_lock);
-	for (fp = fapp; (fa = *fp) != NULL; fp = &fa->fa_next) {
-		if (fa->fa_file == filp) {
-			if(on) {
-				fa->fa_fd = fd;
-				kmem_cache_free(fasync_cache, new);
-			} else {
-				*fp = fa->fa_next;
-				kmem_cache_free(fasync_cache, fa);
-				result = 1;
-			}
-			goto out;
-		}
-	}
-
-	if (on) {
-		new->magic = FASYNC_MAGIC;
-		new->fa_file = filp;
-		new->fa_fd = fd;
-		new->fa_next = *fapp;
-		*fapp = new;
-		result = 1;
-	}
-out:
-	write_unlock_irq(&fasync_lock);
-	return result;
+	if (!on)
+		return fasync_remove_entry(filp, fapp);
+	return fasync_add_entry(fd, filp, fapp);
 }
 
 EXPORT_SYMBOL(fasync_helper);

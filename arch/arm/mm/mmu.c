@@ -18,9 +18,11 @@
 #include <asm/cputype.h>
 #include <asm/mach-types.h>
 #include <asm/sections.h>
+#include <asm/cachetype.h>
 #include <asm/setup.h>
 #include <asm/sizes.h>
 #include <asm/tlb.h>
+#include <asm/highmem.h>
 
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
@@ -243,12 +245,17 @@ static struct mem_type mem_types[] = {
 		.prot_sect = PMD_TYPE_SECT,
 		.domain    = DOMAIN_KERNEL,
 	},
+	[MT_MEMORY_NONCACHED] = {
+		.prot_sect = PMD_TYPE_SECT | PMD_SECT_AP_WRITE,
+		.domain    = DOMAIN_KERNEL,
+	},
 };
 
 const struct mem_type *get_mem_type(unsigned int type)
 {
 	return type < ARRAY_SIZE(mem_types) ? &mem_types[type] : NULL;
 }
+EXPORT_SYMBOL(get_mem_type);
 
 /*
  * Adjust the PMD section entries according to the CPU in use.
@@ -406,7 +413,26 @@ static void __init build_mem_type_table(void)
 		kern_pgprot |= L_PTE_SHARED;
 		vecs_pgprot |= L_PTE_SHARED;
 		mem_types[MT_MEMORY].prot_sect |= PMD_SECT_S;
+		mem_types[MT_MEMORY_NONCACHED].prot_sect |= PMD_SECT_S;
 #endif
+	}
+
+	/*
+	 * Non-cacheable Normal - intended for memory areas that must
+	 * not cause dirty cache line writebacks when used
+	 */
+	if (cpu_arch >= CPU_ARCH_ARMv6) {
+		if (cpu_arch >= CPU_ARCH_ARMv7 && (cr & CR_TRE)) {
+			/* Non-cacheable Normal is XCB = 001 */
+			mem_types[MT_MEMORY_NONCACHED].prot_sect |=
+				PMD_SECT_BUFFERED;
+		} else {
+			/* For both ARMv6 and non-TEX-remapping ARMv7 */
+			mem_types[MT_MEMORY_NONCACHED].prot_sect |=
+				PMD_SECT_TEX(1);
+		}
+	} else {
+		mem_types[MT_MEMORY_NONCACHED].prot_sect |= PMD_SECT_BUFFERABLE;
 	}
 
 	for (i = 0; i < 16; i++) {
@@ -661,13 +687,19 @@ __early_param("vmalloc=", early_vmalloc);
 
 static void __init sanity_check_meminfo(void)
 {
-	int i, j;
+	int i, j, highmem = 0;
 
 	for (i = 0, j = 0; i < meminfo.nr_banks; i++) {
 		struct membank *bank = &meminfo.bank[j];
 		*bank = meminfo.bank[i];
 
 #ifdef CONFIG_HIGHMEM
+		if (__va(bank->start) > VMALLOC_MIN ||
+		    __va(bank->start) < (void *)PAGE_OFFSET)
+			highmem = 1;
+
+		bank->highmem = highmem;
+
 		/*
 		 * Split those memory banks which are partially overlapping
 		 * the vmalloc area greatly simplifying things later.
@@ -677,6 +709,10 @@ static void __init sanity_check_meminfo(void)
 			if (meminfo.nr_banks >= NR_BANKS) {
 				printk(KERN_CRIT "NR_BANKS too low, "
 						 "ignoring high memory\n");
+			} else if (cache_is_vipt_aliasing()) {
+				printk(KERN_CRIT "HIGHMEM is not yet supported "
+						 "with VIPT aliasing cache, "
+						 "ignoring high memory\n");
 			} else {
 				memmove(bank + 1, bank,
 					(meminfo.nr_banks - i) * sizeof(*bank));
@@ -684,6 +720,7 @@ static void __init sanity_check_meminfo(void)
 				i++;
 				bank[1].size -= VMALLOC_MIN - __va(bank->start);
 				bank[1].start = __pa(VMALLOC_MIN - 1) + 1;
+				bank[1].highmem = highmem = 1;
 				j++;
 			}
 			bank->size = VMALLOC_MIN - __va(bank->start);
@@ -799,6 +836,38 @@ void __init reserve_node_zero(pg_data_t *pgdat)
 				BOOTMEM_DEFAULT);
 	}
 
+	if (machine_is_palmld() || machine_is_palmtx()) {
+		reserve_bootmem_node(pgdat, 0xa0000000, 0x1000,
+				BOOTMEM_EXCLUSIVE);
+		reserve_bootmem_node(pgdat, 0xa0200000, 0x1000,
+				BOOTMEM_EXCLUSIVE);
+	}
+
+	if (machine_is_treo680()) {
+		reserve_bootmem_node(pgdat, 0xa0000000, 0x1000,
+				BOOTMEM_EXCLUSIVE);
+		reserve_bootmem_node(pgdat, 0xa2000000, 0x1000,
+				BOOTMEM_EXCLUSIVE);
+	}
+
+	if (machine_is_palmt5())
+		reserve_bootmem_node(pgdat, 0xa0200000, 0x1000,
+				BOOTMEM_EXCLUSIVE);
+
+	/*
+	 * U300 - This platform family can share physical memory
+	 * between two ARM cpus, one running Linux and the other
+	 * running another OS.
+	 */
+	if (machine_is_u300()) {
+#ifdef CONFIG_MACH_U300_SINGLE_RAM
+#if ((CONFIG_MACH_U300_ACCESS_MEM_SIZE & 1) == 1) &&	\
+	CONFIG_MACH_U300_2MB_ALIGNMENT_FIX
+		res_size = 0x00100000;
+#endif
+#endif
+	}
+
 #ifdef CONFIG_SA1111
 	/*
 	 * Because of the SA1111 DMA bug, we want to preserve our
@@ -895,6 +964,17 @@ static void __init devicemaps_init(struct machine_desc *mdesc)
 	flush_cache_all();
 }
 
+static void __init kmap_init(void)
+{
+#ifdef CONFIG_HIGHMEM
+	pmd_t *pmd = pmd_off_k(PKMAP_BASE);
+	pte_t *pte = alloc_bootmem_low_pages(2 * PTRS_PER_PTE * sizeof(pte_t));
+	BUG_ON(!pmd_none(*pmd) || !pte);
+	__pmd_populate(pmd, __pa(pte) | _PAGE_KERNEL_TABLE);
+	pkmap_page_table = pte + PTRS_PER_PTE;
+#endif
+}
+
 /*
  * paging_init() sets up the page tables, initialises the zone memory
  * maps, and sets up the zero page, bad page and bad page tables.
@@ -908,6 +988,7 @@ void __init paging_init(struct machine_desc *mdesc)
 	prepare_page_table();
 	bootmem_init();
 	devicemaps_init(mdesc);
+	kmap_init();
 
 	top_pmd = pmd_off_k(0xffff0000);
 

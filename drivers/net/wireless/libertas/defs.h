@@ -41,6 +41,7 @@
 #define LBS_DEB_HEX	0x00200000
 #define LBS_DEB_SDIO	0x00400000
 #define LBS_DEB_SYSFS	0x00800000
+#define LBS_DEB_SPI	0x01000000
 
 extern unsigned int lbs_debug;
 
@@ -84,6 +85,7 @@ do { if ((lbs_debug & (grp)) == (grp)) \
 #define lbs_deb_thread(fmt, args...)    LBS_DEB_LL(LBS_DEB_THREAD, " thread", fmt, ##args)
 #define lbs_deb_sdio(fmt, args...)      LBS_DEB_LL(LBS_DEB_SDIO, " sdio", fmt, ##args)
 #define lbs_deb_sysfs(fmt, args...)     LBS_DEB_LL(LBS_DEB_SYSFS, " sysfs", fmt, ##args)
+#define lbs_deb_spi(fmt, args...)       LBS_DEB_LL(LBS_DEB_SPI, " spi", fmt, ##args)
 
 #define lbs_pr_info(format, args...) \
 	printk(KERN_INFO DRV_NAME": " format, ## args)
@@ -225,6 +227,22 @@ static inline void lbs_deb_hex(unsigned int grp, const char *prompt, u8 *buf, in
 #define TxPD_CONTROL_WDS_FRAME (1<<17)
 #define TxPD_MESH_FRAME TxPD_CONTROL_WDS_FRAME
 
+/** Mesh interface ID */
+#define MESH_IFACE_ID					0x0001
+/** Mesh id should be in bits 14-13-12 */
+#define MESH_IFACE_BIT_OFFSET				0x000c
+/** Mesh enable bit in FW capability */
+#define MESH_CAPINFO_ENABLE_MASK			(1<<16)
+
+/** FW definition from Marvell v4 */
+#define MRVL_FW_V4					(0x04)
+/** FW definition from Marvell v5 */
+#define MRVL_FW_V5					(0x05)
+/** FW definition from Marvell v10 */
+#define MRVL_FW_V10					(0x0a)
+/** FW major revision definition */
+#define MRVL_FW_MAJOR_REV(x)				((x)>>24)
+
 /** RxPD status */
 
 #define MRVDRV_RXPD_STATUS_OK                0x0001
@@ -263,6 +281,7 @@ static inline void lbs_deb_hex(unsigned int grp, const char *prompt, u8 *buf, in
 
 #define	CMD_F_HOSTCMD		(1 << 0)
 #define FW_CAPINFO_WPA  	(1 << 0)
+#define FW_CAPINFO_PS  		(1 << 1)
 #define FW_CAPINFO_FIRMWARE_UPGRADE	(1 << 13)
 #define FW_CAPINFO_BOOT2_UPGRADE	(1<<14)
 #define FW_CAPINFO_PERSISTENT_CONFIG	(1<<15)
@@ -375,6 +394,13 @@ enum KEY_INFO_WPA {
 	KEY_INFO_WPA_MCAST = 0x01,
 	KEY_INFO_WPA_UNICAST = 0x02,
 	KEY_INFO_WPA_ENABLED = 0x04
+};
+
+/** mesh_fw_ver */
+enum _mesh_fw_ver {
+	MESH_NONE = 0, /* MESH is not supported */
+	MESH_FW_OLD,   /* MESH is supported in FW V5 */
+	MESH_FW_NEW,   /* MESH is supported in FW V10 and newer */
 };
 
 /* Default values for fwt commands. */

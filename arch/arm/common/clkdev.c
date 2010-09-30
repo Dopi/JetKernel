@@ -17,6 +17,7 @@
 #include <linux/err.h>
 #include <linux/string.h>
 #include <linux/mutex.h>
+#include <linux/clk.h>
 
 #include <asm/clkdev.h>
 #include <mach/clkdev.h>
@@ -62,9 +63,8 @@ static struct clk *clk_find(const char *dev_id, const char *con_id)
 	return clk;
 }
 
-struct clk *clk_get(struct device *dev, const char *con_id)
+struct clk *clk_get_sys(const char *dev_id, const char *con_id)
 {
-	const char *dev_id = dev ? dev_name(dev) : NULL;
 	struct clk *clk;
 
 	mutex_lock(&clocks_mutex);
@@ -74,6 +74,14 @@ struct clk *clk_get(struct device *dev, const char *con_id)
 	mutex_unlock(&clocks_mutex);
 
 	return clk ? clk : ERR_PTR(-ENOENT);
+}
+EXPORT_SYMBOL(clk_get_sys);
+
+struct clk *clk_get(struct device *dev, const char *con_id)
+{
+	const char *dev_id = dev ? dev_name(dev) : NULL;
+
+	return clk_get_sys(dev_id, con_id);
 }
 EXPORT_SYMBOL(clk_get);
 
@@ -127,6 +135,24 @@ struct clk_lookup *clkdev_alloc(struct clk *clk, const char *con_id,
 	return &cla->cl;
 }
 EXPORT_SYMBOL(clkdev_alloc);
+
+int clk_add_alias(const char *alias, const char *alias_dev_name, char *id,
+	struct device *dev)
+{
+	struct clk *r = clk_get(dev, id);
+	struct clk_lookup *l;
+
+	if (IS_ERR(r))
+		return PTR_ERR(r);
+
+	l = clkdev_alloc(r, alias, alias_dev_name);
+	clk_put(r);
+	if (!l)
+		return -ENODEV;
+	clkdev_add(l);
+	return 0;
+}
+EXPORT_SYMBOL(clk_add_alias);
 
 /*
  * clkdev_drop - remove a clock dynamically allocated

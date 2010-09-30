@@ -19,10 +19,16 @@
 #ifndef __BTRFS_TRANSACTION__
 #define __BTRFS_TRANSACTION__
 #include "btrfs_inode.h"
+#include "delayed-ref.h"
 
 struct btrfs_transaction {
 	u64 transid;
+	/*
+	 * total writers in this transaction, it must be zero before the
+	 * transaction can end
+	 */
 	unsigned long num_writers;
+
 	unsigned long num_joined;
 	int in_commit;
 	int use_count;
@@ -34,6 +40,7 @@ struct btrfs_transaction {
 	wait_queue_head_t writer_wait;
 	wait_queue_head_t commit_wait;
 	struct list_head pending_snapshots;
+	struct btrfs_delayed_ref_root delayed_refs;
 };
 
 struct btrfs_trans_handle {
@@ -44,6 +51,7 @@ struct btrfs_trans_handle {
 	u64 block_group;
 	u64 alloc_exclude_start;
 	u64 alloc_exclude_nr;
+	unsigned long delayed_ref_updates;
 };
 
 struct btrfs_pending_snapshot {
@@ -52,12 +60,6 @@ struct btrfs_pending_snapshot {
 	char *name;
 	struct btrfs_key root_key;
 	struct list_head list;
-};
-
-struct btrfs_dirty_root {
-	struct list_head list;
-	struct btrfs_root *root;
-	struct btrfs_root *latest_root;
 };
 
 static inline void btrfs_set_trans_block_group(struct btrfs_trans_handle *trans,
@@ -92,7 +94,8 @@ int btrfs_write_and_wait_transaction(struct btrfs_trans_handle *trans,
 int btrfs_commit_tree_roots(struct btrfs_trans_handle *trans,
 			    struct btrfs_root *root);
 
-int btrfs_add_dead_root(struct btrfs_root *root, struct btrfs_root *latest);
+int btrfs_add_dead_root(struct btrfs_root *root);
+int btrfs_drop_dead_root(struct btrfs_root *root);
 int btrfs_defrag_root(struct btrfs_root *root, int cacheonly);
 int btrfs_clean_old_snapshots(struct btrfs_root *root);
 int btrfs_commit_transaction(struct btrfs_trans_handle *trans,
@@ -100,7 +103,9 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans,
 int btrfs_end_transaction_throttle(struct btrfs_trans_handle *trans,
 				   struct btrfs_root *root);
 void btrfs_throttle(struct btrfs_root *root);
-int btrfs_record_root_in_trans(struct btrfs_root *root);
+int btrfs_record_root_in_trans(struct btrfs_trans_handle *trans,
+				struct btrfs_root *root);
 int btrfs_write_and_wait_marked_extents(struct btrfs_root *root,
 					struct extent_io_tree *dirty_pages);
+int btrfs_transaction_in_commit(struct btrfs_fs_info *info);
 #endif

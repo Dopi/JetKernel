@@ -1,8 +1,8 @@
 /*
  *	Watchdog driver for the SA11x0/PXA2xx
  *
- *      (c) Copyright 2000 Oleg Drokin <green@crimea.edu>
- *          Based on SoftDog driver by Alan Cox <alan@lxorguk.ukuu.org.uk>
+ *	(c) Copyright 2000 Oleg Drokin <green@crimea.edu>
+ *	    Based on SoftDog driver by Alan Cox <alan@lxorguk.ukuu.org.uk>
  *
  *	This program is free software; you can redistribute it and/or
  *	modify it under the terms of the GNU General Public License
@@ -15,7 +15,7 @@
  *
  *	(c) Copyright 2000           Oleg Drokin <green@crimea.edu>
  *
- *      27/11/2000 Initial release
+ *	27/11/2000 Initial release
  */
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -30,7 +30,7 @@
 #include <linux/timex.h>
 
 #ifdef CONFIG_ARCH_PXA
-#include <mach/pxa-regs.h>
+#include <mach/regs-ost.h>
 #endif
 
 #include <mach/reset.h>
@@ -38,7 +38,7 @@
 
 static unsigned long oscr_freq;
 static unsigned long sa1100wdt_users;
-static int pre_margin;
+static unsigned int pre_margin;
 static int boot_status;
 
 /*
@@ -84,6 +84,7 @@ static const struct watchdog_info ident = {
 	.options	= WDIOF_CARDRESET | WDIOF_SETTIMEOUT
 				| WDIOF_KEEPALIVEPING,
 	.identity	= "SA1100/PXA255 Watchdog",
+	.firmware_version	= 1,
 };
 
 static long sa1100dog_ioctl(struct file *file, unsigned int cmd,
@@ -118,7 +119,7 @@ static long sa1100dog_ioctl(struct file *file, unsigned int cmd,
 		if (ret)
 			break;
 
-		if (time <= 0 || time > 255) {
+		if (time <= 0 || (oscr_freq * (long long)time >= 0xffffffff)) {
 			ret = -EINVAL;
 			break;
 		}

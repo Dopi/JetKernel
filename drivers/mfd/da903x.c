@@ -413,7 +413,7 @@ static void da903x_irq_work(struct work_struct *work)
 	enable_irq(chip->client->irq);
 }
 
-static int da903x_irq_handler(int irq, void *data)
+static irqreturn_t da903x_irq_handler(int irq, void *data)
 {
 	struct da903x_chip *chip = data;
 
@@ -561,7 +561,7 @@ static int __init da903x_init(void)
 {
 	return i2c_add_driver(&da903x_driver);
 }
-module_init(da903x_init);
+subsys_initcall(da903x_init);
 
 static void __exit da903x_exit(void)
 {

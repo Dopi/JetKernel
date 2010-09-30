@@ -2,7 +2,7 @@
  *	Intel SMP support routines.
  *
  *	(c) 1995 Alan Cox, Building #3 <alan@lxorguk.ukuu.org.uk>
- *	(c) 1998-99, 2000 Ingo Molnar <mingo@redhat.com>
+ *	(c) 1998-99, 2000, 2009 Ingo Molnar <mingo@redhat.com>
  *      (c) 2002,2003 Andi Kleen, SuSE Labs.
  *
  *	i386 and x86_64 integration by Glauber Costa <gcosta@redhat.com>
@@ -26,8 +26,7 @@
 #include <asm/tlbflush.h>
 #include <asm/mmu_context.h>
 #include <asm/proto.h>
-#include <mach_ipi.h>
-#include <mach_apic.h>
+#include <asm/apic.h>
 /*
  *	Some notes on x86 processor bugs affecting SMP operation:
  *
@@ -118,12 +117,12 @@ static void native_smp_send_reschedule(int cpu)
 		WARN_ON(1);
 		return;
 	}
-	send_IPI_mask(cpumask_of(cpu), RESCHEDULE_VECTOR);
+	apic->send_IPI_mask(cpumask_of(cpu), RESCHEDULE_VECTOR);
 }
 
 void native_send_call_func_single_ipi(int cpu)
 {
-	send_IPI_mask(cpumask_of(cpu), CALL_FUNCTION_SINGLE_VECTOR);
+	apic->send_IPI_mask(cpumask_of(cpu), CALL_FUNCTION_SINGLE_VECTOR);
 }
 
 void native_send_call_func_ipi(const struct cpumask *mask)
@@ -131,7 +130,7 @@ void native_send_call_func_ipi(const struct cpumask *mask)
 	cpumask_var_t allbutself;
 
 	if (!alloc_cpumask_var(&allbutself, GFP_ATOMIC)) {
-		send_IPI_mask(mask, CALL_FUNCTION_VECTOR);
+		apic->send_IPI_mask(mask, CALL_FUNCTION_VECTOR);
 		return;
 	}
 
@@ -140,9 +139,9 @@ void native_send_call_func_ipi(const struct cpumask *mask)
 
 	if (cpumask_equal(mask, allbutself) &&
 	    cpumask_equal(cpu_online_mask, cpu_callout_mask))
-		send_IPI_allbutself(CALL_FUNCTION_VECTOR);
+		apic->send_IPI_allbutself(CALL_FUNCTION_VECTOR);
 	else
-		send_IPI_mask(mask, CALL_FUNCTION_VECTOR);
+		apic->send_IPI_mask(mask, CALL_FUNCTION_VECTOR);
 
 	free_cpumask_var(allbutself);
 }
@@ -151,14 +150,40 @@ void native_send_call_func_ipi(const struct cpumask *mask)
  * this function calls the 'stop' function on all other CPUs in the system.
  */
 
+asmlinkage void smp_reboot_interrupt(void)
+{
+	ack_APIC_irq();
+	irq_enter();
+	stop_this_cpu(NULL);
+	irq_exit();
+}
+
 static void native_smp_send_stop(void)
 {
 	unsigned long flags;
+	unsigned long wait;
 
 	if (reboot_force)
 		return;
 
-	smp_call_function(stop_this_cpu, NULL, 0);
+	/*
+	 * Use an own vector here because smp_call_function
+	 * does lots of things not suitable in a panic situation.
+	 * On most systems we could also use an NMI here,
+	 * but there are a few systems around where NMI
+	 * is problematic so stay with an non NMI for now
+	 * (this implies we cannot stop CPUs spinning with irq off
+	 * currently)
+	 */
+	if (num_online_cpus() > 1) {
+		apic->send_IPI_allbutself(REBOOT_VECTOR);
+
+		/* Don't wait longer than a second */
+		wait = USEC_PER_SEC;
+		while (num_online_cpus() > 1 && wait--)
+			udelay(1);
+	}
+
 	local_irq_save(flags);
 	disable_local_APIC();
 	local_irq_restore(flags);
@@ -173,6 +198,9 @@ void smp_reschedule_interrupt(struct pt_regs *regs)
 {
 	ack_APIC_irq();
 	inc_irq_stat(irq_resched_count);
+	/*
+	 * KVM uses this interrupt to force a cpu out of guest mode
+	 */
 }
 
 void smp_call_function_interrupt(struct pt_regs *regs)
@@ -194,19 +222,19 @@ void smp_call_function_single_interrupt(struct pt_regs *regs)
 }
 
 struct smp_ops smp_ops = {
-	.smp_prepare_boot_cpu = native_smp_prepare_boot_cpu,
-	.smp_prepare_cpus = native_smp_prepare_cpus,
-	.smp_cpus_done = native_smp_cpus_done,
+	.smp_prepare_boot_cpu	= native_smp_prepare_boot_cpu,
+	.smp_prepare_cpus	= native_smp_prepare_cpus,
+	.smp_cpus_done		= native_smp_cpus_done,
 
-	.smp_send_stop = native_smp_send_stop,
-	.smp_send_reschedule = native_smp_send_reschedule,
+	.smp_send_stop		= native_smp_send_stop,
+	.smp_send_reschedule	= native_smp_send_reschedule,
 
-	.cpu_up = native_cpu_up,
-	.cpu_die = native_cpu_die,
-	.cpu_disable = native_cpu_disable,
-	.play_dead = native_play_dead,
+	.cpu_up			= native_cpu_up,
+	.cpu_die		= native_cpu_die,
+	.cpu_disable		= native_cpu_disable,
+	.play_dead		= native_play_dead,
 
-	.send_call_func_ipi = native_send_call_func_ipi,
+	.send_call_func_ipi	= native_send_call_func_ipi,
 	.send_call_func_single_ipi = native_send_call_func_single_ipi,
 };
 EXPORT_SYMBOL_GPL(smp_ops);

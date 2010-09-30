@@ -422,35 +422,6 @@ static int hpc_query_power_fault(struct slot *slot)
 	return !!(slot_status & PCI_EXP_SLTSTA_PFD);
 }
 
-static int hpc_get_emi_status(struct slot *slot, u8 *status)
-{
-	struct controller *ctrl = slot->ctrl;
-	u16 slot_status;
-	int retval;
-
-	retval = pciehp_readw(ctrl, PCI_EXP_SLTSTA, &slot_status);
-	if (retval) {
-		ctrl_err(ctrl, "Cannot check EMI status\n");
-		return retval;
-	}
-	*status = !!(slot_status & PCI_EXP_SLTSTA_EIS);
-	return retval;
-}
-
-static int hpc_toggle_emi(struct slot *slot)
-{
-	u16 slot_cmd;
-	u16 cmd_mask;
-	int rc;
-
-	slot_cmd = PCI_EXP_SLTCTL_EIC;
-	cmd_mask = PCI_EXP_SLTCTL_EIC;
-	rc = pcie_write_cmd(slot->ctrl, slot_cmd, cmd_mask);
-	slot->last_emi_toggle = get_seconds();
-
-	return rc;
-}
-
 static int hpc_set_attention_status(struct slot *slot, u8 value)
 {
 	struct controller *ctrl = slot->ctrl;
@@ -548,23 +519,21 @@ static int hpc_power_on_slot(struct slot * slot)
 
 	slot_cmd = POWER_ON;
 	cmd_mask = PCI_EXP_SLTCTL_PCC;
-	/* Enable detection that we turned off at slot power-off time */
 	if (!pciehp_poll_mode) {
-		slot_cmd |= (PCI_EXP_SLTCTL_PFDE | PCI_EXP_SLTCTL_MRLSCE |
-			     PCI_EXP_SLTCTL_PDCE);
-		cmd_mask |= (PCI_EXP_SLTCTL_PFDE | PCI_EXP_SLTCTL_MRLSCE |
-			     PCI_EXP_SLTCTL_PDCE);
+		/* Enable power fault detection turned off at power off time */
+		slot_cmd |= PCI_EXP_SLTCTL_PFDE;
+		cmd_mask |= PCI_EXP_SLTCTL_PFDE;
 	}
 
 	retval = pcie_write_cmd(ctrl, slot_cmd, cmd_mask);
-
 	if (retval) {
 		ctrl_err(ctrl, "Write %x command failed!\n", slot_cmd);
-		return -1;
+		return retval;
 	}
 	ctrl_dbg(ctrl, "%s: SLOTCTRL %x write cmd %x\n",
 		 __func__, ctrl->cap_base + PCI_EXP_SLTCTL, slot_cmd);
 
+	ctrl->power_fault_detected = 0;
 	return retval;
 }
 
@@ -621,18 +590,10 @@ static int hpc_power_off_slot(struct slot * slot)
 
 	slot_cmd = POWER_OFF;
 	cmd_mask = PCI_EXP_SLTCTL_PCC;
-	/*
-	 * If we get MRL or presence detect interrupts now, the isr
-	 * will notice the sticky power-fault bit too and issue power
-	 * indicator change commands. This will lead to an endless loop
-	 * of command completions, since the power-fault bit remains on
-	 * till the slot is powered on again.
-	 */
 	if (!pciehp_poll_mode) {
-		slot_cmd &= ~(PCI_EXP_SLTCTL_PFDE | PCI_EXP_SLTCTL_MRLSCE |
-			      PCI_EXP_SLTCTL_PDCE);
-		cmd_mask |= (PCI_EXP_SLTCTL_PFDE | PCI_EXP_SLTCTL_MRLSCE |
-			     PCI_EXP_SLTCTL_PDCE);
+		/* Disable power fault detection */
+		slot_cmd &= ~PCI_EXP_SLTCTL_PFDE;
+		cmd_mask |= PCI_EXP_SLTCTL_PFDE;
 	}
 
 	retval = pcie_write_cmd(ctrl, slot_cmd, cmd_mask);
@@ -672,10 +633,11 @@ static irqreturn_t pcie_isr(int irq, void *dev_id)
 		detected &= (PCI_EXP_SLTSTA_ABP | PCI_EXP_SLTSTA_PFD |
 			     PCI_EXP_SLTSTA_MRLSC | PCI_EXP_SLTSTA_PDC |
 			     PCI_EXP_SLTSTA_CC);
+		detected &= ~intr_loc;
 		intr_loc |= detected;
 		if (!intr_loc)
 			return IRQ_NONE;
-		if (detected && pciehp_writew(ctrl, PCI_EXP_SLTSTA, detected)) {
+		if (detected && pciehp_writew(ctrl, PCI_EXP_SLTSTA, intr_loc)) {
 			ctrl_err(ctrl, "%s: Cannot write to SLOTSTATUS\n",
 				 __func__);
 			return IRQ_NONE;
@@ -709,9 +671,10 @@ static irqreturn_t pcie_isr(int irq, void *dev_id)
 		pciehp_handle_presence_change(p_slot);
 
 	/* Check Power Fault Detected */
-	if (intr_loc & PCI_EXP_SLTSTA_PFD)
+	if ((intr_loc & PCI_EXP_SLTSTA_PFD) && !ctrl->power_fault_detected) {
+		ctrl->power_fault_detected = 1;
 		pciehp_handle_power_fault(p_slot);
-
+	}
 	return IRQ_HANDLED;
 }
 
@@ -882,8 +845,6 @@ static struct hpc_ops pciehp_hpc_ops = {
 	.get_attention_status		= hpc_get_attention_status,
 	.get_latch_status		= hpc_get_latch_status,
 	.get_adapter_status		= hpc_get_adapter_status,
-	.get_emi_status			= hpc_get_emi_status,
-	.toggle_emi			= hpc_toggle_emi,
 
 	.get_max_bus_speed		= hpc_get_max_lnk_speed,
 	.get_cur_bus_speed		= hpc_get_cur_lnk_speed,

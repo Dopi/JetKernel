@@ -1,7 +1,7 @@
 /*
  * SH7203 and SH7263 Setup
  *
- *  Copyright (C) 2007  Paul Mundt
+ *  Copyright (C) 2007 - 2009  Paul Mundt
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
@@ -11,6 +11,8 @@
 #include <linux/init.h>
 #include <linux/serial.h>
 #include <linux/serial_sci.h>
+#include <linux/sh_timer.h>
+#include <linux/io.h>
 
 enum {
 	UNUSED = 0,
@@ -18,50 +20,27 @@ enum {
 	/* interrupt sources */
 	IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7,
 	PINT0, PINT1, PINT2, PINT3, PINT4, PINT5, PINT6, PINT7,
-	DMAC0_DEI, DMAC0_HEI, DMAC1_DEI, DMAC1_HEI,
-	DMAC2_DEI, DMAC2_HEI, DMAC3_DEI, DMAC3_HEI,
-	DMAC4_DEI, DMAC4_HEI, DMAC5_DEI, DMAC5_HEI,
-	DMAC6_DEI, DMAC6_HEI, DMAC7_DEI, DMAC7_HEI,
+	DMAC0, DMAC1, DMAC2, DMAC3, DMAC4, DMAC5, DMAC6, DMAC7,
 	USB, LCDC, CMT0, CMT1, BSC, WDT,
-	MTU2_TGI0A, MTU2_TGI0B, MTU2_TGI0C, MTU2_TGI0D,
-	MTU2_TCI0V, MTU2_TGI0E, MTU2_TGI0F,
-	MTU2_TGI1A, MTU2_TGI1B, MTU2_TCI1V, MTU2_TCI1U,
-	MTU2_TGI2A, MTU2_TGI2B, MTU2_TCI2V, MTU2_TCI2U,
-	MTU2_TGI3A, MTU2_TGI3B, MTU2_TGI3C, MTU2_TGI3D, MTU2_TCI3V,
-	MTU2_TGI4A, MTU2_TGI4B, MTU2_TGI4C, MTU2_TGI4D, MTU2_TCI4V,
+
+	MTU0_ABCD, MTU0_VEF, MTU1_AB, MTU1_VU, MTU2_AB, MTU2_VU,
+	MTU3_ABCD, MTU4_ABCD, MTU2_TCI3V, MTU2_TCI4V,
+
 	ADC_ADI,
-	IIC30_STPI, IIC30_NAKI, IIC30_RXI, IIC30_TXI, IIC30_TEI,
-	IIC31_STPI, IIC31_NAKI, IIC31_RXI, IIC31_TXI, IIC31_TEI,
-	IIC32_STPI, IIC32_NAKI, IIC32_RXI, IIC32_TXI, IIC32_TEI,
-	IIC33_STPI, IIC33_NAKI, IIC33_RXI, IIC33_TXI, IIC33_TEI,
-	SCIF0_BRI, SCIF0_ERI, SCIF0_RXI, SCIF0_TXI,
-	SCIF1_BRI, SCIF1_ERI, SCIF1_RXI, SCIF1_TXI,
-	SCIF2_BRI, SCIF2_ERI, SCIF2_RXI, SCIF2_TXI,
-	SCIF3_BRI, SCIF3_ERI, SCIF3_RXI, SCIF3_TXI,
-	SSU0_SSERI, SSU0_SSRXI, SSU0_SSTXI,
-	SSU1_SSERI, SSU1_SSRXI, SSU1_SSTXI,
+
+	IIC30, IIC31, IIC32, IIC33,
+	SCIF0, SCIF1, SCIF2, SCIF3,
+
+	SSU0, SSU1,
+
 	SSI0_SSII, SSI1_SSII, SSI2_SSII, SSI3_SSII,
 
 	/* ROM-DEC, SDHI, SRC, and IEB are SH7263 specific */
-	ROMDEC_ISY, ROMDEC_IERR, ROMDEC_IARG, ROMDEC_ISEC, ROMDEC_IBUF,
-	ROMDEC_IREADY,
-
-	FLCTL_FLSTEI, FLCTL_FLTENDI, FLCTL_FLTREQ0I, FLCTL_FLTREQ1I,
-
-	SDHI3, SDHI0, SDHI1,
-
-	RTC_ARM, RTC_PRD, RTC_CUP,
-	RCAN0_ERS, RCAN0_OVR, RCAN0_RM0, RCAN0_RM1, RCAN0_SLE,
-	RCAN1_ERS, RCAN1_OVR, RCAN1_RM0, RCAN1_RM1, RCAN1_SLE,
-
-	SRC_OVF, SRC_ODFI, SRC_IDEI, IEBI,
+	ROMDEC, FLCTL, SDHI, RTC, RCAN0, RCAN1,
+	SRC, IEBI,
 
 	/* interrupt groups */
-	PINT, DMAC0, DMAC1, DMAC2, DMAC3, DMAC4, DMAC5, DMAC6, DMAC7,
-	MTU0_ABCD, MTU0_VEF, MTU1_AB, MTU1_VU, MTU2_AB, MTU2_VU,
-	MTU3_ABCD, MTU4_ABCD,
-	IIC30, IIC31, IIC32, IIC33, SCIF0, SCIF1, SCIF2, SCIF3,
-	SSU0, SSU1, ROMDEC, SDHI, FLCTL, RTC, RCAN0, RCAN1, SRC
+	PINT,
 };
 
 static struct intc_vect vectors[] __initdata = {
@@ -73,79 +52,80 @@ static struct intc_vect vectors[] __initdata = {
 	INTC_IRQ(PINT2, 82), INTC_IRQ(PINT3, 83),
 	INTC_IRQ(PINT4, 84), INTC_IRQ(PINT5, 85),
 	INTC_IRQ(PINT6, 86), INTC_IRQ(PINT7, 87),
-	INTC_IRQ(DMAC0_DEI, 108), INTC_IRQ(DMAC0_HEI, 109),
-	INTC_IRQ(DMAC1_DEI, 112), INTC_IRQ(DMAC1_HEI, 113),
-	INTC_IRQ(DMAC2_DEI, 116), INTC_IRQ(DMAC2_HEI, 117),
-	INTC_IRQ(DMAC3_DEI, 120), INTC_IRQ(DMAC3_HEI, 121),
-	INTC_IRQ(DMAC4_DEI, 124), INTC_IRQ(DMAC4_HEI, 125),
-	INTC_IRQ(DMAC5_DEI, 128), INTC_IRQ(DMAC5_HEI, 129),
-	INTC_IRQ(DMAC6_DEI, 132), INTC_IRQ(DMAC6_HEI, 133),
-	INTC_IRQ(DMAC7_DEI, 136), INTC_IRQ(DMAC7_HEI, 137),
+	INTC_IRQ(DMAC0, 108), INTC_IRQ(DMAC0, 109),
+	INTC_IRQ(DMAC1, 112), INTC_IRQ(DMAC1, 113),
+	INTC_IRQ(DMAC2, 116), INTC_IRQ(DMAC2, 117),
+	INTC_IRQ(DMAC3, 120), INTC_IRQ(DMAC3, 121),
+	INTC_IRQ(DMAC4, 124), INTC_IRQ(DMAC4, 125),
+	INTC_IRQ(DMAC5, 128), INTC_IRQ(DMAC5, 129),
+	INTC_IRQ(DMAC6, 132), INTC_IRQ(DMAC6, 133),
+	INTC_IRQ(DMAC7, 136), INTC_IRQ(DMAC7, 137),
 	INTC_IRQ(USB, 140), INTC_IRQ(LCDC, 141),
 	INTC_IRQ(CMT0, 142), INTC_IRQ(CMT1, 143),
 	INTC_IRQ(BSC, 144), INTC_IRQ(WDT, 145),
-	INTC_IRQ(MTU2_TGI0A, 146), INTC_IRQ(MTU2_TGI0B, 147),
-	INTC_IRQ(MTU2_TGI0C, 148), INTC_IRQ(MTU2_TGI0D, 149),
-	INTC_IRQ(MTU2_TCI0V, 150),
-	INTC_IRQ(MTU2_TGI0E, 151), INTC_IRQ(MTU2_TGI0F, 152),
-	INTC_IRQ(MTU2_TGI1A, 153), INTC_IRQ(MTU2_TGI1B, 154),
-	INTC_IRQ(MTU2_TCI1V, 155), INTC_IRQ(MTU2_TCI1U, 156),
-	INTC_IRQ(MTU2_TGI2A, 157), INTC_IRQ(MTU2_TGI2B, 158),
-	INTC_IRQ(MTU2_TCI2V, 159), INTC_IRQ(MTU2_TCI2U, 160),
-	INTC_IRQ(MTU2_TGI3A, 161), INTC_IRQ(MTU2_TGI3B, 162),
-	INTC_IRQ(MTU2_TGI3C, 163), INTC_IRQ(MTU2_TGI3D, 164),
+	INTC_IRQ(MTU0_ABCD, 146), INTC_IRQ(MTU0_ABCD, 147),
+	INTC_IRQ(MTU0_ABCD, 148), INTC_IRQ(MTU0_ABCD, 149),
+	INTC_IRQ(MTU0_VEF, 150),
+	INTC_IRQ(MTU0_VEF, 151), INTC_IRQ(MTU0_VEF, 152),
+	INTC_IRQ(MTU1_AB, 153), INTC_IRQ(MTU1_AB, 154),
+	INTC_IRQ(MTU1_VU, 155), INTC_IRQ(MTU1_VU, 156),
+	INTC_IRQ(MTU2_AB, 157), INTC_IRQ(MTU2_AB, 158),
+	INTC_IRQ(MTU2_VU, 159), INTC_IRQ(MTU2_VU, 160),
+	INTC_IRQ(MTU3_ABCD, 161), INTC_IRQ(MTU3_ABCD, 162),
+	INTC_IRQ(MTU3_ABCD, 163), INTC_IRQ(MTU3_ABCD, 164),
 	INTC_IRQ(MTU2_TCI3V, 165),
-	INTC_IRQ(MTU2_TGI4A, 166), INTC_IRQ(MTU2_TGI4B, 167),
-	INTC_IRQ(MTU2_TGI4C, 168), INTC_IRQ(MTU2_TGI4D, 169),
+	INTC_IRQ(MTU4_ABCD, 166), INTC_IRQ(MTU4_ABCD, 167),
+	INTC_IRQ(MTU4_ABCD, 168), INTC_IRQ(MTU4_ABCD, 169),
 	INTC_IRQ(MTU2_TCI4V, 170),
 	INTC_IRQ(ADC_ADI, 171),
-	INTC_IRQ(IIC30_STPI, 172), INTC_IRQ(IIC30_NAKI, 173),
-	INTC_IRQ(IIC30_RXI, 174), INTC_IRQ(IIC30_TXI, 175),
-	INTC_IRQ(IIC30_TEI, 176),
-	INTC_IRQ(IIC31_STPI, 177), INTC_IRQ(IIC31_NAKI, 178),
-	INTC_IRQ(IIC31_RXI, 179), INTC_IRQ(IIC31_TXI, 180),
-	INTC_IRQ(IIC31_TEI, 181),
-	INTC_IRQ(IIC32_STPI, 182), INTC_IRQ(IIC32_NAKI, 183),
-	INTC_IRQ(IIC32_RXI, 184), INTC_IRQ(IIC32_TXI, 185),
-	INTC_IRQ(IIC32_TEI, 186),
-	INTC_IRQ(IIC33_STPI, 187), INTC_IRQ(IIC33_NAKI, 188),
-	INTC_IRQ(IIC33_RXI, 189), INTC_IRQ(IIC33_TXI, 190),
-	INTC_IRQ(IIC33_TEI, 191),
-	INTC_IRQ(SCIF0_BRI, 192), INTC_IRQ(SCIF0_ERI, 193),
-	INTC_IRQ(SCIF0_RXI, 194), INTC_IRQ(SCIF0_TXI, 195),
-	INTC_IRQ(SCIF1_BRI, 196), INTC_IRQ(SCIF1_ERI, 197),
-	INTC_IRQ(SCIF1_RXI, 198), INTC_IRQ(SCIF1_TXI, 199),
-	INTC_IRQ(SCIF2_BRI, 200), INTC_IRQ(SCIF2_ERI, 201),
-	INTC_IRQ(SCIF2_RXI, 202), INTC_IRQ(SCIF2_TXI, 203),
-	INTC_IRQ(SCIF3_BRI, 204), INTC_IRQ(SCIF3_ERI, 205),
-	INTC_IRQ(SCIF3_RXI, 206), INTC_IRQ(SCIF3_TXI, 207),
-	INTC_IRQ(SSU0_SSERI, 208), INTC_IRQ(SSU0_SSRXI, 209),
-	INTC_IRQ(SSU0_SSTXI, 210),
-	INTC_IRQ(SSU1_SSERI, 211), INTC_IRQ(SSU1_SSRXI, 212),
-	INTC_IRQ(SSU1_SSTXI, 213),
+	INTC_IRQ(IIC30, 172), INTC_IRQ(IIC30, 173),
+	INTC_IRQ(IIC30, 174), INTC_IRQ(IIC30, 175),
+	INTC_IRQ(IIC30, 176),
+	INTC_IRQ(IIC31, 177), INTC_IRQ(IIC31, 178),
+	INTC_IRQ(IIC31, 179), INTC_IRQ(IIC31, 180),
+	INTC_IRQ(IIC31, 181),
+	INTC_IRQ(IIC32, 182), INTC_IRQ(IIC32, 183),
+	INTC_IRQ(IIC32, 184), INTC_IRQ(IIC32, 185),
+	INTC_IRQ(IIC32, 186),
+	INTC_IRQ(IIC33, 187), INTC_IRQ(IIC33, 188),
+	INTC_IRQ(IIC33, 189), INTC_IRQ(IIC33, 190),
+	INTC_IRQ(IIC33, 191),
+	INTC_IRQ(SCIF0, 192), INTC_IRQ(SCIF0, 193),
+	INTC_IRQ(SCIF0, 194), INTC_IRQ(SCIF0, 195),
+	INTC_IRQ(SCIF1, 196), INTC_IRQ(SCIF1, 197),
+	INTC_IRQ(SCIF1, 198), INTC_IRQ(SCIF1, 199),
+	INTC_IRQ(SCIF2, 200), INTC_IRQ(SCIF2, 201),
+	INTC_IRQ(SCIF2, 202), INTC_IRQ(SCIF2, 203),
+	INTC_IRQ(SCIF3, 204), INTC_IRQ(SCIF3, 205),
+	INTC_IRQ(SCIF3, 206), INTC_IRQ(SCIF3, 207),
+	INTC_IRQ(SSU0, 208), INTC_IRQ(SSU0, 209),
+	INTC_IRQ(SSU0, 210),
+	INTC_IRQ(SSU1, 211), INTC_IRQ(SSU1, 212),
+	INTC_IRQ(SSU1, 213),
 	INTC_IRQ(SSI0_SSII, 214), INTC_IRQ(SSI1_SSII, 215),
 	INTC_IRQ(SSI2_SSII, 216), INTC_IRQ(SSI3_SSII, 217),
-	INTC_IRQ(FLCTL_FLSTEI, 224), INTC_IRQ(FLCTL_FLTENDI, 225),
-	INTC_IRQ(FLCTL_FLTREQ0I, 226), INTC_IRQ(FLCTL_FLTREQ1I, 227),
-	INTC_IRQ(RTC_ARM, 231), INTC_IRQ(RTC_PRD, 232),
-	INTC_IRQ(RTC_CUP, 233),
-	INTC_IRQ(RCAN0_ERS, 234), INTC_IRQ(RCAN0_OVR, 235),
-	INTC_IRQ(RCAN0_RM0, 236), INTC_IRQ(RCAN0_RM1, 237),
-	INTC_IRQ(RCAN0_SLE, 238),
-	INTC_IRQ(RCAN1_ERS, 239), INTC_IRQ(RCAN1_OVR, 240),
-	INTC_IRQ(RCAN1_RM0, 241), INTC_IRQ(RCAN1_RM1, 242),
-	INTC_IRQ(RCAN1_SLE, 243),
+	INTC_IRQ(FLCTL, 224), INTC_IRQ(FLCTL, 225),
+	INTC_IRQ(FLCTL, 226), INTC_IRQ(FLCTL, 227),
+	INTC_IRQ(RTC, 231), INTC_IRQ(RTC, 232),
+	INTC_IRQ(RTC, 233),
+	INTC_IRQ(RCAN0, 234), INTC_IRQ(RCAN0, 235),
+	INTC_IRQ(RCAN0, 236), INTC_IRQ(RCAN0, 237),
+	INTC_IRQ(RCAN0, 238),
+	INTC_IRQ(RCAN1, 239), INTC_IRQ(RCAN1, 240),
+	INTC_IRQ(RCAN1, 241), INTC_IRQ(RCAN1, 242),
+	INTC_IRQ(RCAN1, 243),
 
 	/* SH7263-specific trash */
 #ifdef CONFIG_CPU_SUBTYPE_SH7263
-	INTC_IRQ(ROMDEC_ISY, 218), INTC_IRQ(ROMDEC_IERR, 219),
-	INTC_IRQ(ROMDEC_IARG, 220), INTC_IRQ(ROMDEC_ISEC, 221),
-	INTC_IRQ(ROMDEC_IBUF, 222), INTC_IRQ(ROMDEC_IREADY, 223),
+	INTC_IRQ(ROMDEC, 218), INTC_IRQ(ROMDEC, 219),
+	INTC_IRQ(ROMDEC, 220), INTC_IRQ(ROMDEC, 221),
+	INTC_IRQ(ROMDEC, 222), INTC_IRQ(ROMDEC, 223),
 
-	INTC_IRQ(SDHI3, 228), INTC_IRQ(SDHI0, 229), INTC_IRQ(SDHI1, 230),
+	INTC_IRQ(SDHI, 228), INTC_IRQ(SDHI, 229),
+	INTC_IRQ(SDHI, 230),
 
-	INTC_IRQ(SRC_OVF, 244), INTC_IRQ(SRC_ODFI, 245),
-	INTC_IRQ(SRC_IDEI, 246),
+	INTC_IRQ(SRC, 244), INTC_IRQ(SRC, 245),
+	INTC_IRQ(SRC, 246),
 
 	INTC_IRQ(IEBI, 247),
 #endif
@@ -154,50 +134,6 @@ static struct intc_vect vectors[] __initdata = {
 static struct intc_group groups[] __initdata = {
 	INTC_GROUP(PINT, PINT0, PINT1, PINT2, PINT3,
 		   PINT4, PINT5, PINT6, PINT7),
-	INTC_GROUP(DMAC0, DMAC0_DEI, DMAC0_HEI),
-	INTC_GROUP(DMAC1, DMAC1_DEI, DMAC1_HEI),
-	INTC_GROUP(DMAC2, DMAC2_DEI, DMAC2_HEI),
-	INTC_GROUP(DMAC3, DMAC3_DEI, DMAC3_HEI),
-	INTC_GROUP(DMAC4, DMAC4_DEI, DMAC4_HEI),
-	INTC_GROUP(DMAC5, DMAC5_DEI, DMAC5_HEI),
-	INTC_GROUP(DMAC6, DMAC6_DEI, DMAC6_HEI),
-	INTC_GROUP(DMAC7, DMAC7_DEI, DMAC7_HEI),
-	INTC_GROUP(MTU0_ABCD, MTU2_TGI0A, MTU2_TGI0B, MTU2_TGI0C, MTU2_TGI0D),
-	INTC_GROUP(MTU0_VEF, MTU2_TCI0V, MTU2_TGI0E, MTU2_TGI0F),
-	INTC_GROUP(MTU1_AB, MTU2_TGI1A, MTU2_TGI1B),
-	INTC_GROUP(MTU1_VU, MTU2_TCI1V, MTU2_TCI1U),
-	INTC_GROUP(MTU2_AB, MTU2_TGI2A, MTU2_TGI2B),
-	INTC_GROUP(MTU2_VU, MTU2_TCI2V, MTU2_TCI2U),
-	INTC_GROUP(MTU3_ABCD, MTU2_TGI3A, MTU2_TGI3B, MTU2_TGI3C, MTU2_TGI3D),
-	INTC_GROUP(MTU4_ABCD, MTU2_TGI4A, MTU2_TGI4B, MTU2_TGI4C, MTU2_TGI4D),
-	INTC_GROUP(IIC30, IIC30_STPI, IIC30_NAKI, IIC30_RXI, IIC30_TXI,
-		   IIC30_TEI),
-	INTC_GROUP(IIC31, IIC31_STPI, IIC31_NAKI, IIC31_RXI, IIC31_TXI,
-		   IIC31_TEI),
-	INTC_GROUP(IIC32, IIC32_STPI, IIC32_NAKI, IIC32_RXI, IIC32_TXI,
-		   IIC32_TEI),
-	INTC_GROUP(IIC33, IIC33_STPI, IIC33_NAKI, IIC33_RXI, IIC33_TXI,
-		   IIC33_TEI),
-	INTC_GROUP(SCIF0, SCIF0_BRI, SCIF0_ERI, SCIF0_RXI, SCIF0_TXI),
-	INTC_GROUP(SCIF1, SCIF1_BRI, SCIF1_ERI, SCIF1_RXI, SCIF1_TXI),
-	INTC_GROUP(SCIF2, SCIF2_BRI, SCIF2_ERI, SCIF2_RXI, SCIF2_TXI),
-	INTC_GROUP(SCIF3, SCIF3_BRI, SCIF3_ERI, SCIF3_RXI, SCIF3_TXI),
-	INTC_GROUP(SSU0, SSU0_SSERI, SSU0_SSRXI, SSU0_SSTXI),
-	INTC_GROUP(SSU1, SSU1_SSERI, SSU1_SSRXI, SSU1_SSTXI),
-	INTC_GROUP(FLCTL, FLCTL_FLSTEI, FLCTL_FLTENDI, FLCTL_FLTREQ0I,
-		   FLCTL_FLTREQ1I),
-	INTC_GROUP(RTC, RTC_ARM, RTC_PRD, RTC_CUP),
-	INTC_GROUP(RCAN0, RCAN0_ERS, RCAN0_OVR, RCAN0_RM0, RCAN0_RM1,
-		   RCAN0_SLE),
-	INTC_GROUP(RCAN1, RCAN1_ERS, RCAN1_OVR, RCAN1_RM0, RCAN1_RM1,
-		   RCAN1_SLE),
-
-#ifdef CONFIG_CPU_SUBTYPE_SH7263
-	INTC_GROUP(ROMDEC, ROMDEC_ISY, ROMDEC_IERR, ROMDEC_IARG,
-		   ROMDEC_ISEC, ROMDEC_IBUF, ROMDEC_IREADY),
-	INTC_GROUP(SDHI, SDHI3, SDHI0, SDHI1),
-	INTC_GROUP(SRC, SRC_OVF, SRC_ODFI, SRC_IDEI),
-#endif
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
@@ -242,22 +178,22 @@ static struct plat_sci_port sci_platform_data[] = {
 		.mapbase	= 0xfffe8000,
 		.flags		= UPF_BOOT_AUTOCONF,
 		.type		= PORT_SCIF,
-		.irqs		=  { 193, 194, 195, 192 },
+		.irqs		=  { 192, 192, 192, 192 },
 	}, {
 		.mapbase	= 0xfffe8800,
 		.flags		= UPF_BOOT_AUTOCONF,
 		.type		= PORT_SCIF,
-		.irqs		=  { 197, 198, 199, 196 },
+		.irqs		=  { 196, 196, 196, 196 },
 	}, {
 		.mapbase	= 0xfffe9000,
 		.flags		= UPF_BOOT_AUTOCONF,
 		.type		= PORT_SCIF,
-		.irqs		=  { 201, 202, 203, 200 },
+		.irqs		=  { 200, 200, 200, 200 },
 	}, {
 		.mapbase	= 0xfffe9800,
 		.flags		= UPF_BOOT_AUTOCONF,
 		.type		= PORT_SCIF,
-		.irqs		=  { 205, 206, 207, 204 },
+		.irqs		=  { 204, 204, 204, 204 },
 	}, {
 		.flags = 0,
 	}
@@ -271,6 +207,132 @@ static struct platform_device sci_device = {
 	},
 };
 
+static struct sh_timer_config cmt0_platform_data = {
+	.name = "CMT0",
+	.channel_offset = 0x02,
+	.timer_bit = 0,
+	.clk = "peripheral_clk",
+	.clockevent_rating = 125,
+	.clocksource_rating = 0, /* disabled due to code generation issues */
+};
+
+static struct resource cmt0_resources[] = {
+	[0] = {
+		.name	= "CMT0",
+		.start	= 0xfffec002,
+		.end	= 0xfffec007,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= 142,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device cmt0_device = {
+	.name		= "sh_cmt",
+	.id		= 0,
+	.dev = {
+		.platform_data	= &cmt0_platform_data,
+	},
+	.resource	= cmt0_resources,
+	.num_resources	= ARRAY_SIZE(cmt0_resources),
+};
+
+static struct sh_timer_config cmt1_platform_data = {
+	.name = "CMT1",
+	.channel_offset = 0x08,
+	.timer_bit = 1,
+	.clk = "peripheral_clk",
+	.clockevent_rating = 125,
+	.clocksource_rating = 0, /* disabled due to code generation issues */
+};
+
+static struct resource cmt1_resources[] = {
+	[0] = {
+		.name	= "CMT1",
+		.start	= 0xfffec008,
+		.end	= 0xfffec00d,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= 143,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device cmt1_device = {
+	.name		= "sh_cmt",
+	.id		= 1,
+	.dev = {
+		.platform_data	= &cmt1_platform_data,
+	},
+	.resource	= cmt1_resources,
+	.num_resources	= ARRAY_SIZE(cmt1_resources),
+};
+
+static struct sh_timer_config mtu2_0_platform_data = {
+	.name = "MTU2_0",
+	.channel_offset = -0x80,
+	.timer_bit = 0,
+	.clk = "peripheral_clk",
+	.clockevent_rating = 200,
+};
+
+static struct resource mtu2_0_resources[] = {
+	[0] = {
+		.name	= "MTU2_0",
+		.start	= 0xfffe4300,
+		.end	= 0xfffe4326,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= 146,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device mtu2_0_device = {
+	.name		= "sh_mtu2",
+	.id		= 0,
+	.dev = {
+		.platform_data	= &mtu2_0_platform_data,
+	},
+	.resource	= mtu2_0_resources,
+	.num_resources	= ARRAY_SIZE(mtu2_0_resources),
+};
+
+static struct sh_timer_config mtu2_1_platform_data = {
+	.name = "MTU2_1",
+	.channel_offset = -0x100,
+	.timer_bit = 1,
+	.clk = "peripheral_clk",
+	.clockevent_rating = 200,
+};
+
+static struct resource mtu2_1_resources[] = {
+	[0] = {
+		.name	= "MTU2_1",
+		.start	= 0xfffe4380,
+		.end	= 0xfffe4390,
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.start	= 153,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device mtu2_1_device = {
+	.name		= "sh_mtu2",
+	.id		= 1,
+	.dev = {
+		.platform_data	= &mtu2_1_platform_data,
+	},
+	.resource	= mtu2_1_resources,
+	.num_resources	= ARRAY_SIZE(mtu2_1_resources),
+};
+
 static struct resource rtc_resources[] = {
 	[0] = {
 		.start	= 0xffff2000,
@@ -278,17 +340,7 @@ static struct resource rtc_resources[] = {
 		.flags	= IORESOURCE_IO,
 	},
 	[1] = {
-		/* Period IRQ */
-		.start	= 232,
-		.flags	= IORESOURCE_IRQ,
-	},
-	[2] = {
-		/* Carry IRQ */
-		.start	= 233,
-		.flags	= IORESOURCE_IRQ,
-	},
-	[3] = {
-		/* Alarm IRQ */
+		/* Shared Period/Carry/Alarm IRQ */
 		.start	= 231,
 		.flags	= IORESOURCE_IRQ,
 	},
@@ -303,6 +355,10 @@ static struct platform_device rtc_device = {
 
 static struct platform_device *sh7203_devices[] __initdata = {
 	&sci_device,
+	&cmt0_device,
+	&cmt1_device,
+	&mtu2_0_device,
+	&mtu2_1_device,
 	&rtc_device,
 };
 
@@ -311,9 +367,31 @@ static int __init sh7203_devices_setup(void)
 	return platform_add_devices(sh7203_devices,
 				    ARRAY_SIZE(sh7203_devices));
 }
-__initcall(sh7203_devices_setup);
+arch_initcall(sh7203_devices_setup);
 
 void __init plat_irq_setup(void)
 {
 	register_intc_controller(&intc_desc);
+}
+
+static struct platform_device *sh7203_early_devices[] __initdata = {
+	&cmt0_device,
+	&cmt1_device,
+	&mtu2_0_device,
+	&mtu2_1_device,
+};
+
+#define STBCR3 0xfffe0408
+#define STBCR4 0xfffe040c
+
+void __init plat_early_device_setup(void)
+{
+	/* enable CMT clock */
+	__raw_writeb(__raw_readb(STBCR4) & ~0x04, STBCR4);
+
+	/* enable MTU2 clock */
+	__raw_writeb(__raw_readb(STBCR3) & ~0x20, STBCR3);
+
+	early_platform_add_devices(sh7203_early_devices,
+				   ARRAY_SIZE(sh7203_early_devices));
 }

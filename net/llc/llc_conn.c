@@ -79,10 +79,6 @@ int llc_conn_state_process(struct sock *sk, struct sk_buff *skb)
 
 	if (unlikely(!ev->ind_prim && !ev->cfm_prim)) {
 		/* indicate or confirm not required */
-		/* XXX this is not very pretty, perhaps we should store
-		 * XXX indicate/confirm-needed state in the llc_conn_state_ev
-		 * XXX control block of the SKB instead? -DaveM
-		 */
 		if (!skb->next)
 			goto out_kfree_skb;
 		goto out_skb_put;
@@ -332,8 +328,7 @@ int llc_conn_remove_acked_pdus(struct sock *sk, u8 nr, u16 *how_many_unacked)
 
 	for (i = 0; i < pdu_pos && i < q_len; i++) {
 		skb = skb_dequeue(&llc->pdu_unack_q);
-		if (skb)
-			kfree_skb(skb);
+		kfree_skb(skb);
 		nbr_acked++;
 	}
 out:

@@ -322,7 +322,7 @@ static void atmel_spi_next_message(struct spi_master *master)
 	spi = msg->spi;
 
 	dev_dbg(master->dev.parent, "start message %p for %s\n",
-			msg, spi->dev.bus_id);
+			msg, dev_name(&spi->dev));
 
 	/* select chip if it's not still active */
 	if (as->stay) {
@@ -530,9 +530,6 @@ atmel_spi_interrupt(int irq, void *dev_id)
 	return ret;
 }
 
-/* the spi->mode bits understood by this driver: */
-#define MODEBITS (SPI_CPOL | SPI_CPHA | SPI_CS_HIGH)
-
 static int atmel_spi_setup(struct spi_device *spi)
 {
 	struct atmel_spi	*as;
@@ -555,18 +552,10 @@ static int atmel_spi_setup(struct spi_device *spi)
 		return -EINVAL;
 	}
 
-	if (bits == 0)
-		bits = 8;
 	if (bits < 8 || bits > 16) {
 		dev_dbg(&spi->dev,
 				"setup: invalid bits_per_word %u (8 to 16)\n",
 				bits);
-		return -EINVAL;
-	}
-
-	if (spi->mode & ~MODEBITS) {
-		dev_dbg(&spi->dev, "setup: unsupported mode bits %x\n",
-			spi->mode & ~MODEBITS);
 		return -EINVAL;
 	}
 
@@ -627,7 +616,7 @@ static int atmel_spi_setup(struct spi_device *spi)
 		if (!asd)
 			return -ENOMEM;
 
-		ret = gpio_request(npcs_pin, spi->dev.bus_id);
+		ret = gpio_request(npcs_pin, dev_name(&spi->dev));
 		if (ret) {
 			kfree(asd);
 			return ret;
@@ -668,7 +657,7 @@ static int atmel_spi_transfer(struct spi_device *spi, struct spi_message *msg)
 	as = spi_master_get_devdata(spi->master);
 
 	dev_dbg(controller, "new message %p submitted for %s\n",
-			msg, spi->dev.bus_id);
+			msg, dev_name(&spi->dev));
 
 	if (unlikely(list_empty(&msg->transfers)))
 		return -EINVAL;
@@ -775,6 +764,9 @@ static int __init atmel_spi_probe(struct platform_device *pdev)
 	if (!master)
 		goto out_free;
 
+	/* the spi->mode bits understood by this driver: */
+	master->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH;
+
 	master->bus_num = pdev->id;
 	master->num_chipselect = 4;
 	master->setup = atmel_spi_setup;
@@ -803,7 +795,7 @@ static int __init atmel_spi_probe(struct platform_device *pdev)
 	as->clk = clk;
 
 	ret = request_irq(irq, atmel_spi_interrupt, 0,
-			pdev->dev.bus_id, master);
+			dev_name(&pdev->dev), master);
 	if (ret)
 		goto out_unmap_regs;
 

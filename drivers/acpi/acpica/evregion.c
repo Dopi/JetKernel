@@ -275,7 +275,7 @@ acpi_ev_execute_reg_method(union acpi_operand_object *region_obj, u32 function)
  *
  * PARAMETERS:  region_obj          - Internal region object
  *              Function            - Read or Write operation
- *              Address             - Where in the space to read or write
+ *              region_offset       - Where in the region to read or write
  *              bit_width           - Field width in bits (8, 16, 32, or 64)
  *              Value               - Pointer to in or out value, must be
  *                                    full 64-bit acpi_integer
@@ -290,7 +290,7 @@ acpi_ev_execute_reg_method(union acpi_operand_object *region_obj, u32 function)
 acpi_status
 acpi_ev_address_space_dispatch(union acpi_operand_object *region_obj,
 			       u32 function,
-			       acpi_physical_address address,
+			       u32 region_offset,
 			       u32 bit_width, acpi_integer * value)
 {
 	acpi_status status;
@@ -396,7 +396,8 @@ acpi_ev_address_space_dispatch(union acpi_operand_object *region_obj,
 	ACPI_DEBUG_PRINT((ACPI_DB_OPREGION,
 			  "Handler %p (@%p) Address %8.8X%8.8X [%s]\n",
 			  &region_obj->region.handler->address_space, handler,
-			  ACPI_FORMAT_NATIVE_UINT(address),
+			  ACPI_FORMAT_NATIVE_UINT(region_obj->region.address +
+						  region_offset),
 			  acpi_ut_get_region_name(region_obj->region.
 						  space_id)));
 
@@ -412,8 +413,9 @@ acpi_ev_address_space_dispatch(union acpi_operand_object *region_obj,
 
 	/* Call the handler */
 
-	status = handler(function, address, bit_width, value,
-			 handler_desc->address_space.context,
+	status = handler(function,
+			 (region_obj->region.address + region_offset),
+			 bit_width, value, handler_desc->address_space.context,
 			 region_obj2->extra.region_context);
 
 	if (ACPI_FAILURE(status)) {
@@ -691,7 +693,7 @@ acpi_ev_install_handler(acpi_handle obj_handle,
 
 	/* Devices are handled different than regions */
 
-	if (ACPI_GET_OBJECT_TYPE(obj_desc) == ACPI_TYPE_DEVICE) {
+	if (obj_desc->common.type == ACPI_TYPE_DEVICE) {
 
 		/* Check if this Device already has a handler for this address space */
 
@@ -703,7 +705,8 @@ acpi_ev_install_handler(acpi_handle obj_handle,
 			if (next_handler_obj->address_space.space_id ==
 			    handler_obj->address_space.space_id) {
 				ACPI_DEBUG_PRINT((ACPI_DB_OPREGION,
-						  "Found handler for region [%s] in device %p(%p) handler %p\n",
+						  "Found handler for region [%s] in device %p(%p) "
+						  "handler %p\n",
 						  acpi_ut_get_region_name
 						  (handler_obj->address_space.
 						   space_id), obj_desc,

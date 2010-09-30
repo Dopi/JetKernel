@@ -830,7 +830,7 @@ static struct iw_statistics *lbs_get_wireless_stats(struct net_device *dev)
 	quality = rssi_qual;
 
 	/* Quality by TX errors */
-	priv->wstats.discard.retries = priv->stats.tx_errors;
+	priv->wstats.discard.retries = dev->stats.tx_errors;
 
 	memset(&log, 0, sizeof(log));
 	log.hdr.size = cpu_to_le16(sizeof(log));
@@ -1951,10 +1951,8 @@ static int lbs_get_essid(struct net_device *dev, struct iw_request_info *info,
 	if (priv->connect_status == LBS_CONNECTED) {
 		memcpy(extra, priv->curbssparams.ssid,
 		       priv->curbssparams.ssid_len);
-		extra[priv->curbssparams.ssid_len] = '\0';
 	} else {
 		memset(extra, 0, 32);
-		extra[priv->curbssparams.ssid_len] = '\0';
 	}
 	/*
 	 * If none, we may want to get the one that was set

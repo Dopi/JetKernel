@@ -17,6 +17,7 @@
 
 #include <asm/processor.h>
 #include <asm/smp.h>
+#include <asm/k8.h>
 
 #define LVL_1_INST	1
 #define LVL_1_DATA	2
@@ -32,7 +33,7 @@ struct _cache_table
 };
 
 /* all the cache descriptor types we care about (no TLB or trace cache entries) */
-static struct _cache_table cache_table[] __cpuinitdata =
+static const struct _cache_table __cpuinitconst cache_table[] =
 {
 	{ 0x06, LVL_1_INST, 8 },	/* 4-way set assoc, 32 byte line size */
 	{ 0x08, LVL_1_INST, 16 },	/* 4-way set assoc, 32 byte line size */
@@ -92,7 +93,7 @@ static struct _cache_table cache_table[] __cpuinitdata =
 	{ 0xd1, LVL_3,    1024 },	/* 4-way set assoc, 64 byte line size */
 	{ 0xd2, LVL_3,    2048 },	/* 4-way set assoc, 64 byte line size */
 	{ 0xd6, LVL_3,    1024 },	/* 8-way set assoc, 64 byte line size */
-	{ 0xd7, LVL_3,    2038 },	/* 8-way set assoc, 64 byte line size */
+	{ 0xd7, LVL_3,    2048 },	/* 8-way set assoc, 64 byte line size */
 	{ 0xd8, LVL_3,    4096 },	/* 12-way set assoc, 64 byte line size */
 	{ 0xdc, LVL_3,    2048 },	/* 12-way set assoc, 64 byte line size */
 	{ 0xdd, LVL_3,    4096 },	/* 12-way set assoc, 64 byte line size */
@@ -100,6 +101,9 @@ static struct _cache_table cache_table[] __cpuinitdata =
 	{ 0xe2, LVL_3,    2048 },	/* 16-way set assoc, 64 byte line size */
 	{ 0xe3, LVL_3,    4096 },	/* 16-way set assoc, 64 byte line size */
 	{ 0xe4, LVL_3,    8192 },	/* 16-way set assoc, 64 byte line size */
+	{ 0xea, LVL_3,    12288 },	/* 24-way set assoc, 64 byte line size */
+	{ 0xeb, LVL_3,    18432 },	/* 24-way set assoc, 64 byte line size */
+	{ 0xec, LVL_3,    24576 },	/* 24-way set assoc, 64 byte line size */
 	{ 0x00, 0, 0}
 };
 
@@ -147,16 +151,17 @@ struct _cpuid4_info {
 	union _cpuid4_leaf_ecx ecx;
 	unsigned long size;
 	unsigned long can_disable;
-	cpumask_t shared_cpu_map;	/* future?: only cpus/node is needed */
+	DECLARE_BITMAP(shared_cpu_map, NR_CPUS);
 };
 
-#ifdef CONFIG_PCI
-static struct pci_device_id k8_nb_id[] = {
-	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, 0x1103) },
-	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, 0x1203) },
-	{}
+/* subset of above _cpuid4_info w/o shared_cpu_map */
+struct _cpuid4_info_regs {
+	union _cpuid4_leaf_eax eax;
+	union _cpuid4_leaf_ebx ebx;
+	union _cpuid4_leaf_ecx ecx;
+	unsigned long size;
+	unsigned long can_disable;
 };
-#endif
 
 unsigned short			num_cache_leaves;
 
@@ -197,15 +202,22 @@ union l3_cache {
 	unsigned val;
 };
 
-static unsigned short assocs[] __cpuinitdata = {
-	[1] = 1, [2] = 2, [4] = 4, [6] = 8,
-	[8] = 16, [0xa] = 32, [0xb] = 48,
+static const unsigned short __cpuinitconst assocs[] = {
+	[1] = 1,
+	[2] = 2,
+	[4] = 4,
+	[6] = 8,
+	[8] = 16,
+	[0xa] = 32,
+	[0xb] = 48,
 	[0xc] = 64,
-	[0xf] = 0xffff // ??
+	[0xd] = 96,
+	[0xe] = 128,
+	[0xf] = 0xffff /* fully associative - no way to show this currently */
 };
 
-static unsigned char levels[] __cpuinitdata = { 1, 1, 2, 3 };
-static unsigned char types[] __cpuinitdata = { 1, 2, 3, 3 };
+static const unsigned char __cpuinitconst levels[] = { 1, 1, 2, 3 };
+static const unsigned char __cpuinitconst types[] = { 1, 2, 3, 3 };
 
 static void __cpuinit
 amd_cpuid4(int leaf, union _cpuid4_leaf_eax *eax,
@@ -262,7 +274,8 @@ amd_cpuid4(int leaf, union _cpuid4_leaf_eax *eax,
 	eax->split.type = types[leaf];
 	eax->split.level = levels[leaf];
 	if (leaf == 3)
-		eax->split.num_threads_sharing = current_cpu_data.x86_max_cores - 1;
+		eax->split.num_threads_sharing =
+			current_cpu_data.x86_max_cores - 1;
 	else
 		eax->split.num_threads_sharing = 0;
 	eax->split.num_cores_on_die = current_cpu_data.x86_max_cores - 1;
@@ -278,15 +291,24 @@ amd_cpuid4(int leaf, union _cpuid4_leaf_eax *eax,
 }
 
 static void __cpuinit
-amd_check_l3_disable(int index, struct _cpuid4_info *this_leaf)
+amd_check_l3_disable(int index, struct _cpuid4_info_regs *this_leaf)
 {
 	if (index < 3)
 		return;
+
+	if (boot_cpu_data.x86 == 0x11)
+		return;
+
+	/* see erratum #382 */
+	if ((boot_cpu_data.x86 == 0x10) && (boot_cpu_data.x86_model < 0x8))
+		return;
+
 	this_leaf->can_disable = 1;
 }
 
 static int
-__cpuinit cpuid4_cache_lookup(int index, struct _cpuid4_info *this_leaf)
+__cpuinit cpuid4_cache_lookup_regs(int index,
+				   struct _cpuid4_info_regs *this_leaf)
 {
 	union _cpuid4_leaf_eax 	eax;
 	union _cpuid4_leaf_ebx 	ebx;
@@ -353,11 +375,10 @@ unsigned int __cpuinit init_intel_cacheinfo(struct cpuinfo_x86 *c)
 		 * parameters cpuid leaf to find the cache details
 		 */
 		for (i = 0; i < num_cache_leaves; i++) {
-			struct _cpuid4_info this_leaf;
-
+			struct _cpuid4_info_regs this_leaf;
 			int retval;
 
-			retval = cpuid4_cache_lookup(i, &this_leaf);
+			retval = cpuid4_cache_lookup_regs(i, &this_leaf);
 			if (retval >= 0) {
 				switch(this_leaf.eax.split.level) {
 				    case 1:
@@ -490,6 +511,8 @@ unsigned int __cpuinit init_intel_cacheinfo(struct cpuinfo_x86 *c)
 	return l2;
 }
 
+#ifdef CONFIG_SYSFS
+
 /* pointer to _cpuid4_info array (for each cache leaf) */
 static DEFINE_PER_CPU(struct _cpuid4_info *, cpuid4_info);
 #define CPUID4_INFO_IDX(x, y)	(&((per_cpu(cpuid4_info, x))[y]))
@@ -506,17 +529,20 @@ static void __cpuinit cache_shared_cpu_map_setup(unsigned int cpu, int index)
 	num_threads_sharing = 1 + this_leaf->eax.split.num_threads_sharing;
 
 	if (num_threads_sharing == 1)
-		cpu_set(cpu, this_leaf->shared_cpu_map);
+		cpumask_set_cpu(cpu, to_cpumask(this_leaf->shared_cpu_map));
 	else {
 		index_msb = get_count_order(num_threads_sharing);
 
 		for_each_online_cpu(i) {
 			if (cpu_data(i).apicid >> index_msb ==
 			    c->apicid >> index_msb) {
-				cpu_set(i, this_leaf->shared_cpu_map);
+				cpumask_set_cpu(i,
+					to_cpumask(this_leaf->shared_cpu_map));
 				if (i != cpu && per_cpu(cpuid4_info, i))  {
-					sibling_leaf = CPUID4_INFO_IDX(i, index);
-					cpu_set(cpu, sibling_leaf->shared_cpu_map);
+					sibling_leaf =
+						CPUID4_INFO_IDX(i, index);
+					cpumask_set_cpu(cpu, to_cpumask(
+						sibling_leaf->shared_cpu_map));
 				}
 			}
 		}
@@ -528,9 +554,10 @@ static void __cpuinit cache_remove_shared_cpu_map(unsigned int cpu, int index)
 	int sibling;
 
 	this_leaf = CPUID4_INFO_IDX(cpu, index);
-	for_each_cpu_mask_nr(sibling, this_leaf->shared_cpu_map) {
+	for_each_cpu(sibling, to_cpumask(this_leaf->shared_cpu_map)) {
 		sibling_leaf = CPUID4_INFO_IDX(sibling, index);
-		cpu_clear(cpu, sibling_leaf->shared_cpu_map);
+		cpumask_clear_cpu(cpu,
+				  to_cpumask(sibling_leaf->shared_cpu_map));
 	}
 }
 #else
@@ -547,6 +574,15 @@ static void __cpuinit free_cache_attributes(unsigned int cpu)
 
 	kfree(per_cpu(cpuid4_info, cpu));
 	per_cpu(cpuid4_info, cpu) = NULL;
+}
+
+static int
+__cpuinit cpuid4_cache_lookup(int index, struct _cpuid4_info *this_leaf)
+{
+	struct _cpuid4_info_regs *leaf_regs =
+		(struct _cpuid4_info_regs *)this_leaf;
+
+	return cpuid4_cache_lookup_regs(index, leaf_regs);
 }
 
 static void __cpuinit get_cpu_leaves(void *_retval)
@@ -589,8 +625,6 @@ static int __cpuinit detect_cache_attributes(unsigned int cpu)
 
 	return retval;
 }
-
-#ifdef CONFIG_SYSFS
 
 #include <linux/kobject.h>
 #include <linux/sysfs.h>
@@ -635,8 +669,9 @@ static ssize_t show_shared_cpu_map_func(struct _cpuid4_info *this_leaf,
 	int n = 0;
 
 	if (len > 1) {
-		cpumask_t *mask = &this_leaf->shared_cpu_map;
+		const struct cpumask *mask;
 
+		mask = to_cpumask(this_leaf->shared_cpu_map);
 		n = type?
 			cpulist_scnprintf(buf, len-2, mask) :
 			cpumask_scnprintf(buf, len-2, mask);
@@ -673,95 +708,75 @@ static ssize_t show_type(struct _cpuid4_info *this_leaf, char *buf)
 #define to_object(k)	container_of(k, struct _index_kobject, kobj)
 #define to_attr(a)	container_of(a, struct _cache_attr, attr)
 
-#ifdef CONFIG_PCI
-static struct pci_dev *get_k8_northbridge(int node)
+static ssize_t show_cache_disable(struct _cpuid4_info *this_leaf, char *buf,
+				  unsigned int index)
 {
-	struct pci_dev *dev = NULL;
-	int i;
-
-	for (i = 0; i <= node; i++) {
-		do {
-			dev = pci_get_device(PCI_ANY_ID, PCI_ANY_ID, dev);
-			if (!dev)
-				break;
-		} while (!pci_match_id(&k8_nb_id[0], dev));
-		if (!dev)
-			break;
-	}
-	return dev;
-}
-#else
-static struct pci_dev *get_k8_northbridge(int node)
-{
-	return NULL;
-}
-#endif
-
-static ssize_t show_cache_disable(struct _cpuid4_info *this_leaf, char *buf)
-{
-	int node = cpu_to_node(first_cpu(this_leaf->shared_cpu_map));
-	struct pci_dev *dev = NULL;
-	ssize_t ret = 0;
-	int i;
+	int cpu = cpumask_first(to_cpumask(this_leaf->shared_cpu_map));
+	int node = cpu_to_node(cpu);
+	struct pci_dev *dev = node_to_k8_nb_misc(node);
+	unsigned int reg = 0;
 
 	if (!this_leaf->can_disable)
-		return sprintf(buf, "Feature not enabled\n");
-
-	dev = get_k8_northbridge(node);
-	if (!dev) {
-		printk(KERN_ERR "Attempting AMD northbridge operation on a system with no northbridge\n");
 		return -EINVAL;
-	}
 
-	for (i = 0; i < 2; i++) {
-		unsigned int reg;
+	if (!dev)
+		return -EINVAL;
 
-		pci_read_config_dword(dev, 0x1BC + i * 4, &reg);
-
-		ret += sprintf(buf, "%sEntry: %d\n", buf, i);
-		ret += sprintf(buf, "%sReads:  %s\tNew Entries: %s\n",  
-			buf,
-			reg & 0x80000000 ? "Disabled" : "Allowed",
-			reg & 0x40000000 ? "Disabled" : "Allowed");
-		ret += sprintf(buf, "%sSubCache: %x\tIndex: %x\n",
-			buf, (reg & 0x30000) >> 16, reg & 0xfff);
-	}
-	return ret;
+	pci_read_config_dword(dev, 0x1BC + index * 4, &reg);
+	return sprintf(buf, "%x\n", reg);
 }
 
-static ssize_t
-store_cache_disable(struct _cpuid4_info *this_leaf, const char *buf,
-		    size_t count)
+#define SHOW_CACHE_DISABLE(index)					\
+static ssize_t								\
+show_cache_disable_##index(struct _cpuid4_info *this_leaf, char *buf)  	\
+{									\
+	return show_cache_disable(this_leaf, buf, index);		\
+}
+SHOW_CACHE_DISABLE(0)
+SHOW_CACHE_DISABLE(1)
+
+static ssize_t store_cache_disable(struct _cpuid4_info *this_leaf,
+	const char *buf, size_t count, unsigned int index)
 {
-	int node = cpu_to_node(first_cpu(this_leaf->shared_cpu_map));
-	struct pci_dev *dev = NULL;
-	unsigned int ret, index, val;
+	int cpu = cpumask_first(to_cpumask(this_leaf->shared_cpu_map));
+	int node = cpu_to_node(cpu);
+	struct pci_dev *dev = node_to_k8_nb_misc(node);
+	unsigned long val = 0;
+	unsigned int scrubber = 0;
 
 	if (!this_leaf->can_disable)
-		return 0;
-
-	if (strlen(buf) > 15)
 		return -EINVAL;
 
-	ret = sscanf(buf, "%x %x", &index, &val);
-	if (ret != 2)
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	if (!dev)
 		return -EINVAL;
-	if (index > 1)
+
+	if (strict_strtoul(buf, 10, &val) < 0)
 		return -EINVAL;
 
 	val |= 0xc0000000;
-	dev = get_k8_northbridge(node);
-	if (!dev) {
-		printk(KERN_ERR "Attempting AMD northbridge operation on a system with no northbridge\n");
-		return -EINVAL;
-	}
+
+	pci_read_config_dword(dev, 0x58, &scrubber);
+	scrubber &= ~0x1f000000;
+	pci_write_config_dword(dev, 0x58, scrubber);
 
 	pci_write_config_dword(dev, 0x1BC + index * 4, val & ~0x40000000);
 	wbinvd();
 	pci_write_config_dword(dev, 0x1BC + index * 4, val);
-
-	return 1;
+	return count;
 }
+
+#define STORE_CACHE_DISABLE(index)					\
+static ssize_t								\
+store_cache_disable_##index(struct _cpuid4_info *this_leaf,	     	\
+			    const char *buf, size_t count)		\
+{									\
+	return store_cache_disable(this_leaf, buf, count, index);	\
+}
+STORE_CACHE_DISABLE(0)
+STORE_CACHE_DISABLE(1)
 
 struct _cache_attr {
 	struct attribute attr;
@@ -783,7 +798,10 @@ define_one_ro(size);
 define_one_ro(shared_cpu_map);
 define_one_ro(shared_cpu_list);
 
-static struct _cache_attr cache_disable = __ATTR(cache_disable, 0644, show_cache_disable, store_cache_disable);
+static struct _cache_attr cache_disable_0 = __ATTR(cache_disable_0, 0644,
+		show_cache_disable_0, store_cache_disable_0);
+static struct _cache_attr cache_disable_1 = __ATTR(cache_disable_1, 0644,
+		show_cache_disable_1, store_cache_disable_1);
 
 static struct attribute * default_attrs[] = {
 	&type.attr,
@@ -795,7 +813,8 @@ static struct attribute * default_attrs[] = {
 	&size.attr,
 	&shared_cpu_map.attr,
 	&shared_cpu_list.attr,
-	&cache_disable.attr,
+	&cache_disable_0.attr,
+	&cache_disable_1.attr,
 	NULL
 };
 
@@ -878,7 +897,7 @@ err_out:
 	return -ENOMEM;
 }
 
-static cpumask_t cache_dev_map = CPU_MASK_NONE;
+static DECLARE_BITMAP(cache_dev_map, NR_CPUS);
 
 /* Add/Remove cache interface for CPU device */
 static int __cpuinit cache_add_dev(struct sys_device * sys_dev)
@@ -918,7 +937,7 @@ static int __cpuinit cache_add_dev(struct sys_device * sys_dev)
 		}
 		kobject_uevent(&(this_object->kobj), KOBJ_ADD);
 	}
-	cpu_set(cpu, cache_dev_map);
+	cpumask_set_cpu(cpu, to_cpumask(cache_dev_map));
 
 	kobject_uevent(per_cpu(cache_kobject, cpu), KOBJ_ADD);
 	return 0;
@@ -931,9 +950,9 @@ static void __cpuinit cache_remove_dev(struct sys_device * sys_dev)
 
 	if (per_cpu(cpuid4_info, cpu) == NULL)
 		return;
-	if (!cpu_isset(cpu, cache_dev_map))
+	if (!cpumask_test_cpu(cpu, to_cpumask(cache_dev_map)))
 		return;
-	cpu_clear(cpu, cache_dev_map);
+	cpumask_clear_cpu(cpu, to_cpumask(cache_dev_map));
 
 	for (i = 0; i < num_cache_leaves; i++)
 		kobject_put(&(INDEX_KOBJECT_PTR(cpu,i)->kobj));

@@ -27,9 +27,7 @@ struct mtd_part {
 	struct mtd_info mtd;
 	struct mtd_info *master;
 	uint64_t offset;
-	int index;
 	struct list_head list;
-	int registered;
 };
 
 /*
@@ -48,7 +46,10 @@ static int part_read(struct mtd_info *mtd, loff_t from, size_t len,
 		size_t *retlen, u_char *buf)
 {
 	struct mtd_part *part = PART(mtd);
+	struct mtd_ecc_stats stats;
 	int res;
+
+	stats = part->master->ecc_stats;
 
 	if (from >= mtd->size)
 		len = 0;
@@ -58,9 +59,9 @@ static int part_read(struct mtd_info *mtd, loff_t from, size_t len,
 				   len, retlen, buf);
 	if (unlikely(res)) {
 		if (res == -EUCLEAN)
-			mtd->ecc_stats.corrected++;
+			mtd->ecc_stats.corrected += part->master->ecc_stats.corrected - stats.corrected;
 		if (res == -EBADMSG)
-			mtd->ecc_stats.failed++;
+			mtd->ecc_stats.failed += part->master->ecc_stats.failed - stats.failed;
 	}
 	return res;
 }
@@ -82,6 +83,18 @@ static void part_unpoint(struct mtd_info *mtd, loff_t from, size_t len)
 	struct mtd_part *part = PART(mtd);
 
 	part->master->unpoint(part->master, from + part->offset, len);
+}
+
+static unsigned long part_get_unmapped_area(struct mtd_info *mtd,
+					    unsigned long len,
+					    unsigned long offset,
+					    unsigned long flags)
+{
+	struct mtd_part *part = PART(mtd);
+
+	offset += part->offset;
+	return part->master->get_unmapped_area(part->master, len, offset,
+					       flags);
 }
 
 static int part_read_oob(struct mtd_info *mtd, loff_t from,
@@ -306,8 +319,7 @@ int del_mtd_partitions(struct mtd_info *master)
 	list_for_each_entry_safe(slave, next, &mtd_partitions, list)
 		if (slave->master == master) {
 			list_del(&slave->list);
-			if (slave->registered)
-				del_mtd_device(&slave->mtd);
+			del_mtd_device(&slave->mtd);
 			kfree(slave);
 		}
 
@@ -342,6 +354,12 @@ static struct mtd_part *add_one_partition(struct mtd_info *master,
 
 	slave->mtd.name = part->name;
 	slave->mtd.owner = master->owner;
+	slave->mtd.backing_dev_info = master->backing_dev_info;
+
+	/* NOTE:  we don't arrange MTDs as a tree; it'd be error-prone
+	 * to have the same data be in two different partitions.
+	 */
+	slave->mtd.dev.parent = master->dev.parent;
 
 	slave->mtd.read = part_read;
 	slave->mtd.write = part_write;
@@ -354,6 +372,8 @@ static struct mtd_part *add_one_partition(struct mtd_info *master,
 		slave->mtd.unpoint = part_unpoint;
 	}
 
+	if (master->get_unmapped_area)
+		slave->mtd.get_unmapped_area = part_get_unmapped_area;
 	if (master->read_oob)
 		slave->mtd.read_oob = part_read_oob;
 	if (master->write_oob)
@@ -372,7 +392,7 @@ static struct mtd_part *add_one_partition(struct mtd_info *master,
 		slave->mtd.get_fact_prot_info = part_get_fact_prot_info;
 	if (master->sync)
 		slave->mtd.sync = part_sync;
-	if (!partno && master->suspend && master->resume) {
+	if (!partno && !master->dev.class && master->suspend && master->resume) {
 			slave->mtd.suspend = part_suspend;
 			slave->mtd.resume = part_resume;
 	}
@@ -389,7 +409,6 @@ static struct mtd_part *add_one_partition(struct mtd_info *master,
 	slave->mtd.erase = part_erase;
 	slave->master = master;
 	slave->offset = part->offset;
-	slave->index = partno;
 
 	if (slave->offset == MTDPART_OFS_APPEND)
 		slave->offset = cur_offset;
@@ -477,15 +496,9 @@ static struct mtd_part *add_one_partition(struct mtd_info *master,
 	}
 
 out_register:
-	if (part->mtdp) {
-		/* store the object pointer (caller may or may not register it*/
-		*part->mtdp = &slave->mtd;
-		slave->registered = 0;
-	} else {
-		/* register our partition */
-		add_mtd_device(&slave->mtd);
-		slave->registered = 1;
-	}
+	/* register our partition */
+	add_mtd_device(&slave->mtd);
+
 	return slave;
 }
 
@@ -493,7 +506,9 @@ out_register:
  * This function, given a master MTD object and a partition table, creates
  * and registers slave MTD objects which are bound to the master according to
  * the partition definitions.
- * (Q: should we register the master MTD object as well?)
+ *
+ * We don't register the master, or expect the caller to have done so,
+ * for reasons of data integrity.
  */
 
 int add_mtd_partitions(struct mtd_info *master,

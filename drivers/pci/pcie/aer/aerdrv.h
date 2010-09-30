@@ -11,6 +11,7 @@
 #include <linux/workqueue.h>
 #include <linux/pcieport_if.h>
 #include <linux/aer.h>
+#include <linux/interrupt.h>
 
 #define AER_NONFATAL			0
 #define AER_FATAL			1
@@ -56,7 +57,11 @@ struct header_log_regs {
 	unsigned int dw3;
 };
 
+#define AER_MAX_MULTI_ERR_DEVICES	5	/* Not likely to have more */
 struct aer_err_info {
+	struct pci_dev *dev[AER_MAX_MULTI_ERR_DEVICES];
+	int error_dev_num;
+	u16 id;
 	int severity;			/* 0:NONFATAL | 1:FATAL | 2:COR */
 	int flags;
 	unsigned int status;		/* COR/UNCOR Error Status */
@@ -95,6 +100,9 @@ struct aer_broadcast_data {
 static inline pci_ers_result_t merge_result(enum pci_ers_result orig,
 		enum pci_ers_result new)
 {
+	if (new == PCI_ERS_RESULT_NONE)
+		return orig;
+
 	switch (orig) {
 	case PCI_ERS_RESULT_CAN_RECOVER:
 	case PCI_ERS_RESULT_RECOVERED:
@@ -117,6 +125,7 @@ extern void aer_delete_rootport(struct aer_rpc *rpc);
 extern int aer_init(struct pcie_device *dev);
 extern void aer_isr(struct work_struct *work);
 extern void aer_print_error(struct pci_dev *dev, struct aer_err_info *info);
+extern irqreturn_t aer_irq(int irq, void *context);
 
 #ifdef CONFIG_ACPI
 extern int aer_osc_setup(struct pcie_device *pciedev);

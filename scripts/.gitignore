@@ -1,10 +1,10 @@
 #
 # Generated files
 #
-ihex2fw
 conmakehash
 kallsyms
 pnmtologo
 bin2c
 unifdef
 binoffset
+ihex2fw

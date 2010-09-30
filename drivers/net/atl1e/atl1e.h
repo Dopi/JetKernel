@@ -429,7 +429,6 @@ struct atl1e_adapter {
 	struct mii_if_info  mii;    /* MII interface info */
 	struct atl1e_hw        hw;
 	struct atl1e_hw_stats  hw_stats;
-	struct net_device_stats net_stats;
 
 	bool have_msi;
 	u32 wol;
@@ -448,7 +447,7 @@ struct atl1e_adapter {
 	/* All Descriptor memory */
 	dma_addr_t  	ring_dma;
 	void     	*ring_vir_addr;
-	int             ring_size;
+	u32             ring_size;
 
 	struct atl1e_tx_ring tx_ring;
 	struct atl1e_rx_ring rx_ring;

@@ -199,6 +199,8 @@ static int can_create(struct net *net, struct socket *sock, int protocol)
  * @skb: pointer to socket buffer with CAN frame in data section
  * @loop: loopback for listeners on local CAN sockets (recommended default!)
  *
+ * Due to the loopback this routine must not be called from hardirq context.
+ *
  * Return:
  *  0 on success
  *  -ENETDOWN when the selected interface is down
@@ -273,13 +275,12 @@ int can_send(struct sk_buff *skb, int loop)
 		err = net_xmit_errno(err);
 
 	if (err) {
-		if (newskb)
-			kfree_skb(newskb);
+		kfree_skb(newskb);
 		return err;
 	}
 
 	if (newskb)
-		netif_rx(newskb);
+		netif_rx_ni(newskb);
 
 	/* update statistics */
 	can_stats.tx_frames++;
@@ -675,8 +676,8 @@ static int can_rcv(struct sk_buff *skb, struct net_device *dev,
 
 	rcu_read_unlock();
 
-	/* free the skbuff allocated by the netdevice driver */
-	kfree_skb(skb);
+	/* consume the skbuff allocated by the netdevice driver */
+	consume_skb(skb);
 
 	if (matches > 0) {
 		can_stats.matches++;
@@ -828,7 +829,7 @@ static int can_notifier(struct notifier_block *nb, unsigned long msg,
  */
 
 static struct packet_type can_packet __read_mostly = {
-	.type = __constant_htons(ETH_P_CAN),
+	.type = cpu_to_be16(ETH_P_CAN),
 	.dev  = NULL,
 	.func = can_rcv,
 };
@@ -903,6 +904,8 @@ static __exit void can_exit(void)
 		kfree(d);
 	}
 	spin_unlock(&can_rcvlists_lock);
+
+	rcu_barrier(); /* Wait for completion of call_rcu()'s */
 
 	kmem_cache_destroy(rcv_cache);
 }

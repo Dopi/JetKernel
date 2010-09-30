@@ -46,8 +46,6 @@
 
 struct xfs_name xfs_name_dotdot = {"..", 2};
 
-extern const struct xfs_nameops xfs_default_nameops;
-
 /*
  * ASCII case-insensitive (ie. A-Z) support for directories that was
  * used in IRIX.
@@ -258,7 +256,7 @@ xfs_dir_cilookup_result(
 					!(args->op_flags & XFS_DA_OP_CILOOKUP))
 		return EEXIST;
 
-	args->value = kmem_alloc(len, KM_MAYFAIL);
+	args->value = kmem_alloc(len, KM_NOFS | KM_MAYFAIL);
 	if (!args->value)
 		return ENOMEM;
 

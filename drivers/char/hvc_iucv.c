@@ -4,7 +4,7 @@
  * This HVC device driver provides terminal access using
  * z/VM IUCV communication paths.
  *
- * Copyright IBM Corp. 2008
+ * Copyright IBM Corp. 2008, 2009
  *
  * Author(s):	Hendrik Brueckner <brueckner@linux.vnet.ibm.com>
  */
@@ -13,10 +13,12 @@
 
 #include <linux/types.h>
 #include <asm/ebcdic.h>
+#include <linux/ctype.h>
 #include <linux/delay.h>
+#include <linux/device.h>
 #include <linux/init.h>
 #include <linux/mempool.h>
-#include <linux/module.h>
+#include <linux/moduleparam.h>
 #include <linux/tty.h>
 #include <linux/wait.h>
 #include <net/iucv/iucv.h>
@@ -73,6 +75,7 @@ struct hvc_iucv_private {
 	wait_queue_head_t	sndbuf_waitq;	/* wait for send completion */
 	struct list_head	tty_outqueue;	/* outgoing IUCV messages */
 	struct list_head	tty_inqueue;	/* incoming IUCV messages */
+	struct device		*dev;		/* device structure */
 };
 
 struct iucv_tty_buffer {
@@ -95,6 +98,12 @@ static unsigned long hvc_iucv_devices = 1;
 /* Array of allocated hvc iucv tty lines... */
 static struct hvc_iucv_private *hvc_iucv_table[MAX_HVC_IUCV_LINES];
 #define IUCV_HVC_CON_IDX	(0)
+/* List of z/VM user ID filter entries (struct iucv_vmid_filter) */
+#define MAX_VMID_FILTER		(500)
+static size_t hvc_iucv_filter_size;
+static void *hvc_iucv_filter;
+static const char *hvc_iucv_filter_string;
+static DEFINE_RWLOCK(hvc_iucv_filter_lock);
 
 /* Kmem cache and mempool for iucv_tty_buffer elements */
 static struct kmem_cache *hvc_iucv_buffer_cache;
@@ -535,7 +544,68 @@ static void flush_sndbuf_sync(struct hvc_iucv_private *priv)
 
 	if (sync_wait)
 		wait_event_timeout(priv->sndbuf_waitq,
-				   tty_outqueue_empty(priv), HZ);
+				   tty_outqueue_empty(priv), HZ/10);
+}
+
+/**
+ * hvc_iucv_hangup() - Sever IUCV path and schedule hvc tty hang up
+ * @priv:	Pointer to hvc_iucv_private structure
+ *
+ * This routine severs an existing IUCV communication path and hangs
+ * up the underlying HVC terminal device.
+ * The hang-up occurs only if an IUCV communication path is established;
+ * otherwise there is no need to hang up the terminal device.
+ *
+ * The IUCV HVC hang-up is separated into two steps:
+ * 1. After the IUCV path has been severed, the iucv_state is set to
+ *    IUCV_SEVERED.
+ * 2. Later, when the HVC thread calls hvc_iucv_get_chars(), the
+ *    IUCV_SEVERED state causes the tty hang-up in the HVC layer.
+ *
+ * If the tty has not yet been opened, clean up the hvc_iucv_private
+ * structure to allow re-connects.
+ * If the tty has been opened, let get_chars() return -EPIPE to signal
+ * the HVC layer to hang up the tty and, if so, wake up the HVC thread
+ * to call get_chars()...
+ *
+ * Special notes on hanging up a HVC terminal instantiated as console:
+ * Hang-up:	1. do_tty_hangup() replaces file ops (= hung_up_tty_fops)
+ *		2. do_tty_hangup() calls tty->ops->close() for console_filp
+ *			=> no hangup notifier is called by HVC (default)
+ *		2. hvc_close() returns because of tty_hung_up_p(filp)
+ *			=> no delete notifier is called!
+ * Finally, the back-end is not being notified, thus, the tty session is
+ * kept active (TTY_OPEN) to be ready for re-connects.
+ *
+ * Locking:	spin_lock(&priv->lock) w/o disabling bh
+ */
+static void hvc_iucv_hangup(struct hvc_iucv_private *priv)
+{
+	struct iucv_path *path;
+
+	path = NULL;
+	spin_lock(&priv->lock);
+	if (priv->iucv_state == IUCV_CONNECTED) {
+		path = priv->path;
+		priv->path = NULL;
+		priv->iucv_state = IUCV_SEVERED;
+		if (priv->tty_state == TTY_CLOSED)
+			hvc_iucv_cleanup(priv);
+		else
+			/* console is special (see above) */
+			if (priv->is_console) {
+				hvc_iucv_cleanup(priv);
+				priv->tty_state = TTY_OPENED;
+			} else
+				hvc_kick();
+	}
+	spin_unlock(&priv->lock);
+
+	/* finally sever path (outside of priv->lock due to lock ordering) */
+	if (path) {
+		iucv_path_sever(path, NULL);
+		iucv_path_free(path);
+	}
 }
 
 /**
@@ -618,6 +688,27 @@ static void hvc_iucv_notifier_del(struct hvc_struct *hp, int id)
 }
 
 /**
+ * hvc_iucv_filter_connreq() - Filter connection request based on z/VM user ID
+ * @ipvmid:	Originating z/VM user ID (right padded with blanks)
+ *
+ * Returns 0 if the z/VM user ID @ipvmid is allowed to connection, otherwise
+ * non-zero.
+ */
+static int hvc_iucv_filter_connreq(u8 ipvmid[8])
+{
+	size_t i;
+
+	/* Note: default policy is ACCEPT if no filter is set */
+	if (!hvc_iucv_filter_size)
+		return 0;
+
+	for (i = 0; i < hvc_iucv_filter_size; i++)
+		if (0 == memcmp(ipvmid, hvc_iucv_filter + (8 * i), 8))
+			return 0;
+	return 1;
+}
+
+/**
  * hvc_iucv_path_pending() - IUCV handler to process a connection request.
  * @path:	Pending path (struct iucv_path)
  * @ipvmid:	z/VM system identifier of originator
@@ -641,6 +732,7 @@ static	int hvc_iucv_path_pending(struct iucv_path *path,
 {
 	struct hvc_iucv_private *priv;
 	u8 nuser_data[16];
+	u8 vm_user_id[9];
 	int i, rc;
 
 	priv = NULL;
@@ -652,6 +744,20 @@ static	int hvc_iucv_path_pending(struct iucv_path *path,
 		}
 	if (!priv)
 		return -ENODEV;
+
+	/* Enforce that ipvmid is allowed to connect to us */
+	read_lock(&hvc_iucv_filter_lock);
+	rc = hvc_iucv_filter_connreq(ipvmid);
+	read_unlock(&hvc_iucv_filter_lock);
+	if (rc) {
+		iucv_path_sever(path, ipuser);
+		iucv_path_free(path);
+		memcpy(vm_user_id, ipvmid, 8);
+		vm_user_id[8] = 0;
+		pr_info("A connection request from z/VM user ID %s "
+			"was refused\n", vm_user_id);
+		return 0;
+	}
 
 	spin_lock(&priv->lock);
 
@@ -692,11 +798,8 @@ out_path_handled:
  * @ipuser:	User specified data for this path
  *		(AF_IUCV: port/service name and originator port)
  *
- * The function also severs the path (as required by the IUCV protocol) and
- * sets the iucv state to IUCV_SEVERED for the associated struct
- * hvc_iucv_private instance. Later, the IUCV_SEVERED state triggers a tty
- * hangup (hvc_iucv_get_chars() / hvc_iucv_write()).
- * If tty portion of the HVC is closed, clean up the outqueue.
+ * This function calls the hvc_iucv_hangup() function for the
+ * respective IUCV HVC terminal.
  *
  * Locking:	struct hvc_iucv_private->lock
  */
@@ -704,33 +807,7 @@ static void hvc_iucv_path_severed(struct iucv_path *path, u8 ipuser[16])
 {
 	struct hvc_iucv_private *priv = path->private;
 
-	spin_lock(&priv->lock);
-	priv->iucv_state = IUCV_SEVERED;
-
-	/* If the tty has not yet been opened, clean up the hvc_iucv_private
-	 * structure to allow re-connects.
-	 * This is also done for our console device because console hangups
-	 * are handled specially and no notifier is called by HVC.
-	 * The tty session is active (TTY_OPEN) and ready for re-connects...
-	 *
-	 * If it has been opened, let get_chars() return -EPIPE to signal the
-	 * HVC layer to hang up the tty.
-	 * If so, we need to wake up the HVC thread to call get_chars()...
-	 */
-	priv->path = NULL;
-	if (priv->tty_state == TTY_CLOSED)
-		hvc_iucv_cleanup(priv);
-	else
-		if (priv->is_console) {
-			hvc_iucv_cleanup(priv);
-			priv->tty_state = TTY_OPENED;
-		} else
-			hvc_kick();
-	spin_unlock(&priv->lock);
-
-	/* finally sever path (outside of priv->lock due to lock ordering) */
-	iucv_path_sever(path, ipuser);
-	iucv_path_free(path);
+	hvc_iucv_hangup(priv);
 }
 
 /**
@@ -810,6 +887,37 @@ static void hvc_iucv_msg_complete(struct iucv_path *path,
 	destroy_tty_buffer_list(&list_remove);
 }
 
+/**
+ * hvc_iucv_pm_freeze() - Freeze PM callback
+ * @dev:	IUVC HVC terminal device
+ *
+ * Sever an established IUCV communication path and
+ * trigger a hang-up of the underlying HVC terminal.
+ */
+static int hvc_iucv_pm_freeze(struct device *dev)
+{
+	struct hvc_iucv_private *priv = dev_get_drvdata(dev);
+
+	local_bh_disable();
+	hvc_iucv_hangup(priv);
+	local_bh_enable();
+
+	return 0;
+}
+
+/**
+ * hvc_iucv_pm_restore_thaw() - Thaw and restore PM callback
+ * @dev:	IUVC HVC terminal device
+ *
+ * Wake up the HVC thread to trigger hang-up and respective
+ * HVC back-end notifier invocations.
+ */
+static int hvc_iucv_pm_restore_thaw(struct device *dev)
+{
+	hvc_kick();
+	return 0;
+}
+
 
 /* HVC operations */
 static struct hv_ops hvc_iucv_ops = {
@@ -818,6 +926,20 @@ static struct hv_ops hvc_iucv_ops = {
 	.notifier_add = hvc_iucv_notifier_add,
 	.notifier_del = hvc_iucv_notifier_del,
 	.notifier_hangup = hvc_iucv_notifier_hangup,
+};
+
+/* Suspend / resume device operations */
+static struct dev_pm_ops hvc_iucv_pm_ops = {
+	.freeze	  = hvc_iucv_pm_freeze,
+	.thaw	  = hvc_iucv_pm_restore_thaw,
+	.restore  = hvc_iucv_pm_restore_thaw,
+};
+
+/* IUCV HVC device driver */
+static struct device_driver hvc_iucv_driver = {
+	.name = KMSG_COMPONENT,
+	.bus  = &iucv_bus,
+	.pm   = &hvc_iucv_pm_ops,
 };
 
 /**
@@ -854,14 +976,12 @@ static int __init hvc_iucv_alloc(int id, unsigned int is_console)
 	/* set console flag */
 	priv->is_console = is_console;
 
-	/* finally allocate hvc */
+	/* allocate hvc device */
 	priv->hvc = hvc_alloc(HVC_IUCV_MAGIC + id, /*		  PAGE_SIZE */
 			      HVC_IUCV_MAGIC + id, &hvc_iucv_ops, 256);
 	if (IS_ERR(priv->hvc)) {
 		rc = PTR_ERR(priv->hvc);
-		free_page((unsigned long) priv->sndbuf);
-		kfree(priv);
-		return rc;
+		goto out_error_hvc;
 	}
 
 	/* notify HVC thread instead of using polling */
@@ -872,9 +992,211 @@ static int __init hvc_iucv_alloc(int id, unsigned int is_console)
 	memcpy(priv->srv_name, name, 8);
 	ASCEBC(priv->srv_name, 8);
 
+	/* create and setup device */
+	priv->dev = kzalloc(sizeof(*priv->dev), GFP_KERNEL);
+	if (!priv->dev) {
+		rc = -ENOMEM;
+		goto out_error_dev;
+	}
+	dev_set_name(priv->dev, "hvc_iucv%d", id);
+	dev_set_drvdata(priv->dev, priv);
+	priv->dev->bus = &iucv_bus;
+	priv->dev->parent = iucv_root;
+	priv->dev->driver = &hvc_iucv_driver;
+	priv->dev->release = (void (*)(struct device *)) kfree;
+	rc = device_register(priv->dev);
+	if (rc) {
+		kfree(priv->dev);
+		goto out_error_dev;
+	}
+
 	hvc_iucv_table[id] = priv;
 	return 0;
+
+out_error_dev:
+	hvc_remove(priv->hvc);
+out_error_hvc:
+	free_page((unsigned long) priv->sndbuf);
+	kfree(priv);
+
+	return rc;
 }
+
+/**
+ * hvc_iucv_destroy() - Destroy and free hvc_iucv_private instances
+ */
+static void __init hvc_iucv_destroy(struct hvc_iucv_private *priv)
+{
+	hvc_remove(priv->hvc);
+	device_unregister(priv->dev);
+	free_page((unsigned long) priv->sndbuf);
+	kfree(priv);
+}
+
+/**
+ * hvc_iucv_parse_filter() - Parse filter for a single z/VM user ID
+ * @filter:	String containing a comma-separated list of z/VM user IDs
+ */
+static const char *hvc_iucv_parse_filter(const char *filter, char *dest)
+{
+	const char *nextdelim, *residual;
+	size_t len;
+
+	nextdelim = strchr(filter, ',');
+	if (nextdelim) {
+		len = nextdelim - filter;
+		residual = nextdelim + 1;
+	} else {
+		len = strlen(filter);
+		residual = filter + len;
+	}
+
+	if (len == 0)
+		return ERR_PTR(-EINVAL);
+
+	/* check for '\n' (if called from sysfs) */
+	if (filter[len - 1] == '\n')
+		len--;
+
+	if (len > 8)
+		return ERR_PTR(-EINVAL);
+
+	/* pad with blanks and save upper case version of user ID */
+	memset(dest, ' ', 8);
+	while (len--)
+		dest[len] = toupper(filter[len]);
+	return residual;
+}
+
+/**
+ * hvc_iucv_setup_filter() - Set up z/VM user ID filter
+ * @filter:	String consisting of a comma-separated list of z/VM user IDs
+ *
+ * The function parses the @filter string and creates an array containing
+ * the list of z/VM user ID filter entries.
+ * Return code 0 means success, -EINVAL if the filter is syntactically
+ * incorrect, -ENOMEM if there was not enough memory to allocate the
+ * filter list array, or -ENOSPC if too many z/VM user IDs have been specified.
+ */
+static int hvc_iucv_setup_filter(const char *val)
+{
+	const char *residual;
+	int err;
+	size_t size, count;
+	void *array, *old_filter;
+
+	count = strlen(val);
+	if (count == 0 || (count == 1 && val[0] == '\n')) {
+		size  = 0;
+		array = NULL;
+		goto out_replace_filter;	/* clear filter */
+	}
+
+	/* count user IDs in order to allocate sufficient memory */
+	size = 1;
+	residual = val;
+	while ((residual = strchr(residual, ',')) != NULL) {
+		residual++;
+		size++;
+	}
+
+	/* check if the specified list exceeds the filter limit */
+	if (size > MAX_VMID_FILTER)
+		return -ENOSPC;
+
+	array = kzalloc(size * 8, GFP_KERNEL);
+	if (!array)
+		return -ENOMEM;
+
+	count = size;
+	residual = val;
+	while (*residual && count) {
+		residual = hvc_iucv_parse_filter(residual,
+						 array + ((size - count) * 8));
+		if (IS_ERR(residual)) {
+			err = PTR_ERR(residual);
+			kfree(array);
+			goto out_err;
+		}
+		count--;
+	}
+
+out_replace_filter:
+	write_lock_bh(&hvc_iucv_filter_lock);
+	old_filter = hvc_iucv_filter;
+	hvc_iucv_filter_size = size;
+	hvc_iucv_filter = array;
+	write_unlock_bh(&hvc_iucv_filter_lock);
+	kfree(old_filter);
+
+	err = 0;
+out_err:
+	return err;
+}
+
+/**
+ * param_set_vmidfilter() - Set z/VM user ID filter parameter
+ * @val:	String consisting of a comma-separated list of z/VM user IDs
+ * @kp:		Kernel parameter pointing to hvc_iucv_filter array
+ *
+ * The function sets up the z/VM user ID filter specified as comma-separated
+ * list of user IDs in @val.
+ * Note: If it is called early in the boot process, @val is stored and
+ *	 parsed later in hvc_iucv_init().
+ */
+static int param_set_vmidfilter(const char *val, struct kernel_param *kp)
+{
+	int rc;
+
+	if (!MACHINE_IS_VM || !hvc_iucv_devices)
+		return -ENODEV;
+
+	if (!val)
+		return -EINVAL;
+
+	rc = 0;
+	if (slab_is_available())
+		rc = hvc_iucv_setup_filter(val);
+	else
+		hvc_iucv_filter_string = val;	/* defer... */
+	return rc;
+}
+
+/**
+ * param_get_vmidfilter() - Get z/VM user ID filter
+ * @buffer:	Buffer to store z/VM user ID filter,
+ *		(buffer size assumption PAGE_SIZE)
+ * @kp:		Kernel parameter pointing to the hvc_iucv_filter array
+ *
+ * The function stores the filter as a comma-separated list of z/VM user IDs
+ * in @buffer. Typically, sysfs routines call this function for attr show.
+ */
+static int param_get_vmidfilter(char *buffer, struct kernel_param *kp)
+{
+	int rc;
+	size_t index, len;
+	void *start, *end;
+
+	if (!MACHINE_IS_VM || !hvc_iucv_devices)
+		return -ENODEV;
+
+	rc = 0;
+	read_lock_bh(&hvc_iucv_filter_lock);
+	for (index = 0; index < hvc_iucv_filter_size; index++) {
+		start = hvc_iucv_filter + (8 * index);
+		end   = memchr(start, ' ', 8);
+		len   = (end) ? end - start : 8;
+		memcpy(buffer + rc, start, len);
+		rc += len;
+		buffer[rc++] = ',';
+	}
+	read_unlock_bh(&hvc_iucv_filter_lock);
+	if (rc)
+		buffer[--rc] = '\0';	/* replace last comma and update rc */
+	return rc;
+}
+
+#define param_check_vmidfilter(name, p) __param_check(name, p, void)
 
 /**
  * hvc_iucv_init() - z/VM IUCV HVC device driver initialization
@@ -884,24 +1206,58 @@ static int __init hvc_iucv_init(void)
 	int rc;
 	unsigned int i;
 
-	if (!MACHINE_IS_VM) {
-		pr_info("The z/VM IUCV HVC device driver cannot "
-			   "be used without z/VM\n");
-		return -ENODEV;
-	}
-
 	if (!hvc_iucv_devices)
 		return -ENODEV;
 
-	if (hvc_iucv_devices > MAX_HVC_IUCV_LINES)
-		return -EINVAL;
+	if (!MACHINE_IS_VM) {
+		pr_notice("The z/VM IUCV HVC device driver cannot "
+			   "be used without z/VM\n");
+		rc = -ENODEV;
+		goto out_error;
+	}
+
+	if (hvc_iucv_devices > MAX_HVC_IUCV_LINES) {
+		pr_err("%lu is not a valid value for the hvc_iucv= "
+			"kernel parameter\n", hvc_iucv_devices);
+		rc = -EINVAL;
+		goto out_error;
+	}
+
+	/* register IUCV HVC device driver */
+	rc = driver_register(&hvc_iucv_driver);
+	if (rc)
+		goto out_error;
+
+	/* parse hvc_iucv_allow string and create z/VM user ID filter list */
+	if (hvc_iucv_filter_string) {
+		rc = hvc_iucv_setup_filter(hvc_iucv_filter_string);
+		switch (rc) {
+		case 0:
+			break;
+		case -ENOMEM:
+			pr_err("Allocating memory failed with "
+				"reason code=%d\n", 3);
+			goto out_error;
+		case -EINVAL:
+			pr_err("hvc_iucv_allow= does not specify a valid "
+				"z/VM user ID list\n");
+			goto out_error;
+		case -ENOSPC:
+			pr_err("hvc_iucv_allow= specifies too many "
+				"z/VM user IDs\n");
+			goto out_error;
+		default:
+			goto out_error;
+		}
+	}
 
 	hvc_iucv_buffer_cache = kmem_cache_create(KMSG_COMPONENT,
 					   sizeof(struct iucv_tty_buffer),
 					   0, 0, NULL);
 	if (!hvc_iucv_buffer_cache) {
 		pr_err("Allocating memory failed with reason code=%d\n", 1);
-		return -ENOMEM;
+		rc = -ENOMEM;
+		goto out_error;
 	}
 
 	hvc_iucv_mempool = mempool_create_slab_pool(MEMPOOL_MIN_NR,
@@ -909,7 +1265,8 @@ static int __init hvc_iucv_init(void)
 	if (!hvc_iucv_mempool) {
 		pr_err("Allocating memory failed with reason code=%d\n", 2);
 		kmem_cache_destroy(hvc_iucv_buffer_cache);
-		return -ENOMEM;
+		rc = -ENOMEM;
+		goto out_error;
 	}
 
 	/* register the first terminal device as console
@@ -945,14 +1302,15 @@ out_error_iucv:
 	iucv_unregister(&hvc_iucv_handler, 0);
 out_error_hvc:
 	for (i = 0; i < hvc_iucv_devices; i++)
-		if (hvc_iucv_table[i]) {
-			if (hvc_iucv_table[i]->hvc)
-				hvc_remove(hvc_iucv_table[i]->hvc);
-			kfree(hvc_iucv_table[i]);
-		}
+		if (hvc_iucv_table[i])
+			hvc_iucv_destroy(hvc_iucv_table[i]);
 out_error_memory:
 	mempool_destroy(hvc_iucv_mempool);
 	kmem_cache_destroy(hvc_iucv_buffer_cache);
+out_error:
+	if (hvc_iucv_filter)
+		kfree(hvc_iucv_filter);
+	hvc_iucv_devices = 0; /* ensure that we do not provide any device */
 	return rc;
 }
 
@@ -968,3 +1326,4 @@ static	int __init hvc_iucv_config(char *val)
 
 device_initcall(hvc_iucv_init);
 __setup("hvc_iucv=", hvc_iucv_config);
+core_param(hvc_iucv_allow, hvc_iucv_filter, vmidfilter, 0640);

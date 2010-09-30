@@ -378,31 +378,22 @@ EXPORT_SYMBOL(pid_task);
 /*
  * Must be called under rcu_read_lock() or with tasklist_lock read-held.
  */
-struct task_struct *find_task_by_pid_type_ns(int type, int nr,
-		struct pid_namespace *ns)
+struct task_struct *find_task_by_pid_ns(pid_t nr, struct pid_namespace *ns)
 {
-	return pid_task(find_pid_ns(nr, ns), type);
+	return pid_task(find_pid_ns(nr, ns), PIDTYPE_PID);
 }
-
-EXPORT_SYMBOL(find_task_by_pid_type_ns);
 
 struct task_struct *find_task_by_vpid(pid_t vnr)
 {
-	return find_task_by_pid_type_ns(PIDTYPE_PID, vnr,
-			current->nsproxy->pid_ns);
+	return find_task_by_pid_ns(vnr, current->nsproxy->pid_ns);
 }
-EXPORT_SYMBOL(find_task_by_vpid);
-
-struct task_struct *find_task_by_pid_ns(pid_t nr, struct pid_namespace *ns)
-{
-	return find_task_by_pid_type_ns(PIDTYPE_PID, nr, ns);
-}
-EXPORT_SYMBOL(find_task_by_pid_ns);
 
 struct pid *get_task_pid(struct task_struct *task, enum pid_type type)
 {
 	struct pid *pid;
 	rcu_read_lock();
+	if (type != PIDTYPE_PID)
+		task = task->group_leader;
 	pid = get_pid(task->pids[type].pid);
 	rcu_read_unlock();
 	return pid;
@@ -450,29 +441,30 @@ pid_t pid_vnr(struct pid *pid)
 }
 EXPORT_SYMBOL_GPL(pid_vnr);
 
-pid_t task_pid_nr_ns(struct task_struct *tsk, struct pid_namespace *ns)
+pid_t __task_pid_nr_ns(struct task_struct *task, enum pid_type type,
+			struct pid_namespace *ns)
 {
-	return pid_nr_ns(task_pid(tsk), ns);
+	pid_t nr = 0;
+
+	rcu_read_lock();
+	if (!ns)
+		ns = current->nsproxy->pid_ns;
+	if (likely(pid_alive(task))) {
+		if (type != PIDTYPE_PID)
+			task = task->group_leader;
+		nr = pid_nr_ns(task->pids[type].pid, ns);
+	}
+	rcu_read_unlock();
+
+	return nr;
 }
-EXPORT_SYMBOL(task_pid_nr_ns);
+EXPORT_SYMBOL(__task_pid_nr_ns);
 
 pid_t task_tgid_nr_ns(struct task_struct *tsk, struct pid_namespace *ns)
 {
 	return pid_nr_ns(task_tgid(tsk), ns);
 }
 EXPORT_SYMBOL(task_tgid_nr_ns);
-
-pid_t task_pgrp_nr_ns(struct task_struct *tsk, struct pid_namespace *ns)
-{
-	return pid_nr_ns(task_pgrp(tsk), ns);
-}
-EXPORT_SYMBOL(task_pgrp_nr_ns);
-
-pid_t task_session_nr_ns(struct task_struct *tsk, struct pid_namespace *ns)
-{
-	return pid_nr_ns(task_session(tsk), ns);
-}
-EXPORT_SYMBOL(task_session_nr_ns);
 
 struct pid_namespace *task_active_pid_ns(struct task_struct *tsk)
 {

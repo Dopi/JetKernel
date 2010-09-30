@@ -217,14 +217,11 @@ struct crypto_alg *crypto_larval_lookup(const char *name, u32 type, u32 mask)
 
 	alg = crypto_alg_lookup(name, type, mask);
 	if (!alg) {
-		char tmp[CRYPTO_MAX_ALG_NAME];
-
-		request_module(name);
+		request_module("%s", name);
 
 		if (!((type ^ CRYPTO_ALG_NEED_FALLBACK) & mask &
-		      CRYPTO_ALG_NEED_FALLBACK) &&
-		    snprintf(tmp, sizeof(tmp), "%s-all", name) < sizeof(tmp))
-			request_module(tmp);
+		      CRYPTO_ALG_NEED_FALLBACK))
+			request_module("%s-all", name);
 
 		alg = crypto_alg_lookup(name, type, mask);
 	}
@@ -256,7 +253,7 @@ struct crypto_alg *crypto_alg_mod_lookup(const char *name, u32 type, u32 mask)
 	struct crypto_alg *larval;
 	int ok;
 
-	if (!(mask & CRYPTO_ALG_TESTED)) {
+	if (!((type | mask) & CRYPTO_ALG_TESTED)) {
 		type |= CRYPTO_ALG_TESTED;
 		mask |= CRYPTO_ALG_TESTED;
 	}
@@ -465,8 +462,8 @@ err:
 }
 EXPORT_SYMBOL_GPL(crypto_alloc_base);
 
-struct crypto_tfm *crypto_create_tfm(struct crypto_alg *alg,
-				     const struct crypto_type *frontend)
+void *crypto_create_tfm(struct crypto_alg *alg,
+			const struct crypto_type *frontend)
 {
 	char *mem;
 	struct crypto_tfm *tfm = NULL;
@@ -500,9 +497,9 @@ out_free_tfm:
 		crypto_shoot_alg(alg);
 	kfree(mem);
 out_err:
-	tfm = ERR_PTR(err);
+	mem = ERR_PTR(err);
 out:
-	return tfm;
+	return mem;
 }
 EXPORT_SYMBOL_GPL(crypto_create_tfm);
 
@@ -526,12 +523,11 @@ EXPORT_SYMBOL_GPL(crypto_create_tfm);
  *
  *	In case of error the return value is an error pointer.
  */
-struct crypto_tfm *crypto_alloc_tfm(const char *alg_name,
-				    const struct crypto_type *frontend,
-				    u32 type, u32 mask)
+void *crypto_alloc_tfm(const char *alg_name,
+		       const struct crypto_type *frontend, u32 type, u32 mask)
 {
 	struct crypto_alg *(*lookup)(const char *name, u32 type, u32 mask);
-	struct crypto_tfm *tfm;
+	void *tfm;
 	int err;
 
 	type &= frontend->maskclear;
@@ -581,20 +577,17 @@ EXPORT_SYMBOL_GPL(crypto_alloc_tfm);
 void crypto_destroy_tfm(void *mem, struct crypto_tfm *tfm)
 {
 	struct crypto_alg *alg;
-	int size;
 
 	if (unlikely(!mem))
 		return;
 
 	alg = tfm->__crt_alg;
-	size = ksize(mem);
 
 	if (!tfm->exit && alg->cra_exit)
 		alg->cra_exit(tfm);
 	crypto_exit_ops(tfm);
 	crypto_mod_put(alg);
-	memset(mem, 0, size);
-	kfree(mem);
+	kzfree(mem);
 }
 EXPORT_SYMBOL_GPL(crypto_destroy_tfm);
 

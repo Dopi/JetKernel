@@ -36,6 +36,11 @@ int au0828_debug;
 module_param_named(debug, au0828_debug, int, 0644);
 MODULE_PARM_DESC(debug, "enable debug messages");
 
+static unsigned int disable_usb_speed_check;
+module_param(disable_usb_speed_check, int, 0444);
+MODULE_PARM_DESC(disable_usb_speed_check,
+		 "override min bandwidth requirement of 480M bps");
+
 #define _AU0828_BULKPIPE 0x03
 #define _BULKPIPESIZE 0xffff
 
@@ -51,13 +56,13 @@ static int recv_control_msg(struct au0828_dev *dev, u16 request, u32 value,
 u32 au0828_readreg(struct au0828_dev *dev, u16 reg)
 {
 	recv_control_msg(dev, CMD_REQUEST_IN, 0, reg, dev->ctrlmsg, 1);
-	dprintk(8, "%s(0x%x) = 0x%x\n", __func__, reg, dev->ctrlmsg[0]);
+	dprintk(8, "%s(0x%04x) = 0x%02x\n", __func__, reg, dev->ctrlmsg[0]);
 	return dev->ctrlmsg[0];
 }
 
 u32 au0828_writereg(struct au0828_dev *dev, u16 reg, u32 val)
 {
-	dprintk(8, "%s(0x%x, 0x%x)\n", __func__, reg, val);
+	dprintk(8, "%s(0x%04x, 0x%02x)\n", __func__, reg, val);
 	return send_control_msg(dev, CMD_REQUEST_OUT, val, reg,
 				dev->ctrlmsg, 0);
 }
@@ -146,8 +151,13 @@ static void au0828_usb_disconnect(struct usb_interface *interface)
 	/* Digital TV */
 	au0828_dvb_unregister(dev);
 
+	if (AUVI_INPUT(0).type != AU0828_VMUX_UNDEFINED)
+		au0828_analog_unregister(dev);
+
 	/* I2C */
 	au0828_i2c_unregister(dev);
+
+	v4l2_device_unregister(&dev->v4l2_dev);
 
 	usb_set_intfdata(interface, NULL);
 
@@ -162,7 +172,7 @@ static void au0828_usb_disconnect(struct usb_interface *interface)
 static int au0828_usb_probe(struct usb_interface *interface,
 	const struct usb_device_id *id)
 {
-	int ifnum;
+	int ifnum, retval;
 	struct au0828_dev *dev;
 	struct usb_device *usbdev = interface_to_usbdev(interface);
 
@@ -176,6 +186,18 @@ static int au0828_usb_probe(struct usb_interface *interface,
 		le16_to_cpu(usbdev->descriptor.idProduct),
 		ifnum);
 
+	/*
+	 * Make sure we have 480 Mbps of bandwidth, otherwise things like
+	 * video stream wouldn't likely work, since 12 Mbps is generally
+	 * not enough even for most Digital TV streams.
+	 */
+	if (usbdev->speed != USB_SPEED_HIGH && disable_usb_speed_check == 0) {
+		printk(KERN_ERR "au0828: Device initialization failed.\n");
+		printk(KERN_ERR "au0828: Device must be connected to a "
+		       "high-speed USB 2.0 port.\n");
+		return -ENODEV;
+	}
+
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (dev == NULL) {
 		printk(KERN_ERR "%s() Unable to allocate memory\n", __func__);
@@ -185,9 +207,16 @@ static int au0828_usb_probe(struct usb_interface *interface,
 	mutex_init(&dev->mutex);
 	mutex_init(&dev->dvb.lock);
 	dev->usbdev = usbdev;
-	dev->board = id->driver_info;
+	dev->boardnr = id->driver_info;
 
-	usb_set_intfdata(interface, dev);
+	/* Create the v4l2_device */
+	retval = v4l2_device_register(&interface->dev, &dev->v4l2_dev);
+	if (retval) {
+		printk(KERN_ERR "%s() v4l2_device_register failed\n",
+		       __func__);
+		kfree(dev);
+		return -EIO;
+	}
 
 	/* Power Up the bridge */
 	au0828_write(dev, REG_600, 1 << 4);
@@ -201,12 +230,19 @@ static int au0828_usb_probe(struct usb_interface *interface,
 	/* Setup */
 	au0828_card_setup(dev);
 
+	/* Analog TV */
+	if (AUVI_INPUT(0).type != AU0828_VMUX_UNDEFINED)
+		au0828_analog_register(dev, interface);
+
 	/* Digital TV */
 	au0828_dvb_register(dev);
 
+	/* Store the pointer to the au0828_dev so it can be accessed in
+	   au0828_usb_disconnect */
+	usb_set_intfdata(interface, dev);
+
 	printk(KERN_INFO "Registered device AU0828 [%s]\n",
-		au0828_boards[dev->board].name == NULL ? "Unset" :
-		au0828_boards[dev->board].name);
+		dev->board.name == NULL ? "Unset" : dev->board.name);
 
 	return 0;
 }

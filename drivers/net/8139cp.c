@@ -471,8 +471,7 @@ static void cp_rx_err_acct (struct cp_private *cp, unsigned rx_tail,
 			    u32 status, u32 len)
 {
 	if (netif_msg_rx_err (cp))
-		printk (KERN_DEBUG
-			"%s: rx err, slot %d status 0x%x len %d\n",
+		pr_debug("%s: rx err, slot %d status 0x%x len %d\n",
 			cp->dev->name, rx_tail, status, len);
 	cp->dev->stats.rx_errors++;
 	if (status & RxErrFrame)
@@ -516,7 +515,7 @@ rx_status_loop:
 		dma_addr_t mapping;
 		struct sk_buff *skb, *new_skb;
 		struct cp_desc *desc;
-		unsigned buflen;
+		const unsigned buflen = cp->rx_buf_sz;
 
 		skb = cp->rx_skb[rx_tail];
 		BUG_ON(!skb);
@@ -547,11 +546,10 @@ rx_status_loop:
 		}
 
 		if (netif_msg_rx_status(cp))
-			printk(KERN_DEBUG "%s: rx slot %d status 0x%x len %d\n",
+			pr_debug("%s: rx slot %d status 0x%x len %d\n",
 			       dev->name, rx_tail, status, len);
 
-		buflen = cp->rx_buf_sz + NET_IP_ALIGN;
-		new_skb = netdev_alloc_skb(dev, buflen);
+		new_skb = netdev_alloc_skb(dev, buflen + NET_IP_ALIGN);
 		if (!new_skb) {
 			dev->stats.rx_dropped++;
 			goto rx_next;
@@ -604,7 +602,7 @@ rx_next:
 
 		spin_lock_irqsave(&cp->lock, flags);
 		cpw16_f(IntrMask, cp_intr_mask);
-		__netif_rx_complete(napi);
+		__napi_complete(napi);
 		spin_unlock_irqrestore(&cp->lock, flags);
 	}
 
@@ -626,7 +624,7 @@ static irqreturn_t cp_interrupt (int irq, void *dev_instance)
 		return IRQ_NONE;
 
 	if (netif_msg_intr(cp))
-		printk(KERN_DEBUG "%s: intr, status %04x cmd %02x cpcmd %04x\n",
+		pr_debug("%s: intr, status %04x cmd %02x cpcmd %04x\n",
 		        dev->name, status, cpr8(Cmd), cpr16(CpCmd));
 
 	cpw16(IntrStatus, status & ~cp_rx_intr_mask);
@@ -641,9 +639,9 @@ static irqreturn_t cp_interrupt (int irq, void *dev_instance)
 	}
 
 	if (status & (RxOK | RxErr | RxEmpty | RxFIFOOvr))
-		if (netif_rx_schedule_prep(&cp->napi)) {
+		if (napi_schedule_prep(&cp->napi)) {
 			cpw16_f(IntrMask, cp_norx_intr_mask);
-			__netif_rx_schedule(&cp->napi);
+			__napi_schedule(&cp->napi);
 		}
 
 	if (status & (TxOK | TxErr | TxEmpty | SWInt))
@@ -658,7 +656,7 @@ static irqreturn_t cp_interrupt (int irq, void *dev_instance)
 
 		pci_read_config_word(cp->pdev, PCI_STATUS, &pci_status);
 		pci_write_config_word(cp->pdev, PCI_STATUS, pci_status);
-		printk(KERN_ERR "%s: PCI bus error, status=%04x, PCI status=%04x\n",
+		pr_err("%s: PCI bus error, status=%04x, PCI status=%04x\n",
 		       dev->name, status, pci_status);
 
 		/* TODO: reset hardware */
@@ -705,7 +703,7 @@ static void cp_tx (struct cp_private *cp)
 		if (status & LastFrag) {
 			if (status & (TxError | TxFIFOUnder)) {
 				if (netif_msg_tx_err(cp))
-					printk(KERN_DEBUG "%s: tx err, status 0x%x\n",
+					pr_debug("%s: tx err, status 0x%x\n",
 					       cp->dev->name, status);
 				cp->dev->stats.tx_errors++;
 				if (status & TxOWC)
@@ -722,7 +720,7 @@ static void cp_tx (struct cp_private *cp)
 				cp->dev->stats.tx_packets++;
 				cp->dev->stats.tx_bytes += skb->len;
 				if (netif_msg_tx_done(cp))
-					printk(KERN_DEBUG "%s: tx done, slot %d\n", cp->dev->name, tx_tail);
+					pr_debug("%s: tx done, slot %d\n", cp->dev->name, tx_tail);
 			}
 			dev_kfree_skb_irq(skb);
 		}
@@ -755,9 +753,9 @@ static int cp_start_xmit (struct sk_buff *skb, struct net_device *dev)
 	if (TX_BUFFS_AVAIL(cp) <= (skb_shinfo(skb)->nr_frags + 1)) {
 		netif_stop_queue(dev);
 		spin_unlock_irqrestore(&cp->lock, intr_flags);
-		printk(KERN_ERR PFX "%s: BUG! Tx Ring full when queue awake!\n",
+		pr_err(PFX "%s: BUG! Tx Ring full when queue awake!\n",
 		       dev->name);
-		return 1;
+		return NETDEV_TX_BUSY;
 	}
 
 #if CP_VLAN_TAG_USED
@@ -882,7 +880,7 @@ static int cp_start_xmit (struct sk_buff *skb, struct net_device *dev)
 	}
 	cp->tx_head = entry;
 	if (netif_msg_tx_queued(cp))
-		printk(KERN_DEBUG "%s: tx queued, slot %d, skblen %d\n",
+		pr_debug("%s: tx queued, slot %d, skblen %d\n",
 		       dev->name, entry, skb->len);
 	if (TX_BUFFS_AVAIL(cp) <= (MAX_SKB_FRAGS + 1))
 		netif_stop_queue(dev);
@@ -996,7 +994,7 @@ static void cp_reset_hw (struct cp_private *cp)
 		schedule_timeout_uninterruptible(10);
 	}
 
-	printk(KERN_ERR "%s: hardware reset timeout\n", cp->dev->name);
+	pr_err("%s: hardware reset timeout\n", cp->dev->name);
 }
 
 static inline void cp_start_hw (struct cp_private *cp)
@@ -1166,7 +1164,7 @@ static int cp_open (struct net_device *dev)
 	int rc;
 
 	if (netif_msg_ifup(cp))
-		printk(KERN_DEBUG "%s: enabling interface\n", dev->name);
+		pr_debug("%s: enabling interface\n", dev->name);
 
 	rc = cp_alloc_rings(cp);
 	if (rc)
@@ -1201,7 +1199,7 @@ static int cp_close (struct net_device *dev)
 	napi_disable(&cp->napi);
 
 	if (netif_msg_ifdown(cp))
-		printk(KERN_DEBUG "%s: disabling interface\n", dev->name);
+		pr_debug("%s: disabling interface\n", dev->name);
 
 	spin_lock_irqsave(&cp->lock, flags);
 
@@ -1224,7 +1222,7 @@ static void cp_tx_timeout(struct net_device *dev)
 	unsigned long flags;
 	int rc;
 
-	printk(KERN_WARNING "%s: Transmit timeout, status %2x %4x %4x %4x\n",
+	pr_warning("%s: Transmit timeout, status %2x %4x %4x %4x\n",
 	       dev->name, cpr8(Cmd), cpr16(CpCmd),
 	       cpr16(IntrStatus), cpr16(IntrMask));
 
@@ -1530,7 +1528,7 @@ static void cp_get_ethtool_stats (struct net_device *dev,
 
 	/* begin NIC statistics dump */
 	cpw32(StatsAddr + 4, (u64)dma >> 32);
-	cpw32(StatsAddr, ((u64)dma & DMA_32BIT_MASK) | DumpStats);
+	cpw32(StatsAddr, ((u64)dma & DMA_BIT_MASK(32)) | DumpStats);
 	cpr32(StatsAddr);
 
 	for (i = 0; i < 1000; i++) {
@@ -1600,6 +1598,28 @@ static int cp_ioctl (struct net_device *dev, struct ifreq *rq, int cmd)
 	rc = generic_mii_ioctl(&cp->mii_if, if_mii(rq), cmd, NULL);
 	spin_unlock_irqrestore(&cp->lock, flags);
 	return rc;
+}
+
+static int cp_set_mac_address(struct net_device *dev, void *p)
+{
+	struct cp_private *cp = netdev_priv(dev);
+	struct sockaddr *addr = p;
+
+	if (!is_valid_ether_addr(addr->sa_data))
+		return -EADDRNOTAVAIL;
+
+	memcpy(dev->dev_addr, addr->sa_data, dev->addr_len);
+
+	spin_lock_irq(&cp->lock);
+
+	cpw8_f(Cfg9346, Cfg9346_Unlock);
+	cpw32_f(MAC0 + 0, le32_to_cpu (*(__le32 *) (dev->dev_addr + 0)));
+	cpw32_f(MAC0 + 4, le32_to_cpu (*(__le32 *) (dev->dev_addr + 4)));
+	cpw8_f(Cfg9346, Cfg9346_Lock);
+
+	spin_unlock_irq(&cp->lock);
+
+	return 0;
 }
 
 /* Serial EEPROM section. */
@@ -1821,7 +1841,7 @@ static const struct net_device_ops cp_netdev_ops = {
 	.ndo_open		= cp_open,
 	.ndo_stop		= cp_close,
 	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_set_mac_address 	= cp_set_mac_address,
 	.ndo_set_multicast_list	= cp_set_rx_mode,
 	.ndo_get_stats		= cp_get_stats,
 	.ndo_do_ioctl		= cp_ioctl,
@@ -1851,7 +1871,7 @@ static int cp_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 #ifndef MODULE
 	static int version_printed;
 	if (version_printed++ == 0)
-		printk("%s", version);
+		pr_info("%s", version);
 #endif
 
 	if (pdev->vendor == PCI_VENDOR_ID_REALTEK &&
@@ -1907,19 +1927,19 @@ static int cp_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	/* Configure DMA attributes. */
 	if ((sizeof(dma_addr_t) > 4) &&
-	    !pci_set_consistent_dma_mask(pdev, DMA_64BIT_MASK) &&
-	    !pci_set_dma_mask(pdev, DMA_64BIT_MASK)) {
+	    !pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(64)) &&
+	    !pci_set_dma_mask(pdev, DMA_BIT_MASK(64))) {
 		pci_using_dac = 1;
 	} else {
 		pci_using_dac = 0;
 
-		rc = pci_set_dma_mask(pdev, DMA_32BIT_MASK);
+		rc = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
 		if (rc) {
 			dev_err(&pdev->dev,
 				   "No usable DMA configuration, aborting.\n");
 			goto err_out_res;
 		}
-		rc = pci_set_consistent_dma_mask(pdev, DMA_32BIT_MASK);
+		rc = pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(32));
 		if (rc) {
 			dev_err(&pdev->dev,
 				   "No usable consistent DMA configuration, "
@@ -1973,8 +1993,7 @@ static int cp_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (rc)
 		goto err_out_iomap;
 
-	printk (KERN_INFO "%s: RTL-8139C+ at 0x%lx, "
-		"%pM, IRQ %d\n",
+	pr_info("%s: RTL-8139C+ at 0x%lx, %pM, IRQ %d\n",
 		dev->name,
 		dev->base_addr,
 		dev->dev_addr,
@@ -2091,7 +2110,7 @@ static struct pci_driver cp_driver = {
 static int __init cp_init (void)
 {
 #ifdef MODULE
-	printk("%s", version);
+	pr_info("%s", version);
 #endif
 	return pci_register_driver(&cp_driver);
 }

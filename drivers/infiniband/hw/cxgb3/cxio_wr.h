@@ -176,7 +176,7 @@ struct t3_send_wr {
 	struct t3_sge sgl[T3_MAX_SGE];	/* 4+ */
 };
 
-#define T3_MAX_FASTREG_DEPTH 24
+#define T3_MAX_FASTREG_DEPTH 10
 #define T3_MAX_FASTREG_FRAG 10
 
 struct t3_fastreg_wr {
@@ -603,6 +603,12 @@ struct t3_cqe {
 #define RQ_TYPE(x)	  (!CQE_TYPE((x)))
 #define CQE_STATUS(x)     (G_CQE_STATUS(be32_to_cpu((x).header)))
 #define CQE_OPCODE(x)     (G_CQE_OPCODE(be32_to_cpu((x).header)))
+
+#define CQE_SEND_OPCODE(x)( \
+	(G_CQE_OPCODE(be32_to_cpu((x).header)) == T3_SEND) || \
+	(G_CQE_OPCODE(be32_to_cpu((x).header)) == T3_SEND_WITH_SE) || \
+	(G_CQE_OPCODE(be32_to_cpu((x).header)) == T3_SEND_WITH_INV) || \
+	(G_CQE_OPCODE(be32_to_cpu((x).header)) == T3_SEND_WITH_SE_INV))
 
 #define CQE_LEN(x)        (be32_to_cpu((x).len))
 

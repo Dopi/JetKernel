@@ -61,6 +61,7 @@
 #include <asm/xmon.h>
 #include <asm/udbg.h>
 #include <asm/kexec.h>
+#include <asm/swiotlb.h>
 
 #include "setup.h"
 
@@ -202,8 +203,6 @@ void __init early_setup(unsigned long dt_ptr)
 
 	/* Fix up paca fields required for the boot cpu */
 	get_paca()->cpu_start = 1;
-	get_paca()->stab_real = __pa((u64)&initial_stab);
-	get_paca()->stab_addr = (u64)&initial_stab;
 
 	/* Probe the machine type */
 	probe_machine();
@@ -212,20 +211,8 @@ void __init early_setup(unsigned long dt_ptr)
 
 	DBG("Found, Initializing memory management...\n");
 
-	/*
-	 * Initialize the MMU Hash table and create the linear mapping
-	 * of memory. Has to be done before stab/slb initialization as
-	 * this is currently where the page size encoding is obtained
-	 */
-	htab_initialize();
-
-	/*
-	 * Initialize stab / SLB management except on iSeries
-	 */
-	if (cpu_has_feature(CPU_FTR_SLB))
-		slb_initialize();
-	else if (!firmware_has_feature(FW_FEATURE_ISERIES))
-		stab_initialize(get_paca()->stab_real);
+	/* Initialize the hash table or TLB handling */
+	early_init_mmu();
 
 	DBG(" <- early_setup()\n");
 }
@@ -233,22 +220,11 @@ void __init early_setup(unsigned long dt_ptr)
 #ifdef CONFIG_SMP
 void early_setup_secondary(void)
 {
-	struct paca_struct *lpaca = get_paca();
-
 	/* Mark interrupts enabled in PACA */
-	lpaca->soft_enabled = 0;
+	get_paca()->soft_enabled = 0;
 
-	/* Initialize hash table for that CPU */
-	htab_initialize_secondary();
-
-	/* Initialize STAB/SLB. We use a virtual address as it works
-	 * in real mode on pSeries and we want a virutal address on
-	 * iSeries anyway
-	 */
-	if (cpu_has_feature(CPU_FTR_SLB))
-		slb_initialize();
-	else
-		stab_initialize(lpaca->stab_addr);
+	/* Initialize the hash table or TLB handling */
+	early_init_mmu_secondary();
 }
 
 #endif /* CONFIG_SMP */
@@ -442,12 +418,14 @@ void __init setup_system(void)
 	if (ppc64_caches.iline_size != 0x80)
 		printk("ppc64_caches.icache_line_size = 0x%x\n",
 		       ppc64_caches.iline_size);
+#ifdef CONFIG_PPC_STD_MMU_64
 	if (htab_address)
 		printk("htab_address                  = 0x%p\n", htab_address);
 	printk("htab_hash_mask                = 0x%lx\n", htab_hash_mask);
+#endif /* CONFIG_PPC_STD_MMU_64 */
 	if (PHYSICAL_START > 0)
-		printk("physical_start                = 0x%lx\n",
-		       PHYSICAL_START);
+		printk("physical_start                = 0x%llx\n",
+		       (unsigned long long)PHYSICAL_START);
 	printk("-----------------------------------------------------\n");
 
 	DBG(" <- setup_system()\n");
@@ -536,8 +514,9 @@ void __init setup_arch(char **cmdline_p)
 	irqstack_early_init();
 	emergency_stack_init();
 
+#ifdef CONFIG_PPC_STD_MMU_64
 	stabs_alloc();
-
+#endif
 	/* set up the bootmem stuff with available memory */
 	do_init_bootmem();
 	sparse_init();
@@ -548,6 +527,11 @@ void __init setup_arch(char **cmdline_p)
 
 	if (ppc_md.setup_arch)
 		ppc_md.setup_arch();
+
+#ifdef CONFIG_SWIOTLB
+	if (ppc_swiotlb_enable)
+		swiotlb_init();
+#endif
 
 	paging_init();
 	ppc64_boot_msg(0x15, "Setup Done");
@@ -576,13 +560,6 @@ void ppc64_boot_msg(unsigned int src, const char *msg)
 {
 	ppc64_do_msg(PPC64_LINUX_FUNCTION|PPC64_IPL_MESSAGE|src, msg);
 	printk("[boot]%04x %s\n", src, msg);
-}
-
-/* Print a termination message (print only -- does not stop the kernel) */
-void ppc64_terminate_msg(unsigned int src, const char *msg)
-{
-	ppc64_do_msg(PPC64_LINUX_FUNCTION|PPC64_TERM_MESSAGE|src, msg);
-	printk("[terminate]%04x %s\n", src, msg);
 }
 
 void cpu_die(void)

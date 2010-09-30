@@ -58,7 +58,7 @@ struct rtas_t {
 	unsigned long entry;		/* physical address pointer */
 	unsigned long base;		/* physical address pointer */
 	unsigned long size;
-	spinlock_t lock;
+	raw_spinlock_t lock;
 	struct rtas_args args;
 	struct device_node *dev;	/* virtual address pointer */
 };
@@ -68,7 +68,8 @@ struct rtas_t {
 #define RTAS_EPOW_WARNING		0x40000000 /* set bit 1 */
 #define RTAS_POWERMGM_EVENTS		0x20000000 /* set bit 2 */
 #define RTAS_HOTPLUG_EVENTS		0x10000000 /* set bit 3 */
-#define RTAS_EVENT_SCAN_ALL_EVENTS	0xf0000000
+#define RTAS_IO_EVENTS			0x08000000 /* set bit 4 */
+#define RTAS_EVENT_SCAN_ALL_EVENTS	0xffffffff
 
 /* RTAS event severity */
 #define RTAS_SEVERITY_FATAL		0x5
@@ -243,6 +244,9 @@ static inline u32 rtas_config_addr(int busno, int devfn, int reg)
 	return ((reg & 0xf00) << 20) | ((busno & 0xff) << 16) |
 			(devfn << 8) | (reg & 0xff);
 }
+
+extern void __cpuinit rtas_give_timebase(void);
+extern void __cpuinit rtas_take_timebase(void);
 
 #endif /* __KERNEL__ */
 #endif /* _POWERPC_RTAS_H */

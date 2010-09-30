@@ -110,7 +110,7 @@ static const struct ide_port_info cyrix_chipset __devinitdata = {
 static int __devinit cs5520_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {
 	const struct ide_port_info *d = &cyrix_chipset;
-	hw_regs_t hw[4], *hws[] = { NULL, NULL, NULL, NULL };
+	struct ide_hw hw[2], *hws[] = { NULL, NULL };
 
 	ide_setup_pci_noise(dev, d);
 
@@ -122,7 +122,7 @@ static int __devinit cs5520_init_one(struct pci_dev *dev, const struct pci_devic
 		return -ENODEV;
 	}
 	pci_set_master(dev);
-	if (pci_set_dma_mask(dev, DMA_32BIT_MASK)) {
+	if (pci_set_dma_mask(dev, DMA_BIT_MASK(32))) {
 		printk(KERN_WARNING "%s: No suitable DMA available.\n",
 			d->name);
 		return -ENODEV;
@@ -133,9 +133,11 @@ static int __devinit cs5520_init_one(struct pci_dev *dev, const struct pci_devic
 	 *	do all the device setup for us
 	 */
 
-	ide_pci_setup_ports(dev, d, 14, &hw[0], &hws[0]);
+	ide_pci_setup_ports(dev, d, &hw[0], &hws[0]);
+	hw[0].irq = 14;
+	hw[1].irq = 15;
 
-	return ide_host_add(d, hws, NULL);
+	return ide_host_add(d, hws, 2, NULL);
 }
 
 static const struct pci_device_id cs5520_pci_tbl[] = {

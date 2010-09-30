@@ -1,7 +1,7 @@
 /*
  * 	cn_test.c
  * 
- * 2004-2005 Copyright (c) Evgeniy Polyakov <johnpol@2ka.mipt.ru>
+ * 2004+ Copyright (c) Evgeniy Polyakov <zbr@ioremap.net>
  * All rights reserved.
  * 
  * This program is free software; you can redistribute it and/or modify
@@ -32,15 +32,19 @@ static char cn_test_name[] = "cn_test";
 static struct sock *nls;
 static struct timer_list cn_test_timer;
 
-void cn_test_callback(void *data)
+static void cn_test_callback(struct cn_msg *msg, struct netlink_skb_parms *nsp)
 {
-	struct cn_msg *msg = (struct cn_msg *)data;
-
 	printk("%s: %lu: idx=%x, val=%x, seq=%u, ack=%u, len=%d: %s.\n",
 	       __func__, jiffies, msg->id.idx, msg->id.val,
 	       msg->seq, msg->ack, msg->len, (char *)msg->data);
 }
 
+/*
+ * Do not remove this function even if no one is using it as
+ * this is an example of how to get notifications about new
+ * connector user registration
+ */
+#if 0
 static int cn_test_want_notify(void)
 {
 	struct cn_ctl_msg *ctl;
@@ -117,6 +121,7 @@ nlmsg_failure:
 	kfree_skb(skb);
 	return -EINVAL;
 }
+#endif
 
 static u32 cn_test_timer_counter;
 static void cn_test_timer_func(unsigned long __data)
@@ -187,5 +192,5 @@ module_init(cn_test_init);
 module_exit(cn_test_fini);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Evgeniy Polyakov <johnpol@2ka.mipt.ru>");
+MODULE_AUTHOR("Evgeniy Polyakov <zbr@ioremap.net>");
 MODULE_DESCRIPTION("Connector's test module");

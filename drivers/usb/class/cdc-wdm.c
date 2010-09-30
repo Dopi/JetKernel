@@ -3,7 +3,7 @@
  *
  * This driver supports USB CDC WCM Device Management.
  *
- * Copyright (c) 2007-2008 Oliver Neukum
+ * Copyright (c) 2007-2009 Oliver Neukum
  *
  * Some code taken from cdc-acm.c
  *
@@ -15,7 +15,6 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 #include <linux/module.h>
-#include <linux/smp_lock.h>
 #include <linux/mutex.h>
 #include <linux/uaccess.h>
 #include <linux/bitops.h>
@@ -314,8 +313,13 @@ static ssize_t wdm_write
 	r = usb_autopm_get_interface(desc->intf);
 	if (r < 0)
 		goto outnp;
-	r = wait_event_interruptible(desc->wait, !test_bit(WDM_IN_USE,
-							   &desc->flags));
+
+	if (!file->f_flags && O_NONBLOCK)
+		r = wait_event_interruptible(desc->wait, !test_bit(WDM_IN_USE,
+								&desc->flags));
+	else
+		if (test_bit(WDM_IN_USE, &desc->flags))
+			r = -EAGAIN;
 	if (r < 0)
 		goto out;
 
@@ -378,7 +382,7 @@ outnl:
 static ssize_t wdm_read
 (struct file *file, char __user *buffer, size_t count, loff_t *ppos)
 {
-	int rv, cntr;
+	int rv, cntr = 0;
 	int i = 0;
 	struct wdm_device *desc = file->private_data;
 
@@ -390,10 +394,23 @@ static ssize_t wdm_read
 	if (desc->length == 0) {
 		desc->read = 0;
 retry:
+		if (test_bit(WDM_DISCONNECTING, &desc->flags)) {
+			rv = -ENODEV;
+			goto err;
+		}
 		i++;
-		rv = wait_event_interruptible(desc->wait,
-					      test_bit(WDM_READ, &desc->flags));
+		if (file->f_flags & O_NONBLOCK) {
+			if (!test_bit(WDM_READ, &desc->flags)) {
+				rv = cntr ? cntr : -EAGAIN;
+				goto err;
+			}
+			rv = 0;
+		} else {
+			rv = wait_event_interruptible(desc->wait,
+				test_bit(WDM_READ, &desc->flags));
+		}
 
+		/* may have happened while we slept */
 		if (test_bit(WDM_DISCONNECTING, &desc->flags)) {
 			rv = -ENODEV;
 			goto err;
@@ -449,7 +466,7 @@ retry:
 
 err:
 	mutex_unlock(&desc->rlock);
-	if (rv < 0)
+	if (rv < 0 && rv != -EAGAIN)
 		dev_err(&desc->intf->dev, "wdm_read: exit error\n");
 	return rv;
 }
@@ -610,7 +627,7 @@ static int wdm_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	if (!buffer)
 		goto out;
 
-	while (buflen > 0) {
+	while (buflen > 2) {
 		if (buffer [1] != USB_DT_CS_INTERFACE) {
 			dev_err(&intf->dev, "skipping garbage\n");
 			goto next_desc;
@@ -646,16 +663,18 @@ next_desc:
 	spin_lock_init(&desc->iuspin);
 	init_waitqueue_head(&desc->wait);
 	desc->wMaxCommand = maxcom;
+	/* this will be expanded and needed in hardware endianness */
 	desc->inum = cpu_to_le16((u16)intf->cur_altsetting->desc.bInterfaceNumber);
 	desc->intf = intf;
 	INIT_WORK(&desc->rxwork, wdm_rxwork);
 
-	iface = &intf->altsetting[0];
-	ep = &iface->endpoint[0].desc;
-	if (!ep || !usb_endpoint_is_int_in(ep)) {
-		rv = -EINVAL;
+	rv = -EINVAL;
+	iface = intf->cur_altsetting;
+	if (iface->desc.bNumEndpoints != 1)
 		goto err;
-	}
+	ep = &iface->endpoint[0].desc;
+	if (!ep || !usb_endpoint_is_int_in(ep))
+		goto err;
 
 	desc->wMaxPacketSize = le16_to_cpu(ep->wMaxPacketSize);
 	desc->bMaxPacketSize0 = udev->descriptor.bMaxPacketSize0;
@@ -711,12 +730,19 @@ next_desc:
 
 	usb_set_intfdata(intf, desc);
 	rv = usb_register_dev(intf, &wdm_class);
-	dev_info(&intf->dev, "cdc-wdm%d: USB WDM device\n",
-		 intf->minor - WDM_MINOR_BASE);
 	if (rv < 0)
-		goto err;
+		goto err3;
+	else
+		dev_info(&intf->dev, "cdc-wdm%d: USB WDM device\n",
+			intf->minor - WDM_MINOR_BASE);
 out:
 	return rv;
+err3:
+	usb_set_intfdata(intf, NULL);
+	usb_buffer_free(interface_to_usbdev(desc->intf),
+			desc->bMaxPacketSize0,
+			desc->inbuf,
+			desc->response->transfer_dma);
 err2:
 	usb_buffer_free(interface_to_usbdev(desc->intf),
 			desc->wMaxPacketSize,

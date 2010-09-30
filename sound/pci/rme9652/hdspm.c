@@ -29,6 +29,7 @@
 #include <linux/moduleparam.h>
 #include <linux/slab.h>
 #include <linux/pci.h>
+#include <linux/math64.h>
 #include <asm/io.h>
 
 #include <sound/core.h>
@@ -831,7 +832,6 @@ static int hdspm_set_interrupt_interval(struct hdspm * s, unsigned int frames)
 static void hdspm_set_dds_value(struct hdspm *hdspm, int rate)
 {
 	u64 n;
-	u32 r;
 	
 	if (rate >= 112000)
 		rate /= 4;
@@ -844,7 +844,7 @@ static void hdspm_set_dds_value(struct hdspm *hdspm, int rate)
         */	   
 	/* n = 104857600000000ULL; */ /*  =  2^20 * 10^8 */
 	n = 110100480000000ULL;    /* Value checked for AES32 and MADI */
-	div64_32(&n, rate, &r);
+	n = div_u64(n, rate);
 	/* n should be less than 2^32 for being written to FREQ register */
 	snd_BUG_ON(n >> 32);
 	hdspm_write(hdspm, HDSPM_freqReg, (u32)n);
@@ -4100,13 +4100,6 @@ static int snd_hdspm_capture_release(struct snd_pcm_substream *substream)
 	return 0;
 }
 
-static int snd_hdspm_hwdep_dummy_op(struct snd_hwdep * hw, struct file *file)
-{
-	/* we have nothing to initialize but the call is required */
-	return 0;
-}
-
-
 static int snd_hdspm_hwdep_ioctl(struct snd_hwdep * hw, struct file *file,
 				 unsigned int cmd, unsigned long arg)
 {
@@ -4213,9 +4206,7 @@ static int __devinit snd_hdspm_create_hwdep(struct snd_card *card,
 	hw->private_data = hdspm;
 	strcpy(hw->name, "HDSPM hwdep interface");
 
-	hw->ops.open = snd_hdspm_hwdep_dummy_op;
 	hw->ops.ioctl = snd_hdspm_hwdep_ioctl;
-	hw->ops.release = snd_hdspm_hwdep_dummy_op;
 
 	return 0;
 }
@@ -4503,10 +4494,10 @@ static int __devinit snd_hdspm_probe(struct pci_dev *pci,
 		return -ENOENT;
 	}
 
-	card = snd_card_new(index[dev], id[dev],
-			    THIS_MODULE, sizeof(struct hdspm));
-	if (!card)
-		return -ENOMEM;
+	err = snd_card_create(index[dev], id[dev],
+			      THIS_MODULE, sizeof(struct hdspm), &card);
+	if (err < 0)
+		return err;
 
 	hdspm = card->private_data;
 	card->private_free = snd_hdspm_card_free;

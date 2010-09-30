@@ -33,9 +33,10 @@ BUILD_TIMER_FUNCTION(MlmePeriodicExec);
 BUILD_TIMER_FUNCTION(AsicRxAntEvalTimeout);
 BUILD_TIMER_FUNCTION(APSDPeriodicExec);
 BUILD_TIMER_FUNCTION(AsicRfTuningExec);
+#ifdef RT2870
+BUILD_TIMER_FUNCTION(BeaconUpdateExec);
+#endif // RT2870 //
 
-
-#ifdef CONFIG_STA_SUPPORT
 BUILD_TIMER_FUNCTION(BeaconTimeout);
 BUILD_TIMER_FUNCTION(ScanTimeout);
 BUILD_TIMER_FUNCTION(AuthTimeout);
@@ -43,19 +44,12 @@ BUILD_TIMER_FUNCTION(AssocTimeout);
 BUILD_TIMER_FUNCTION(ReassocTimeout);
 BUILD_TIMER_FUNCTION(DisassocTimeout);
 BUILD_TIMER_FUNCTION(LinkDownExec);
-#ifdef LEAP_SUPPORT
-BUILD_TIMER_FUNCTION(LeapAuthTimeout);
-#endif
 BUILD_TIMER_FUNCTION(StaQuickResponeForRateUpExec);
 BUILD_TIMER_FUNCTION(WpaDisassocApAndBlockAssoc);
 #ifdef RT2860
 BUILD_TIMER_FUNCTION(PsPollWakeExec);
 BUILD_TIMER_FUNCTION(RadioOnExec);
-#endif // RT2860 //
-#ifdef QOS_DLS_SUPPORT
-BUILD_TIMER_FUNCTION(DlsTimeoutAction);
-#endif // QOS_DLS_SUPPORT //
-#endif // CONFIG_STA_SUPPORT //
+#endif
 
 // for wireless system event message
 char const *pWirelessSysEventText[IW_SYS_EVENT_TYPE_NUM] = {
@@ -292,11 +286,9 @@ VOID	RTMPFreeAdapter(
 
 
 	NdisFreeSpinLock(&pAd->MgmtRingLock);
-
 #ifdef RT2860
 	NdisFreeSpinLock(&pAd->RxRingLock);
-#endif // RT2860 //
-
+#endif
 	for (index =0 ; index < NUM_OF_TX_RING; index++)
 	{
     	NdisFreeSpinLock(&pAd->TxSwQueueLock[index]);
@@ -499,12 +491,7 @@ PNET_DEV get_netdev_from_bssid(
 {
     PNET_DEV dev_p = NULL;
 
-#ifdef CONFIG_STA_SUPPORT
-	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
-	{
-		dev_p = pAd->net_dev;
-	}
-#endif // CONFIG_STA_SUPPORT //
+	dev_p = pAd->net_dev;
 
 	ASSERT(dev_p);
 	return dev_p; /* return one of MBSS */
@@ -660,13 +647,8 @@ void wlan_802_11_to_802_3_packet(
 	//
 	//
 
-#ifdef CONFIG_STA_SUPPORT
-	IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
-		NdisMoveMemory(skb_push(pOSPkt, LENGTH_802_3), pHeader802_3, LENGTH_802_3);
-#endif // CONFIG_STA_SUPPORT //
-	}
-
-
+	NdisMoveMemory(skb_push(pOSPkt, LENGTH_802_3), pHeader802_3, LENGTH_802_3);
+}
 
 void announce_802_3_packet(
 	IN	PRTMP_ADAPTER	pAd,
@@ -828,8 +810,6 @@ VOID RTMPSendWirelessEvent(
 #endif  /* WIRELESS_EXT >= 15 */
 }
 
-
-#ifdef CONFIG_STA_SUPPORT
 void send_monitor_packets(
 	IN	PRTMP_ADAPTER	pAd,
 	IN	RX_BLK			*pRxBlk)
@@ -854,7 +834,12 @@ void send_monitor_packets(
 
     if (pRxBlk->DataSize + sizeof(wlan_ng_prism2_header) > RX_BUFFER_AGGRESIZE)
     {
+#ifndef RT30xx
+        DBGPRINT(RT_DEBUG_ERROR, ("%s : Size is too large! (%zu)\n", __func__, pRxBlk->DataSize + sizeof(wlan_ng_prism2_header)));
+#endif
+#ifdef RT30xx
         DBGPRINT(RT_DEBUG_ERROR, ("%s : Size is too large! (%d)\n", __func__, pRxBlk->DataSize + sizeof(wlan_ng_prism2_header)));
+#endif
 		goto err_free_sk_buff;
     }
 
@@ -961,13 +946,11 @@ void send_monitor_packets(
 	ph->noise.len = 4;
 	ph->noise.data = 0;
 
-#ifdef DOT11_N_SUPPORT
     if (pRxBlk->pRxWI->PHYMODE >= MODE_HTMIX)
     {
     	rate_index = 16 + ((UCHAR)pRxBlk->pRxWI->BW *16) + ((UCHAR)pRxBlk->pRxWI->ShortGI *32) + ((UCHAR)pRxBlk->pRxWI->MCS);
     }
     else
-#endif // DOT11_N_SUPPORT //
 	if (pRxBlk->pRxWI->PHYMODE == MODE_OFDM)
     	rate_index = (UCHAR)(pRxBlk->pRxWI->MCS) + 4;
     else
@@ -1000,40 +983,17 @@ err_free_sk_buff:
 	return;
 
 }
-#endif // CONFIG_STA_SUPPORT //
-
 
 void rtmp_os_thread_init(PUCHAR pThreadName, PVOID pNotify)
 {
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,5,0)
 	daemonize(pThreadName /*"%s",pAd->net_dev->name*/);
 
 	allow_signal(SIGTERM);
 	allow_signal(SIGKILL);
 	current->flags |= PF_NOFREEZE;
-#else
-	unsigned long flags;
 
-	daemonize();
-	reparent_to_init();
-	strcpy(current->comm, pThreadName);
-
-	siginitsetinv(&current->blocked, sigmask(SIGTERM) | sigmask(SIGKILL));
-
-	/* Allow interception of SIGKILL only
-	 * Don't allow other signals to interrupt the transmission */
-#if LINUX_VERSION_CODE > KERNEL_VERSION(2,4,22)
-	spin_lock_irqsave(&current->sigmask_lock, flags);
-	flush_signals(current);
-	recalc_sigpending(current);
-	spin_unlock_irqrestore(&current->sigmask_lock, flags);
-#endif
-#endif
-
-    /* signal that we've started the thread */
+	/* signal that we've started the thread */
 	complete(pNotify);
-
 }
 
 void RTMP_IndicateMediaState(

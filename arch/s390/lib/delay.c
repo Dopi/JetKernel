@@ -9,6 +9,7 @@
 #include <linux/sched.h>
 #include <linux/delay.h>
 #include <linux/timex.h>
+#include <linux/module.h>
 #include <linux/irqflags.h>
 #include <linux/interrupt.h>
 
@@ -35,9 +36,11 @@ static void __udelay_disabled(unsigned long usecs)
 	cr0 = (cr0_saved & 0xffff00e0) | 0x00000800;
 	__ctl_load(cr0 , 0, 0);
 	mask = psw_kernel_bits | PSW_MASK_WAIT | PSW_MASK_EXT;
+	lockdep_off();
 	trace_hardirqs_on();
 	__load_psw_mask(mask);
 	local_irq_disable();
+	lockdep_on();
 	__ctl_load(cr0_saved, 0, 0);
 	local_tick_enable(clock_saved);
 	set_clock_comparator(S390_lowcore.clock_comparator);
@@ -92,6 +95,7 @@ out:
 	local_irq_restore(flags);
 	preempt_enable();
 }
+EXPORT_SYMBOL(__udelay);
 
 /*
  * Simple udelay variant. To be used on startup and reboot

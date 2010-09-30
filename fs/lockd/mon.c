@@ -16,6 +16,8 @@
 #include <linux/sunrpc/svc.h>
 #include <linux/lockd/lockd.h>
 
+#include <asm/unaligned.h>
+
 #define NLMDBG_FACILITY		NLMDBG_MONITOR
 #define NSM_PROGRAM		100024
 #define NSM_VERSION		1
@@ -51,7 +53,7 @@ static				DEFINE_SPINLOCK(nsm_lock);
 /*
  * Local NSM state
  */
-int	__read_mostly		nsm_local_state;
+u32	__read_mostly		nsm_local_state;
 int	__read_mostly		nsm_use_hostnames;
 
 static inline struct sockaddr *nsm_addr(const struct nsm_handle *nsm)
@@ -110,6 +112,7 @@ static struct rpc_clnt *nsm_create(void)
 		.program		= &nsm_program,
 		.version		= NSM_VERSION,
 		.authflavor		= RPC_AUTH_NULL,
+		.flags			= RPC_CLNT_CREATE_NOPING,
 	};
 
 	return rpc_create(&args);
@@ -182,13 +185,19 @@ int nsm_monitor(const struct nlm_host *host)
 	nsm->sm_mon_name = nsm_use_hostnames ? nsm->sm_name : nsm->sm_addrbuf;
 
 	status = nsm_mon_unmon(nsm, NSMPROC_MON, &res);
-	if (res.status != 0)
+	if (unlikely(res.status != 0))
 		status = -EIO;
-	if (status < 0)
+	if (unlikely(status < 0)) {
 		printk(KERN_NOTICE "lockd: cannot monitor %s\n", nsm->sm_name);
-	else
-		nsm->sm_monitored = 1;
-	return status;
+		return status;
+	}
+
+	nsm->sm_monitored = 1;
+	if (unlikely(nsm_local_state != res.state)) {
+		nsm_local_state = res.state;
+		dprintk("lockd: NSM state changed to %d\n", nsm_local_state);
+	}
+	return 0;
 }
 
 /**
@@ -274,10 +283,12 @@ static void nsm_init_private(struct nsm_handle *nsm)
 {
 	u64 *p = (u64 *)&nsm->sm_priv.data;
 	struct timespec ts;
+	s64 ns;
 
 	ktime_get_ts(&ts);
-	*p++ = timespec_to_ns(&ts);
-	*p = (unsigned long)nsm;
+	ns = timespec_to_ns(&ts);
+	put_unaligned(ns, p);
+	put_unaligned((unsigned long)nsm, p + 1);
 }
 
 static struct nsm_handle *nsm_create_handle(const struct sockaddr *sap,

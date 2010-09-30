@@ -37,8 +37,8 @@
 #include <linux/pci.h>
 //#include <linux/usb.h>
 #include <linux/errno.h>
-#include <asm/uaccess.h>
-#include <linux/cdev.h>
+#include <linux/uaccess.h>
+#include <linux/miscdevice.h>
 #include <linux/rwsem.h>
 
 #include "medefines.h"
@@ -56,6 +56,7 @@
 
 #ifdef BOSCH
 static unsigned int me_bosch_fw = 0;
+EXPORT_SYMBOL(me_bosch_fw);
 
 # ifdef module_param
 module_param(me_bosch_fw, int, S_IRUGO);
@@ -67,19 +68,12 @@ MODULE_PARM_DESC(me_bosch_fw,
 		 "Flags which signals the ME-4600 driver to load the bosch firmware (default = 0).");
 #endif //BOSCH
 
-static unsigned int major = 0;
-#ifdef module_param
-module_param(major, int, S_IRUGO);
-#else
-MODULE_PARM(major, "i");
-#endif
-
 /* Global Driver Lock
 */
 
 static struct file *me_filep = NULL;
 static int me_count = 0;
-static spinlock_t me_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(me_lock);
 static DECLARE_RWSEM(me_rwsem);
 
 /* Board instances are kept in a global list */
@@ -90,7 +84,7 @@ LIST_HEAD(me_device_list);
 
 static int me_probe_pci(struct pci_dev *dev, const struct pci_device_id *id);
 static void me_remove_pci(struct pci_dev *dev);
-static int insert_to_device_list(me_device_t * n_device);
+static int insert_to_device_list(me_device_t *n_device);
 static int replace_with_dummy(int vendor_id, int device_id, int serial_no);
 static void clear_device_list(void);
 static int me_open(struct inode *inode_ptr, struct file *filep);
@@ -99,29 +93,131 @@ static int me_ioctl(struct inode *, struct file *, unsigned int, unsigned long);
 //static int me_probe_usb(struct usb_interface *interface, const struct usb_device_id *id);
 //static void me_disconnect_usb(struct usb_interface *interface);
 
-/* Character device structure
-*/
-
-static struct cdev *cdevp;
-
 /* File operations provided by the module
 */
 
-static struct file_operations me_file_operations = {
+static const struct file_operations me_file_operations = {
 	.owner = THIS_MODULE,
 	.ioctl = me_ioctl,
 	.open = me_open,
 	.release = me_release,
 };
 
-struct pci_driver me_pci_driver = {
+static const struct pci_device_id me_pci_table[] = {
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME1000) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME1000_A) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME1000_B) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME1400) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME140A) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME140B) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME14E0) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME14EA) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME14EB) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME140C) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME140D) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME1600_4U) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME1600_8U) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME1600_12U) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME1600_16U) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME1600_16U_8I) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME4610) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME4650) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME4660) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME4660I) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME4670) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME4670I) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME4670S) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME4670IS) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME4680) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME4680I) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME4680S) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME4680IS) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6004) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6008) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME600F) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6014) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6018) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME601F) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6034) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6038) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME603F) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6104) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6108) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME610F) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6114) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6118) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME611F) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6134) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6138) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME613F) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6044) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6048) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME604F) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6054) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6058) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME605F) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6074) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6078) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME607F) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6144) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6148) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME614F) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6154) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6158) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME615F) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6174) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6178) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME617F) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6259) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME6359) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME0630) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME8100_A) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME8100_B) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME8200_A) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME8200_B) },
+
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME0940) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME0950) },
+	{ PCI_VDEVICE(MEILHAUS, PCI_DEVICE_ID_MEILHAUS_ME0960) },
+
+	{ }
+};
+MODULE_DEVICE_TABLE(pci, me_pci_table);
+
+static struct pci_driver me_pci_driver = {
 	.name = MEMAIN_NAME,
 	.id_table = me_pci_table,
 	.probe = me_probe_pci,
-	.remove = me_remove_pci
+	.remove = __devexit_p(me_remove_pci),
 };
 
-/* //me_usb_driver
+/*
+static struct usb_device_id me_usb_table[] = {
+	{ USB_DEVICE(USB_VENDOR_ID_MEPHISTO_S1, USB_DEVICE_ID_MEPHISTO_S1) },
+	{ 0 }
+};
+MODULE_DEVICE_TABLE (usb, me_usb_table);
+
 static struct usb_driver me_usb_driver =
 {
 	.name = MEMAIN_NAME,
@@ -395,7 +491,8 @@ static me_device_t *get_dummy_instance(unsigned short vendor_id,
 	return instance;
 }
 
-static int me_probe_pci(struct pci_dev *dev, const struct pci_device_id *id)
+static int __devinit me_probe_pci(struct pci_dev *dev,
+		const struct pci_device_id *id)
 {
 	int err;
 	me_pci_constructor_t constructor = NULL;
@@ -423,7 +520,7 @@ static int me_probe_pci(struct pci_dev *dev, const struct pci_device_id *id)
 
 	if ((constructor =
 	     (me_pci_constructor_t) symbol_get(constructor_name)) == NULL) {
-		if (request_module(module_name)) {
+		if (request_module("%s", module_name)) {
 			PERROR("Error while request for module %s.\n",
 			       module_name);
 			return -ENODEV;
@@ -472,7 +569,7 @@ static int me_probe_pci(struct pci_dev *dev, const struct pci_device_id *id)
 	return ME_ERRNO_SUCCESS;
 }
 
-static void release_instance(me_device_t * device)
+static void release_instance(me_device_t *device)
 {
 	int vendor_id;
 	int device_id;
@@ -517,7 +614,7 @@ static void release_instance(me_device_t * device)
 	}
 }
 
-static int insert_to_device_list(me_device_t * n_device)
+static int insert_to_device_list(me_device_t *n_device)
 {
 	me_device_t *o_device = NULL;
 
@@ -593,7 +690,7 @@ static int insert_to_device_list(me_device_t * n_device)
 	return 0;
 }
 
-static void me_remove_pci(struct pci_dev *dev)
+static void __devexit me_remove_pci(struct pci_dev *dev)
 {
 	int vendor_id = dev->vendor;
 	int device_id = dev->device;
@@ -762,7 +859,7 @@ static int lock_driver(struct file *filep, int lock, int flags)
 	return err;
 }
 
-static int me_lock_driver(struct file *filep, me_lock_driver_t * arg)
+static int me_lock_driver(struct file *filep, me_lock_driver_t *arg)
 {
 	int err = 0;
 
@@ -807,7 +904,7 @@ static int me_release(struct inode *inode_ptr, struct file *filep)
 }
 
 static int me_query_version_main_driver(struct file *filep,
-					me_query_version_main_driver_t * arg)
+					me_query_version_main_driver_t *arg)
 {
 	int err;
 	me_query_version_main_driver_t karg;
@@ -828,7 +925,7 @@ static int me_query_version_main_driver(struct file *filep,
 }
 
 static int me_config_load_device(struct file *filep,
-				 me_cfg_device_entry_t * karg, int device_no)
+				 me_cfg_device_entry_t *karg, int device_no)
 {
 
 	int err = ME_ERRNO_SUCCESS;
@@ -874,7 +971,7 @@ static int me_config_load_device(struct file *filep,
 	return err;
 }
 
-static int me_config_load(struct file *filep, me_config_load_t * arg)
+static int me_config_load(struct file *filep, me_config_load_t *arg)
 {
 	int err;
 	int i;
@@ -1170,7 +1267,7 @@ static int me_config_load(struct file *filep, me_config_load_t * arg)
 	return 0;
 }
 
-static int me_io_stream_start(struct file *filep, me_io_stream_start_t * arg)
+static int me_io_stream_start(struct file *filep, me_io_stream_start_t *arg)
 {
 	int err;
 	int i, k;
@@ -1292,7 +1389,7 @@ static int me_io_stream_start(struct file *filep, me_io_stream_start_t * arg)
 	return err;
 }
 
-static int me_io_single(struct file *filep, me_io_single_t * arg)
+static int me_io_single(struct file *filep, me_io_single_t *arg)
 {
 	int err;
 	int i, k;
@@ -1448,7 +1545,7 @@ static int me_io_single(struct file *filep, me_io_single_t * arg)
 	return err;
 }
 
-static int me_io_stream_config(struct file *filep, me_io_stream_config_t * arg)
+static int me_io_stream_config(struct file *filep, me_io_stream_config_t *arg)
 {
 	int err;
 	int k = 0;
@@ -1540,7 +1637,7 @@ static int me_io_stream_config(struct file *filep, me_io_stream_config_t * arg)
 }
 
 static int me_query_number_devices(struct file *filep,
-				   me_query_number_devices_t * arg)
+				   me_query_number_devices_t *arg)
 {
 	int err;
 	me_query_number_devices_t karg;
@@ -1569,7 +1666,7 @@ static int me_query_number_devices(struct file *filep,
 	return 0;
 }
 
-static int me_io_stream_stop(struct file *filep, me_io_stream_stop_t * arg)
+static int me_io_stream_stop(struct file *filep, me_io_stream_stop_t *arg)
 {
 	int err;
 	int i, k;
@@ -1909,11 +2006,16 @@ static int me_ioctl(struct inode *inodep,
 	return -ENOTTY;
 }
 
+static struct miscdevice me_miscdev = {
+	.minor = MISC_DYNAMIC_MINOR,
+	.name = MEMAIN_NAME,
+	.fops = &me_file_operations,
+};
+
 // Init and exit of module.
 static int memain_init(void)
 {
 	int result = 0;
-	dev_t dev = MKDEV(major, 0);
 
 	PDEBUG("executed.\n");
 
@@ -1942,45 +2044,13 @@ static int memain_init(void)
 		}
 	}
 */
-	// Register the character device.
-	if (major) {
-		result = register_chrdev_region(dev, 1, MEMAIN_NAME);
-	} else {
-		result = alloc_chrdev_region(&dev, 0, 1, MEMAIN_NAME);
-		major = MAJOR(dev);
-	}
-
+	result = misc_register(&me_miscdev);
 	if (result < 0) {
-		PERROR("Can't get major driver no.\n");
+		printk(KERN_ERR MEMAIN_NAME ": can't register misc device\n");
 		goto INIT_ERROR_3;
 	}
 
-	cdevp = cdev_alloc();
-
-	if (!cdevp) {
-		PERROR("Can't get character device structure.\n");
-		result = -ENOMEM;
-		goto INIT_ERROR_4;
-	}
-
-	cdevp->ops = &me_file_operations;
-
-	cdevp->owner = THIS_MODULE;
-
-	result = cdev_add(cdevp, dev, 1);
-
-	if (result < 0) {
-		PERROR("Cannot add character device structure.\n");
-		goto INIT_ERROR_5;
-	}
-
 	return 0;
-
-      INIT_ERROR_5:
-	cdev_del(cdevp);
-
-      INIT_ERROR_4:
-	unregister_chrdev_region(dev, 1);
 
       INIT_ERROR_3:
 //      usb_deregister(&me_usb_driver);
@@ -1995,12 +2065,9 @@ static int memain_init(void)
 
 static void __exit memain_exit(void)
 {
-	dev_t dev = MKDEV(major, 0);
-
 	PDEBUG("executed.\n");
 
-	cdev_del(cdevp);
-	unregister_chrdev_region(dev, 1);
+	misc_deregister(&me_miscdev);
 	pci_unregister_driver(&me_pci_driver);
 //      usb_deregister(&me_usb_driver);
 	clear_device_list();
@@ -2015,8 +2082,3 @@ MODULE_AUTHOR
 MODULE_DESCRIPTION("Central module for Meilhaus Driver System.");
 MODULE_SUPPORTED_DEVICE("Meilhaus PCI/cPCI boards.");
 MODULE_LICENSE("GPL");
-
-#ifdef BOSCH
-// Export the flag for the BOSCH firmware.
-EXPORT_SYMBOL(me_bosch_fw);
-#endif // BOSCH

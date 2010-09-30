@@ -10,6 +10,15 @@
 		mtspr	SPRN_IVOR##vector_number,r26;	\
 		sync
 
+#if (THREAD_SHIFT < 15)
+#define ALLOC_STACK_FRAME(reg, val)			\
+	addi reg,reg,val
+#else
+#define ALLOC_STACK_FRAME(reg, val)			\
+	addis	reg,reg,val@ha;				\
+	addi	reg,reg,val@l
+#endif
+
 #define NORMAL_EXCEPTION_PROLOG						     \
 	mtspr	SPRN_SPRG0,r10;		/* save two registers to work with */\
 	mtspr	SPRN_SPRG1,r11;						     \
@@ -20,7 +29,7 @@
 	beq	1f;							     \
 	mfspr	r1,SPRN_SPRG3;		/* if from user, start at top of   */\
 	lwz	r1,THREAD_INFO-THREAD(r1); /* this thread's kernel stack   */\
-	addi	r1,r1,THREAD_SIZE;					     \
+	ALLOC_STACK_FRAME(r1, THREAD_SIZE);				     \
 1:	subi	r1,r1,INT_FRAME_SIZE;	/* Allocate an exception frame     */\
 	mr	r11,r1;							     \
 	stw	r10,_CCR(r11);          /* save various registers	   */\
@@ -70,10 +79,10 @@
 
 /* only on e500mc/e200 */
 #define DEBUG_STACK_BASE	dbgirq_ctx
-#ifdef CONFIG_PPC_E500MC
-#define DEBUG_SPRG		SPRN_SPRG9
-#else
+#ifdef CONFIG_E200
 #define DEBUG_SPRG		SPRN_SPRG6W
+#else
+#define DEBUG_SPRG		SPRN_SPRG9
 #endif
 
 #define EXC_LVL_FRAME_OVERHEAD	(THREAD_SIZE - INT_FRAME_SIZE - EXC_LVL_SIZE)
@@ -247,7 +256,7 @@ label:
 	 * off DE in the DSRR1 value and clearing the debug status.	      \
 	 */								      \
 	mfspr	r10,SPRN_DBSR;		/* check single-step/branch taken */  \
-	andis.	r10,r10,DBSR_IC@h;					      \
+	andis.	r10,r10,(DBSR_IC|DBSR_BT)@h;				      \
 	beq+	2f;							      \
 									      \
 	lis	r10,KERNELBASE@h;	/* check if exception in vectors */   \
@@ -262,7 +271,7 @@ label:
 									      \
 	/* here it looks like we got an inappropriate debug exception. */     \
 1:	rlwinm	r9,r9,0,~MSR_DE;	/* clear DE in the CDRR1 value */     \
-	lis	r10,DBSR_IC@h;		/* clear the IC event */	      \
+	lis	r10,(DBSR_IC|DBSR_BT)@h;	/* clear the IC event */      \
 	mtspr	SPRN_DBSR,r10;						      \
 	/* restore state and get out */					      \
 	lwz	r10,_CCR(r11);						      \
@@ -279,7 +288,7 @@ label:
 	lwz	r11,GPR11(r8);						      \
 	mfspr	r8,DEBUG_SPRG;						      \
 									      \
-	RFDI;								      \
+	PPC_RFDI;								      \
 	b	.;							      \
 									      \
 	/* continue normal handling for a debug exception... */		      \
@@ -300,7 +309,7 @@ label:
 	 * off DE in the CSRR1 value and clearing the debug status.	      \
 	 */								      \
 	mfspr	r10,SPRN_DBSR;		/* check single-step/branch taken */  \
-	andis.	r10,r10,DBSR_IC@h;					      \
+	andis.	r10,r10,(DBSR_IC|DBSR_BT)@h;				      \
 	beq+	2f;							      \
 									      \
 	lis	r10,KERNELBASE@h;	/* check if exception in vectors */   \
@@ -308,14 +317,14 @@ label:
 	cmplw	r12,r10;						      \
 	blt+	2f;			/* addr below exception vectors */    \
 									      \
-	lis	r10,DebugCrit@h;						      \
+	lis	r10,DebugCrit@h;					      \
 	ori	r10,r10,DebugCrit@l;					      \
 	cmplw	r12,r10;						      \
 	bgt+	2f;			/* addr above exception vectors */    \
 									      \
 	/* here it looks like we got an inappropriate debug exception. */     \
 1:	rlwinm	r9,r9,0,~MSR_DE;	/* clear DE in the CSRR1 value */     \
-	lis	r10,DBSR_IC@h;		/* clear the IC event */	      \
+	lis	r10,(DBSR_IC|DBSR_BT)@h;	/* clear the IC event */      \
 	mtspr	SPRN_DBSR,r10;						      \
 	/* restore state and get out */					      \
 	lwz	r10,_CCR(r11);						      \

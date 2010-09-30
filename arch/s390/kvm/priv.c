@@ -158,7 +158,7 @@ static int handle_stfl(struct kvm_vcpu *vcpu)
 
 	vcpu->stat.instruction_stfl++;
 	/* only pass the facility bits, which we can handle */
-	facility_list &= 0xfe00fff3;
+	facility_list &= 0xff00fff3;
 
 	rc = copy_to_guest(vcpu, offsetof(struct _lowcore, stfl_fac_list),
 			   &facility_list, sizeof(facility_list));
@@ -204,11 +204,11 @@ static void handle_stsi_3_2_2(struct kvm_vcpu *vcpu, struct sysinfo_3_2_2 *mem)
 	int cpus = 0;
 	int n;
 
-	spin_lock_bh(&fi->lock);
+	spin_lock(&fi->lock);
 	for (n = 0; n < KVM_MAX_VCPUS; n++)
 		if (fi->local_int[n])
 			cpus++;
-	spin_unlock_bh(&fi->lock);
+	spin_unlock(&fi->lock);
 
 	/* deal with other level 3 hypervisors */
 	if (stsi(mem, 3, 2, 2) == -ENOSYS)
@@ -304,12 +304,24 @@ static intercept_handler_t priv_handlers[256] = {
 	[0xb1] = handle_stfl,
 };
 
-int kvm_s390_handle_priv(struct kvm_vcpu *vcpu)
+int kvm_s390_handle_b2(struct kvm_vcpu *vcpu)
 {
 	intercept_handler_t handler;
 
+	/*
+	 * a lot of B2 instructions are priviledged. We first check for
+	 * the priviledges ones, that we can handle in the kernel. If the
+	 * kernel can handle this instruction, we check for the problem
+	 * state bit and (a) handle the instruction or (b) send a code 2
+	 * program check.
+	 * Anything else goes to userspace.*/
 	handler = priv_handlers[vcpu->arch.sie_block->ipa & 0x00ff];
-	if (handler)
-		return handler(vcpu);
+	if (handler) {
+		if (vcpu->arch.sie_block->gpsw.mask & PSW_MASK_PSTATE)
+			return kvm_s390_inject_program_int(vcpu,
+						   PGM_PRIVILEGED_OPERATION);
+		else
+			return handler(vcpu);
+	}
 	return -ENOTSUPP;
 }

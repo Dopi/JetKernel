@@ -36,6 +36,7 @@
 #include <asm/proto.h>
 #include <asm/efi.h>
 #include <asm/cacheflush.h>
+#include <asm/fixmap.h>
 
 static pgd_t save_pgd __initdata;
 static unsigned long efi_flags __initdata;
@@ -97,9 +98,13 @@ void __init efi_call_phys_epilog(void)
 	early_runtime_code_mapping_set_exec(0);
 }
 
-void __iomem *__init efi_ioremap(unsigned long phys_addr, unsigned long size)
+void __iomem *__init efi_ioremap(unsigned long phys_addr, unsigned long size,
+				 u32 type)
 {
 	unsigned long last_map_pfn;
+
+	if (type == EFI_MEMORY_MAPPED_IO)
+		return ioremap(phys_addr, size);
 
 	last_map_pfn = init_memory_mapping(phys_addr, phys_addr + size);
 	if ((last_map_pfn << PAGE_SHIFT) < phys_addr + size)

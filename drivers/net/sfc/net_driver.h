@@ -19,20 +19,16 @@
 #include <linux/ethtool.h>
 #include <linux/if_vlan.h>
 #include <linux/timer.h>
-#include <linux/mii.h>
+#include <linux/mdio.h>
 #include <linux/list.h>
 #include <linux/pci.h>
 #include <linux/device.h>
 #include <linux/highmem.h>
 #include <linux/workqueue.h>
-#include <linux/inet_lro.h>
 #include <linux/i2c.h>
 
 #include "enum.h"
 #include "bitfield.h"
-
-#define EFX_MAX_LRO_DESCRIPTORS 8
-#define EFX_MAX_LRO_AGGR MAX_SKB_FRAGS
 
 /**************************************************************************
  *
@@ -340,12 +336,11 @@ enum efx_rx_alloc_method {
  * @eventq_read_ptr: Event queue read pointer
  * @last_eventq_read_ptr: Last event queue read pointer value.
  * @eventq_magic: Event queue magic value for driver-generated test events
- * @lro_mgr: LRO state
+ * @irq_count: Number of IRQs since last adaptive moderation decision
+ * @irq_mod_score: IRQ moderation score
  * @rx_alloc_level: Watermark based heuristic counter for pushing descriptors
  *	and diagnostic counters
  * @rx_alloc_push_pages: RX allocation method currently in use for pushing
- *	descriptors
- * @rx_alloc_pop_pages: RX allocation method currently in use for popping
  *	descriptors
  * @n_rx_tobe_disc: Count of RX_TOBE_DISC errors
  * @n_rx_ip_frag_err: Count of RX IP fragment errors
@@ -371,10 +366,11 @@ struct efx_channel {
 	unsigned int last_eventq_read_ptr;
 	unsigned int eventq_magic;
 
-	struct net_lro_mgr lro_mgr;
+	unsigned int irq_count;
+	unsigned int irq_mod_score;
+
 	int rx_alloc_level;
 	int rx_alloc_push_pages;
-	int rx_alloc_pop_pages;
 
 	unsigned n_rx_tobe_disc;
 	unsigned n_rx_ip_frag_err;
@@ -394,13 +390,11 @@ struct efx_channel {
 
 /**
  * struct efx_blinker - S/W LED blinking context
- * @led_num: LED ID (board-specific meaning)
  * @state: Current state - on or off
  * @resubmit: Timer resubmission flag
  * @timer: Control timer for blinking
  */
 struct efx_blinker {
-	int led_num;
 	bool state;
 	bool resubmit;
 	struct timer_list timer;
@@ -413,8 +407,8 @@ struct efx_blinker {
  * @major: Major rev. ('A', 'B' ...)
  * @minor: Minor rev. (0, 1, ...)
  * @init: Initialisation function
- * @init_leds: Sets up board LEDs
- * @set_fault_led: Turns the fault LED on or off
+ * @init_leds: Sets up board LEDs. May be called repeatedly.
+ * @set_id_led: Turns the identification LED on or off
  * @blink: Starts/stops blinking
  * @monitor: Board-specific health check function
  * @fini: Cleanup function
@@ -430,9 +424,9 @@ struct efx_board {
 	/* As the LEDs are typically attached to the PHY, LEDs
 	 * have a separate init callback that happens later than
 	 * board init. */
-	int (*init_leds)(struct efx_nic *efx);
+	void (*init_leds)(struct efx_nic *efx);
+	void (*set_id_led) (struct efx_nic *efx, bool state);
 	int (*monitor) (struct efx_nic *nic);
-	void (*set_fault_led) (struct efx_nic *efx, bool state);
 	void (*blink) (struct efx_nic *efx, bool start);
 	void (*fini) (struct efx_nic *nic);
 	struct efx_blinker blinker;
@@ -459,11 +453,10 @@ enum phy_type {
 	PHY_TYPE_QT2022C2 = 4,
 	PHY_TYPE_PM8358 = 6,
 	PHY_TYPE_SFT9001A = 8,
+	PHY_TYPE_QT2025C = 9,
 	PHY_TYPE_SFT9001B = 10,
 	PHY_TYPE_MAX	/* Insert any new items before this */
 };
-
-#define PHY_ADDR_INVALID 0xff
 
 #define EFX_IS10G(efx) ((efx)->link_speed == 10000)
 
@@ -502,8 +495,8 @@ struct efx_nic;
 
 /* Pseudo bit-mask flow control field */
 enum efx_fc_type {
-	EFX_FC_RX = 1,
-	EFX_FC_TX = 2,
+	EFX_FC_RX = FLOW_CTRL_RX,
+	EFX_FC_TX = FLOW_CTRL_TX,
 	EFX_FC_AUTO = 4,
 };
 
@@ -513,33 +506,15 @@ enum efx_mac_type {
 	EFX_XMAC = 2,
 };
 
-static inline unsigned int efx_fc_advertise(enum efx_fc_type wanted_fc)
-{
-	unsigned int adv = 0;
-	if (wanted_fc & EFX_FC_RX)
-		adv = ADVERTISE_PAUSE_CAP | ADVERTISE_PAUSE_ASYM;
-	if (wanted_fc & EFX_FC_TX)
-		adv ^= ADVERTISE_PAUSE_ASYM;
-	return adv;
-}
-
 static inline enum efx_fc_type efx_fc_resolve(enum efx_fc_type wanted_fc,
 					      unsigned int lpa)
 {
-	unsigned int adv = efx_fc_advertise(wanted_fc);
+	BUILD_BUG_ON(EFX_FC_AUTO & (EFX_FC_RX | EFX_FC_TX));
 
 	if (!(wanted_fc & EFX_FC_AUTO))
 		return wanted_fc;
 
-	if (adv & lpa & ADVERTISE_PAUSE_CAP)
-		return EFX_FC_RX | EFX_FC_TX;
-	if (adv & lpa & ADVERTISE_PAUSE_ASYM) {
-		if (adv & ADVERTISE_PAUSE_CAP)
-			return EFX_FC_RX;
-		if (lpa & ADVERTISE_PAUSE_CAP)
-			return EFX_FC_TX;
-	}
-	return 0;
+	return mii_resolve_flowctrl_fdx(mii_advertise_flowctrl(wanted_fc), lpa);
 }
 
 /**
@@ -713,6 +688,8 @@ union efx_multicast_hash {
  * @membase: Memory BAR value
  * @biu_lock: BIU (bus interface unit) lock
  * @interrupt_mode: Interrupt mode
+ * @irq_rx_adaptive: Adaptive IRQ moderation enabled for RX event queues
+ * @irq_rx_moderation: IRQ moderation time for RX event queues
  * @i2c_adap: I2C adapter
  * @board_info: Board-level information
  * @state: Device state flag. Serialised by the rtnl_lock.
@@ -761,7 +738,7 @@ union efx_multicast_hash {
  * @phy_lock: PHY access lock
  * @phy_op: PHY interface
  * @phy_data: PHY private data (including PHY-specific stats)
- * @mii: PHY interface
+ * @mdio: PHY MDIO interface
  * @phy_mode: PHY operating mode. Serialised by @mac_lock.
  * @mac_up: MAC link state
  * @link_up: Link status
@@ -794,6 +771,8 @@ struct efx_nic {
 	void __iomem *membase;
 	spinlock_t biu_lock;
 	enum efx_int_mode interrupt_mode;
+	bool irq_rx_adaptive;
+	unsigned int irq_rx_moderation;
 
 	struct i2c_adapter i2c_adap;
 	struct efx_board board_info;
@@ -846,7 +825,7 @@ struct efx_nic {
 	struct work_struct phy_work;
 	struct efx_phy_operations *phy_op;
 	void *phy_data;
-	struct mii_if_info mii;
+	struct mdio_if_info mdio;
 	enum efx_phy_mode phy_mode;
 
 	bool mac_up;

@@ -18,15 +18,18 @@ extern void syscall32_cpu_init(void);
 
 extern void check_efer(void);
 
-#ifdef CONFIG_X86_BIOS_REBOOT
 extern int reboot_force;
-#else
-static const int reboot_force = 0;
-#endif
 
 long do_arch_prctl(struct task_struct *task, int code, unsigned long addr);
 
-#define round_up(x, y) (((x) + (y) - 1) & ~((y) - 1))
-#define round_down(x, y) ((x) & ~((y) - 1))
+/*
+ * This looks more complex than it should be. But we need to
+ * get the type for the ~ right in round_down (it needs to be
+ * as wide as the result!), and we want to evaluate the macro
+ * arguments just once each.
+ */
+#define __round_mask(x,y) ((__typeof__(x))((y)-1))
+#define round_up(x,y) ((((x)-1) | __round_mask(x,y))+1)
+#define round_down(x,y) ((x) & ~__round_mask(x,y))
 
 #endif /* _ASM_X86_PROTO_H */

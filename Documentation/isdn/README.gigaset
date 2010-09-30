@@ -61,24 +61,28 @@ GigaSet 307x Device Driver
      ---------------------
 2.1. Modules
      -------
-     To get the device working, you have to load the proper kernel module. You
-     can do this using
-         modprobe modulename
-     where modulename is ser_gigaset (M101), usb_gigaset (M105), or
-     bas_gigaset (direct USB connection to the base).
+     For the devices to work, the proper kernel modules have to be loaded.
+     This normally happens automatically when the system detects the USB
+     device (base, M105) or when the line discipline is attached (M101). It
+     can also be triggered manually using the modprobe(8) command, for example
+     for troubleshooting or to pass module parameters.
 
      The module ser_gigaset provides a serial line discipline N_GIGASET_M101
-     which drives the device through the regular serial line driver. To use it,
-     run the Gigaset M101 daemon "gigasetm101d" (also available from
-     http://sourceforge.net/projects/gigaset307x/) with the device file of the
-     RS232 port to the M101 as an argument, for example:
-	 gigasetm101d /dev/ttyS1
-     This will open the device file, set its line discipline to N_GIGASET_M101,
-     and then sleep in the background, keeping the device open so that the
-     line discipline remains active. To deactivate it, kill the daemon, for
-     example with
-	 killall gigasetm101d
-     before disconnecting the device.
+     which drives the device through the regular serial line driver. It must
+     be attached to the serial line to which the M101 is connected with the
+     ldattach(8) command (requires util-linux-ng release 2.14 or later), for
+     example:
+	 ldattach GIGASET_M101 /dev/ttyS1
+     This will open the device file, attach the line discipline to it, and
+     then sleep in the background, keeping the device open so that the line
+     discipline remains active. To deactivate it, kill the daemon, for example
+     with
+	 killall ldattach
+     before disconnecting the device. To have this happen automatically at
+     system startup/shutdown on an LSB compatible system, create and activate
+     an appropriate LSB startup script /etc/init.d/gigaset. (The init name
+     'gigaset' is officially assigned to this project by LANANA.)
+     Alternatively, just add the 'ldattach' command line to /etc/rc.local.
 
 2.2. Device nodes for user space programs
      ------------------------------------
@@ -145,10 +149,8 @@ GigaSet 307x Device Driver
      configuration files and chat scripts in the gigaset-VERSION/ppp directory
      in the driver packages from http://sourceforge.net/projects/gigaset307x/.
      Please note that the USB drivers are not able to change the state of the
-     control lines (the M105 driver can be configured to use some undocumented
-     control requests, if you really need the control lines, though). This means
-     you must use "Stupid Mode" if you are using wvdial or you should use the
-     nocrtscts option of pppd.
+     control lines. This means you must use "Stupid Mode" if you are using
+     wvdial or you should use the nocrtscts option of pppd.
      You must also assure that the ppp_async module is loaded with the parameter
      flag_time=0. You can do this e.g. by adding a line like
 
@@ -186,19 +188,19 @@ GigaSet 307x Device Driver
      You can also use /sys/class/tty/ttyGxy/cidmode for changing the CID mode
      setting (ttyGxy is ttyGU0 or ttyGB0).
 
-2.6. M105 Undocumented USB Requests
-     ------------------------------
+2.6. Unregistered Wireless Devices (M101/M105)
+     -----------------------------------------
+     The main purpose of the ser_gigaset and usb_gigaset drivers is to allow
+     the M101 and M105 wireless devices to be used as ISDN devices for ISDN
+     connections through a Gigaset base. Therefore they assume that the device
+     is registered to a DECT base.
 
-     The Gigaset M105 USB data box understands a couple of useful, but
-     undocumented USB commands. These requests are not used in normal
-     operation (for wireless access to the base), but are needed for access
-     to the M105's own configuration mode (registration to the base, baudrate
-     and line format settings, device status queries) via the gigacontr
-     utility. Their use is disabled in the driver by default for safety
-     reasons but can be enabled by setting the kernel configuration option
-     "Support for undocumented USB requests" (GIGASET_UNDOCREQ) to "Y" and
-     recompiling.
-
+     If the M101/M105 device is not registered to a base, initialization of
+     the device fails, and a corresponding error message is logged by the
+     driver. In that situation, a restricted set of functions is available
+     which includes, in particular, those necessary for registering the device
+     to a base or for switching it between Fixed Part and Portable Part
+     modes.
 
 3.   Troubleshooting
      ---------------
@@ -227,6 +229,14 @@ GigaSet 307x Device Driver
         first one you turn on works.
      Solution:
         Select Unimodem mode for all DECT data adapters. (see section 2.4.)
+
+     Problem:
+	Messages like this:
+	    usb_gigaset 3-2:1.0: Could not initialize the device.
+	appear in your syslog.
+     Solution:
+	Check whether your M10x wireless device is correctly registered to the
+	Gigaset base. (see section 2.6.)
 
 3.2. Telling the driver to provide more information
      ----------------------------------------------

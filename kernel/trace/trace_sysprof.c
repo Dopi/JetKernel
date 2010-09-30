@@ -88,7 +88,7 @@ static void backtrace_address(void *data, unsigned long addr, int reliable)
 	}
 }
 
-const static struct stacktrace_ops backtrace_ops = {
+static const struct stacktrace_ops backtrace_ops = {
 	.warning		= backtrace_warning,
 	.warning_symbol		= backtrace_warning_symbol,
 	.stack			= backtrace_stack,
@@ -203,7 +203,8 @@ static void start_stack_timer(void *unused)
 	hrtimer_init(hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	hrtimer->function = stack_trace_timer_fn;
 
-	hrtimer_start(hrtimer, ns_to_ktime(sample_period), HRTIMER_MODE_REL);
+	hrtimer_start(hrtimer, ns_to_ktime(sample_period),
+		      HRTIMER_MODE_REL_PINNED);
 }
 
 static void start_stack_timers(void)
@@ -226,15 +227,6 @@ static void stop_stack_timers(void)
 		stop_stack_timer(cpu);
 }
 
-static void start_stack_trace(struct trace_array *tr)
-{
-	mutex_lock(&sample_timer_lock);
-	tracing_reset_online_cpus(tr);
-	start_stack_timers();
-	tracer_enabled = 1;
-	mutex_unlock(&sample_timer_lock);
-}
-
 static void stop_stack_trace(struct trace_array *tr)
 {
 	mutex_lock(&sample_timer_lock);
@@ -247,12 +239,18 @@ static int stack_trace_init(struct trace_array *tr)
 {
 	sysprof_trace = tr;
 
-	start_stack_trace(tr);
+	tracing_start_cmdline_record();
+
+	mutex_lock(&sample_timer_lock);
+	start_stack_timers();
+	tracer_enabled = 1;
+	mutex_unlock(&sample_timer_lock);
 	return 0;
 }
 
 static void stack_trace_reset(struct trace_array *tr)
 {
+	tracing_stop_cmdline_record();
 	stop_stack_trace(tr);
 }
 
@@ -317,18 +315,14 @@ sysprof_sample_write(struct file *filp, const char __user *ubuf,
 	return cnt;
 }
 
-static struct file_operations sysprof_sample_fops = {
+static const struct file_operations sysprof_sample_fops = {
 	.read		= sysprof_sample_read,
 	.write		= sysprof_sample_write,
 };
 
 void init_tracer_sysprof_debugfs(struct dentry *d_tracer)
 {
-	struct dentry *entry;
 
-	entry = debugfs_create_file("sysprof_sample_period", 0644,
+	trace_create_file("sysprof_sample_period", 0644,
 			d_tracer, NULL, &sysprof_sample_fops);
-	if (entry)
-		return;
-	pr_warning("Could not create debugfs 'dyn_ftrace_total_info' entry\n");
 }

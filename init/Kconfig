@@ -16,6 +16,11 @@ config DEFCONFIG_LIST
 	default "$ARCH_DEFCONFIG"
 	default "arch/$ARCH/defconfig"
 
+config CONSTRUCTORS
+	bool
+	depends on !UML
+	default y
+
 menu "General setup"
 
 config EXPERIMENTAL
@@ -101,6 +106,66 @@ config LOCALVERSION_AUTO
 
 	  which is done within the script "scripts/setlocalversion".)
 
+config HAVE_KERNEL_GZIP
+	bool
+
+config HAVE_KERNEL_BZIP2
+	bool
+
+config HAVE_KERNEL_LZMA
+	bool
+
+choice
+	prompt "Kernel compression mode"
+	default KERNEL_GZIP
+	depends on HAVE_KERNEL_GZIP || HAVE_KERNEL_BZIP2 || HAVE_KERNEL_LZMA
+	help
+	  The linux kernel is a kind of self-extracting executable.
+	  Several compression algorithms are available, which differ
+	  in efficiency, compression and decompression speed.
+	  Compression speed is only relevant when building a kernel.
+	  Decompression speed is relevant at each boot.
+
+	  If you have any problems with bzip2 or lzma compressed
+	  kernels, mail me (Alain Knaff) <alain@knaff.lu>. (An older
+	  version of this functionality (bzip2 only), for 2.4, was
+	  supplied by Christian Ludwig)
+
+	  High compression options are mostly useful for users, who
+	  are low on disk space (embedded systems), but for whom ram
+	  size matters less.
+
+	  If in doubt, select 'gzip'
+
+config KERNEL_GZIP
+	bool "Gzip"
+	depends on HAVE_KERNEL_GZIP
+	help
+	  The old and tried gzip compression. Its compression ratio is
+	  the poorest among the 3 choices; however its speed (both
+	  compression and decompression) is the fastest.
+
+config KERNEL_BZIP2
+	bool "Bzip2"
+	depends on HAVE_KERNEL_BZIP2
+	help
+	  Its compression ratio and speed is intermediate.
+	  Decompression speed is slowest among the three.  The kernel
+	  size is about 10% smaller with bzip2, in comparison to gzip.
+	  Bzip2 uses a large amount of memory. For modern kernels you
+	  will need at least 8MB RAM or more for booting.
+
+config KERNEL_LZMA
+	bool "LZMA"
+	depends on HAVE_KERNEL_LZMA
+	help
+	  The most recent compression algorithm.
+	  Its ratio is best, decompression speed is between the other
+	  two. Compression is slowest.	The kernel size is about 33%
+	  smaller with LZMA in comparison to gzip.
+
+endchoice
+
 config SWAP
 	bool "Support for paging of anonymous memory (swap)"
 	depends on MMU && BLOCK
@@ -147,6 +212,12 @@ config POSIX_MQUEUE
 	  operations on message queues.
 
 	  If unsure, say Y.
+
+config POSIX_MQUEUE_SYSCTL
+	bool
+	depends on POSIX_MQUEUE
+	depends on SYSCTL
+	default y
 
 config BSD_PROCESS_ACCT
 	bool "BSD Process Accounting"
@@ -236,13 +307,14 @@ config AUDITSYSCALL
 
 config AUDIT_TREE
 	def_bool y
-	depends on AUDITSYSCALL && INOTIFY
+	depends on AUDITSYSCALL
+	select INOTIFY
 
 menu "RCU Subsystem"
 
 choice
 	prompt "RCU Implementation"
-	default CLASSIC_RCU
+	default TREE_RCU
 
 config CLASSIC_RCU
 	bool "Classic RCU"
@@ -471,7 +543,7 @@ config CGROUP_DEVICE
 
 config CPUSETS
 	bool "Cpuset support"
-	depends on SMP && CGROUPS
+	depends on CGROUPS
 	help
 	  This option will let you create and manage CPUSETs which
 	  allow dynamically partitioning a system into sets of CPUs and
@@ -505,7 +577,7 @@ config CGROUP_MEM_RES_CTLR
 	select MM_OWNER
 	help
 	  Provides a memory resource controller that manages both anonymous
-	  memory and page cache. (See Documentation/controllers/memory.txt)
+	  memory and page cache. (See Documentation/cgroups/memory.txt)
 
 	  Note that setting this option increases fixed memory overhead
 	  associated with each page of memory in the system. By this,
@@ -537,6 +609,8 @@ config CGROUP_MEM_RES_CTLR_SWAP
 	  is disabled by boot option, this will be automatically disabled and
 	  there will be no overhead from this. Even when you set this config=y,
 	  if boot option "noswapaccount" is set, swap will not be accounted.
+	  Now, memory usage of swap_cgroup is 2 bytes per entry. If swap page
+	  size is 4096bytes, 512k per 1Gbytes of swap.
 
 endif # CGROUPS
 
@@ -547,13 +621,13 @@ config SYSFS_DEPRECATED
 	bool
 
 config SYSFS_DEPRECATED_V2
-	bool "Create deprecated sysfs layout for older userspace tools"
+	bool "remove sysfs features which may confuse old userspace tools"
 	depends on SYSFS
-	default y
+	default n
 	select SYSFS_DEPRECATED
 	help
 	  This option switches the layout of sysfs to the deprecated
-	  version.
+	  version. Do not use it on recent distributions.
 
 	  The current sysfs layout features a unified device tree at
 	  /sys/devices/, which is able to express a hierarchy between
@@ -608,10 +682,10 @@ config UTS_NS
 
 config IPC_NS
 	bool "IPC namespace"
-	depends on NAMESPACES && SYSVIPC
+	depends on NAMESPACES && (SYSVIPC || POSIX_MQUEUE)
 	help
 	  In this namespace tasks work with IPC ids which correspond to
-	  different IPC objects in different namespaces
+	  different IPC objects in different namespaces.
 
 config USER_NS
 	bool "User namespace (EXPERIMENTAL)"
@@ -627,7 +701,7 @@ config PID_NS
 	depends on NAMESPACES && EXPERIMENTAL
 	help
 	  Support process id namespaces.  This allows having multiple
-	  process with the same pid as long as they are in different
+	  processes with the same pid as long as they are in different
 	  pid namespaces.  This is a building block of containers.
 
 	  Unless you want to work with an experimental feature
@@ -857,6 +931,51 @@ config AIO
           by some high performance threaded applications. Disabling
           this option saves about 7k.
 
+config HAVE_PERF_COUNTERS
+	bool
+	help
+	  See tools/perf/design.txt for details.
+
+menu "Performance Counters"
+
+config PERF_COUNTERS
+	bool "Kernel Performance Counters"
+	default y if PROFILING
+	depends on HAVE_PERF_COUNTERS
+	select ANON_INODES
+	help
+	  Enable kernel support for performance counter hardware.
+
+	  Performance counters are special hardware registers available
+	  on most modern CPUs. These registers count the number of certain
+	  types of hw events: such as instructions executed, cachemisses
+	  suffered, or branches mis-predicted - without slowing down the
+	  kernel or applications. These registers can also trigger interrupts
+	  when a threshold number of events have passed - and can thus be
+	  used to profile the code that runs on that CPU.
+
+	  The Linux Performance Counter subsystem provides an abstraction of
+	  these hardware capabilities, available via a system call. It
+	  provides per task and per CPU counters, and it provides event
+	  capabilities on top of those.
+
+	  Say Y if unsure.
+
+config EVENT_PROFILE
+	bool "Tracepoint profiling sources"
+	depends on PERF_COUNTERS && EVENT_TRACING
+	default y
+	help
+	 Allow the use of tracepoints as software performance counters.
+
+	 When this is enabled, you can create perf counters based on
+	 tracepoints using PERF_TYPE_TRACEPOINT and the tracepoint ID
+	 found in debugfs://tracing/events/*/*/id. (The -e/--events
+	 option to the perf tool can parse and interpret symbolic
+	 tracepoints, in the subsystem:tracepoint_name format.)
+
+endmenu
+
 config VM_EVENT_COUNTERS
 	default y
 	bool "Enable VM event counters for /proc/vmstat" if EMBEDDED
@@ -885,6 +1004,14 @@ config SLUB_DEBUG
 	  SLUB sysfs support. /sys/slab will not exist and there will be
 	  no support for cache validation etc.
 
+config STRIP_ASM_SYMS
+	bool "Strip assembler-generated symbols during link"
+	default n
+	help
+	  Strip internal assembler-generated symbols during a link (symbols
+	  that look like '.Lxxx') so they don't pollute the output of
+	  get_wchan() and suchlike.
+
 config COMPAT_BRK
 	bool "Disable heap randomization"
 	default y
@@ -892,7 +1019,7 @@ config COMPAT_BRK
 	  Randomizing heap placement makes heap exploits harder, but it
 	  also breaks ancient binaries (including anything libc5 based).
 	  This option changes the bootup default to heap randomization
-	  disabled, and can be overriden runtime by setting
+	  disabled, and can be overridden at runtime by setting
 	  /proc/sys/kernel/randomize_va_space to 2.
 
 	  On non-ancient distros (post-2000 ones) N is usually a safe choice.
@@ -945,12 +1072,26 @@ config TRACEPOINTS
 
 config MARKERS
 	bool "Activate markers"
-	depends on TRACEPOINTS
+	select TRACEPOINTS
 	help
 	  Place an empty function call at each marker site. Can be
 	  dynamically changed for a probe function.
 
 source "arch/Kconfig"
+
+config SLOW_WORK
+	default n
+	bool
+	help
+	  The slow work thread pool provides a number of dynamically allocated
+	  threads that can be used by the kernel to perform operations that
+	  take a relatively long time.
+
+	  An example of this would be CacheFiles doing a path lookup followed
+	  by a series of mkdirs and a create call, all of which have to touch
+	  disk.
+
+	  See Documentation/slow-work.txt.
 
 endmenu		# General setup
 
@@ -966,7 +1107,6 @@ config SLABINFO
 
 config RT_MUTEXES
 	boolean
-	select PLIST
 
 config BASE_SMALL
 	int
@@ -1051,7 +1191,7 @@ config INIT_ALL_POSSIBLE
 	  cpu_possible_map, some of them chose to initialize cpu_possible_map
 	  with all 1s, and others with all 0s.  When they were centralised,
 	  it was better to provide this option than to break all the archs
-	  and have several arch maintainers persuing me down dark alleys.
+	  and have several arch maintainers pursuing me down dark alleys.
 
 config STOP_MACHINE
 	bool

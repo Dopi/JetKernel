@@ -53,6 +53,17 @@
 #define SOL_SCO		17
 #define SOL_RFCOMM	18
 
+#define BT_SECURITY	4
+struct bt_security {
+	__u8 level;
+};
+#define BT_SECURITY_SDP		0
+#define BT_SECURITY_LOW		1
+#define BT_SECURITY_MEDIUM	2
+#define BT_SECURITY_HIGH	3
+
+#define BT_DEFER_SETUP	7
+
 #define BT_INFO(fmt, arg...) printk(KERN_INFO "Bluetooth: " fmt "\n" , ## arg)
 #define BT_ERR(fmt, arg...)  printk(KERN_ERR "%s: " fmt "\n" , __func__ , ## arg)
 #define BT_DBG(fmt, arg...)  pr_debug("%s: " fmt "\n" , __func__ , ## arg)
@@ -69,12 +80,6 @@ enum {
 	BT_DISCONN,
 	BT_CLOSED
 };
-
-/* Endianness conversions */
-#define htobs(a)	__cpu_to_le16(a)
-#define htobl(a)	__cpu_to_le32(a)
-#define btohs(a)	__le16_to_cpu(a)
-#define btohl(a)	__le32_to_cpu(a)
 
 /* BD Address */
 typedef struct {
@@ -108,6 +113,7 @@ struct bt_sock {
 	bdaddr_t    dst;
 	struct list_head accept_q;
 	struct sock *parent;
+	u32 defer_setup;
 };
 
 struct bt_sock_list {
@@ -157,15 +163,6 @@ static inline struct sk_buff *bt_skb_send_alloc(struct sock *sk, unsigned long l
 	}
 
 	return skb;
-}
-
-static inline int skb_frags_no(struct sk_buff *skb)
-{
-	register struct sk_buff *frag = skb_shinfo(skb)->frag_list;
-	register int n = 1;
-
-	for (; frag; frag=frag->next, n++);
-	return n;
 }
 
 int bt_err(__u16 code);

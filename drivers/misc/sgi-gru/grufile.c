@@ -29,35 +29,25 @@
 #include <linux/slab.h>
 #include <linux/mm.h>
 #include <linux/io.h>
-#include <linux/smp_lock.h>
 #include <linux/spinlock.h>
 #include <linux/device.h>
 #include <linux/miscdevice.h>
 #include <linux/interrupt.h>
 #include <linux/proc_fs.h>
 #include <linux/uaccess.h>
+#include <asm/uv/uv.h>
 #include "gru.h"
 #include "grulib.h"
 #include "grutables.h"
-
-#if defined CONFIG_X86_64
-#include <asm/genapic.h>
-#include <asm/irq.h>
-#define IS_UV()		is_uv_system()
-#elif defined CONFIG_IA64
-#include <asm/system.h>
-#include <asm/sn/simulator.h>
-/* temp support for running on hardware simulator */
-#define IS_UV()		IS_MEDUSA() || ia64_platform_is("uv")
-#else
-#define IS_UV()		0
-#endif
 
 #include <asm/uv/uv_hub.h>
 #include <asm/uv/uv_mmrs.h>
 
 struct gru_blade_state *gru_base[GRU_MAX_BLADES] __read_mostly;
-unsigned long gru_start_paddr, gru_end_paddr __read_mostly;
+unsigned long gru_start_paddr __read_mostly;
+void *gru_start_vaddr __read_mostly;
+unsigned long gru_end_paddr __read_mostly;
+unsigned int gru_max_gids __read_mostly;
 struct gru_stats_s gru_stats;
 
 /* Guaranteed user available resources on each node */
@@ -113,7 +103,7 @@ static int gru_file_mmap(struct file *file, struct vm_area_struct *vma)
 		return -EPERM;
 
 	if (vma->vm_start & (GRU_GSEG_PAGESIZE - 1) ||
-	    			vma->vm_end & (GRU_GSEG_PAGESIZE - 1))
+				vma->vm_end & (GRU_GSEG_PAGESIZE - 1))
 		return -EINVAL;
 
 	vma->vm_flags |=
@@ -145,11 +135,9 @@ static int gru_create_new_context(unsigned long arg)
 	if (copy_from_user(&req, (void __user *)arg, sizeof(req)))
 		return -EFAULT;
 
-	if (req.data_segment_bytes == 0 ||
-				req.data_segment_bytes > max_user_dsr_bytes)
+	if (req.data_segment_bytes > max_user_dsr_bytes)
 		return -EINVAL;
-	if (!req.control_blocks || !req.maximum_thread_count ||
-				req.control_blocks > max_user_cbrs)
+	if (req.control_blocks > max_user_cbrs || !req.maximum_thread_count)
 		return -EINVAL;
 
 	if (!(req.options & GRU_OPT_MISS_MASK))
@@ -194,41 +182,6 @@ static long gru_get_config_info(unsigned long arg)
 }
 
 /*
- * Get GRU chiplet status
- */
-static long gru_get_chiplet_status(unsigned long arg)
-{
-	struct gru_state *gru;
-	struct gru_chiplet_info info;
-
-	if (copy_from_user(&info, (void __user *)arg, sizeof(info)))
-		return -EFAULT;
-
-	if (info.node == -1)
-		info.node = numa_node_id();
-	if (info.node >= num_possible_nodes() ||
-			info.chiplet >= GRU_CHIPLETS_PER_HUB ||
-			info.node < 0 || info.chiplet < 0)
-		return -EINVAL;
-
-	info.blade = uv_node_to_blade_id(info.node);
-	gru = get_gru(info.blade, info.chiplet);
-
-	info.total_dsr_bytes = GRU_NUM_DSR_BYTES;
-	info.total_cbr = GRU_NUM_CB;
-	info.total_user_dsr_bytes = GRU_NUM_DSR_BYTES -
-		gru->gs_reserved_dsr_bytes;
-	info.total_user_cbr = GRU_NUM_CB - gru->gs_reserved_cbrs;
-	info.free_user_dsr_bytes = hweight64(gru->gs_dsr_map) *
-			GRU_DSR_AU_BYTES;
-	info.free_user_cbr = hweight64(gru->gs_cbr_map) * GRU_CBR_AU_SIZE;
-
-	if (copy_to_user((void __user *)arg, &info, sizeof(info)))
-		return -EFAULT;
-	return 0;
-}
-
-/*
  * gru_file_unlocked_ioctl
  *
  * Called to update file attributes via IOCTL calls.
@@ -244,8 +197,8 @@ static long gru_file_unlocked_ioctl(struct file *file, unsigned int req,
 	case GRU_CREATE_CONTEXT:
 		err = gru_create_new_context(arg);
 		break;
-	case GRU_SET_TASK_SLICE:
-		err = gru_set_task_slice(arg);
+	case GRU_SET_CONTEXT_OPTION:
+		err = gru_set_context_option(arg);
 		break;
 	case GRU_USER_GET_EXCEPTION_DETAIL:
 		err = gru_get_exception_detail(arg);
@@ -253,17 +206,23 @@ static long gru_file_unlocked_ioctl(struct file *file, unsigned int req,
 	case GRU_USER_UNLOAD_CONTEXT:
 		err = gru_user_unload_context(arg);
 		break;
-	case GRU_GET_CHIPLET_STATUS:
-		err = gru_get_chiplet_status(arg);
-		break;
 	case GRU_USER_FLUSH_TLB:
 		err = gru_user_flush_tlb(arg);
 		break;
 	case GRU_USER_CALL_OS:
 		err = gru_handle_user_call_os(arg);
 		break;
+	case GRU_GET_GSEG_STATISTICS:
+		err = gru_get_gseg_statistics(arg);
+		break;
+	case GRU_KTEST:
+		err = gru_ktest(arg);
+		break;
 	case GRU_GET_CONFIG_INFO:
 		err = gru_get_config_info(arg);
+		break;
+	case GRU_DUMP_CHIPLET_STATE:
+		err = gru_dump_chiplet_request(arg);
 		break;
 	}
 	return err;
@@ -285,11 +244,13 @@ static void gru_init_chiplet(struct gru_state *gru, unsigned long paddr,
 	gru->gs_blade_id = bid;
 	gru->gs_cbr_map = (GRU_CBR_AU == 64) ? ~0 : (1UL << GRU_CBR_AU) - 1;
 	gru->gs_dsr_map = (1UL << GRU_DSR_AU) - 1;
+	gru->gs_asid_limit = MAX_ASID;
 	gru_tgh_flush_init(gru);
-	gru_dbg(grudev, "bid %d, nid %d, gru %x, vaddr %p (0x%lx)\n",
+	if (gru->gs_gid >= gru_max_gids)
+		gru_max_gids = gru->gs_gid + 1;
+	gru_dbg(grudev, "bid %d, nid %d, gid %d, vaddr %p (0x%lx)\n",
 		bid, nid, gru->gs_gid, gru->gs_gru_base_vaddr,
 		gru->gs_gru_base_paddr);
-	gru_kservices_init(gru);
 }
 
 static int gru_init_tables(unsigned long gru_base_paddr, void *gru_base_vaddr)
@@ -307,24 +268,25 @@ static int gru_init_tables(unsigned long gru_base_paddr, void *gru_base_vaddr)
 	for_each_online_node(nid) {
 		bid = uv_node_to_blade_id(nid);
 		pnode = uv_node_to_pnode(nid);
-		if (gru_base[bid])
+		if (bid < 0 || gru_base[bid])
 			continue;
-		page = alloc_pages_node(nid, GFP_KERNEL, order);
+		page = alloc_pages_exact_node(nid, GFP_KERNEL, order);
 		if (!page)
 			goto fail;
 		gru_base[bid] = page_address(page);
 		memset(gru_base[bid], 0, sizeof(struct gru_blade_state));
 		gru_base[bid]->bs_lru_gru = &gru_base[bid]->bs_grus[0];
 		spin_lock_init(&gru_base[bid]->bs_lock);
+		init_rwsem(&gru_base[bid]->bs_kgts_sema);
 
 		dsrbytes = 0;
 		cbrs = 0;
 		for (gru = gru_base[bid]->bs_grus, chip = 0;
-		     		chip < GRU_CHIPLETS_PER_BLADE;
+				chip < GRU_CHIPLETS_PER_BLADE;
 				chip++, gru++) {
 			paddr = gru_chiplet_paddr(gru_base_paddr, pnode, chip);
 			vaddr = gru_chiplet_vaddr(gru_base_vaddr, pnode, chip);
-			gru_init_chiplet(gru, paddr, vaddr, bid, nid, chip);
+			gru_init_chiplet(gru, paddr, vaddr, nid, bid, chip);
 			n = hweight64(gru->gs_cbr_map) * GRU_CBR_AU_SIZE;
 			cbrs = max(cbrs, n);
 			n = hweight64(gru->gs_dsr_map) * GRU_DSR_AU_BYTES;
@@ -379,9 +341,8 @@ static int __init gru_init(void)
 {
 	int ret, irq, chip;
 	char id[10];
-	void *gru_start_vaddr;
 
-	if (!IS_UV())
+	if (!is_uv_system())
 		return 0;
 
 #if defined CONFIG_IA64
@@ -389,19 +350,19 @@ static int __init gru_init(void)
 #else
 	gru_start_paddr = uv_read_local_mmr(UVH_RH_GAM_GRU_OVERLAY_CONFIG_MMR) &
 				0x7fffffffffffUL;
-
 #endif
 	gru_start_vaddr = __va(gru_start_paddr);
-	gru_end_paddr = gru_start_paddr + MAX_NUMNODES * GRU_SIZE;
+	gru_end_paddr = gru_start_paddr + GRU_MAX_BLADES * GRU_SIZE;
 	printk(KERN_INFO "GRU space: 0x%lx - 0x%lx\n",
 	       gru_start_paddr, gru_end_paddr);
 	irq = get_base_irq();
 	for (chip = 0; chip < GRU_CHIPLETS_PER_BLADE; chip++) {
 		ret = request_irq(irq + chip, gru_intr, 0, id, NULL);
-		/* TODO: fix irq handling on x86. For now ignore failures because
+		/* TODO: fix irq handling on x86. For now ignore failure because
 		 * interrupts are not required & not yet fully supported */
 		if (ret) {
-			printk("!!!WARNING: GRU ignoring request failure!!!\n");
+			printk(KERN_WARNING
+			       "!!!WARNING: GRU ignoring request failure!!!\n");
 			ret = 0;
 		}
 		if (ret) {
@@ -429,6 +390,7 @@ static int __init gru_init(void)
 		printk(KERN_ERR "%s: init tables failed\n", GRU_DRIVER_ID_STR);
 		goto exit3;
 	}
+	gru_kservices_init();
 
 	printk(KERN_INFO "%s: v%s\n", GRU_DRIVER_ID_STR,
 	       GRU_DRIVER_VERSION_STR);
@@ -451,12 +413,12 @@ static void __exit gru_exit(void)
 	int order = get_order(sizeof(struct gru_state) *
 			      GRU_CHIPLETS_PER_BLADE);
 
-	if (!IS_UV())
+	if (!is_uv_system())
 		return;
 
 	for (i = 0; i < GRU_CHIPLETS_PER_BLADE; i++)
 		free_irq(IRQ_GRU + i, NULL);
-
+	gru_kservices_exit();
 	for (bid = 0; bid < GRU_MAX_BLADES; bid++)
 		free_pages((unsigned long)gru_base[bid], order);
 
@@ -481,7 +443,11 @@ struct vm_operations_struct gru_vm_ops = {
 	.fault		= gru_fault,
 };
 
+#ifndef MODULE
 fs_initcall(gru_init);
+#else
+module_init(gru_init);
+#endif
 module_exit(gru_exit);
 
 module_param(gru_options, ulong, 0644);

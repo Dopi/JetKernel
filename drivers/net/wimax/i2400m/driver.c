@@ -48,6 +48,7 @@
  *       i2400m_dev_bootstrap()
  *       i2400m_tx_setup()
  *       i2400m->bus_dev_start()
+ *       i2400m_firmware_check()
  *       i2400m_check_mac_addr()
  *   wimax_dev_add()
  *
@@ -61,6 +62,7 @@
  *   unregister_netdev()
  */
 #include "i2400m.h"
+#include <linux/etherdevice.h>
 #include <linux/wimax/i2400m.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -74,6 +76,19 @@ module_param_named(idle_mode_disabled, i2400m_idle_mode_disabled, int, 0644);
 MODULE_PARM_DESC(idle_mode_disabled,
 		 "If true, the device will not enable idle mode negotiation "
 		 "with the base station (when connected) to save power.");
+
+int i2400m_rx_reorder_disabled;	/* 0 (rx reorder enabled) by default */
+module_param_named(rx_reorder_disabled, i2400m_rx_reorder_disabled, int, 0644);
+MODULE_PARM_DESC(rx_reorder_disabled,
+		 "If true, RX reordering will be disabled.");
+
+int i2400m_power_save_disabled;	/* 0 (power saving enabled) by default */
+module_param_named(power_save_disabled, i2400m_power_save_disabled, int, 0644);
+MODULE_PARM_DESC(power_save_disabled,
+		 "If true, the driver will not tell the device to enter "
+		 "power saving mode when it reports it is ready for it. "
+		 "False by default (so the device is told to do power "
+		 "saving).");
 
 /**
  * i2400m_queue_work - schedule work on a i2400m's queue
@@ -165,7 +180,6 @@ int i2400m_schedule_work(struct i2400m *i2400m,
 	int result;
 	struct i2400m_work *iw;
 
-	BUG_ON(i2400m->work_queue == NULL);
 	result = -ENOMEM;
 	iw = kzalloc(sizeof(*iw), gfp_flags);
 	if (iw == NULL)
@@ -228,9 +242,6 @@ int i2400m_op_msg_from_user(struct wimax_dev *wimax_dev,
 	result = PTR_ERR(ack_skb);
 	if (IS_ERR(ack_skb))
 		goto error_msg_to_dev;
-	if (unlikely(i2400m->trace_msg_from_user))
-		wimax_msg(&i2400m->wimax_dev, "trace",
-			  msg_buf, msg_len, GFP_KERNEL);
 	result = wimax_msg_send(&i2400m->wimax_dev, ack_skb);
 error_msg_to_dev:
 	d_fnend(4, dev, "(wimax_dev %p [i2400m %p] msg_buf %p msg_len %zu "
@@ -373,6 +384,11 @@ error:
  * Uploads firmware and brings up all the resources needed to be able
  * to communicate with the device.
  *
+ * The workqueue has to be setup early, at least before RX handling
+ * (it's only real user for now) so it can process reports as they
+ * arrive. We also want to destroy it if we retry, to make sure it is
+ * flushed...easier like this.
+ *
  * TX needs to be setup before the bus-specific code (otherwise on
  * shutdown, the bus-tx code could try to access it).
  */
@@ -383,7 +399,7 @@ int __i2400m_dev_start(struct i2400m *i2400m, enum i2400m_bri flags)
 	struct wimax_dev *wimax_dev = &i2400m->wimax_dev;
 	struct net_device *net_dev = wimax_dev->net_dev;
 	struct device *dev = i2400m_dev(i2400m);
-	int times = 3;
+	int times = i2400m->bus_bm_retries;
 
 	d_fnstart(3, dev, "(i2400m %p)\n", i2400m);
 retry:
@@ -395,15 +411,21 @@ retry:
 	result = i2400m_tx_setup(i2400m);
 	if (result < 0)
 		goto error_tx_setup;
-	result = i2400m->bus_dev_start(i2400m);
+	result = i2400m_rx_setup(i2400m);
 	if (result < 0)
-		goto error_bus_dev_start;
+		goto error_rx_setup;
 	i2400m->work_queue = create_singlethread_workqueue(wimax_dev->name);
 	if (i2400m->work_queue == NULL) {
 		result = -ENOMEM;
 		dev_err(dev, "cannot create workqueue\n");
 		goto error_create_workqueue;
 	}
+	result = i2400m->bus_dev_start(i2400m);
+	if (result < 0)
+		goto error_bus_dev_start;
+	result = i2400m_firmware_check(i2400m);	/* fw versions ok? */
+	if (result < 0)
+		goto error_fw_check;
 	/* At this point is ok to send commands to the device */
 	result = i2400m_check_mac_addr(i2400m);
 	if (result < 0)
@@ -421,15 +443,18 @@ retry:
 
 error_dev_initialize:
 error_check_mac_addr:
-	destroy_workqueue(i2400m->work_queue);
-error_create_workqueue:
+error_fw_check:
 	i2400m->bus_dev_stop(i2400m);
 error_bus_dev_start:
+	destroy_workqueue(i2400m->work_queue);
+error_create_workqueue:
+	i2400m_rx_release(i2400m);
+error_rx_setup:
 	i2400m_tx_release(i2400m);
 error_tx_setup:
 error_bootstrap:
-	if (result == -ERESTARTSYS && times-- > 0) {
-		flags = I2400M_BRI_SOFT;
+	if (result == -EL3RST && times-- > 0) {
+		flags = I2400M_BRI_SOFT|I2400M_BRI_MAC_REINIT;
 		goto retry;
 	}
 	d_fnend(3, dev, "(net_dev %p [i2400m %p]) = %d\n",
@@ -458,7 +483,9 @@ int i2400m_dev_start(struct i2400m *i2400m, enum i2400m_bri bm_flags)
  *
  * Returns: 0 if ok, < 0 errno code on error.
  *
- * Releases all the resources allocated to communicate with the device.
+ * Releases all the resources allocated to communicate with the
+ * device. Note we cannot destroy the workqueue earlier as until RX is
+ * fully destroyed, it could still try to schedule jobs.
  */
 static
 void __i2400m_dev_stop(struct i2400m *i2400m)
@@ -470,8 +497,9 @@ void __i2400m_dev_stop(struct i2400m *i2400m)
 	wimax_state_change(wimax_dev, __WIMAX_ST_QUIESCING);
 	i2400m_dev_shutdown(i2400m);
 	i2400m->ready = 0;
-	destroy_workqueue(i2400m->work_queue);
 	i2400m->bus_dev_stop(i2400m);
+	destroy_workqueue(i2400m->work_queue);
+	i2400m_rx_release(i2400m);
 	i2400m_tx_release(i2400m);
 	wimax_state_change(wimax_dev, WIMAX_ST_DOWN);
 	d_fnend(3, dev, "(i2400m %p) = 0\n", i2400m);
@@ -532,7 +560,7 @@ void __i2400m_dev_reset_handle(struct work_struct *ws)
 		 * i2400m_dev_stop() [we are shutting down anyway, so
 		 * ignore it] or we are resetting somewhere else. */
 		dev_err(dev, "device rebooted\n");
-		i2400m_msg_to_dev_cancel_wait(i2400m, -ERESTARTSYS);
+		i2400m_msg_to_dev_cancel_wait(i2400m, -EL3RST);
 		complete(&i2400m->msg_completion);
 		goto out;
 	}
@@ -582,6 +610,8 @@ out:
  */
 int i2400m_dev_reset_handle(struct i2400m *i2400m)
 {
+	i2400m->boot_mode = 1;
+	wmb();		/* Make sure i2400m_msg_to_dev() sees boot_mode */
 	return i2400m_schedule_work(i2400m, __i2400m_dev_reset_handle,
 				    GFP_ATOMIC);
 }
@@ -613,7 +643,7 @@ int i2400m_setup(struct i2400m *i2400m, enum i2400m_bri bm_flags)
 	d_fnstart(3, dev, "(i2400m %p)\n", i2400m);
 
 	snprintf(wimax_dev->name, sizeof(wimax_dev->name),
-		 "i2400m-%s:%s", dev->bus->name, dev->bus_id);
+		 "i2400m-%s:%s", dev->bus->name, dev_name(dev));
 
 	i2400m->bm_cmd_buf = kzalloc(I2400M_BM_CMD_BUF_SIZE, GFP_KERNEL);
 	if (i2400m->bm_cmd_buf == NULL) {
@@ -634,6 +664,7 @@ int i2400m_setup(struct i2400m *i2400m, enum i2400m_bri bm_flags)
 	result = i2400m_read_mac_addr(i2400m);
 	if (result < 0)
 		goto error_read_mac_addr;
+	random_ether_addr(i2400m->src_mac_addr);
 
 	result = register_netdev(net_dev);	/* Okey dokey, bring it up */
 	if (result < 0) {
@@ -657,6 +688,11 @@ int i2400m_setup(struct i2400m *i2400m, enum i2400m_bri bm_flags)
 	wimax_state_change(wimax_dev, WIMAX_ST_UNINITIALIZED);
 
 	/* Now setup all that requires a registered net and wimax device. */
+	result = sysfs_create_group(&net_dev->dev.kobj, &i2400m_dev_attr_group);
+	if (result < 0) {
+		dev_err(dev, "cannot setup i2400m's sysfs: %d\n", result);
+		goto error_sysfs_setup;
+	}
 	result = i2400m_debugfs_add(i2400m);
 	if (result < 0) {
 		dev_err(dev, "cannot setup i2400m's debugfs: %d\n", result);
@@ -666,6 +702,9 @@ int i2400m_setup(struct i2400m *i2400m, enum i2400m_bri bm_flags)
 	return result;
 
 error_debugfs_setup:
+	sysfs_remove_group(&i2400m->wimax_dev.net_dev->dev.kobj,
+			   &i2400m_dev_attr_group);
+error_sysfs_setup:
 	wimax_dev_rm(&i2400m->wimax_dev);
 error_wimax_dev_add:
 	i2400m_dev_stop(i2400m);
@@ -697,6 +736,8 @@ void i2400m_release(struct i2400m *i2400m)
 	netif_stop_queue(i2400m->wimax_dev.net_dev);
 
 	i2400m_debugfs_rm(i2400m);
+	sysfs_remove_group(&i2400m->wimax_dev.net_dev->dev.kobj,
+			   &i2400m_dev_attr_group);
 	wimax_dev_rm(&i2400m->wimax_dev);
 	i2400m_dev_stop(i2400m);
 	unregister_netdev(i2400m->wimax_dev.net_dev);

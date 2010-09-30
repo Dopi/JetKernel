@@ -34,13 +34,13 @@
 #include "xfs_dir2_sf.h"
 #include "xfs_dinode.h"
 #include "xfs_inode.h"
+#include "xfs_ioctl.h"
 #include "xfs_btree.h"
 #include "xfs_ialloc.h"
 #include "xfs_rtalloc.h"
 #include "xfs_itable.h"
 #include "xfs_error.h"
 #include "xfs_rw.h"
-#include "xfs_acl.h"
 #include "xfs_attr.h"
 #include "xfs_bmap.h"
 #include "xfs_buf_item.h"
@@ -78,92 +78,74 @@ xfs_find_handle(
 	int			hsize;
 	xfs_handle_t		handle;
 	struct inode		*inode;
+	struct file		*file = NULL;
+	struct path		path;
+	int			error;
+	struct xfs_inode	*ip;
 
-	memset((char *)&handle, 0, sizeof(handle));
-
-	switch (cmd) {
-	case XFS_IOC_PATH_TO_FSHANDLE:
-	case XFS_IOC_PATH_TO_HANDLE: {
-		struct path path;
-		int error = user_lpath((const char __user *)hreq->path, &path);
-		if (error)
-			return error;
-
-		ASSERT(path.dentry);
-		ASSERT(path.dentry->d_inode);
-		inode = igrab(path.dentry->d_inode);
-		path_put(&path);
-		break;
-	}
-
-	case XFS_IOC_FD_TO_HANDLE: {
-		struct file	*file;
-
+	if (cmd == XFS_IOC_FD_TO_HANDLE) {
 		file = fget(hreq->fd);
 		if (!file)
-		    return -EBADF;
-
-		ASSERT(file->f_path.dentry);
-		ASSERT(file->f_path.dentry->d_inode);
-		inode = igrab(file->f_path.dentry->d_inode);
-		fput(file);
-		break;
+			return -EBADF;
+		inode = file->f_path.dentry->d_inode;
+	} else {
+		error = user_lpath((const char __user *)hreq->path, &path);
+		if (error)
+			return error;
+		inode = path.dentry->d_inode;
 	}
+	ip = XFS_I(inode);
 
-	default:
-		ASSERT(0);
-		return -XFS_ERROR(EINVAL);
-	}
+	/*
+	 * We can only generate handles for inodes residing on a XFS filesystem,
+	 * and only for regular files, directories or symbolic links.
+	 */
+	error = -EINVAL;
+	if (inode->i_sb->s_magic != XFS_SB_MAGIC)
+		goto out_put;
 
-	if (inode->i_sb->s_magic != XFS_SB_MAGIC) {
-		/* we're not in XFS anymore, Toto */
-		iput(inode);
-		return -XFS_ERROR(EINVAL);
-	}
+	error = -EBADF;
+	if (!S_ISREG(inode->i_mode) &&
+	    !S_ISDIR(inode->i_mode) &&
+	    !S_ISLNK(inode->i_mode))
+		goto out_put;
 
-	switch (inode->i_mode & S_IFMT) {
-	case S_IFREG:
-	case S_IFDIR:
-	case S_IFLNK:
-		break;
-	default:
-		iput(inode);
-		return -XFS_ERROR(EBADF);
-	}
 
-	/* now we can grab the fsid */
-	memcpy(&handle.ha_fsid, XFS_I(inode)->i_mount->m_fixedfsid,
-			sizeof(xfs_fsid_t));
-	hsize = sizeof(xfs_fsid_t);
+	memcpy(&handle.ha_fsid, ip->i_mount->m_fixedfsid, sizeof(xfs_fsid_t));
 
-	if (cmd != XFS_IOC_PATH_TO_FSHANDLE) {
-		xfs_inode_t	*ip = XFS_I(inode);
+	if (cmd == XFS_IOC_PATH_TO_FSHANDLE) {
+		/*
+		 * This handle only contains an fsid, zero the rest.
+		 */
+		memset(&handle.ha_fid, 0, sizeof(handle.ha_fid));
+		hsize = sizeof(xfs_fsid_t);
+	} else {
 		int		lock_mode;
 
-		/* need to get access to the xfs_inode to read the generation */
 		lock_mode = xfs_ilock_map_shared(ip);
-
-		/* fill in fid section of handle from inode */
 		handle.ha_fid.fid_len = sizeof(xfs_fid_t) -
 					sizeof(handle.ha_fid.fid_len);
 		handle.ha_fid.fid_pad = 0;
 		handle.ha_fid.fid_gen = ip->i_d.di_gen;
 		handle.ha_fid.fid_ino = ip->i_ino;
-
 		xfs_iunlock_map_shared(ip, lock_mode);
 
 		hsize = XFS_HSIZE(handle);
 	}
 
-	/* now copy our handle into the user buffer & write out the size */
+	error = -EFAULT;
 	if (copy_to_user(hreq->ohandle, &handle, hsize) ||
-	    copy_to_user(hreq->ohandlen, &hsize, sizeof(__s32))) {
-		iput(inode);
-		return -XFS_ERROR(EFAULT);
-	}
+	    copy_to_user(hreq->ohandlen, &hsize, sizeof(__s32)))
+		goto out_put;
 
-	iput(inode);
-	return 0;
+	error = 0;
+
+ out_put:
+	if (cmd == XFS_IOC_FD_TO_HANDLE)
+		fput(file);
+	else
+		path_put(&path);
+	return error;
 }
 
 /*
@@ -506,17 +488,12 @@ xfs_attrmulti_attr_set(
 	if (len > XATTR_SIZE_MAX)
 		return EINVAL;
 
-	kbuf = kmalloc(len, GFP_KERNEL);
-	if (!kbuf)
-		return ENOMEM;
-
-	if (copy_from_user(kbuf, ubuf, len))
-		goto out_kfree;
+	kbuf = memdup_user(ubuf, len);
+	if (IS_ERR(kbuf))
+		return PTR_ERR(kbuf);
 
 	error = xfs_attr_set(XFS_I(inode), name, kbuf, len, flags);
 
- out_kfree:
-	kfree(kbuf);
 	return error;
 }
 
@@ -557,19 +534,15 @@ xfs_attrmulti_by_handle(
 	if (!size || size > 16 * PAGE_SIZE)
 		goto out_dput;
 
-	error = ENOMEM;
-	ops = kmalloc(size, GFP_KERNEL);
-	if (!ops)
+	ops = memdup_user(am_hreq.ops, size);
+	if (IS_ERR(ops)) {
+		error = PTR_ERR(ops);
 		goto out_dput;
-
-	error = EFAULT;
-	if (copy_from_user(ops, am_hreq.ops, size))
-		goto out_kfree_ops;
+	}
 
 	attr_name = kmalloc(MAXNAMELEN, GFP_KERNEL);
 	if (!attr_name)
 		goto out_kfree_ops;
-
 
 	error = 0;
 	for (i = 0; i < am_hreq.opcount; i++) {
@@ -925,7 +898,8 @@ xfs_ioctl_setattr(
 	struct xfs_mount	*mp = ip->i_mount;
 	struct xfs_trans	*tp;
 	unsigned int		lock_flags = 0;
-	struct xfs_dquot	*udqp = NULL, *gdqp = NULL;
+	struct xfs_dquot	*udqp = NULL;
+	struct xfs_dquot	*gdqp = NULL;
 	struct xfs_dquot	*olddquot = NULL;
 	int			code;
 
@@ -945,7 +919,7 @@ xfs_ioctl_setattr(
 	 * because the i_*dquot fields will get updated anyway.
 	 */
 	if (XFS_IS_QUOTA_ON(mp) && (mask & FSX_PROJID)) {
-		code = XFS_QM_DQVOPALLOC(mp, ip, ip->i_d.di_uid,
+		code = xfs_qm_vop_dqalloc(ip, ip->i_d.di_uid,
 					 ip->i_d.di_gid, fa->fsx_projid,
 					 XFS_QMOPT_PQUOTA, &udqp, &gdqp);
 		if (code)
@@ -980,10 +954,11 @@ xfs_ioctl_setattr(
 	 * Do a quota reservation only if projid is actually going to change.
 	 */
 	if (mask & FSX_PROJID) {
-		if (XFS_IS_PQUOTA_ON(mp) &&
+		if (XFS_IS_QUOTA_RUNNING(mp) &&
+		    XFS_IS_PQUOTA_ON(mp) &&
 		    ip->i_d.di_projid != fa->fsx_projid) {
 			ASSERT(tp);
-			code = XFS_QM_DQVOPCHOWNRESV(mp, tp, ip, udqp, gdqp,
+			code = xfs_qm_vop_chown_reserve(tp, ip, udqp, gdqp,
 						capable(CAP_FOWNER) ?
 						XFS_QMOPT_FORCE_RES : 0);
 			if (code)	/* out of quota */
@@ -1085,8 +1060,8 @@ xfs_ioctl_setattr(
 		 * in the transaction.
 		 */
 		if (ip->i_d.di_projid != fa->fsx_projid) {
-			if (XFS_IS_PQUOTA_ON(mp)) {
-				olddquot = XFS_QM_DQVOPCHOWN(mp, tp, ip,
+			if (XFS_IS_QUOTA_RUNNING(mp) && XFS_IS_PQUOTA_ON(mp)) {
+				olddquot = xfs_qm_vop_chown(tp, ip,
 							&ip->i_gdquot, gdqp);
 			}
 			ip->i_d.di_projid = fa->fsx_projid;
@@ -1132,9 +1107,9 @@ xfs_ioctl_setattr(
 	/*
 	 * Release any dquot(s) the inode had kept before chown.
 	 */
-	XFS_QM_DQRELE(mp, olddquot);
-	XFS_QM_DQRELE(mp, udqp);
-	XFS_QM_DQRELE(mp, gdqp);
+	xfs_qm_dqrele(olddquot);
+	xfs_qm_dqrele(udqp);
+	xfs_qm_dqrele(gdqp);
 
 	if (code)
 		return code;
@@ -1148,8 +1123,8 @@ xfs_ioctl_setattr(
 	return 0;
 
  error_return:
-	XFS_QM_DQRELE(mp, udqp);
-	XFS_QM_DQRELE(mp, gdqp);
+	xfs_qm_dqrele(udqp);
+	xfs_qm_dqrele(gdqp);
 	xfs_trans_cancel(tp, 0);
 	if (lock_flags)
 		xfs_iunlock(ip, lock_flags);

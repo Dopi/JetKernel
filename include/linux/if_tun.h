@@ -46,6 +46,8 @@
 #define TUNSETOFFLOAD  _IOW('T', 208, unsigned int)
 #define TUNSETTXFILTER _IOW('T', 209, unsigned int)
 #define TUNGETIFF      _IOR('T', 210, unsigned int)
+#define TUNGETSNDBUF   _IOR('T', 211, int)
+#define TUNSETSNDBUF   _IOW('T', 212, int)
 
 /* TUNSETIFF ifr flags */
 #define IFF_TUN		0x0001
@@ -53,6 +55,7 @@
 #define IFF_NO_PI	0x1000
 #define IFF_ONE_QUEUE	0x2000
 #define IFF_VNET_HDR	0x4000
+#define IFF_TUN_EXCL	0x8000
 
 /* Features for GSO (TUNSETOFFLOAD). */
 #define TUN_F_CSUM	0x01	/* You can hand me unchecksummed packets. */

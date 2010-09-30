@@ -63,6 +63,15 @@ asmlinkage long sys_mmap2(unsigned long addr, unsigned long len,
 	unsigned long prot, unsigned long flags,
 	unsigned long fd, unsigned long pgoff)
 {
+	/*
+	 * The shift for mmap2 is constant, regardless of PAGE_SIZE
+	 * setting.
+	 */
+	if (pgoff & ((1 << (PAGE_SHIFT - 12)) - 1))
+		return -EINVAL;
+
+	pgoff >>= PAGE_SHIFT - 12;
+
 	return do_mmap2(addr, len, prot, flags, fd, pgoff);
 }
 
@@ -78,8 +87,6 @@ asmlinkage int sys_ipc(uint call, int first, int second,
 
 	version = call >> 16; /* hack for backward compatibility */
 	call &= 0xffff;
-
-	trace_mark(kernel_arch_ipc_call, "call %u first %d", call, first);
 
 	if (call <= SEMTIMEDOP)
 		switch (call) {

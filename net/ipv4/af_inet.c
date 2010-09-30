@@ -116,7 +116,6 @@
 #include <linux/mroute.h>
 #endif
 
-extern void ip_mc_drop_socket(struct sock *sk);
 
 /* The inetsw table contains everything that inet_create needs to
  * build a new socket.
@@ -369,13 +368,13 @@ lookup_protocol:
 	sock_init_data(sock, sk);
 
 	sk->sk_destruct	   = inet_sock_destruct;
-	sk->sk_family	   = PF_INET;
 	sk->sk_protocol	   = protocol;
 	sk->sk_backlog_rcv = sk->sk_prot->backlog_rcv;
 
 	inet->uc_ttl	= -1;
 	inet->mc_loop	= 1;
 	inet->mc_ttl	= 1;
+	inet->mc_all	= 1;
 	inet->mc_index	= 0;
 	inet->mc_list	= NULL;
 
@@ -1004,8 +1003,6 @@ void inet_register_protosw(struct inet_protosw *p)
 out:
 	spin_unlock_bh(&inetsw_lock);
 
-	synchronize_net();
-
 	return;
 
 out_permanent:
@@ -1249,14 +1246,21 @@ static struct sk_buff **inet_gro_receive(struct sk_buff **head,
 	struct sk_buff **pp = NULL;
 	struct sk_buff *p;
 	struct iphdr *iph;
+	unsigned int hlen;
+	unsigned int off;
+	unsigned int id;
 	int flush = 1;
 	int proto;
-	int id;
 
-	if (unlikely(!pskb_may_pull(skb, sizeof(*iph))))
-		goto out;
+	off = skb_gro_offset(skb);
+	hlen = off + sizeof(*iph);
+	iph = skb_gro_header_fast(skb, off);
+	if (skb_gro_header_hard(skb, hlen)) {
+		iph = skb_gro_header_slow(skb, hlen, off);
+		if (unlikely(!iph))
+			goto out;
+	}
 
-	iph = ip_hdr(skb);
 	proto = iph->protocol & (MAX_INET_PROTOS - 1);
 
 	rcu_read_lock();
@@ -1264,15 +1268,15 @@ static struct sk_buff **inet_gro_receive(struct sk_buff **head,
 	if (!ops || !ops->gro_receive)
 		goto out_unlock;
 
-	if (iph->version != 4 || iph->ihl != 5)
+	if (*(u8 *)iph != 0x45)
 		goto out_unlock;
 
 	if (unlikely(ip_fast_csum((u8 *)iph, iph->ihl)))
 		goto out_unlock;
 
-	flush = ntohs(iph->tot_len) != skb->len ||
-		iph->frag_off != htons(IP_DF);
-	id = ntohs(iph->id);
+	id = ntohl(*(u32 *)&iph->id);
+	flush = (u16)((ntohl(*(u32 *)iph) ^ skb_gro_len(skb)) | (id ^ IP_DF));
+	id >>= 16;
 
 	for (p = *head; p; p = p->next) {
 		struct iphdr *iph2;
@@ -1282,24 +1286,25 @@ static struct sk_buff **inet_gro_receive(struct sk_buff **head,
 
 		iph2 = ip_hdr(p);
 
-		if (iph->protocol != iph2->protocol ||
-		    iph->tos != iph2->tos ||
-		    memcmp(&iph->saddr, &iph2->saddr, 8)) {
+		if ((iph->protocol ^ iph2->protocol) |
+		    (iph->tos ^ iph2->tos) |
+		    (iph->saddr ^ iph2->saddr) |
+		    (iph->daddr ^ iph2->daddr)) {
 			NAPI_GRO_CB(p)->same_flow = 0;
 			continue;
 		}
 
 		/* All fields must match except length and checksum. */
 		NAPI_GRO_CB(p)->flush |=
-			memcmp(&iph->frag_off, &iph2->frag_off, 4) ||
-			(u16)(ntohs(iph2->id) + NAPI_GRO_CB(p)->count) != id;
+			(iph->ttl ^ iph2->ttl) |
+			((u16)(ntohs(iph2->id) + NAPI_GRO_CB(p)->count) ^ id);
 
 		NAPI_GRO_CB(p)->flush |= flush;
 	}
 
 	NAPI_GRO_CB(skb)->flush |= flush;
-	__skb_pull(skb, sizeof(*iph));
-	skb_reset_transport_header(skb);
+	skb_gro_pull(skb, sizeof(*iph));
+	skb_set_transport_header(skb, skb_gro_offset(skb));
 
 	pp = ops->gro_receive(head, skb);
 
@@ -1375,10 +1380,10 @@ EXPORT_SYMBOL_GPL(snmp_fold_field);
 int snmp_mib_init(void *ptr[2], size_t mibsize)
 {
 	BUG_ON(ptr == NULL);
-	ptr[0] = __alloc_percpu(mibsize);
+	ptr[0] = __alloc_percpu(mibsize, __alignof__(unsigned long long));
 	if (!ptr[0])
 		goto err0;
-	ptr[1] = __alloc_percpu(mibsize);
+	ptr[1] = __alloc_percpu(mibsize, __alignof__(unsigned long long));
 	if (!ptr[1])
 		goto err1;
 	return 0;
@@ -1500,8 +1505,8 @@ static int ipv4_proc_init(void);
  *	IP protocol layer initialiser
  */
 
-static struct packet_type ip_packet_type = {
-	.type = __constant_htons(ETH_P_IP),
+static struct packet_type ip_packet_type __read_mostly = {
+	.type = cpu_to_be16(ETH_P_IP),
 	.func = ip_rcv,
 	.gso_send_check = inet_gso_send_check,
 	.gso_segment = inet_gso_segment,

@@ -33,25 +33,17 @@ extern int gspca_debug;
 #endif
 #undef err
 #define err(fmt, args...) \
-	do {\
-		printk(KERN_ERR MODULE_NAME ": " fmt "\n", ## args); \
-	} while (0)
+	printk(KERN_ERR MODULE_NAME ": " fmt "\n", ## args)
 #undef info
 #define info(fmt, args...) \
-	do {\
-		printk(KERN_INFO MODULE_NAME ": " fmt "\n", ## args); \
-	} while (0)
+	printk(KERN_INFO MODULE_NAME ": " fmt "\n", ## args)
 #undef warn
 #define warn(fmt, args...) \
-	do {\
-		printk(KERN_WARNING MODULE_NAME ": " fmt "\n", ## args); \
-	} while (0)
+	printk(KERN_WARNING MODULE_NAME ": " fmt "\n", ## args)
 
 #define GSPCA_MAX_FRAMES 16	/* maximum number of video frame buffers */
 /* image transfers */
 #define MAX_NURBS 4		/* max number of URBs */
-#define ISO_MAX_PKT 32		/* max number of packets in an ISOC transfer */
-#define ISO_MAX_SIZE 0x8000	/* max size of one URB buffer (32 Kb) */
 
 /* device information - set at probe time */
 struct cam {
@@ -62,7 +54,10 @@ struct cam {
 				 * - cannot be > MAX_NURBS
 				 * - when 0 and bulk_size != 0 means
 				 *   1 URB and submit done by subdriver */
-	__u8 epaddr;
+	u8 bulk;		/* image transfer by 0:isoc / 1:bulk */
+	u8 npkt;		/* number of packets in an ISOC message
+				 * 0 is the default value: 32 packets */
+	u32 input_flags;	/* value for ENUM_INPUT status flags */
 };
 
 struct gspca_dev;
@@ -74,6 +69,10 @@ typedef void (*cam_v_op) (struct gspca_dev *);
 typedef int (*cam_cf_op) (struct gspca_dev *, const struct usb_device_id *);
 typedef int (*cam_jpg_op) (struct gspca_dev *,
 				struct v4l2_jpegcompression *);
+typedef int (*cam_reg_op) (struct gspca_dev *,
+				struct v4l2_dbg_register *);
+typedef int (*cam_ident_op) (struct gspca_dev *,
+				struct v4l2_dbg_chip_ident *);
 typedef int (*cam_streamparm_op) (struct gspca_dev *,
 				  struct v4l2_streamparm *);
 typedef int (*cam_qmnu_op) (struct gspca_dev *,
@@ -110,6 +109,11 @@ struct sd_desc {
 	cam_qmnu_op querymenu;
 	cam_streamparm_op get_streamparm;
 	cam_streamparm_op set_streamparm;
+#ifdef CONFIG_VIDEO_ADV_DEBUG
+	cam_reg_op set_register;
+	cam_reg_op get_register;
+#endif
+	cam_ident_op get_chip_ident;
 };
 
 /* packet types when moving from iso buf to frame buf */

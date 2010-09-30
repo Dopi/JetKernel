@@ -526,6 +526,15 @@ ALT_FW_FTR_SECTION_END_IFCLR(FW_FEATURE_ISERIES)
 2:
 	TRACE_AND_RESTORE_IRQ(r5);
 
+#ifdef CONFIG_PERF_COUNTERS
+	/* check paca->perf_counter_pending if we're enabling ints */
+	lbz	r3,PACAPERFPEND(r13)
+	and.	r3,r3,r5
+	beq	27f
+	bl	.perf_counter_do_pending
+27:
+#endif /* CONFIG_PERF_COUNTERS */
+
 	/* extract EE bit and use it to restore paca->hard_enabled */
 	ld	r3,_MSR(r1)
 	rldicl	r4,r3,49,63		/* r0 = (r3 >> 15) & 1 */
@@ -908,6 +917,12 @@ _GLOBAL(ftrace_caller)
 ftrace_call:
 	bl	ftrace_stub
 	nop
+#ifdef CONFIG_FUNCTION_GRAPH_TRACER
+.globl ftrace_graph_call
+ftrace_graph_call:
+	b	ftrace_graph_stub
+_GLOBAL(ftrace_graph_stub)
+#endif
 	ld	r0, 128(r1)
 	mtlr	r0
 	addi	r1, r1, 112
@@ -931,13 +946,90 @@ _GLOBAL(_mcount)
 	ld	r5,0(r5)
 	mtctr	r5
 	bctrl
-
 	nop
+
+
+#ifdef CONFIG_FUNCTION_GRAPH_TRACER
+	b	ftrace_graph_caller
+#endif
 	ld	r0, 128(r1)
 	mtlr	r0
 	addi	r1, r1, 112
 _GLOBAL(ftrace_stub)
 	blr
 
-#endif
-#endif
+#endif /* CONFIG_DYNAMIC_FTRACE */
+
+#ifdef CONFIG_FUNCTION_GRAPH_TRACER
+_GLOBAL(ftrace_graph_caller)
+	/* load r4 with local address */
+	ld	r4, 128(r1)
+	subi	r4, r4, MCOUNT_INSN_SIZE
+
+	/* get the parent address */
+	ld	r11, 112(r1)
+	addi	r3, r11, 16
+
+	bl	.prepare_ftrace_return
+	nop
+
+	ld	r0, 128(r1)
+	mtlr	r0
+	addi	r1, r1, 112
+	blr
+
+_GLOBAL(return_to_handler)
+	/* need to save return values */
+	std	r4,  -24(r1)
+	std	r3,  -16(r1)
+	std	r31, -8(r1)
+	mr	r31, r1
+	stdu	r1, -112(r1)
+
+	bl	.ftrace_return_to_handler
+	nop
+
+	/* return value has real return address */
+	mtlr	r3
+
+	ld	r1, 0(r1)
+	ld	r4,  -24(r1)
+	ld	r3,  -16(r1)
+	ld	r31, -8(r1)
+
+	/* Jump back to real return address */
+	blr
+
+_GLOBAL(mod_return_to_handler)
+	/* need to save return values */
+	std	r4,  -32(r1)
+	std	r3,  -24(r1)
+	/* save TOC */
+	std	r2,  -16(r1)
+	std	r31, -8(r1)
+	mr	r31, r1
+	stdu	r1, -112(r1)
+
+	/*
+	 * We are in a module using the module's TOC.
+	 * Switch to our TOC to run inside the core kernel.
+	 */
+	LOAD_REG_IMMEDIATE(r4,ftrace_return_to_handler)
+	ld	r2, 8(r4)
+
+	bl	.ftrace_return_to_handler
+	nop
+
+	/* return value has real return address */
+	mtlr	r3
+
+	ld	r1, 0(r1)
+	ld	r4,  -32(r1)
+	ld	r3,  -24(r1)
+	ld	r2,  -16(r1)
+	ld	r31, -8(r1)
+
+	/* Jump back to real return address */
+	blr
+#endif /* CONFIG_FUNCTION_GRAPH_TRACER */
+#endif /* CONFIG_FUNCTION_TRACER */

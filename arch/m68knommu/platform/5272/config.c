@@ -12,7 +12,6 @@
 #include <linux/kernel.h>
 #include <linux/param.h>
 #include <linux/init.h>
-#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <asm/machdep.h>
 #include <asm/coldfire.h>
@@ -20,8 +19,6 @@
 #include <asm/mcfuart.h>
 
 /***************************************************************************/
-
-void coldfire_reset(void);
 
 extern unsigned int mcf_timervector;
 extern unsigned int mcf_profilevector;
@@ -55,8 +52,39 @@ static struct platform_device m5272_uart = {
 	.dev.platform_data	= m5272_uart_platform,
 };
 
+static struct resource m5272_fec_resources[] = {
+	{
+		.start		= MCF_MBAR + 0x840,
+		.end		= MCF_MBAR + 0x840 + 0x1cf,
+		.flags		= IORESOURCE_MEM,
+	},
+	{
+		.start		= 86,
+		.end		= 86,
+		.flags		= IORESOURCE_IRQ,
+	},
+	{
+		.start		= 87,
+		.end		= 87,
+		.flags		= IORESOURCE_IRQ,
+	},
+	{
+		.start		= 88,
+		.end		= 88,
+		.flags		= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device m5272_fec = {
+	.name			= "fec",
+	.id			= 0,
+	.num_resources		= ARRAY_SIZE(m5272_fec_resources),
+	.resource		= m5272_fec_resources,
+};
+
 static struct platform_device *m5272_devices[] __initdata = {
 	&m5272_uart,
+	&m5272_fec,
 };
 
 /***************************************************************************/
@@ -87,6 +115,22 @@ static void __init m5272_uarts_init(void)
 
 	for (line = 0; (line < nrlines); line++)
 		m5272_uart_init_line(line, m5272_uart_platform[line].irq);
+}
+
+/***************************************************************************/
+
+static void __init m5272_fec_init(void)
+{
+	u32 imr;
+
+	/* Unmask FEC interrupts at ColdFire interrupt controller */
+	imr = readl(MCF_MBAR + MCFSIM_ICR3);
+	imr = (imr & ~0x00000fff) | 0x00000ddd;
+	writel(imr, MCF_MBAR + MCFSIM_ICR3);
+
+	imr = readl(MCF_MBAR + MCFSIM_ICR1);
+	imr = (imr & ~0x0f000000) | 0x0d000000;
+	writel(imr, MCF_MBAR + MCFSIM_ICR1);
 }
 
 /***************************************************************************/
@@ -123,6 +167,19 @@ void mcf_settimericr(int timer, int level)
 
 /***************************************************************************/
 
+static void m5272_cpu_reset(void)
+{
+	local_irq_disable();
+	/* Set watchdog to reset, and enabled */
+	__raw_writew(0, MCF_MBAR + MCFSIM_WIRR);
+	__raw_writew(1, MCF_MBAR + MCFSIM_WRRR);
+	__raw_writew(0, MCF_MBAR + MCFSIM_WCR);
+	for (;;)
+		/* wait for watchdog to timeout */;
+}
+
+/***************************************************************************/
+
 void __init config_BSP(char *commandp, int size)
 {
 #if defined (CONFIG_MOD5272)
@@ -147,7 +204,7 @@ void __init config_BSP(char *commandp, int size)
 
 	mcf_timervector = 69;
 	mcf_profilevector = 70;
-	mach_reset = coldfire_reset;
+	mach_reset = m5272_cpu_reset;
 }
 
 /***************************************************************************/
@@ -155,6 +212,7 @@ void __init config_BSP(char *commandp, int size)
 static int __init init_BSP(void)
 {
 	m5272_uarts_init();
+	m5272_fec_init();
 	platform_add_devices(m5272_devices, ARRAY_SIZE(m5272_devices));
 	return 0;
 }

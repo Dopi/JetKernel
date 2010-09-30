@@ -11,6 +11,7 @@
 
 
 #ifndef __ASSEMBLY__
+#include <linux/smp.h>
 #include <linux/types.h>
 #endif /* !__ASSEMBLY__ */
 
@@ -359,11 +360,11 @@
 	TO_NODE_UNCAC((nasid), LAUNCH_OFFSET(nasid, slice))
 #define LAUNCH_SIZE(nasid)	KLD_LAUNCH(nasid)->size
 
-#define NMI_OFFSET(nasid, slice)					\
+#define SN_NMI_OFFSET(nasid, slice)					\
 	(KLD_NMI(nasid)->offset +					\
 	 KLD_NMI(nasid)->stride * (slice))
 #define NMI_ADDR(nasid, slice)						\
-	TO_NODE_UNCAC((nasid), NMI_OFFSET(nasid, slice))
+	TO_NODE_UNCAC((nasid), SN_NMI_OFFSET(nasid, slice))
 #define NMI_SIZE(nasid)	KLD_NMI(nasid)->size
 
 #define KLCONFIG_OFFSET(nasid)	KLD_KLCONFIG(nasid)->offset

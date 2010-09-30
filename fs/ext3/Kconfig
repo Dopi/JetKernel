@@ -28,6 +28,27 @@ config EXT3_FS
 	  To compile this file system support as a module, choose M here: the
 	  module will be called ext3.
 
+config EXT3_DEFAULTS_TO_ORDERED
+	bool "Default to 'data=ordered' in ext3"
+	depends on EXT3_FS
+	help
+	  The journal mode options for ext3 have different tradeoffs
+	  between when data is guaranteed to be on disk and
+	  performance.	The use of "data=writeback" can cause
+	  unwritten data to appear in files after an system crash or
+	  power failure, which can be a security issue.	 However,
+	  "data=ordered" mode can also result in major performance
+	  problems, including seconds-long delays before an fsync()
+	  call returns.	 For details, see:
+
+	  http://ext4.wiki.kernel.org/index.php/Ext3_data_mode_tradeoffs
+
+	  If you have been historically happy with ext3's performance,
+	  data=ordered mode will be a safe choice and you should
+	  answer 'y' here.  If you understand the reliability and data
+	  privacy issues of data=writeback and are willing to make
+	  that trade off, answer 'n'.
+
 config EXT3_FS_XATTR
 	bool "Ext3 extended attributes"
 	depends on EXT3_FS

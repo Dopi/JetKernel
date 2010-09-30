@@ -18,6 +18,7 @@
 #include <asm/thread_info.h>
 #include <asm/bootparam.h>
 #include <asm/elf.h>
+#include <asm/suspend.h>
 
 #include <xen/interface/xen.h>
 
@@ -75,6 +76,7 @@ void foo(void)
 	OFFSET(PT_DS,  pt_regs, ds);
 	OFFSET(PT_ES,  pt_regs, es);
 	OFFSET(PT_FS,  pt_regs, fs);
+	OFFSET(PT_GS,  pt_regs, gs);
 	OFFSET(PT_ORIG_EAX, pt_regs, orig_ax);
 	OFFSET(PT_EIP, pt_regs, ip);
 	OFFSET(PT_CS,  pt_regs, cs);
@@ -124,6 +126,7 @@ void foo(void)
 #if defined(CONFIG_LGUEST) || defined(CONFIG_LGUEST_GUEST) || defined(CONFIG_LGUEST_MODULE)
 	BLANK();
 	OFFSET(LGUEST_DATA_irq_enabled, lguest_data, irq_enabled);
+	OFFSET(LGUEST_DATA_irq_pending, lguest_data, irq_pending);
 	OFFSET(LGUEST_DATA_pgdir, lguest_data, pgdir);
 
 	BLANK();
@@ -144,4 +147,5 @@ void foo(void)
 	OFFSET(BP_loadflags, boot_params, hdr.loadflags);
 	OFFSET(BP_hardware_subarch, boot_params, hdr.hardware_subarch);
 	OFFSET(BP_version, boot_params, hdr.version);
+	OFFSET(BP_kernel_alignment, boot_params, hdr.kernel_alignment);
 }

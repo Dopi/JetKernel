@@ -26,12 +26,18 @@
 #define PCI_DEVICE_ID_INTEL_82965GME_IG     0x2A12
 #define PCI_DEVICE_ID_INTEL_82945GME_HB     0x27AC
 #define PCI_DEVICE_ID_INTEL_82945GME_IG     0x27AE
+#define PCI_DEVICE_ID_INTEL_IGDGM_HB        0xA010
+#define PCI_DEVICE_ID_INTEL_IGDGM_IG        0xA011
+#define PCI_DEVICE_ID_INTEL_IGDG_HB         0xA000
+#define PCI_DEVICE_ID_INTEL_IGDG_IG         0xA001
 #define PCI_DEVICE_ID_INTEL_G33_HB          0x29C0
 #define PCI_DEVICE_ID_INTEL_G33_IG          0x29C2
 #define PCI_DEVICE_ID_INTEL_Q35_HB          0x29B0
 #define PCI_DEVICE_ID_INTEL_Q35_IG          0x29B2
 #define PCI_DEVICE_ID_INTEL_Q33_HB          0x29D0
 #define PCI_DEVICE_ID_INTEL_Q33_IG          0x29D2
+#define PCI_DEVICE_ID_INTEL_B43_HB          0x2E40
+#define PCI_DEVICE_ID_INTEL_B43_IG          0x2E42
 #define PCI_DEVICE_ID_INTEL_GM45_HB         0x2A40
 #define PCI_DEVICE_ID_INTEL_GM45_IG         0x2A42
 #define PCI_DEVICE_ID_INTEL_IGD_E_HB        0x2E00
@@ -42,6 +48,12 @@
 #define PCI_DEVICE_ID_INTEL_G45_IG          0x2E22
 #define PCI_DEVICE_ID_INTEL_G41_HB          0x2E30
 #define PCI_DEVICE_ID_INTEL_G41_IG          0x2E32
+#define PCI_DEVICE_ID_INTEL_IGDNG_D_HB	    0x0040
+#define PCI_DEVICE_ID_INTEL_IGDNG_D_IG	    0x0042
+#define PCI_DEVICE_ID_INTEL_IGDNG_M_HB	    0x0044
+#define PCI_DEVICE_ID_INTEL_IGDNG_MA_HB	    0x0062
+#define PCI_DEVICE_ID_INTEL_IGDNG_MC2_HB    0x006a
+#define PCI_DEVICE_ID_INTEL_IGDNG_M_IG	    0x0046
 
 /* cover 915 and 945 variants */
 #define IS_I915 (agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_E7221_HB || \
@@ -60,13 +72,23 @@
 
 #define IS_G33 (agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_G33_HB || \
 		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_Q35_HB || \
-		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_Q33_HB)
+		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_Q33_HB || \
+		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_IGDGM_HB || \
+		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_IGDG_HB)
+
+#define IS_IGD (agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_IGDGM_HB || \
+		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_IGDG_HB)
 
 #define IS_G4X (agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_IGD_E_HB || \
 		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_Q45_HB || \
 		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_G45_HB || \
 		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_GM45_HB || \
-		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_G41_HB)
+		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_G41_HB || \
+		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_B43_HB || \
+		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_IGDNG_D_HB || \
+		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_IGDNG_M_HB || \
+		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_IGDNG_MA_HB || \
+		agp_bridge->dev->device == PCI_DEVICE_ID_INTEL_IGDNG_MC2_HB)
 
 extern int agp_memory_reserved;
 
@@ -242,7 +264,7 @@ static void intel_i810_agp_enable(struct agp_bridge_data *bridge, u32 mode)
 }
 
 /* Exists to support ARGB cursors */
-static void *i8xx_alloc_pages(void)
+static struct page *i8xx_alloc_pages(void)
 {
 	struct page *page;
 
@@ -257,17 +279,14 @@ static void *i8xx_alloc_pages(void)
 	}
 	get_page(page);
 	atomic_inc(&agp_bridge->current_memory_agp);
-	return page_address(page);
+	return page;
 }
 
-static void i8xx_destroy_pages(void *addr)
+static void i8xx_destroy_pages(struct page *page)
 {
-	struct page *page;
-
-	if (addr == NULL)
+	if (page == NULL)
 		return;
 
-	page = virt_to_page(addr);
 	set_pages_wb(page, 4);
 	put_page(page);
 	__free_pages(page, 2);
@@ -331,7 +350,7 @@ static int intel_i810_insert_entries(struct agp_memory *mem, off_t pg_start,
 			global_cache_flush();
 		for (i = 0, j = pg_start; i < mem->page_count; i++, j++) {
 			writel(agp_bridge->driver->mask_memory(agp_bridge,
-							       mem->memory[i],
+							       mem->pages[i],
 							       mask_type),
 			       intel_private.registers+I810_PTE_BASE+(j*4));
 		}
@@ -374,37 +393,37 @@ static int intel_i810_remove_entries(struct agp_memory *mem, off_t pg_start,
 static struct agp_memory *alloc_agpphysmem_i8xx(size_t pg_count, int type)
 {
 	struct agp_memory *new;
-	void *addr;
+	struct page *page;
 
 	switch (pg_count) {
-	case 1: addr = agp_bridge->driver->agp_alloc_page(agp_bridge);
+	case 1: page = agp_bridge->driver->agp_alloc_page(agp_bridge);
 		break;
 	case 4:
 		/* kludge to get 4 physical pages for ARGB cursor */
-		addr = i8xx_alloc_pages();
+		page = i8xx_alloc_pages();
 		break;
 	default:
 		return NULL;
 	}
 
-	if (addr == NULL)
+	if (page == NULL)
 		return NULL;
 
 	new = agp_create_memory(pg_count);
 	if (new == NULL)
 		return NULL;
 
-	new->memory[0] = virt_to_gart(addr);
+	new->pages[0] = page;
 	if (pg_count == 4) {
 		/* kludge to get 4 physical pages for ARGB cursor */
-		new->memory[1] = new->memory[0] + PAGE_SIZE;
-		new->memory[2] = new->memory[1] + PAGE_SIZE;
-		new->memory[3] = new->memory[2] + PAGE_SIZE;
+		new->pages[1] = new->pages[0] + 1;
+		new->pages[2] = new->pages[1] + 1;
+		new->pages[3] = new->pages[2] + 1;
 	}
 	new->page_count = pg_count;
 	new->num_scratch_pages = pg_count;
 	new->type = AGP_PHYS_MEMORY;
-	new->physical = new->memory[0];
+	new->physical = page_to_phys(new->pages[0]);
 	return new;
 }
 
@@ -436,13 +455,11 @@ static void intel_i810_free_by_type(struct agp_memory *curr)
 	agp_free_key(curr->key);
 	if (curr->type == AGP_PHYS_MEMORY) {
 		if (curr->page_count == 4)
-			i8xx_destroy_pages(gart_to_virt(curr->memory[0]));
+			i8xx_destroy_pages(curr->pages[0]);
 		else {
-			void *va = gart_to_virt(curr->memory[0]);
-
-			agp_bridge->driver->agp_destroy_page(va,
+			agp_bridge->driver->agp_destroy_page(curr->pages[0],
 							     AGP_PAGE_DESTROY_UNMAP);
-			agp_bridge->driver->agp_destroy_page(va,
+			agp_bridge->driver->agp_destroy_page(curr->pages[0],
 							     AGP_PAGE_DESTROY_FREE);
 		}
 		agp_free_page_array(curr);
@@ -451,8 +468,9 @@ static void intel_i810_free_by_type(struct agp_memory *curr)
 }
 
 static unsigned long intel_i810_mask_memory(struct agp_bridge_data *bridge,
-	unsigned long addr, int type)
+					    struct page *page, int type)
 {
+	unsigned long addr = phys_to_gart(page_to_phys(page));
 	/* Type checking must be done elsewhere */
 	return addr | bridge->driver->masks[type].mask;
 }
@@ -510,7 +528,7 @@ static void intel_i830_init_gtt_entries(void)
 			size = 512;
 		}
 		size += 4; /* add in BIOS popup space */
-	} else if (IS_G33) {
+	} else if (IS_G33 && !IS_IGD) {
 	/* G33's GTT size defined in gmch_ctrl */
 		switch (gmch_ctrl & G33_PGETBL_SIZE_MASK) {
 		case G33_PGETBL_SIZE_1M:
@@ -526,7 +544,7 @@ static void intel_i830_init_gtt_entries(void)
 			size = 512;
 		}
 		size += 4;
-	} else if (IS_G4X) {
+	} else if (IS_G4X || IS_IGD) {
 		/* On 4 series hardware, GTT stolen is separate from graphics
 		 * stolen, ignore it in stolen gtt entries counting.  However,
 		 * 4KB of the stolen memory doesn't get mapped to the GTT.
@@ -666,23 +684,39 @@ static void intel_i830_setup_flush(void)
 	if (!intel_private.i8xx_page)
 		return;
 
-	/* make page uncached */
-	map_page_into_agp(intel_private.i8xx_page);
-
 	intel_private.i8xx_flush_page = kmap(intel_private.i8xx_page);
 	if (!intel_private.i8xx_flush_page)
 		intel_i830_fini_flush();
 }
 
+static void
+do_wbinvd(void *null)
+{
+	wbinvd();
+}
+
+/* The chipset_flush interface needs to get data that has already been
+ * flushed out of the CPU all the way out to main memory, because the GPU
+ * doesn't snoop those buffers.
+ *
+ * The 8xx series doesn't have the same lovely interface for flushing the
+ * chipset write buffers that the later chips do. According to the 865
+ * specs, it's 64 octwords, or 1KB.  So, to get those previous things in
+ * that buffer out, we just fill 1KB and clflush it out, on the assumption
+ * that it'll push whatever was in there out.  It appears to work.
+ */
 static void intel_i830_chipset_flush(struct agp_bridge_data *bridge)
 {
 	unsigned int *pg = intel_private.i8xx_flush_page;
-	int i;
 
-	for (i = 0; i < 256; i += 2)
-		*(pg + i) = i;
+	memset(pg, 0, 1024);
 
-	wmb();
+	if (cpu_has_clflush) {
+		clflush_cache_range(pg, 1024);
+	} else {
+		if (on_each_cpu(do_wbinvd, NULL, 1) != 0)
+			printk(KERN_ERR "Timed out waiting for cache flush.\n");
+	}
 }
 
 /* The intel i830 automatically initializes the agp aperture during POST.
@@ -840,7 +874,7 @@ static int intel_i830_insert_entries(struct agp_memory *mem, off_t pg_start,
 
 	for (i = 0, j = pg_start; i < mem->page_count; i++, j++) {
 		writel(agp_bridge->driver->mask_memory(agp_bridge,
-						       mem->memory[i], mask_type),
+						       mem->pages[i], mask_type),
 		       intel_private.registers+I810_PTE_BASE+(j*4));
 	}
 	readl(intel_private.registers+I810_PTE_BASE+((j-1)*4));
@@ -1070,7 +1104,7 @@ static int intel_i915_insert_entries(struct agp_memory *mem, off_t pg_start,
 
 	for (i = 0, j = pg_start; i < mem->page_count; i++, j++) {
 		writel(agp_bridge->driver->mask_memory(agp_bridge,
-			mem->memory[i], mask_type), intel_private.gtt+j);
+						       mem->pages[i], mask_type), intel_private.gtt+j);
 	}
 
 	readl(intel_private.gtt+j-1);
@@ -1185,8 +1219,9 @@ static int intel_i915_create_gatt_table(struct agp_bridge_data *bridge)
  * this conditional.
  */
 static unsigned long intel_i965_mask_memory(struct agp_bridge_data *bridge,
-	unsigned long addr, int type)
+					    struct page *page, int type)
 {
+	dma_addr_t addr = phys_to_gart(page_to_phys(page));
 	/* Shift high bits down */
 	addr |= (addr >> 28) & 0xf0;
 
@@ -1202,6 +1237,11 @@ static void intel_i965_get_gtt_range(int *gtt_offset, int *gtt_size)
 	case PCI_DEVICE_ID_INTEL_Q45_HB:
 	case PCI_DEVICE_ID_INTEL_G45_HB:
 	case PCI_DEVICE_ID_INTEL_G41_HB:
+	case PCI_DEVICE_ID_INTEL_B43_HB:
+	case PCI_DEVICE_ID_INTEL_IGDNG_D_HB:
+	case PCI_DEVICE_ID_INTEL_IGDNG_M_HB:
+	case PCI_DEVICE_ID_INTEL_IGDNG_MA_HB:
+	case PCI_DEVICE_ID_INTEL_IGDNG_MC2_HB:
 		*gtt_offset = *gtt_size = MB(2);
 		break;
 	default:
@@ -2122,6 +2162,8 @@ static const struct intel_driver_description {
 	{ PCI_DEVICE_ID_INTEL_82845G_HB, PCI_DEVICE_ID_INTEL_82845G_IG, 0, "830M",
 		&intel_845_driver, &intel_830_driver },
 	{ PCI_DEVICE_ID_INTEL_82850_HB, 0, 0, "i850", &intel_850_driver, NULL },
+	{ PCI_DEVICE_ID_INTEL_82854_HB, PCI_DEVICE_ID_INTEL_82854_IG, 0, "854",
+		&intel_845_driver, &intel_830_driver },
 	{ PCI_DEVICE_ID_INTEL_82855PM_HB, 0, 0, "855PM", &intel_845_driver, NULL },
 	{ PCI_DEVICE_ID_INTEL_82855GM_HB, PCI_DEVICE_ID_INTEL_82855GM_IG, 0, "855GM",
 		&intel_845_driver, &intel_830_driver },
@@ -2161,6 +2203,10 @@ static const struct intel_driver_description {
 		NULL, &intel_g33_driver },
 	{ PCI_DEVICE_ID_INTEL_Q33_HB, PCI_DEVICE_ID_INTEL_Q33_IG, 0, "Q33",
 		NULL, &intel_g33_driver },
+	{ PCI_DEVICE_ID_INTEL_IGDGM_HB, PCI_DEVICE_ID_INTEL_IGDGM_IG, 0, "IGD",
+		NULL, &intel_g33_driver },
+	{ PCI_DEVICE_ID_INTEL_IGDG_HB, PCI_DEVICE_ID_INTEL_IGDG_IG, 0, "IGD",
+		NULL, &intel_g33_driver },
 	{ PCI_DEVICE_ID_INTEL_GM45_HB, PCI_DEVICE_ID_INTEL_GM45_IG, 0,
 	    "Mobile Intel® GM45 Express", NULL, &intel_i965_driver },
 	{ PCI_DEVICE_ID_INTEL_IGD_E_HB, PCI_DEVICE_ID_INTEL_IGD_E_IG, 0,
@@ -2169,8 +2215,18 @@ static const struct intel_driver_description {
 	    "Q45/Q43", NULL, &intel_i965_driver },
 	{ PCI_DEVICE_ID_INTEL_G45_HB, PCI_DEVICE_ID_INTEL_G45_IG, 0,
 	    "G45/G43", NULL, &intel_i965_driver },
+	{ PCI_DEVICE_ID_INTEL_B43_HB, PCI_DEVICE_ID_INTEL_B43_IG, 0,
+	    "B43", NULL, &intel_i965_driver },
 	{ PCI_DEVICE_ID_INTEL_G41_HB, PCI_DEVICE_ID_INTEL_G41_IG, 0,
 	    "G41", NULL, &intel_i965_driver },
+	{ PCI_DEVICE_ID_INTEL_IGDNG_D_HB, PCI_DEVICE_ID_INTEL_IGDNG_D_IG, 0,
+	    "IGDNG/D", NULL, &intel_i965_driver },
+	{ PCI_DEVICE_ID_INTEL_IGDNG_M_HB, PCI_DEVICE_ID_INTEL_IGDNG_M_IG, 0,
+	    "IGDNG/M", NULL, &intel_i965_driver },
+	{ PCI_DEVICE_ID_INTEL_IGDNG_MA_HB, PCI_DEVICE_ID_INTEL_IGDNG_M_IG, 0,
+	    "IGDNG/MA", NULL, &intel_i965_driver },
+	{ PCI_DEVICE_ID_INTEL_IGDNG_MC2_HB, PCI_DEVICE_ID_INTEL_IGDNG_M_IG, 0,
+	    "IGDNG/MC2", NULL, &intel_i965_driver },
 	{ 0, 0, 0, NULL, NULL, NULL }
 };
 
@@ -2284,15 +2340,6 @@ static int agp_intel_resume(struct pci_dev *pdev)
 	struct agp_bridge_data *bridge = pci_get_drvdata(pdev);
 	int ret_val;
 
-	pci_restore_state(pdev);
-
-	/* We should restore our graphics device's config space,
-	 * as host bridge (00:00) resumes before graphics device (02:00),
-	 * then our access to its pci space can work right.
-	 */
-	if (intel_private.pcidev)
-		pci_restore_state(intel_private.pcidev);
-
 	if (bridge->driver == &intel_generic_driver)
 		intel_configure();
 	else if (bridge->driver == &intel_850_driver)
@@ -2342,6 +2389,7 @@ static struct pci_device_id agp_intel_pci_table[] = {
 	ID(PCI_DEVICE_ID_INTEL_82845_HB),
 	ID(PCI_DEVICE_ID_INTEL_82845G_HB),
 	ID(PCI_DEVICE_ID_INTEL_82850_HB),
+	ID(PCI_DEVICE_ID_INTEL_82854_HB),
 	ID(PCI_DEVICE_ID_INTEL_82855PM_HB),
 	ID(PCI_DEVICE_ID_INTEL_82855GM_HB),
 	ID(PCI_DEVICE_ID_INTEL_82860_HB),
@@ -2355,6 +2403,8 @@ static struct pci_device_id agp_intel_pci_table[] = {
 	ID(PCI_DEVICE_ID_INTEL_82945G_HB),
 	ID(PCI_DEVICE_ID_INTEL_82945GM_HB),
 	ID(PCI_DEVICE_ID_INTEL_82945GME_HB),
+	ID(PCI_DEVICE_ID_INTEL_IGDGM_HB),
+	ID(PCI_DEVICE_ID_INTEL_IGDG_HB),
 	ID(PCI_DEVICE_ID_INTEL_82946GZ_HB),
 	ID(PCI_DEVICE_ID_INTEL_82G35_HB),
 	ID(PCI_DEVICE_ID_INTEL_82965Q_HB),
@@ -2369,6 +2419,11 @@ static struct pci_device_id agp_intel_pci_table[] = {
 	ID(PCI_DEVICE_ID_INTEL_Q45_HB),
 	ID(PCI_DEVICE_ID_INTEL_G45_HB),
 	ID(PCI_DEVICE_ID_INTEL_G41_HB),
+	ID(PCI_DEVICE_ID_INTEL_B43_HB),
+	ID(PCI_DEVICE_ID_INTEL_IGDNG_D_HB),
+	ID(PCI_DEVICE_ID_INTEL_IGDNG_M_HB),
+	ID(PCI_DEVICE_ID_INTEL_IGDNG_MA_HB),
+	ID(PCI_DEVICE_ID_INTEL_IGDNG_MC2_HB),
 	{ }
 };
 

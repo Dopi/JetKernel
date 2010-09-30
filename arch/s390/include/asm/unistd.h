@@ -265,7 +265,11 @@
 #define __NR_pipe2		325
 #define __NR_dup3		326
 #define __NR_epoll_create1	327
-#define NR_syscalls 328
+#define	__NR_preadv		328
+#define	__NR_pwritev		329
+#define __NR_rt_tgsigqueueinfo	330
+#define __NR_perf_counter_open	331
+#define NR_syscalls 332
 
 /* 
  * There are some system calls that are not present on 64 bit, some

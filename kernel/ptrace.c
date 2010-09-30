@@ -21,20 +21,8 @@
 #include <linux/audit.h>
 #include <linux/pid_namespace.h>
 #include <linux/syscalls.h>
+#include <linux/uaccess.h>
 
-#include <asm/pgtable.h>
-#include <asm/uaccess.h>
-
-
-/*
- * Initialize a new task whose father had been ptraced.
- *
- * Called from copy_process().
- */
-void ptrace_fork(struct task_struct *child, unsigned long clone_flags)
-{
-	arch_ptrace_fork(child, clone_flags);
-}
 
 /*
  * ptrace a task: make the debugger its new parent and
@@ -48,7 +36,7 @@ void __ptrace_link(struct task_struct *child, struct task_struct *new_parent)
 	list_add(&child->ptrace_entry, &new_parent->ptraced);
 	child->parent = new_parent;
 }
- 
+
 /*
  * Turn a tracing stop into a normal stop now, since with no tracer there
  * would be no way to wake it up with SIGCONT or SIGKILL.  If there was a
@@ -60,11 +48,15 @@ static void ptrace_untrace(struct task_struct *child)
 {
 	spin_lock(&child->sighand->siglock);
 	if (task_is_traced(child)) {
-		if (child->signal->flags & SIGNAL_STOP_STOPPED) {
+		/*
+		 * If the group stop is completed or in progress,
+		 * this thread was already counted as stopped.
+		 */
+		if (child->signal->flags & SIGNAL_STOP_STOPPED ||
+		    child->signal->group_stop_count)
 			__set_task_state(child, TASK_STOPPED);
-		} else {
+		else
 			signal_wake_up(child, 1);
-		}
 	}
 	spin_unlock(&child->sighand->siglock);
 }
@@ -169,75 +161,139 @@ bool ptrace_may_access(struct task_struct *task, unsigned int mode)
 	task_lock(task);
 	err = __ptrace_may_access(task, mode);
 	task_unlock(task);
-	return (!err ? true : false);
+	return !err;
 }
 
 int ptrace_attach(struct task_struct *task)
 {
 	int retval;
-	unsigned long flags;
 
 	audit_ptrace(task);
 
 	retval = -EPERM;
+	if (unlikely(task->flags & PF_KTHREAD))
+		goto out;
 	if (same_thread_group(task, current))
 		goto out;
 
-	/* Protect exec's credential calculations against our interference;
-	 * SUID, SGID and LSM creds get determined differently under ptrace.
+	/*
+	 * Protect exec's credential calculations against our interference;
+	 * interference; SUID, SGID and LSM creds get determined differently
+	 * under ptrace.
 	 */
-	retval = mutex_lock_interruptible(&task->cred_exec_mutex);
-	if (retval  < 0)
+	retval = -ERESTARTNOINTR;
+	if (mutex_lock_interruptible(&task->cred_guard_mutex))
 		goto out;
 
-	retval = -EPERM;
-repeat:
-	/*
-	 * Nasty, nasty.
-	 *
-	 * We want to hold both the task-lock and the
-	 * tasklist_lock for writing at the same time.
-	 * But that's against the rules (tasklist_lock
-	 * is taken for reading by interrupts on other
-	 * cpu's that may have task_lock).
-	 */
 	task_lock(task);
-	if (!write_trylock_irqsave(&tasklist_lock, flags)) {
-		task_unlock(task);
-		do {
-			cpu_relax();
-		} while (!write_can_lock(&tasklist_lock));
-		goto repeat;
-	}
-
-	if (!task->mm)
-		goto bad;
-	/* the same process cannot be attached many times */
-	if (task->ptrace & PT_PTRACED)
-		goto bad;
 	retval = __ptrace_may_access(task, PTRACE_MODE_ATTACH);
+	task_unlock(task);
 	if (retval)
-		goto bad;
+		goto unlock_creds;
 
-	/* Go */
-	task->ptrace |= PT_PTRACED;
+	write_lock_irq(&tasklist_lock);
+	retval = -EPERM;
+	if (unlikely(task->exit_state))
+		goto unlock_tasklist;
+	if (task->ptrace)
+		goto unlock_tasklist;
+
+	task->ptrace = PT_PTRACED;
 	if (capable(CAP_SYS_PTRACE))
 		task->ptrace |= PT_PTRACE_CAP;
 
 	__ptrace_link(task, current);
-
 	send_sig_info(SIGSTOP, SEND_SIG_FORCED, task);
-bad:
-	write_unlock_irqrestore(&tasklist_lock, flags);
-	task_unlock(task);
-	mutex_unlock(&task->cred_exec_mutex);
+
+	retval = 0;
+unlock_tasklist:
+	write_unlock_irq(&tasklist_lock);
+unlock_creds:
+	mutex_unlock(&task->cred_guard_mutex);
 out:
 	return retval;
 }
 
+/**
+ * ptrace_traceme  --  helper for PTRACE_TRACEME
+ *
+ * Performs checks and sets PT_PTRACED.
+ * Should be used by all ptrace implementations for PTRACE_TRACEME.
+ */
+int ptrace_traceme(void)
+{
+	int ret = -EPERM;
+
+	write_lock_irq(&tasklist_lock);
+	/* Are we already being traced? */
+	if (!current->ptrace) {
+		ret = security_ptrace_traceme(current->parent);
+		/*
+		 * Check PF_EXITING to ensure ->real_parent has not passed
+		 * exit_ptrace(). Otherwise we don't report the error but
+		 * pretend ->real_parent untraces us right after return.
+		 */
+		if (!ret && !(current->real_parent->flags & PF_EXITING)) {
+			current->ptrace = PT_PTRACED;
+			__ptrace_link(current, current->real_parent);
+		}
+	}
+	write_unlock_irq(&tasklist_lock);
+
+	return ret;
+}
+
+/*
+ * Called with irqs disabled, returns true if childs should reap themselves.
+ */
+static int ignoring_children(struct sighand_struct *sigh)
+{
+	int ret;
+	spin_lock(&sigh->siglock);
+	ret = (sigh->action[SIGCHLD-1].sa.sa_handler == SIG_IGN) ||
+	      (sigh->action[SIGCHLD-1].sa.sa_flags & SA_NOCLDWAIT);
+	spin_unlock(&sigh->siglock);
+	return ret;
+}
+
+/*
+ * Called with tasklist_lock held for writing.
+ * Unlink a traced task, and clean it up if it was a traced zombie.
+ * Return true if it needs to be reaped with release_task().
+ * (We can't call release_task() here because we already hold tasklist_lock.)
+ *
+ * If it's a zombie, our attachedness prevented normal parent notification
+ * or self-reaping.  Do notification now if it would have happened earlier.
+ * If it should reap itself, return true.
+ *
+ * If it's our own child, there is no notification to do.
+ * But if our normal children self-reap, then this child
+ * was prevented by ptrace and we must reap it now.
+ */
+static bool __ptrace_detach(struct task_struct *tracer, struct task_struct *p)
+{
+	__ptrace_unlink(p);
+
+	if (p->exit_state == EXIT_ZOMBIE) {
+		if (!task_detached(p) && thread_group_empty(p)) {
+			if (!same_thread_group(p->real_parent, tracer))
+				do_notify_parent(p, p->exit_signal);
+			else if (ignoring_children(tracer->sighand))
+				p->exit_signal = -1;
+		}
+		if (task_detached(p)) {
+			/* Mark it as in the process of being reaped. */
+			p->exit_state = EXIT_DEAD;
+			return true;
+		}
+	}
+
+	return false;
+}
+
 int ptrace_detach(struct task_struct *child, unsigned int data)
 {
-	int dead = 0;
+	bool dead = false;
 
 	if (!valid_signal(data))
 		return -EIO;
@@ -247,12 +303,13 @@ int ptrace_detach(struct task_struct *child, unsigned int data)
 	clear_tsk_thread_flag(child, TIF_SYSCALL_TRACE);
 
 	write_lock_irq(&tasklist_lock);
-	/* protect against de_thread()->release_task() */
+	/*
+	 * This child can be already killed. Make sure de_thread() or
+	 * our sub-thread doing do_wait() didn't do release_task() yet.
+	 */
 	if (child->ptrace) {
 		child->exit_code = data;
-
 		dead = __ptrace_detach(current, child);
-
 		if (!child->exit_state)
 			wake_up_process(child);
 	}
@@ -262,6 +319,29 @@ int ptrace_detach(struct task_struct *child, unsigned int data)
 		release_task(child);
 
 	return 0;
+}
+
+/*
+ * Detach all tasks we were using ptrace on.
+ */
+void exit_ptrace(struct task_struct *tracer)
+{
+	struct task_struct *p, *n;
+	LIST_HEAD(ptrace_dead);
+
+	write_lock_irq(&tasklist_lock);
+	list_for_each_entry_safe(p, n, &tracer->ptraced, ptrace_entry) {
+		if (__ptrace_detach(tracer, p))
+			list_add(&p->ptrace_entry, &ptrace_dead);
+	}
+	write_unlock_irq(&tasklist_lock);
+
+	BUG_ON(!list_empty(&tracer->ptraced));
+
+	list_for_each_entry_safe(p, n, &ptrace_dead, ptrace_entry) {
+		list_del_init(&p->ptrace_entry);
+		release_task(p);
+	}
 }
 
 int ptrace_readdata(struct task_struct *tsk, unsigned long src, char __user *dst, int len)
@@ -284,7 +364,7 @@ int ptrace_readdata(struct task_struct *tsk, unsigned long src, char __user *dst
 		copied += retval;
 		src += retval;
 		dst += retval;
-		len -= retval;			
+		len -= retval;
 	}
 	return copied;
 }
@@ -309,7 +389,7 @@ int ptrace_writedata(struct task_struct *tsk, char __user *src, unsigned long ds
 		copied += retval;
 		src += retval;
 		dst += retval;
-		len -= retval;			
+		len -= retval;
 	}
 	return copied;
 }
@@ -344,37 +424,33 @@ static int ptrace_setoptions(struct task_struct *child, long data)
 
 static int ptrace_getsiginfo(struct task_struct *child, siginfo_t *info)
 {
+	unsigned long flags;
 	int error = -ESRCH;
 
-	read_lock(&tasklist_lock);
-	if (likely(child->sighand != NULL)) {
+	if (lock_task_sighand(child, &flags)) {
 		error = -EINVAL;
-		spin_lock_irq(&child->sighand->siglock);
 		if (likely(child->last_siginfo != NULL)) {
 			*info = *child->last_siginfo;
 			error = 0;
 		}
-		spin_unlock_irq(&child->sighand->siglock);
+		unlock_task_sighand(child, &flags);
 	}
-	read_unlock(&tasklist_lock);
 	return error;
 }
 
 static int ptrace_setsiginfo(struct task_struct *child, const siginfo_t *info)
 {
+	unsigned long flags;
 	int error = -ESRCH;
 
-	read_lock(&tasklist_lock);
-	if (likely(child->sighand != NULL)) {
+	if (lock_task_sighand(child, &flags)) {
 		error = -EINVAL;
-		spin_lock_irq(&child->sighand->siglock);
 		if (likely(child->last_siginfo != NULL)) {
 			*child->last_siginfo = *info;
 			error = 0;
 		}
-		spin_unlock_irq(&child->sighand->siglock);
+		unlock_task_sighand(child, &flags);
 	}
-	read_unlock(&tasklist_lock);
 	return error;
 }
 
@@ -422,9 +498,9 @@ static int ptrace_resume(struct task_struct *child, long request, long data)
 		if (unlikely(!arch_has_single_step()))
 			return -EIO;
 		user_enable_single_step(child);
-	}
-	else
+	} else {
 		user_disable_single_step(child);
+	}
 
 	child->exit_code = data;
 	wake_up_process(child);
@@ -501,71 +577,16 @@ int ptrace_request(struct task_struct *child, long request,
 	return ret;
 }
 
-/**
- * ptrace_traceme  --  helper for PTRACE_TRACEME
- *
- * Performs checks and sets PT_PTRACED.
- * Should be used by all ptrace implementations for PTRACE_TRACEME.
- */
-int ptrace_traceme(void)
-{
-	int ret = -EPERM;
-
-	/*
-	 * Are we already being traced?
-	 */
-repeat:
-	task_lock(current);
-	if (!(current->ptrace & PT_PTRACED)) {
-		/*
-		 * See ptrace_attach() comments about the locking here.
-		 */
-		unsigned long flags;
-		if (!write_trylock_irqsave(&tasklist_lock, flags)) {
-			task_unlock(current);
-			do {
-				cpu_relax();
-			} while (!write_can_lock(&tasklist_lock));
-			goto repeat;
-		}
-
-		ret = security_ptrace_traceme(current->parent);
-
-		/*
-		 * Set the ptrace bit in the process ptrace flags.
-		 * Then link us on our parent's ptraced list.
-		 */
-		if (!ret) {
-			current->ptrace |= PT_PTRACED;
-			__ptrace_link(current, current->real_parent);
-		}
-
-		write_unlock_irqrestore(&tasklist_lock, flags);
-	}
-	task_unlock(current);
-	return ret;
-}
-
-/**
- * ptrace_get_task_struct  --  grab a task struct reference for ptrace
- * @pid:       process id to grab a task_struct reference of
- *
- * This function is a helper for ptrace implementations.  It checks
- * permissions and then grabs a task struct for use of the actual
- * ptrace implementation.
- *
- * Returns the task_struct for @pid or an ERR_PTR() on failure.
- */
-struct task_struct *ptrace_get_task_struct(pid_t pid)
+static struct task_struct *ptrace_get_task_struct(pid_t pid)
 {
 	struct task_struct *child;
 
-	read_lock(&tasklist_lock);
+	rcu_read_lock();
 	child = find_task_by_vpid(pid);
 	if (child)
 		get_task_struct(child);
+	rcu_read_unlock();
 
-	read_unlock(&tasklist_lock);
 	if (!child)
 		return ERR_PTR(-ESRCH);
 	return child;
@@ -613,8 +634,6 @@ SYSCALL_DEFINE4(ptrace, long, request, long, pid, long, addr, long, data)
 		goto out_put_task_struct;
 
 	ret = arch_ptrace(child, request, addr, data);
-	if (ret < 0)
-		goto out_put_task_struct;
 
  out_put_task_struct:
 	put_task_struct(child);

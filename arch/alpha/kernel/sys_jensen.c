@@ -118,7 +118,7 @@ jensen_local_end(unsigned int irq)
 		i8259a_end_irq(1);
 }
 
-static struct hw_interrupt_type jensen_local_irq_type = {
+static struct irq_chip jensen_local_irq_type = {
 	.typename	= "LOCAL",
 	.startup	= jensen_local_startup,
 	.shutdown	= jensen_local_shutdown,
@@ -244,11 +244,10 @@ jensen_init_arch(void)
 }
 
 static void
-jensen_machine_check (u64 vector, u64 la)
+jensen_machine_check(unsigned long vector, unsigned long la)
 {
 	printk(KERN_CRIT "Machine check\n");
 }
-
 
 /*
  * The System Vector

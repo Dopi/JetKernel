@@ -296,9 +296,10 @@ static void usX2Y_error_urb_status(struct usX2Ydev *usX2Y,
 static void usX2Y_error_sequence(struct usX2Ydev *usX2Y,
 				 struct snd_usX2Y_substream *subs, struct urb *urb)
 {
-	snd_printk(KERN_ERR "Sequence Error!(hcd_frame=%i ep=%i%s;wait=%i,frame=%i).\n"
-		   KERN_ERR "Most propably some urb of usb-frame %i is still missing.\n"
-		   KERN_ERR "Cause could be too long delays in usb-hcd interrupt handling.\n",
+	snd_printk(KERN_ERR
+"Sequence Error!(hcd_frame=%i ep=%i%s;wait=%i,frame=%i).\n"
+"Most propably some urb of usb-frame %i is still missing.\n"
+"Cause could be too long delays in usb-hcd interrupt handling.\n",
 		   usb_get_current_frame_number(usX2Y->chip.dev),
 		   subs->endpoint, usb_pipein(urb->pipe) ? "in" : "out",
 		   usX2Y->wait_iso_frame, urb->start_frame, usX2Y->wait_iso_frame);
@@ -870,7 +871,8 @@ static struct snd_pcm_hardware snd_usX2Y_2c =
 {
 	.info =			(SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_INTERLEAVED |
 				 SNDRV_PCM_INFO_BLOCK_TRANSFER |
-				 SNDRV_PCM_INFO_MMAP_VALID),
+				 SNDRV_PCM_INFO_MMAP_VALID |
+				 SNDRV_PCM_INFO_BATCH),
 	.formats =                 SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S24_3LE,
 	.rates =                   SNDRV_PCM_RATE_44100 | SNDRV_PCM_RATE_48000,
 	.rate_min =                44100,

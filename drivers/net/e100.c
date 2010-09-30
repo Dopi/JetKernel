@@ -143,6 +143,8 @@
  *	FIXES:
  * 2005/12/02 - Michael O'Donnell <Michael.ODonnell at stratus dot com>
  *	- Stratus87247: protect MDI control register manipulations
+ * 2009/06/01 - Andreas Mohr <andi at lisas dot de>
+ *      - add clean lowlevel I/O emulation for cards with MII-lacking PHYs
  */
 
 #include <linux/module.h>
@@ -154,6 +156,7 @@
 #include <linux/init.h>
 #include <linux/pci.h>
 #include <linux/dma-mapping.h>
+#include <linux/dmapool.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/mii.h>
@@ -167,7 +170,7 @@
 
 #define DRV_NAME		"e100"
 #define DRV_EXT			"-NAPI"
-#define DRV_VERSION		"3.5.23-k6"DRV_EXT
+#define DRV_VERSION		"3.5.24-k2"DRV_EXT
 #define DRV_DESCRIPTION		"Intel(R) PRO/100 Network Driver"
 #define DRV_COPYRIGHT		"Copyright(c) 1999-2006 Intel Corporation"
 #define PFX			DRV_NAME ": "
@@ -240,6 +243,7 @@ static struct pci_device_id e100_id_table[] = {
 	INTEL_8255X_ETHERNET_DEVICE(0x1093, 7),
 	INTEL_8255X_ETHERNET_DEVICE(0x1094, 7),
 	INTEL_8255X_ETHERNET_DEVICE(0x1095, 7),
+	INTEL_8255X_ETHERNET_DEVICE(0x10fe, 7),
 	INTEL_8255X_ETHERNET_DEVICE(0x1209, 0),
 	INTEL_8255X_ETHERNET_DEVICE(0x1229, 0),
 	INTEL_8255X_ETHERNET_DEVICE(0x2449, 2),
@@ -275,6 +279,7 @@ enum phy {
 	phy_82562_em = 0x032002A8,
 	phy_82562_ek = 0x031002A8,
 	phy_82562_eh = 0x017002A8,
+	phy_82552_v  = 0xd061004d,
 	phy_unknown  = 0xFFFFFFFF,
 };
 
@@ -370,6 +375,7 @@ enum eeprom_op {
 
 enum eeprom_offsets {
 	eeprom_cnfg_mdix  = 0x03,
+	eeprom_phy_iface  = 0x06,
 	eeprom_id         = 0x0A,
 	eeprom_config_asf = 0x0D,
 	eeprom_smbus_addr = 0x90,
@@ -377,6 +383,18 @@ enum eeprom_offsets {
 
 enum eeprom_cnfg_mdix {
 	eeprom_mdix_enabled = 0x0080,
+};
+
+enum eeprom_phy_iface {
+	NoSuchPhy = 0,
+	I82553AB,
+	I82553C,
+	I82503,
+	DP83840,
+	S80C240,
+	S80C24,
+	I82555,
+	DP83840A = 10,
 };
 
 enum eeprom_id {
@@ -543,6 +561,7 @@ struct nic {
 	u32 msg_enable				____cacheline_aligned;
 	struct net_device *netdev;
 	struct pci_dev *pdev;
+	u16 (*mdio_ctrl)(struct nic *nic, u32 addr, u32 dir, u32 reg, u16 data);
 
 	struct rx *rxs				____cacheline_aligned;
 	struct rx *rx_to_use;
@@ -583,6 +602,7 @@ struct nic {
 	struct mem *mem;
 	dma_addr_t dma_addr;
 
+	struct pci_pool *cbs_pool;
 	dma_addr_t cbs_dma_addr;
 	u8 adaptive_ifs;
 	u8 tx_threshold;
@@ -897,7 +917,21 @@ err_unlock:
 	return err;
 }
 
-static u16 mdio_ctrl(struct nic *nic, u32 addr, u32 dir, u32 reg, u16 data)
+static int mdio_read(struct net_device *netdev, int addr, int reg)
+{
+	struct nic *nic = netdev_priv(netdev);
+	return nic->mdio_ctrl(nic, addr, mdi_read, reg, 0);
+}
+
+static void mdio_write(struct net_device *netdev, int addr, int reg, int data)
+{
+	struct nic *nic = netdev_priv(netdev);
+
+	nic->mdio_ctrl(nic, addr, mdi_write, reg, data);
+}
+
+/* the standard mdio_ctrl() function for usual MII-compliant hardware */
+static u16 mdio_ctrl_hw(struct nic *nic, u32 addr, u32 dir, u32 reg, u16 data)
 {
 	u32 data_out = 0;
 	unsigned int i;
@@ -936,14 +970,83 @@ static u16 mdio_ctrl(struct nic *nic, u32 addr, u32 dir, u32 reg, u16 data)
 	return (u16)data_out;
 }
 
-static int mdio_read(struct net_device *netdev, int addr, int reg)
+/* slightly tweaked mdio_ctrl() function for phy_82552_v specifics */
+static u16 mdio_ctrl_phy_82552_v(struct nic *nic,
+				 u32 addr,
+				 u32 dir,
+				 u32 reg,
+				 u16 data)
 {
-	return mdio_ctrl(netdev_priv(netdev), addr, mdi_read, reg, 0);
+	if ((reg == MII_BMCR) && (dir == mdi_write)) {
+		if (data & (BMCR_ANRESTART | BMCR_ANENABLE)) {
+			u16 advert = mdio_read(nic->netdev, nic->mii.phy_id,
+							MII_ADVERTISE);
+
+			/*
+			 * Workaround Si issue where sometimes the part will not
+			 * autoneg to 100Mbps even when advertised.
+			 */
+			if (advert & ADVERTISE_100FULL)
+				data |= BMCR_SPEED100 | BMCR_FULLDPLX;
+			else if (advert & ADVERTISE_100HALF)
+				data |= BMCR_SPEED100;
+		}
+	}
+	return mdio_ctrl_hw(nic, addr, dir, reg, data);
 }
 
-static void mdio_write(struct net_device *netdev, int addr, int reg, int data)
+/* Fully software-emulated mdio_ctrl() function for cards without
+ * MII-compliant PHYs.
+ * For now, this is mainly geared towards 80c24 support; in case of further
+ * requirements for other types (i82503, ...?) either extend this mechanism
+ * or split it, whichever is cleaner.
+ */
+static u16 mdio_ctrl_phy_mii_emulated(struct nic *nic,
+				      u32 addr,
+				      u32 dir,
+				      u32 reg,
+				      u16 data)
 {
-	mdio_ctrl(netdev_priv(netdev), addr, mdi_write, reg, data);
+	/* might need to allocate a netdev_priv'ed register array eventually
+	 * to be able to record state changes, but for now
+	 * some fully hardcoded register handling ought to be ok I guess. */
+
+	if (dir == mdi_read) {
+		switch (reg) {
+		case MII_BMCR:
+			/* Auto-negotiation, right? */
+			return  BMCR_ANENABLE |
+				BMCR_FULLDPLX;
+		case MII_BMSR:
+			return	BMSR_LSTATUS /* for mii_link_ok() */ |
+				BMSR_ANEGCAPABLE |
+				BMSR_10FULL;
+		case MII_ADVERTISE:
+			/* 80c24 is a "combo card" PHY, right? */
+			return	ADVERTISE_10HALF |
+				ADVERTISE_10FULL;
+		default:
+			DPRINTK(HW, DEBUG,
+		"%s:addr=%d, reg=%d, data=0x%04X: unimplemented emulation!\n",
+		dir == mdi_read ? "READ" : "WRITE", addr, reg, data);
+			return 0xFFFF;
+		}
+	} else {
+		switch (reg) {
+		default:
+			DPRINTK(HW, DEBUG,
+		"%s:addr=%d, reg=%d, data=0x%04X: unimplemented emulation!\n",
+		dir == mdi_read ? "READ" : "WRITE", addr, reg, data);
+			return 0xFFFF;
+		}
+	}
+}
+static inline int e100_phy_supports_mii(struct nic *nic)
+{
+	/* for now, just check it by comparing whether we
+	   are using MII software emulation.
+	*/
+	return (nic->mdio_ctrl != mdio_ctrl_phy_mii_emulated);
 }
 
 static void e100_get_defaults(struct nic *nic)
@@ -995,7 +1098,8 @@ static void e100_configure(struct nic *nic, struct cb *cb, struct sk_buff *skb)
 	config->standard_stat_counter = 0x1;	/* 1=standard, 0=extended */
 	config->rx_discard_short_frames = 0x1;	/* 1=discard, 0=pass */
 	config->tx_underrun_retry = 0x3;	/* # of underrun retries */
-	config->mii_mode = 0x1;			/* 1=MII mode, 0=503 mode */
+	if (e100_phy_supports_mii(nic))
+		config->mii_mode = 1;           /* 1=MII mode, 0=i82503 mode */
 	config->pad10 = 0x6;
 	config->no_source_addr_insertion = 0x1;	/* 1=no, 0=yes */
 	config->preamble_length = 0x2;		/* 0=1, 1=3, 2=7, 3=15 bytes */
@@ -1252,6 +1356,42 @@ static void e100_dump(struct nic *nic, struct cb *cb, struct sk_buff *skb)
 		offsetof(struct mem, dump_buf));
 }
 
+static int e100_phy_check_without_mii(struct nic *nic)
+{
+	u8 phy_type;
+	int without_mii;
+
+	phy_type = (nic->eeprom[eeprom_phy_iface] >> 8) & 0x0f;
+
+	switch (phy_type) {
+	case NoSuchPhy: /* Non-MII PHY; UNTESTED! */
+	case I82503: /* Non-MII PHY; UNTESTED! */
+	case S80C24: /* Non-MII PHY; tested and working */
+		/* paragraph from the FreeBSD driver, "FXP_PHY_80C24":
+		 * The Seeq 80c24 AutoDUPLEX(tm) Ethernet Interface Adapter
+		 * doesn't have a programming interface of any sort.  The
+		 * media is sensed automatically based on how the link partner
+		 * is configured.  This is, in essence, manual configuration.
+		 */
+		DPRINTK(PROBE, INFO,
+			 "found MII-less i82503 or 80c24 or other PHY\n");
+
+		nic->mdio_ctrl = mdio_ctrl_phy_mii_emulated;
+		nic->mii.phy_id = 0; /* is this ok for an MII-less PHY? */
+
+		/* these might be needed for certain MII-less cards...
+		 * nic->flags |= ich;
+		 * nic->flags |= ich_10h_workaround; */
+
+		without_mii = 1;
+		break;
+	default:
+		without_mii = 0;
+		break;
+	}
+	return without_mii;
+}
+
 #define NCONFIG_AUTO_SWITCH	0x0080
 #define MII_NSC_CONG		MII_RESV1
 #define NSC_CONG_ENABLE		0x0100
@@ -1272,20 +1412,28 @@ static int e100_phy_init(struct nic *nic)
 		if (!((bmcr == 0xFFFF) || ((stat == 0) && (bmcr == 0))))
 			break;
 	}
-	DPRINTK(HW, DEBUG, "phy_addr = %d\n", nic->mii.phy_id);
-	if (addr == 32)
-		return -EAGAIN;
-
-	/* Selected the phy and isolate the rest */
-	for (addr = 0; addr < 32; addr++) {
-		if (addr != nic->mii.phy_id) {
-			mdio_write(netdev, addr, MII_BMCR, BMCR_ISOLATE);
-		} else {
-			bmcr = mdio_read(netdev, addr, MII_BMCR);
-			mdio_write(netdev, addr, MII_BMCR,
-				bmcr & ~BMCR_ISOLATE);
+	if (addr == 32) {
+		/* uhoh, no PHY detected: check whether we seem to be some
+		 * weird, rare variant which is *known* to not have any MII.
+		 * But do this AFTER MII checking only, since this does
+		 * lookup of EEPROM values which may easily be unreliable. */
+		if (e100_phy_check_without_mii(nic))
+			return 0; /* simply return and hope for the best */
+		else {
+			/* for unknown cases log a fatal error */
+			DPRINTK(HW, ERR,
+				"Failed to locate any known PHY, aborting.\n");
+			return -EAGAIN;
 		}
-	}
+	} else
+		DPRINTK(HW, DEBUG, "phy_addr = %d\n", nic->mii.phy_id);
+
+	/* Isolate all the PHY ids */
+	for (addr = 0; addr < 32; addr++)
+		mdio_write(netdev, addr, MII_BMCR, BMCR_ISOLATE);
+	/* Select the discovered PHY */
+	bmcr &= ~BMCR_ISOLATE;
+	mdio_write(netdev, nic->mii.phy_id, MII_BMCR, bmcr);
 
 	/* Get phy ID */
 	id_lo = mdio_read(netdev, nic->mii.phy_id, MII_PHYSID1);
@@ -1303,7 +1451,21 @@ static int e100_phy_init(struct nic *nic)
 		mdio_write(netdev, nic->mii.phy_id, MII_NSC_CONG, cong);
 	}
 
-	if ((nic->mac >= mac_82550_D102) || ((nic->flags & ich) &&
+	if (nic->phy == phy_82552_v) {
+		u16 advert = mdio_read(netdev, nic->mii.phy_id, MII_ADVERTISE);
+
+		/* assign special tweaked mdio_ctrl() function */
+		nic->mdio_ctrl = mdio_ctrl_phy_82552_v;
+
+		/* Workaround Si not advertising flow-control during autoneg */
+		advert |= ADVERTISE_PAUSE_CAP | ADVERTISE_PAUSE_ASYM;
+		mdio_write(netdev, nic->mii.phy_id, MII_ADVERTISE, advert);
+
+		/* Reset for the above changes to take effect */
+		bmcr = mdio_read(netdev, nic->mii.phy_id, MII_BMCR);
+		bmcr |= BMCR_RESET;
+		mdio_write(netdev, nic->mii.phy_id, MII_BMCR, bmcr);
+	} else if ((nic->mac >= mac_82550_D102) || ((nic->flags & ich) &&
 	   (mdio_read(netdev, nic->mii.phy_id, MII_TPISTATUS) & 0x8000) &&
 		!(nic->eeprom[eeprom_cnfg_mdix] & eeprom_mdix_enabled))) {
 		/* enable/disable MDI/MDI-X auto-switching. */
@@ -1556,7 +1718,7 @@ static int e100_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 		/* This is a hard error - log it. */
 		DPRINTK(TX_ERR, DEBUG, "Out of Tx resources, returning skb\n");
 		netif_stop_queue(netdev);
-		return 1;
+		return NETDEV_TX_BUSY;
 	}
 
 	netdev->trans_start = jiffies;
@@ -1619,9 +1781,7 @@ static void e100_clean_cbs(struct nic *nic)
 			nic->cb_to_clean = nic->cb_to_clean->next;
 			nic->cbs_avail++;
 		}
-		pci_free_consistent(nic->pdev,
-			sizeof(struct cb) * nic->params.cbs.count,
-			nic->cbs, nic->cbs_dma_addr);
+		pci_pool_free(nic->cbs_pool, nic->cbs, nic->cbs_dma_addr);
 		nic->cbs = NULL;
 		nic->cbs_avail = 0;
 	}
@@ -1639,10 +1799,11 @@ static int e100_alloc_cbs(struct nic *nic)
 	nic->cb_to_use = nic->cb_to_send = nic->cb_to_clean = NULL;
 	nic->cbs_avail = 0;
 
-	nic->cbs = pci_alloc_consistent(nic->pdev,
-		sizeof(struct cb) * count, &nic->cbs_dma_addr);
+	nic->cbs = pci_pool_alloc(nic->cbs_pool, GFP_KERNEL,
+				  &nic->cbs_dma_addr);
 	if (!nic->cbs)
 		return -ENOMEM;
+	memset(nic->cbs, 0, count * sizeof(struct cb));
 
 	for (cb = nic->cbs, i = 0; i < count; cb++, i++) {
 		cb->next = (i + 1 < count) ? cb + 1 : nic->cbs;
@@ -1651,7 +1812,6 @@ static int e100_alloc_cbs(struct nic *nic)
 		cb->dma_addr = nic->cbs_dma_addr + i * sizeof(struct cb);
 		cb->link = cpu_to_le32(nic->cbs_dma_addr +
 			((i+1) % count) * sizeof(struct cb));
-		cb->skb = NULL;
 	}
 
 	nic->cb_to_use = nic->cb_to_send = nic->cb_to_clean = nic->cbs;
@@ -1737,6 +1897,9 @@ static int e100_rx_indicate(struct nic *nic, struct rx *rx,
 
 			if (ioread8(&nic->csr->scb.status) & rus_no_res)
 				nic->ru_running = RU_SUSPENDED;
+		pci_dma_sync_single_for_device(nic->pdev, rx->dma_addr,
+					       sizeof(struct rfd),
+					       PCI_DMA_FROMDEVICE);
 		return -ENODATA;
 	}
 
@@ -1944,9 +2107,9 @@ static irqreturn_t e100_intr(int irq, void *dev_id)
 	if (stat_ack & stat_ack_rnr)
 		nic->ru_running = RU_SUSPENDED;
 
-	if (likely(netif_rx_schedule_prep(&nic->napi))) {
+	if (likely(napi_schedule_prep(&nic->napi))) {
 		e100_disable_irq(nic);
-		__netif_rx_schedule(&nic->napi);
+		__napi_schedule(&nic->napi);
 	}
 
 	return IRQ_HANDLED;
@@ -1962,7 +2125,7 @@ static int e100_poll(struct napi_struct *napi, int budget)
 
 	/* If budget not fully consumed, exit the polling mode */
 	if (work_done < budget) {
-		netif_rx_complete(napi);
+		napi_complete(napi);
 		e100_enable_irq(nic);
 	}
 
@@ -2134,6 +2297,9 @@ err_clean_rx:
 }
 
 #define MII_LED_CONTROL	0x1B
+#define E100_82552_LED_OVERRIDE 0x19
+#define E100_82552_LED_ON       0x000F /* LEDTX and LED_RX both on */
+#define E100_82552_LED_OFF      0x000A /* LEDTX and LED_RX both off */
 static void e100_blink_led(unsigned long data)
 {
 	struct nic *nic = (struct nic *)data;
@@ -2143,10 +2309,19 @@ static void e100_blink_led(unsigned long data)
 		led_on_559 = 0x05,
 		led_on_557 = 0x07,
 	};
+	u16 led_reg = MII_LED_CONTROL;
 
-	nic->leds = (nic->leds & led_on) ? led_off :
-		(nic->mac < mac_82559_D101M) ? led_on_557 : led_on_559;
-	mdio_write(nic->netdev, nic->mii.phy_id, MII_LED_CONTROL, nic->leds);
+	if (nic->phy == phy_82552_v) {
+		led_reg = E100_82552_LED_OVERRIDE;
+
+		nic->leds = (nic->leds == E100_82552_LED_ON) ?
+		            E100_82552_LED_OFF : E100_82552_LED_ON;
+	} else {
+		nic->leds = (nic->leds & led_on) ? led_off :
+		            (nic->mac < mac_82559_D101M) ? led_on_557 :
+		            led_on_559;
+	}
+	mdio_write(nic->netdev, nic->mii.phy_id, led_reg, nic->leds);
 	mod_timer(&nic->blink_timer, jiffies + HZ / 4);
 }
 
@@ -2375,13 +2550,15 @@ static void e100_diag_test(struct net_device *netdev,
 static int e100_phys_id(struct net_device *netdev, u32 data)
 {
 	struct nic *nic = netdev_priv(netdev);
+	u16 led_reg = (nic->phy == phy_82552_v) ? E100_82552_LED_OVERRIDE :
+	              MII_LED_CONTROL;
 
 	if (!data || data > (u32)(MAX_SCHEDULE_TIMEOUT / HZ))
 		data = (u32)(MAX_SCHEDULE_TIMEOUT / HZ);
 	mod_timer(&nic->blink_timer, jiffies);
 	msleep_interruptible(data * 1000);
 	del_timer_sync(&nic->blink_timer);
-	mdio_write(netdev, nic->mii.phy_id, MII_LED_CONTROL, 0);
+	mdio_write(netdev, nic->mii.phy_id, led_reg, 0);
 
 	return 0;
 }
@@ -2546,6 +2723,7 @@ static int __devinit e100_probe(struct pci_dev *pdev,
 	nic->netdev = netdev;
 	nic->pdev = pdev;
 	nic->msg_enable = (1 << debug) - 1;
+	nic->mdio_ctrl = mdio_ctrl_hw;
 	pci_set_drvdata(pdev, netdev);
 
 	if ((err = pci_enable_device(pdev))) {
@@ -2565,7 +2743,7 @@ static int __devinit e100_probe(struct pci_dev *pdev,
 		goto err_out_disable_pdev;
 	}
 
-	if ((err = pci_set_dma_mask(pdev, DMA_32BIT_MASK))) {
+	if ((err = pci_set_dma_mask(pdev, DMA_BIT_MASK(32)))) {
 		DPRINTK(PROBE, ERR, "No usable DMA configuration, aborting.\n");
 		goto err_out_free_res;
 	}
@@ -2649,7 +2827,11 @@ static int __devinit e100_probe(struct pci_dev *pdev,
 		DPRINTK(PROBE, ERR, "Cannot register net device, aborting.\n");
 		goto err_out_free;
 	}
-
+	nic->cbs_pool = pci_pool_create(netdev->name,
+			   nic->pdev,
+			   nic->params.cbs.count * sizeof(struct cb),
+			   sizeof(u32),
+			   0);
 	DPRINTK(PROBE, INFO, "addr 0x%llx, irq %d, MAC addr %pM\n",
 		(unsigned long long)pci_resource_start(pdev, use_io ? 1 : 0),
 		pdev->irq, netdev->dev_addr);
@@ -2679,6 +2861,7 @@ static void __devexit e100_remove(struct pci_dev *pdev)
 		unregister_netdev(netdev);
 		e100_free(nic);
 		pci_iounmap(pdev, nic->csr);
+		pci_pool_destroy(nic->cbs_pool);
 		free_netdev(netdev);
 		pci_release_regions(pdev);
 		pci_disable_device(pdev);
@@ -2686,7 +2869,10 @@ static void __devexit e100_remove(struct pci_dev *pdev)
 	}
 }
 
-static int e100_suspend(struct pci_dev *pdev, pm_message_t state)
+#define E100_82552_SMARTSPEED   0x14   /* SmartSpeed Ctrl register */
+#define E100_82552_REV_ANEG     0x0200 /* Reverse auto-negotiation */
+#define E100_82552_ANEG_NOW     0x0400 /* Auto-negotiate now */
+static void __e100_shutdown(struct pci_dev *pdev, bool *enable_wake)
 {
 	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct nic *nic = netdev_priv(netdev);
@@ -2698,19 +2884,42 @@ static int e100_suspend(struct pci_dev *pdev, pm_message_t state)
 	pci_save_state(pdev);
 
 	if ((nic->flags & wol_magic) | e100_asf(nic)) {
-		if (pci_enable_wake(pdev, PCI_D3cold, true))
-			pci_enable_wake(pdev, PCI_D3hot, true);
+		/* enable reverse auto-negotiation */
+		if (nic->phy == phy_82552_v) {
+			u16 smartspeed = mdio_read(netdev, nic->mii.phy_id,
+			                           E100_82552_SMARTSPEED);
+
+			mdio_write(netdev, nic->mii.phy_id,
+			           E100_82552_SMARTSPEED, smartspeed |
+			           E100_82552_REV_ANEG | E100_82552_ANEG_NOW);
+		}
+		*enable_wake = true;
 	} else {
-		pci_enable_wake(pdev, PCI_D3hot, false);
+		*enable_wake = false;
 	}
 
 	pci_disable_device(pdev);
+}
+
+static int __e100_power_off(struct pci_dev *pdev, bool wake)
+{
+	if (wake)
+		return pci_prepare_to_sleep(pdev);
+
+	pci_wake_from_d3(pdev, false);
 	pci_set_power_state(pdev, PCI_D3hot);
 
 	return 0;
 }
 
 #ifdef CONFIG_PM
+static int e100_suspend(struct pci_dev *pdev, pm_message_t state)
+{
+	bool wake;
+	__e100_shutdown(pdev, &wake);
+	return __e100_power_off(pdev, wake);
+}
+
 static int e100_resume(struct pci_dev *pdev)
 {
 	struct net_device *netdev = pci_get_drvdata(pdev);
@@ -2720,6 +2929,16 @@ static int e100_resume(struct pci_dev *pdev)
 	pci_restore_state(pdev);
 	/* ack any pending wake events, disable PME */
 	pci_enable_wake(pdev, 0, 0);
+
+	/* disable reverse auto-negotiation */
+	if (nic->phy == phy_82552_v) {
+		u16 smartspeed = mdio_read(netdev, nic->mii.phy_id,
+		                           E100_82552_SMARTSPEED);
+
+		mdio_write(netdev, nic->mii.phy_id,
+		           E100_82552_SMARTSPEED,
+		           smartspeed & ~(E100_82552_REV_ANEG));
+	}
 
 	netif_device_attach(netdev);
 	if (netif_running(netdev))
@@ -2731,7 +2950,10 @@ static int e100_resume(struct pci_dev *pdev)
 
 static void e100_shutdown(struct pci_dev *pdev)
 {
-	e100_suspend(pdev, PMSG_SUSPEND);
+	bool wake;
+	__e100_shutdown(pdev, &wake);
+	if (system_state == SYSTEM_POWER_OFF)
+		__e100_power_off(pdev, wake);
 }
 
 /* ------------------ PCI Error Recovery infrastructure  -------------- */
@@ -2745,12 +2967,13 @@ static pci_ers_result_t e100_io_error_detected(struct pci_dev *pdev, pci_channel
 	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct nic *nic = netdev_priv(netdev);
 
-	/* Similar to calling e100_down(), but avoids adapter I/O. */
-	e100_close(netdev);
-
-	/* Detach; put netif into a state similar to hotplug unplug. */
-	napi_enable(&nic->napi);
 	netif_device_detach(netdev);
+
+	if (state == pci_channel_io_perm_failure)
+		return PCI_ERS_RESULT_DISCONNECT;
+
+	if (netif_running(netdev))
+		e100_down(nic);
 	pci_disable_device(pdev);
 
 	/* Request a slot reset. */

@@ -15,7 +15,6 @@
 #ifndef __ASM_ARCH_MFP_PXA300_H
 #define __ASM_ARCH_MFP_PXA300_H
 
-#include <mach/mfp.h>
 #include <mach/mfp-pxa3xx.h>
 
 /* GPIO */
@@ -41,6 +40,7 @@
 #endif
 
 /* Chip Select */
+#define GPIO1_nCS2		MFP_CFG(GPIO1,	AF1)
 #define GPIO2_nCS3		MFP_CFG(GPIO2,  AF1)
 
 /* AC97 */
@@ -567,9 +567,9 @@
 #define GPIO37_ULPI_DATA_OUT_7	MFP_CFG(GPIO37, AF3)
 #define GPIO33_ULPI_OTG_INTR	MFP_CFG(GPIO33, AF1)
 
-#define ULPI_DIR	MFP_CFG_DRV(ULPI_DIR, MFP_AF0, MFP_DS01X)
-#define ULPI_NXT	MFP_CFG_DRV(ULPI_NXT, MFP_AF0, MFP_DS01X)
-#define ULPI_STP	MFP_CFG_DRV(ULPI_STP, MFP_AF0, MFP_DS01X)
+#define ULPI_DIR	MFP_CFG_DRV(ULPI_DIR, AF0, DS01X)
+#define ULPI_NXT	MFP_CFG_DRV(ULPI_NXT, AF0, DS01X)
+#define ULPI_STP	MFP_CFG_DRV(ULPI_STP, AF0, DS01X)
 #endif /* CONFIG_CPU_PXA310 */
 
 #endif /* __ASM_ARCH_MFP_PXA300_H */
