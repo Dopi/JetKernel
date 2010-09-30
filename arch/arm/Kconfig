@@ -976,7 +976,8 @@ config PREEMPT
 	  or real-time system.  Say N if you are unsure.
 
 config HZ
-	int
+	int "Timer frequency(HZ)"
+	range 100 1000
 	default 128 if ARCH_L7200
 	default 200 if ARCH_EBSA110 || ARCH_S3C2410
 	default OMAP_32K_TIMER_HZ if ARCH_OMAP && OMAP_32K_TIMER
@@ -1462,6 +1463,8 @@ source "drivers/memstick/Kconfig"
 source "drivers/accessibility/Kconfig"
 
 source "drivers/leds/Kconfig"
+
+source "drivers/switch/Kconfig"
 
 source "drivers/rtc/Kconfig"
 

@@ -21,10 +21,8 @@ EXPORT_SYMBOL(i8253_lock);
 
 #ifdef CONFIG_X86_32
 static void pit_disable_clocksource(void);
-static void pit_enable_clocksource(void);
 #else
 static inline void pit_disable_clocksource(void) { }
-static inline void pit_enable_clocksource(void) { }
 #endif
 
 /*
@@ -69,7 +67,7 @@ static void init_pit_timer(enum clock_event_mode mode,
 		break;
 
 	case CLOCK_EVT_MODE_RESUME:
-		pit_enable_clocksource();
+		/* Nothing to do here */
 		break;
 	}
 	spin_unlock(&i8253_lock);
@@ -202,27 +200,19 @@ static struct clocksource pit_cs = {
 	.shift		= 20,
 };
 
-int pit_cs_registered;
 static void pit_disable_clocksource(void)
 {
-	if (pit_cs_registered) {
+	/*
+	 * Use mult to check whether it is registered or not
+	 */
+	if (pit_cs.mult) {
 		clocksource_unregister(&pit_cs);
-		pit_cs_registered = 0;
+		pit_cs.mult = 0;
 	}
 }
-
-static void pit_enable_clocksource(void)
-{
-	if (!pit_cs_registered && !clocksource_register(&pit_cs)) {
-		pit_cs_registered = 1;
-	}
-}
-
-
 
 static int __init init_pit_clocksource(void)
 {
-	int ret;
 	 /*
 	  * Several reasons not to register PIT as a clocksource:
 	  *
@@ -236,10 +226,7 @@ static int __init init_pit_clocksource(void)
 
 	pit_cs.mult = clocksource_hz2mult(CLOCK_TICK_RATE, pit_cs.shift);
 
-	ret = clocksource_register(&pit_cs);
-	if (!ret)
-		pit_cs_registered = 1;
-	return ret;
+	return clocksource_register(&pit_cs);
 }
 arch_initcall(init_pit_clocksource);
 

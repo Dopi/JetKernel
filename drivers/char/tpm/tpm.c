@@ -696,7 +696,8 @@ int __tpm_pcr_read(struct tpm_chip *chip, int pcr_idx, u8 *res_buf)
 
 	cmd.header.in = pcrread_header;
 	cmd.params.pcrread_in.pcr_idx = cpu_to_be32(pcr_idx);
-	rc = transmit_cmd(chip, &cmd, READ_PCR_RESULT_SIZE,
+	BUILD_BUG_ON(cmd.header.in.length > READ_PCR_RESULT_SIZE);
+	rc = transmit_cmd(chip, &cmd, cmd.header.in.length,
 			  "attempting to read a pcr value");
 
 	if (rc == 0)
@@ -741,7 +742,7 @@ EXPORT_SYMBOL_GPL(tpm_pcr_read);
  * the module usage count.
  */
 #define TPM_ORD_PCR_EXTEND cpu_to_be32(20)
-#define EXTEND_PCR_RESULT_SIZE 34
+#define EXTEND_PCR_SIZE 34
 static struct tpm_input_header pcrextend_header = {
 	.tag = TPM_TAG_RQU_COMMAND,
 	.length = cpu_to_be32(34),
@@ -759,9 +760,10 @@ int tpm_pcr_extend(u32 chip_num, int pcr_idx, const u8 *hash)
 		return -ENODEV;
 
 	cmd.header.in = pcrextend_header;
+	BUILD_BUG_ON(be32_to_cpu(cmd.header.in.length) > EXTEND_PCR_SIZE);
 	cmd.params.pcrextend_in.pcr_idx = cpu_to_be32(pcr_idx);
 	memcpy(cmd.params.pcrextend_in.hash, hash, TPM_DIGEST_SIZE);
-	rc = transmit_cmd(chip, &cmd, EXTEND_PCR_RESULT_SIZE,
+	rc = transmit_cmd(chip, &cmd, cmd.header.in.length,
 			  "attempting extend a PCR value");
 
 	module_put(chip->dev->driver->owner);

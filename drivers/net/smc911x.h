@@ -38,7 +38,8 @@
   #define SMC_USE_16BIT		0
   #define SMC_USE_32BIT		1
   #define SMC_IRQ_SENSE		IRQF_TRIGGER_FALLING
-#elif defined(CONFIG_SH_MAGIC_PANEL_R2)
+#elif defined(CONFIG_SH_MAGIC_PANEL_R2)||defined(CONFIG_MACH_SMDK6410)||defined(CONFIG_MACH_SMDK2450)||defined(CONFIG_MACH_SMDKC100)
+  #undef  SMC_USE_DMA		
   #define SMC_USE_16BIT		0
   #define SMC_USE_32BIT		1
   #define SMC_IRQ_SENSE		IRQF_TRIGGER_LOW
@@ -236,7 +237,8 @@ static inline void SMC_outsl(struct smc911x_local *lp, int reg,
  * Use a DMA for RX and TX packets.
  */
 #include <linux/dma-mapping.h>
-#include <mach/dma.h>
+#include <asm/dma.h>
+#include <mach/pxa-regs.h>
 
 static dma_addr_t rx_dmabuf, tx_dmabuf;
 static int rx_dmalen, tx_dmalen;

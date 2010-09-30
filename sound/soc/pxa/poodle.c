@@ -17,7 +17,6 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/timer.h>
-#include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
 #include <sound/core.h>
@@ -27,6 +26,8 @@
 
 #include <asm/mach-types.h>
 #include <asm/hardware/locomo.h>
+#include <mach/pxa-regs.h>
+#include <mach/hardware.h>
 #include <mach/poodle.h>
 #include <mach/audio.h>
 
@@ -76,7 +77,7 @@ static void poodle_ext_control(struct snd_soc_codec *codec)
 static int poodle_startup(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_codec *codec = rtd->socdev->card->codec;
+	struct snd_soc_codec *codec = rtd->socdev->codec;
 
 	/* check the jack status at stream startup */
 	poodle_ext_control(codec);
@@ -239,17 +240,19 @@ static const struct snd_kcontrol_new wm8731_poodle_controls[] = {
  */
 static int poodle_wm8731_init(struct snd_soc_codec *codec)
 {
-	int err;
+	int i, err;
 
 	snd_soc_dapm_nc_pin(codec, "LLINEIN");
 	snd_soc_dapm_nc_pin(codec, "RLINEIN");
 	snd_soc_dapm_enable_pin(codec, "MICIN");
 
 	/* Add poodle specific controls */
-	err = snd_soc_add_controls(codec, wm8731_poodle_controls,
-				ARRAY_SIZE(wm8731_poodle_controls));
-	if (err < 0)
-		return err;
+	for (i = 0; i < ARRAY_SIZE(wm8731_poodle_controls); i++) {
+		err = snd_ctl_add(codec->card,
+			snd_soc_cnew(&wm8731_poodle_controls[i], codec, NULL));
+		if (err < 0)
+			return err;
+	}
 
 	/* Add poodle specific widgets */
 	snd_soc_dapm_new_controls(codec, wm8731_dapm_widgets,
@@ -280,10 +283,17 @@ static struct snd_soc_card snd_soc_poodle = {
 	.num_links = 1,
 };
 
+/* poodle audio private data */
+static struct wm8731_setup_data poodle_wm8731_setup = {
+	.i2c_bus = 0,
+	.i2c_address = 0x1b,
+};
+
 /* poodle audio subsystem */
 static struct snd_soc_device poodle_snd_devdata = {
 	.card = &snd_soc_poodle,
 	.codec_dev = &soc_codec_dev_wm8731,
+	.codec_data = &poodle_wm8731_setup,
 };
 
 static struct platform_device *poodle_snd_device;

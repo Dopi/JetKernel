@@ -37,6 +37,7 @@ typedef int (*param_set_fn)(const char *val, struct kernel_param *kp);
 typedef int (*param_get_fn)(char *buffer, struct kernel_param *kp);
 
 /* Flag bits for kernel_param.flags */
+#define KPARAM_KMALLOCED	1
 #define KPARAM_ISBOOL		2
 
 struct kernel_param {

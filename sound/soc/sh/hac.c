@@ -267,10 +267,6 @@ static int hac_hw_params(struct snd_pcm_substream *substream,
 #define AC97_FMTS	\
 	SNDRV_PCM_FMTBIT_S16_LE
 
-static struct snd_soc_dai_ops hac_dai_ops = {
-	.hw_params	= hac_hw_params,
-};
-
 struct snd_soc_dai sh4_hac_dai[] = {
 {
 	.name			= "HAC0",
@@ -288,7 +284,9 @@ struct snd_soc_dai sh4_hac_dai[] = {
 		.channels_min	= 2,
 		.channels_max	= 2,
 	},
-	.ops = &hac_dai_ops,
+	.ops = {
+		.hw_params	= hac_hw_params,
+	},
 },
 #ifdef CONFIG_CPU_SUBTYPE_SH7760
 {
@@ -307,7 +305,9 @@ struct snd_soc_dai sh4_hac_dai[] = {
 		.channels_min	= 2,
 		.channels_max	= 2,
 	},
-	.ops = &hac_dai_ops,
+	.ops = {
+		.hw_params	= hac_hw_params,
+	},
 
 },
 #endif

@@ -954,8 +954,7 @@ static int __devinit snd_amd7930_create(struct snd_card *card,
 	amd->regs = of_ioremap(&op->resource[0], 0,
 			       resource_size(&op->resource[0]), "amd7930");
 	if (!amd->regs) {
-		snd_printk(KERN_ERR
-			   "amd7930-%d: Unable to map chip registers.\n", dev);
+		snd_printk("amd7930-%d: Unable to map chip registers.\n", dev);
 		return -EIO;
 	}
 
@@ -963,7 +962,7 @@ static int __devinit snd_amd7930_create(struct snd_card *card,
 
 	if (request_irq(irq, snd_amd7930_interrupt,
 			IRQF_DISABLED | IRQF_SHARED, "amd7930", amd)) {
-		snd_printk(KERN_ERR "amd7930-%d: Unable to grab IRQ %d\n",
+		snd_printk("amd7930-%d: Unable to grab IRQ %d\n",
 			   dev, irq);
 		snd_amd7930_free(amd);
 		return -EBUSY;
@@ -1019,10 +1018,9 @@ static int __devinit amd7930_sbus_probe(struct of_device *op, const struct of_de
 		return -ENOENT;
 	}
 
-	err = snd_card_create(index[dev_num], id[dev_num], THIS_MODULE, 0,
-			      &card);
-	if (err < 0)
-		return err;
+	card = snd_card_new(index[dev_num], id[dev_num], THIS_MODULE, 0);
+	if (card == NULL)
+		return -ENOMEM;
 
 	strcpy(card->driver, "AMD7930");
 	strcpy(card->shortname, "Sun AMD7930");

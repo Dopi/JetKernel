@@ -643,7 +643,7 @@ struct ab3100_init_setting {
 	u8 setting;
 };
 
-static const struct ab3100_init_setting __initconst
+static const struct ab3100_init_setting __initdata
 ab3100_init_settings[] = {
 	{
 		.abreg = AB3100_MCA,

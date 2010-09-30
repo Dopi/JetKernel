@@ -36,7 +36,6 @@
 
 void nilfs_btnode_cache_init_once(struct address_space *btnc)
 {
-	memset(btnc, 0, sizeof(*btnc));
 	INIT_RADIX_TREE(&btnc->page_tree, GFP_ATOMIC);
 	spin_lock_init(&btnc->tree_lock);
 	INIT_LIST_HEAD(&btnc->private_list);
@@ -276,7 +275,8 @@ void nilfs_btnode_commit_change_key(struct address_space *btnc,
 				       "invalid oldkey %lld (newkey=%lld)",
 				       (unsigned long long)oldkey,
 				       (unsigned long long)newkey);
-		nilfs_btnode_mark_dirty(obh);
+		if (!test_set_buffer_dirty(obh) && TestSetPageDirty(opage))
+			BUG();
 
 		spin_lock_irq(&btnc->tree_lock);
 		radix_tree_delete(&btnc->page_tree, oldkey);

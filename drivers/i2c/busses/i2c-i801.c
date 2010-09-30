@@ -732,10 +732,8 @@ static int __devinit i801_probe(struct pci_dev *dev, const struct pci_device_id 
 	}
 
 	err = acpi_check_resource_conflict(&dev->resource[SMBBAR]);
-	if (err) {
-		err = -ENODEV;
+	if (err)
 		goto exit;
-	}
 
 	err = pci_request_region(dev, SMBBAR, i801_driver.name);
 	if (err) {

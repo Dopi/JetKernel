@@ -17,6 +17,11 @@ config RFKILL_LEDS
 	depends on LEDS_TRIGGERS = y || RFKILL = LEDS_TRIGGERS
 	default y
 
+config RFKILL_PM
+	bool "Power off on suspend"
+	depends on RFKILL && PM
+	default y
+
 config RFKILL_INPUT
 	bool "RF switch input support" if EMBEDDED
 	depends on RFKILL

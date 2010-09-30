@@ -15,7 +15,6 @@ config SND_AICA
 	tristate "Dreamcast Yamaha AICA sound"
 	depends on SH_DREAMCAST
 	select SND_PCM
-	select G2_DMA
 	help
 	  ALSA Sound driver for the SEGA Dreamcast console.
 

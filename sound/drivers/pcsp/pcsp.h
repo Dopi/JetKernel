@@ -10,7 +10,6 @@
 #define __PCSP_H__
 
 #include <linux/hrtimer.h>
-#include <linux/timex.h>
 #if defined(CONFIG_MIPS) || defined(CONFIG_X86)
 /* Use the global PIT lock ! */
 #include <asm/i8253.h>

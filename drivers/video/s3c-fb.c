@@ -21,10 +21,18 @@
 #include <linux/clk.h>
 #include <linux/fb.h>
 #include <linux/io.h>
+#include <linux/gpio.h>
+#include <linux/delay.h>
 
 #include <mach/map.h>
 #include <mach/regs-fb.h>
 #include <plat/fb.h>
+
+#include <plat/gpio-cfg.h>
+#include <plat/regs-clock.h>
+#include <plat/regs-lcd.h>
+#include <plat/regs-gpio.h>
+
 
 /* This driver will export a number of framebuffer interfaces depending
  * on the configuration passed in via the platform data. Each fb instance
@@ -850,6 +858,100 @@ static void s3c_fb_clear_win(struct s3c_fb *sfb, int win)
 	writel(0, regs + VIDOSD_C(win));
 }
 
+/* added by riversky start */
+//#define LCD_SCEN 		S3C64XX_GPM(0)
+//#define LCD_SCL 			S3C64XX_GPM(1)
+//#define LCD_SDA 			S3C64XX_GPM(2)
+
+#define LCD_SCEN 		S3C64XX_GPM(3)
+#define LCD_SCL 			S3C64XX_GPM(4)
+#define LCD_SDA 			S3C64XX_GPM(5)
+
+static int lcd_write(unsigned char addr, unsigned char data)
+{
+	unsigned char myaddr, mydata, i;
+	myaddr = (addr & 0x3f) << 1 ;
+	myaddr <<= 1;
+	myaddr |= 0x1;
+
+	gpio_direction_output(LCD_SCEN, 1);
+	gpio_direction_output(LCD_SCL, 0);
+	gpio_direction_output(LCD_SDA, 0);
+	udelay(2);
+	gpio_direction_output(LCD_SCEN,0);
+	for (i = 0; i < 8; i++) {
+	    gpio_direction_output(LCD_SCL, 0);
+	    udelay(1);
+	    gpio_direction_output(LCD_SDA, (myaddr & 0x80) >> 7);
+	    myaddr <<= 1 ;
+	    udelay(1);
+	    gpio_direction_output(LCD_SCL, 1);
+	    udelay(1);
+	} 
+	
+	mydata = data;
+	for (i = 0; i < 8; i++) {
+	    gpio_direction_output(LCD_SCL, 0);
+	    udelay(1);
+	    gpio_direction_output(LCD_SDA, (mydata & 0x80) >> 7);
+	    mydata <<= 1;
+	    udelay(1);
+	    gpio_direction_output(LCD_SCL, 1);
+	    udelay(1);
+	}
+
+	gpio_direction_output(LCD_SCEN, 1);
+
+	return 0;
+}
+
+
+void lcd_init_hw(void)
+{
+
+	lcd_write(0x02,0x07);
+	lcd_write(0x03,0x5f);
+	lcd_write(0x04,0x17);
+
+	lcd_write(0x05,0x20);
+	lcd_write(0x06,0x08);
+
+	lcd_write(0x07,0x20);
+	lcd_write(0x08,0x20);
+	lcd_write(0x09,0x20);
+	lcd_write(0x0a,0x20);
+
+	lcd_write(0x0b,0x20);
+	lcd_write(0x0c,0x20);
+	lcd_write(0x0d,0x22);
+
+	lcd_write(0x0e,0x10);
+	lcd_write(0x0f,0x10);
+	lcd_write(0x10,0x10);
+
+	lcd_write(0x11,0x15);
+	lcd_write(0x12,0xaa);
+	lcd_write(0x13,0xff);
+	lcd_write(0x14,0x86);
+	lcd_write(0x15,0x89);
+	lcd_write(0x16,0xc6);
+	lcd_write(0x17,0xea);
+	lcd_write(0x18,0x0c);
+	lcd_write(0x19,0x33);
+	lcd_write(0x1a,0x5e);
+	lcd_write(0x1b,0xd0);
+	lcd_write(0x1c,0x33);
+	lcd_write(0x1d,0x7e);
+	lcd_write(0x1e,0xb3);
+	lcd_write(0x1f,0xff);
+	lcd_write(0x20,0xf0);
+	lcd_write(0x21,0xf0);
+	lcd_write(0x22,0x08);
+
+}
+/* added by riversky end */
+
+
 static int __devinit s3c_fb_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -934,6 +1036,19 @@ static int __devinit s3c_fb_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, sfb);
 
+	/* added by riversky start */
+	
+	/* GPM4 is the backlight status 1:off, 0:on*/
+	s3c_gpio_cfgpin(S3C64XX_GPM(4), S3C_GPIO_SFN(0));
+	/* backlignt power off , then on */
+	gpio_direction_output(S3C64XX_GPM(3), 0);
+	lcd_init_hw();
+	msleep(5);
+	gpio_direction_output(S3C64XX_GPM(3), 1);
+	gpio_direction_output(S3C64XX_GPF(15), 1);
+	
+	/* added by riversky end */
+	
 	return 0;
 
 err_ioremap:
@@ -1036,7 +1151,7 @@ static int s3c_fb_resume(struct platform_device *pdev)
 
 static struct platform_driver s3c_fb_driver = {
 	.probe		= s3c_fb_probe,
-	.remove		= __devexit_p(s3c_fb_remove),
+	.remove		= s3c_fb_remove,
 	.suspend	= s3c_fb_suspend,
 	.resume		= s3c_fb_resume,
 	.driver		= {

@@ -195,6 +195,21 @@ static const struct snd_kcontrol_new wm8971_snd_controls[] = {
 	SOC_DOUBLE_R("Mic Boost", WM8971_LADCIN, WM8971_RADCIN, 4, 3, 0),
 };
 
+/* add non-DAPM controls */
+static int wm8971_add_controls(struct snd_soc_codec *codec)
+{
+	int err, i;
+
+	for (i = 0; i < ARRAY_SIZE(wm8971_snd_controls); i++) {
+		err = snd_ctl_add(codec->card,
+				snd_soc_cnew(&wm8971_snd_controls[i],
+					     codec, NULL));
+		if (err < 0)
+			return err;
+	}
+	return 0;
+}
+
 /*
  * DAPM Controls
  */
@@ -531,7 +546,7 @@ static int wm8971_pcm_hw_params(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_device *socdev = rtd->socdev;
-	struct snd_soc_codec *codec = socdev->card->codec;
+	struct snd_soc_codec *codec = socdev->codec;
 	struct wm8971_priv *wm8971 = codec->private_data;
 	u16 iface = wm8971_read_reg_cache(codec, WM8971_IFACE) & 0x1f3;
 	u16 srate = wm8971_read_reg_cache(codec, WM8971_SRATE) & 0x1c0;
@@ -604,13 +619,6 @@ static int wm8971_set_bias_level(struct snd_soc_codec *codec,
 #define WM8971_FORMATS (SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S20_3LE |\
 	SNDRV_PCM_FMTBIT_S24_LE)
 
-static struct snd_soc_dai_ops wm8971_dai_ops = {
-	.hw_params	= wm8971_pcm_hw_params,
-	.digital_mute	= wm8971_mute,
-	.set_fmt	= wm8971_set_dai_fmt,
-	.set_sysclk	= wm8971_set_dai_sysclk,
-};
-
 struct snd_soc_dai wm8971_dai = {
 	.name = "WM8971",
 	.playback = {
@@ -625,7 +633,12 @@ struct snd_soc_dai wm8971_dai = {
 		.channels_max = 2,
 		.rates = WM8971_RATES,
 		.formats = WM8971_FORMATS,},
-	.ops = &wm8971_dai_ops,
+	.ops = {
+		.hw_params = wm8971_pcm_hw_params,
+		.digital_mute = wm8971_mute,
+		.set_fmt = wm8971_set_dai_fmt,
+		.set_sysclk = wm8971_set_dai_sysclk,
+	},
 };
 EXPORT_SYMBOL_GPL(wm8971_dai);
 
@@ -639,7 +652,7 @@ static void wm8971_work(struct work_struct *work)
 static int wm8971_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
-	struct snd_soc_codec *codec = socdev->card->codec;
+	struct snd_soc_codec *codec = socdev->codec;
 
 	wm8971_set_bias_level(codec, SND_SOC_BIAS_OFF);
 	return 0;
@@ -648,7 +661,7 @@ static int wm8971_suspend(struct platform_device *pdev, pm_message_t state)
 static int wm8971_resume(struct platform_device *pdev)
 {
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
-	struct snd_soc_codec *codec = socdev->card->codec;
+	struct snd_soc_codec *codec = socdev->codec;
 	int i;
 	u8 data[2];
 	u16 *cache = codec->reg_cache;
@@ -679,7 +692,7 @@ static int wm8971_resume(struct platform_device *pdev)
 
 static int wm8971_init(struct snd_soc_device *socdev)
 {
-	struct snd_soc_codec *codec = socdev->card->codec;
+	struct snd_soc_codec *codec = socdev->codec;
 	int reg, ret = 0;
 
 	codec->name = "WM8971";
@@ -732,8 +745,7 @@ static int wm8971_init(struct snd_soc_device *socdev)
 	reg = wm8971_read_reg_cache(codec, WM8971_RINVOL);
 	wm8971_write(codec, WM8971_RINVOL, reg | 0x0100);
 
-	snd_soc_add_controls(codec, wm8971_snd_controls,
-				ARRAY_SIZE(wm8971_snd_controls));
+	wm8971_add_controls(codec);
 	wm8971_add_widgets(codec);
 	ret = snd_soc_init_card(socdev);
 	if (ret < 0) {
@@ -760,7 +772,7 @@ static int wm8971_i2c_probe(struct i2c_client *i2c,
 			    const struct i2c_device_id *id)
 {
 	struct snd_soc_device *socdev = wm8971_socdev;
-	struct snd_soc_codec *codec = socdev->card->codec;
+	struct snd_soc_codec *codec = socdev->codec;
 	int ret;
 
 	i2c_set_clientdata(i2c, codec);
@@ -861,7 +873,7 @@ static int wm8971_probe(struct platform_device *pdev)
 	}
 
 	codec->private_data = wm8971;
-	socdev->card->codec = codec;
+	socdev->codec = codec;
 	mutex_init(&codec->mutex);
 	INIT_LIST_HEAD(&codec->dapm_widgets);
 	INIT_LIST_HEAD(&codec->dapm_paths);
@@ -896,7 +908,7 @@ static int wm8971_probe(struct platform_device *pdev)
 static int wm8971_remove(struct platform_device *pdev)
 {
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
-	struct snd_soc_codec *codec = socdev->card->codec;
+	struct snd_soc_codec *codec = socdev->codec;
 
 	if (codec->control_data)
 		wm8971_set_bias_level(codec, SND_SOC_BIAS_OFF);

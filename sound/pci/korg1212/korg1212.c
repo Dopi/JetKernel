@@ -1238,8 +1238,7 @@ static struct snd_pcm_hardware snd_korg1212_playback_info =
 {
 	.info =              (SNDRV_PCM_INFO_MMAP |
                               SNDRV_PCM_INFO_MMAP_VALID |
-			      SNDRV_PCM_INFO_INTERLEAVED |
-			      SNDRV_PCM_INFO_BATCH),
+                              SNDRV_PCM_INFO_INTERLEAVED),
 	.formats =	      SNDRV_PCM_FMTBIT_S16_LE,
         .rates =              (SNDRV_PCM_RATE_44100 |
                               SNDRV_PCM_RATE_48000),
@@ -1259,8 +1258,7 @@ static struct snd_pcm_hardware snd_korg1212_capture_info =
 {
         .info =              (SNDRV_PCM_INFO_MMAP |
                               SNDRV_PCM_INFO_MMAP_VALID |
-			      SNDRV_PCM_INFO_INTERLEAVED |
-			      SNDRV_PCM_INFO_BATCH),
+                              SNDRV_PCM_INFO_INTERLEAVED),
         .formats =	      SNDRV_PCM_FMTBIT_S16_LE,
         .rates =	      (SNDRV_PCM_RATE_44100 |
                               SNDRV_PCM_RATE_48000),
@@ -2445,9 +2443,9 @@ snd_korg1212_probe(struct pci_dev *pci,
 		dev++;
 		return -ENOENT;
 	}
-	err = snd_card_create(index[dev], id[dev], THIS_MODULE, 0, &card);
-	if (err < 0)
-		return err;
+	card = snd_card_new(index[dev], id[dev], THIS_MODULE, 0);
+        if (card == NULL)
+		return -ENOMEM;
 
         if ((err = snd_korg1212_create(card, pci, &korg1212)) < 0) {
 		snd_card_free(card);

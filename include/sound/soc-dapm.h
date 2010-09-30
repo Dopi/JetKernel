@@ -76,11 +76,6 @@
 	 wcontrols, wncontrols)\
 {	.id = snd_soc_dapm_mixer, .name = wname, .reg = wreg, .shift = wshift, \
 	.invert = winvert, .kcontrols = wcontrols, .num_kcontrols = wncontrols}
-#define SND_SOC_DAPM_MIXER_NAMED_CTL(wname, wreg, wshift, winvert, \
-	 wcontrols, wncontrols)\
-{       .id = snd_soc_dapm_mixer_named_ctl, .name = wname, .reg = wreg, \
-	.shift = wshift, .invert = winvert, .kcontrols = wcontrols, \
-	.num_kcontrols = wncontrols}
 #define SND_SOC_DAPM_MICBIAS(wname, wreg, wshift, winvert) \
 {	.id = snd_soc_dapm_micbias, .name = wname, .reg = wreg, .shift = wshift, \
 	.invert = winvert, .kcontrols = NULL, .num_kcontrols = 0}
@@ -106,11 +101,6 @@
 {	.id = snd_soc_dapm_mixer, .name = wname, .reg = wreg, .shift = wshift, \
 	.invert = winvert, .kcontrols = wcontrols, .num_kcontrols = wncontrols, \
 	.event = wevent, .event_flags = wflags}
-#define SND_SOC_DAPM_MIXER_NAMED_CTL_E(wname, wreg, wshift, winvert, \
-	wcontrols, wncontrols, wevent, wflags) \
-{       .id = snd_soc_dapm_mixer, .name = wname, .reg = wreg, .shift = wshift, \
-	.invert = winvert, .kcontrols = wcontrols, \
-	.num_kcontrols = wncontrols, .event = wevent, .event_flags = wflags}
 #define SND_SOC_DAPM_MICBIAS_E(wname, wreg, wshift, winvert, wevent, wflags) \
 {	.id = snd_soc_dapm_micbias, .name = wname, .reg = wreg, .shift = wshift, \
 	.invert = winvert, .kcontrols = NULL, .num_kcontrols = 0, \
@@ -140,30 +130,16 @@
 #define SND_SOC_DAPM_DAC(wname, stname, wreg, wshift, winvert) \
 {	.id = snd_soc_dapm_dac, .name = wname, .sname = stname, .reg = wreg, \
 	.shift = wshift, .invert = winvert}
-#define SND_SOC_DAPM_DAC_E(wname, stname, wreg, wshift, winvert, \
-			   wevent, wflags)				\
-{	.id = snd_soc_dapm_dac, .name = wname, .sname = stname, .reg = wreg, \
-	.shift = wshift, .invert = winvert, \
-	.event = wevent, .event_flags = wflags}
 #define SND_SOC_DAPM_ADC(wname, stname, wreg, wshift, winvert) \
 {	.id = snd_soc_dapm_adc, .name = wname, .sname = stname, .reg = wreg, \
 	.shift = wshift, .invert = winvert}
-#define SND_SOC_DAPM_ADC_E(wname, stname, wreg, wshift, winvert, \
-			   wevent, wflags)				\
-{	.id = snd_soc_dapm_adc, .name = wname, .sname = stname, .reg = wreg, \
-	.shift = wshift, .invert = winvert, \
-	.event = wevent, .event_flags = wflags}
 
-/* generic widgets */
+/* generic register modifier widget */
 #define SND_SOC_DAPM_REG(wid, wname, wreg, wshift, wmask, won_val, woff_val) \
 {	.id = wid, .name = wname, .kcontrols = NULL, .num_kcontrols = 0, \
 	.reg = -((wreg) + 1), .shift = wshift, .mask = wmask, \
 	.on_val = won_val, .off_val = woff_val, .event = dapm_reg_event, \
 	.event_flags = SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD}
-#define SND_SOC_DAPM_SUPPLY(wname, wreg, wshift, winvert, wevent, wflags) \
-{	.id = snd_soc_dapm_supply, .name = wname, .reg = wreg,	\
-	.shift = wshift, .invert = winvert, .event = wevent, \
-	.event_flags = wflags}
 
 /* dapm kcontrol types */
 #define SOC_DAPM_SINGLE(xname, reg, shift, max, invert) \
@@ -206,12 +182,6 @@
 	.get = snd_soc_dapm_get_value_enum_double, \
 	.put = snd_soc_dapm_put_value_enum_double, \
 	.private_value = (unsigned long)&xenum }
-#define SOC_DAPM_PIN_SWITCH(xname) \
-{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname " Switch", \
-	.info = snd_soc_dapm_info_pin_switch, \
-	.get = snd_soc_dapm_get_pin_switch, \
-	.put = snd_soc_dapm_put_pin_switch, \
-	.private_value = (unsigned long)xname }
 
 /* dapm stream operations */
 #define SND_SOC_DAPM_STREAM_NOP			0x0
@@ -258,12 +228,6 @@ int snd_soc_dapm_get_value_enum_double(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol);
 int snd_soc_dapm_put_value_enum_double(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol);
-int snd_soc_dapm_info_pin_switch(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_info *uinfo);
-int snd_soc_dapm_get_pin_switch(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *uncontrol);
-int snd_soc_dapm_put_pin_switch(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *uncontrol);
 int snd_soc_dapm_new_control(struct snd_soc_codec *codec,
 	const struct snd_soc_dapm_widget *widget);
 int snd_soc_dapm_new_controls(struct snd_soc_codec *codec,
@@ -279,15 +243,22 @@ int snd_soc_dapm_add_routes(struct snd_soc_codec *codec,
 /* dapm events */
 int snd_soc_dapm_stream_event(struct snd_soc_codec *codec, char *stream,
 	int event);
+int snd_soc_dapm_set_bias_level(struct snd_soc_device *socdev,
+	enum snd_soc_bias_level level);
 
 /* dapm sys fs - used by the core */
 int snd_soc_dapm_sys_add(struct device *dev);
 
+/* dapm audio endpoint control */
+int snd_soc_dapm_set_endpoint(struct snd_soc_codec *codec,
+	char *pin, int status);
+int snd_soc_dapm_sync_endpoints(struct snd_soc_codec *codec);
+
 /* dapm audio pin control and status */
-int snd_soc_dapm_enable_pin(struct snd_soc_codec *codec, const char *pin);
-int snd_soc_dapm_disable_pin(struct snd_soc_codec *codec, const char *pin);
-int snd_soc_dapm_nc_pin(struct snd_soc_codec *codec, const char *pin);
-int snd_soc_dapm_get_pin_status(struct snd_soc_codec *codec, const char *pin);
+int snd_soc_dapm_enable_pin(struct snd_soc_codec *codec, char *pin);
+int snd_soc_dapm_disable_pin(struct snd_soc_codec *codec, char *pin);
+int snd_soc_dapm_nc_pin(struct snd_soc_codec *codec, char *pin);
+int snd_soc_dapm_get_pin_status(struct snd_soc_codec *codec, char *pin);
 int snd_soc_dapm_sync(struct snd_soc_codec *codec);
 
 /* dapm widget types */
@@ -297,7 +268,6 @@ enum snd_soc_dapm_type {
 	snd_soc_dapm_mux,			/* selects 1 analog signal from many inputs */
 	snd_soc_dapm_value_mux,			/* selects 1 analog signal from many inputs */
 	snd_soc_dapm_mixer,			/* mixes several analog signals together */
-	snd_soc_dapm_mixer_named_ctl,		/* mixer with named controls */
 	snd_soc_dapm_pga,			/* programmable gain/attenuation (volume) */
 	snd_soc_dapm_adc,			/* analog to digital converter */
 	snd_soc_dapm_dac,			/* digital to analog converter */
@@ -310,7 +280,6 @@ enum snd_soc_dapm_type {
 	snd_soc_dapm_vmid,			/* codec bias/vmid - to minimise pops */
 	snd_soc_dapm_pre,			/* machine specific pre widget - exec first */
 	snd_soc_dapm_post,			/* machine specific post widget - exec last */
-	snd_soc_dapm_supply,		/* power/clock supply */
 };
 
 /*
@@ -370,8 +339,6 @@ struct snd_soc_dapm_widget {
 	unsigned char suspend:1;		/* was active before suspend */
 	unsigned char pmdown:1;			/* waiting for timeout */
 
-	int (*power_check)(struct snd_soc_dapm_widget *w);
-
 	/* external events */
 	unsigned short event_flags;		/* flags to specify event types */
 	int (*event)(struct snd_soc_dapm_widget*, struct snd_kcontrol *, int);
@@ -383,9 +350,6 @@ struct snd_soc_dapm_widget {
 	/* widget input and outputs */
 	struct list_head sources;
 	struct list_head sinks;
-
-	/* used during DAPM updates */
-	struct list_head power_list;
 };
 
 #endif

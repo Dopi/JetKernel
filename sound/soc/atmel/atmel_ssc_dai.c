@@ -697,15 +697,6 @@ static int atmel_ssc_resume(struct snd_soc_dai *cpu_dai)
 #define ATMEL_SSC_FORMATS (SNDRV_PCM_FMTBIT_S8     | SNDRV_PCM_FMTBIT_S16_LE |\
 			  SNDRV_PCM_FMTBIT_S24_LE | SNDRV_PCM_FMTBIT_S32_LE)
 
-static struct snd_soc_dai_ops atmel_ssc_dai_ops = {
-	.startup	= atmel_ssc_startup,
-	.shutdown	= atmel_ssc_shutdown,
-	.prepare	= atmel_ssc_prepare,
-	.hw_params	= atmel_ssc_hw_params,
-	.set_fmt	= atmel_ssc_set_dai_fmt,
-	.set_clkdiv	= atmel_ssc_set_dai_clkdiv,
-};
-
 struct snd_soc_dai atmel_ssc_dai[NUM_SSC_DEVICES] = {
 	{	.name = "atmel-ssc0",
 		.id = 0,
@@ -721,7 +712,13 @@ struct snd_soc_dai atmel_ssc_dai[NUM_SSC_DEVICES] = {
 			.channels_max = 2,
 			.rates = ATMEL_SSC_RATES,
 			.formats = ATMEL_SSC_FORMATS,},
-		.ops = &atmel_ssc_dai_ops,
+		.ops = {
+			.startup = atmel_ssc_startup,
+			.shutdown = atmel_ssc_shutdown,
+			.prepare = atmel_ssc_prepare,
+			.hw_params = atmel_ssc_hw_params,
+			.set_fmt = atmel_ssc_set_dai_fmt,
+			.set_clkdiv = atmel_ssc_set_dai_clkdiv,},
 		.private_data = &ssc_info[0],
 	},
 #if NUM_SSC_DEVICES == 3
@@ -739,7 +736,13 @@ struct snd_soc_dai atmel_ssc_dai[NUM_SSC_DEVICES] = {
 			.channels_max = 2,
 			.rates = ATMEL_SSC_RATES,
 			.formats = ATMEL_SSC_FORMATS,},
-		.ops = &atmel_ssc_dai_ops,
+		.ops = {
+			.startup = atmel_ssc_startup,
+			.shutdown = atmel_ssc_shutdown,
+			.prepare = atmel_ssc_prepare,
+			.hw_params = atmel_ssc_hw_params,
+			.set_fmt = atmel_ssc_set_dai_fmt,
+			.set_clkdiv = atmel_ssc_set_dai_clkdiv,},
 		.private_data = &ssc_info[1],
 	},
 	{	.name = "atmel-ssc2",
@@ -756,7 +759,13 @@ struct snd_soc_dai atmel_ssc_dai[NUM_SSC_DEVICES] = {
 			.channels_max = 2,
 			.rates = ATMEL_SSC_RATES,
 			.formats = ATMEL_SSC_FORMATS,},
-		.ops = &atmel_ssc_dai_ops,
+		.ops = {
+			.startup = atmel_ssc_startup,
+			.shutdown = atmel_ssc_shutdown,
+			.prepare = atmel_ssc_prepare,
+			.hw_params = atmel_ssc_hw_params,
+			.set_fmt = atmel_ssc_set_dai_fmt,
+			.set_clkdiv = atmel_ssc_set_dai_clkdiv,},
 		.private_data = &ssc_info[2],
 	},
 #endif

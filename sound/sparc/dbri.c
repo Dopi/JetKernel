@@ -1975,8 +1975,7 @@ static struct snd_pcm_hardware snd_dbri_pcm_hw = {
 	.info		= SNDRV_PCM_INFO_MMAP |
 			  SNDRV_PCM_INFO_INTERLEAVED |
 			  SNDRV_PCM_INFO_BLOCK_TRANSFER |
-			  SNDRV_PCM_INFO_MMAP_VALID |
-			  SNDRV_PCM_INFO_BATCH,
+			  SNDRV_PCM_INFO_MMAP_VALID,
 	.formats	= SNDRV_PCM_FMTBIT_MU_LAW |
 			  SNDRV_PCM_FMTBIT_A_LAW |
 			  SNDRV_PCM_FMTBIT_U8 |
@@ -2613,10 +2612,10 @@ static int __devinit dbri_probe(struct of_device *op, const struct of_device_id 
 		return -ENODEV;
 	}
 
-	err = snd_card_create(index[dev], id[dev], THIS_MODULE,
-			      sizeof(struct snd_dbri), &card);
-	if (err < 0)
-		return err;
+	card = snd_card_new(index[dev], id[dev], THIS_MODULE,
+			    sizeof(struct snd_dbri));
+	if (card == NULL)
+		return -ENOMEM;
 
 	strcpy(card->driver, "DBRI");
 	strcpy(card->shortname, "Sun DBRI");

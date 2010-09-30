@@ -15,11 +15,33 @@
 
 #define S3C2410_RTCREG(x) (x)
 
+#define S3C2410_INTP	      S3C2410_RTCREG(0x30)
+#define S3C2410_INTP_ALM	(1<<1)
+#define S3C2410_INTP_TIC	(1<<0)
+
+
 #define S3C2410_RTCCON	      S3C2410_RTCREG(0x40)
 #define S3C2410_RTCCON_RTCEN  (1<<0)
 #define S3C2410_RTCCON_CLKSEL (1<<1)
 #define S3C2410_RTCCON_CNTSEL (1<<2)
 #define S3C2410_RTCCON_CLKRST (1<<3)
+
+#if defined(CONFIG_CPU_S3C6400) || defined(CONFIG_CPU_S3C6410) || defined (CONFIG_CPU_S5PC100) || defined (CONFIG_CPU_S5P6440)
+#define S3C_MAX_CNT	32768
+#define S3C_RTCCON_TICEN	(1<<8)
+#define S3C_RTC_TICNT	S3C2410_RTCREG(0x40)
+#else
+#define S3C_INTP_ALM	(1<<1)
+#define S3C_MAX_CNT	128
+#define S3C_RTCCON_TICEN  (1<<7)
+#define S3C_RTC_TICNT	S3C2410_RTCREG(0x44)
+#endif
+
+/* Common Reg for samsung AP*/
+#define S3C_INTP	S3C2410_RTCREG(0x30)
+#define S3C_INTP_ALM	(1<<1)
+#define S3C_INTP_TIC	(1<<0)
+
 
 #define S3C2410_TICNT	      S3C2410_RTCREG(0x44)
 #define S3C2410_TICNT_ENABLE  (1<<7)

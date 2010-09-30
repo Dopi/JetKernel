@@ -5,7 +5,7 @@
  *      Ben Dooks <ben@simtec.co.uk>
  *      http://armlinux.simtec.co.uk/
  *
- * S3C6400 - CPU initialisation (common with other S3C64XX chips)
+ * S3C64XX - CPU initialisation (common with other S3C64XX chips)
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -23,7 +23,7 @@
 
 /* uart registration process */
 
-void __init s3c6400_common_init_uarts(struct s3c2410_uartcfg *cfg, int no)
+void __init s3c64xx_common_init_uarts(struct s3c_uartcfg *cfg, int no)
 {
-	s3c24xx_init_uartdevs("s3c6400-uart", s3c64xx_uart_resources, cfg, no);
+	s3c_init_uartdevs("s3c64xx-uart", s3c64xx_uart_resources, cfg, no);
 }

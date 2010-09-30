@@ -30,6 +30,8 @@
 
 #include <asm/mach-types.h>
 #include <mach/tosa.h>
+#include <mach/pxa-regs.h>
+#include <mach/hardware.h>
 #include <mach/audio.h>
 
 #include "../codecs/wm9712.h"
@@ -80,7 +82,7 @@ static void tosa_ext_control(struct snd_soc_codec *codec)
 static int tosa_startup(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_codec *codec = rtd->socdev->card->codec;
+	struct snd_soc_codec *codec = rtd->socdev->codec;
 
 	/* check the jack status at stream startup */
 	tosa_ext_control(codec);
@@ -186,16 +188,18 @@ static const struct snd_kcontrol_new tosa_controls[] = {
 
 static int tosa_ac97_init(struct snd_soc_codec *codec)
 {
-	int err;
+	int i, err;
 
 	snd_soc_dapm_nc_pin(codec, "OUT3");
 	snd_soc_dapm_nc_pin(codec, "MONOOUT");
 
 	/* add tosa specific controls */
-	err = snd_soc_add_controls(codec, tosa_controls,
-				ARRAY_SIZE(tosa_controls));
-	if (err < 0)
-		return err;
+	for (i = 0; i < ARRAY_SIZE(tosa_controls); i++) {
+		err = snd_ctl_add(codec->card,
+				snd_soc_cnew(&tosa_controls[i],codec, NULL));
+		if (err < 0)
+			return err;
+	}
 
 	/* add tosa specific widgets */
 	snd_soc_dapm_new_controls(codec, tosa_dapm_widgets,

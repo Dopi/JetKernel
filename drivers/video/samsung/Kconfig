@@ -1,0 +1,174 @@
+#
+# S3C Video configuration
+#
+menu "S3C Framebuffer support <smartQ5/7>"
+	depends on FB
+	
+config FB_S3C
+	tristate "S3C Framebuffer Support"
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FRAMEBUFFER_CONSOLE
+	select LOGO
+	select LOGO_LINUX_LANDSCAPED_CLUT224
+	depends on FB && (ARCH_S3C64XX || ARCH_S5P64XX || ARCH_S5PC1XX)
+
+	default n
+	---help---
+	TBA
+
+choice
+depends on FB_S3C
+prompt "Select LCD Type"
+default FB_S3C_LTE480WV
+config FB_S3C_LTE480WV
+	bool "LTE480WV/LTP700WV"
+	---help---
+	TBA
+
+config FB_S3C_LTV350QV
+	bool "LTV350QV"
+	---help---
+	TBA
+
+config FB_S3C_LTS222QV
+	bool "LTS222QV"
+	---help---
+	TBA
+
+config FB_S3C_TD043MTEX
+	bool "TD043MTEX(smartQ5)"
+	---help---
+	TBA
+
+config FB_S3C_A070VW04
+	bool "A070VW04(smartQ7)"
+	---help---
+	TBA
+
+config FB_S3C_AMS320FS01
+	bool "AMS320FS01"
+	---help---
+	TBA
+
+endchoice
+
+config FB_S3C_BPP
+	tristate "Advanced options for S3C Framebuffer"
+	depends on FB_S3C
+	default n
+	---help---
+	TBA
+
+choice
+depends on FB_S3C_BPP
+prompt "Select BPP(Bits Per Pixel)"
+default FB_S3C_BPP_16
+config FB_S3C_BPP_8
+	bool "8 BPP"
+	---help---
+	TBA
+
+config FB_S3C_BPP_16
+	bool "16 BPP"
+	---help---
+	TBA
+
+config FB_S3C_BPP_24
+	bool "24 BPP(XRGB888)"
+	---help---
+	TBA
+
+
+config FB_S3C_BPP_28
+	bool "28 BPP(ARGB4888)"
+	---help---
+	TBA
+
+config FB_S3C_BPP_32
+	bool "32 BPP(ARGB8888)"
+	---help---
+	TBA
+endchoice
+
+config FB_S3C_NUM
+	int "Number of Framebuffers"
+	depends on FB_S3C_BPP && (ARCH_S3C64XX || ARCH_S5P64XX || ARCH_S5PC1XX)
+	default "1"
+	---help---
+	TBA
+
+config FB_S3C_VIRTUAL_SCREEN
+	bool "Enable Virtual Screen"
+	depends on FB_S3C_BPP
+
+	default n
+	---help---
+	TBA
+
+config FB_S3C_EARLY_SUSPEND
+	bool "Support early_suspend for Power Save"
+	depends on FB_S3C && EARLYSUSPEND
+	default y
+	---help---
+	for android PM system
+
+config FB_S3C_DOUBLE_BUFFERING
+	bool "Enable Double Buffering"
+	depends on FB_S3C_BPP
+
+	default n
+	---help---
+	TBA
+
+config FB_S3C_V2
+	tristate "S3C Framebuffer version 2 support"
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FRAMEBUFFER_CONSOLE_DETECT_PRIMARY
+	depends on FB && (FB_S3C != y) && (FB_S3C != m) && (ARCH_S3C64XX || ARCH_S5P64XX || ARCH_S5PC1XX)
+	default n
+	---help---
+	  This enables support for Samsung Display Controller (FIMD)
+
+config FB_S3C_V2_DEBUG
+        bool "S3C Framebuffer version 2 debug messages"
+        depends on FB_S3C_V2
+
+config FB_S3C_V2_TRACE_UNDERRUN
+        bool "S3C Framebuffer version 2 FIFO underrun trace"
+        depends on FB_S3C_V2
+
+config FB_S3C_V2_DEFAULT_WINDOW
+	int "Default Window (0-4)"
+	depends on FB_S3C_V2
+	default "1"
+	---help---
+	  This indicates the default window number, and which is used as console framebuffer
+
+config FB_S3C_V2_YPANSTEP
+	int "Vertical Panning Step (0-2)"
+	depends on FB_S3C_V2
+	default "1"
+	---help---
+	  This indicates the number of vertical steps for pan display, 0 means no pan display and
+	  1 means the double size of video buffer will be allocated for default window
+
+choice
+depends on FB_S3C_V2
+prompt "Select LCD Type"
+default FB_S3C_V2_LTE480WV
+config FB_S3C_V2_LTE480WV
+	bool "LTE480WV"
+	---help---
+	  This enables support for Samsung LTE480WV 4.8\" WVGA LCD panel
+
+config FB_S3C_V2_TL2796
+	bool "TL2796"
+	---help---
+	  This enables support for Samsung  TL2796 WVGA LCD panel
+endchoice	
+
+endmenu

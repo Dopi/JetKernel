@@ -139,10 +139,10 @@ config KS8695_WATCHDOG
 	  system when the timeout is reached.
 
 config S3C2410_WATCHDOG
-	tristate "S3C2410 Watchdog"
-	depends on ARCH_S3C2410
+	tristate "Samsung SoC Watchdog"
+	depends on ARCH_S3C2410 || ARCH_S3C64XX || ARCH_S5PC1XX || ARCH_S5P64XX
 	help
-	  Watchdog timer block in the Samsung S3C2410 chips. This will
+	  Watchdog timer block in the Samsung chips. This will
 	  reboot the system when the timer expires with the watchdog
 	  enabled.
 

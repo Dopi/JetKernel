@@ -1,8 +1,8 @@
 VERSION = 2
 PATCHLEVEL = 6
 SUBLEVEL = 31
-EXTRAVERSION = .14
-NAME = Man-Eating Seals of Antiquity
+EXTRAVERSION = -bfs310
+NAME = BFS Powered
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
@@ -180,8 +180,9 @@ SUBARCH := $(shell uname -m | sed -e s/i.86/i386/ -e s/sun4u/sparc64/ \
 # Default value for CROSS_COMPILE is not to prefix executables
 # Note: Some architectures assign CROSS_COMPILE in their arch/*/Makefile
 export KBUILD_BUILDHOST := $(SUBARCH)
-ARCH		?= $(SUBARCH)
-CROSS_COMPILE	?=
+#ARCH		?= $(SUBARCH)
+ARCH		?= arm
+CROSS_COMPILE	?= /opt/cross/bin/arm-linux-gnueabi-
 
 # Architecture as present in compile.h
 UTS_MACHINE 	:= $(ARCH)
@@ -979,6 +980,11 @@ prepare0: archprepare FORCE
 
 # All the preparing..
 prepare: prepare0
+
+# Leave this as default for preprocessing vmlinux.lds.S, which is now
+# done in arch/$(ARCH)/kernel/Makefile
+
+export CPPFLAGS_vmlinux.lds += -P -C -U$(ARCH)
 
 # The asm symlink changes when $(ARCH) changes.
 # Detect this and ask user to run make mrproper

@@ -22,13 +22,58 @@
 
 #include <linux/slab.h>
 #include <linux/time.h>
-#include <linux/math64.h>
 #include <sound/core.h>
 #include <sound/control.h>
 #include <sound/info.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <sound/timer.h>
+
+#undef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
+#ifdef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
+#include "smallfilter.h"
+
+#define MAX_HWORD (32767)
+#define MIN_HWORD (-32768)
+
+/* Conversion constants */
+#define Nhc       8
+#define Na        7
+#define Np       (Nhc+Na)
+#define Npc      (1<<Nhc)
+#define Amask    ((1<<Na)-1)
+#define Pmask    ((1<<Np)-1)
+#define Nh       16
+#define Nb       16
+#define Nhxn     14
+#define Nhg      (Nh-Nhxn)
+#define NLpScl   13
+
+#ifndef MAX
+#define MAX(x,y) ((x)>(y) ?(x):(y))
+#endif
+#ifndef MIN
+#define MIN(x,y) ((x)<(y) ?(x):(y))
+#endif
+
+#define MUS_SAMPLE_BITS 24
+#define MUS_SAMPLE_TYPE_TO_HWORD(x) ((short)((x)>>(MUS_SAMPLE_BITS-16)))
+#define HWORD_TO_MUS_SAMPLE_TYPE(x) ((mus_sample_t)((x)<<(MUS_SAMPLE_BITS-16)))
+
+#define OLDSAMPLE 44100
+#define NEWSAMPLE 8000
+
+static char *buf_user;
+static char *buf_user_org;
+static unsigned short Xoff = 48;
+static unsigned short Xp = 48;
+static unsigned short Xread = 48;   /* Position in input array to read into */
+static unsigned int Time = (48<<Np);          /* Current-time pointer for converter */
+static char isFirst = 1;
+#endif
+
+unsigned int ring_buf_index = 0;
+unsigned int period_index = 0;
 
 /*
  * fill ring buffer with silence
@@ -126,70 +171,46 @@ void snd_pcm_playback_silence(struct snd_pcm_substream *substream, snd_pcm_ufram
 	}
 }
 
-#ifdef CONFIG_SND_PCM_XRUN_DEBUG
-#define xrun_debug(substream, mask)	((substream)->pstr->xrun_debug & (mask))
-#else
-#define xrun_debug(substream, mask)	0
-#endif
-
-#define dump_stack_on_xrun(substream) do {		\
-		if (xrun_debug(substream, 2))		\
-			dump_stack();			\
-	} while (0)
-
-static void pcm_debug_name(struct snd_pcm_substream *substream,
-			   char *name, size_t len)
-{
-	snprintf(name, len, "pcmC%dD%d%c:%d",
-		 substream->pcm->card->number,
-		 substream->pcm->device,
-		 substream->stream ? 'c' : 'p',
-		 substream->number);
-}
-
 static void xrun(struct snd_pcm_substream *substream)
 {
-	struct snd_pcm_runtime *runtime = substream->runtime;
-
-	if (runtime->tstamp_mode == SNDRV_PCM_TSTAMP_ENABLE)
-		snd_pcm_gettime(runtime, (struct timespec *)&runtime->status->tstamp);
+	printk("%s: [%d]occured XRUN!\n", __func__, substream->stream);
 	snd_pcm_stop(substream, SNDRV_PCM_STATE_XRUN);
-	if (xrun_debug(substream, 1)) {
-		char name[16];
-		pcm_debug_name(substream, name, sizeof(name));
-		snd_printd(KERN_DEBUG "XRUN: %s\n", name);
-		dump_stack_on_xrun(substream);
+#ifdef CONFIG_SND_PCM_XRUN_DEBUG
+	if (substream->pstr->xrun_debug) {
+		snd_printd(KERN_DEBUG "XRUN: pcmC%dD%d%c\n",
+			   substream->pcm->card->number,
+			   substream->pcm->device,
+			   substream->stream ? 'c' : 'p');
+		if (substream->pstr->xrun_debug > 1)
+			dump_stack();
 	}
+#endif
 }
 
-static snd_pcm_uframes_t
-snd_pcm_update_hw_ptr_pos(struct snd_pcm_substream *substream,
-			  struct snd_pcm_runtime *runtime)
+static inline snd_pcm_uframes_t snd_pcm_update_hw_ptr_pos(struct snd_pcm_substream *substream,
+							  struct snd_pcm_runtime *runtime)
 {
 	snd_pcm_uframes_t pos;
 
+	if (runtime->tstamp_mode == SNDRV_PCM_TSTAMP_ENABLE)
+		snd_pcm_gettime(runtime, (struct timespec *)&runtime->status->tstamp);
 	pos = substream->ops->pointer(substream);
 	if (pos == SNDRV_PCM_POS_XRUN)
 		return pos; /* XRUN */
-	if (pos >= runtime->buffer_size) {
-		if (printk_ratelimit()) {
-			char name[16];
-			pcm_debug_name(substream, name, sizeof(name));
-			snd_printd(KERN_ERR  "BUG: %s, pos = 0x%lx, "
-				   "buffer size = 0x%lx, period size = 0x%lx\n",
-				   name, pos, runtime->buffer_size,
-				   runtime->period_size);
-		}
-		pos = 0;
+#ifdef CONFIG_SND_DEBUG
+	if (pos >= (runtime->buffer_size * ANDROID_BUF_NUM)) {
+		snd_printk(KERN_ERR  "BUG: stream = %i, pos = 0x%lx, buffer size = 0x%lx, period size = 0x%lx\n", substream->stream, pos, runtime->buffer_size, runtime->period_size);
 	}
+#endif
 	pos -= pos % runtime->min_align;
 	return pos;
 }
 
-static int snd_pcm_update_hw_ptr_post(struct snd_pcm_substream *substream,
-				      struct snd_pcm_runtime *runtime)
+static inline int snd_pcm_update_hw_ptr_post(struct snd_pcm_substream *substream,
+					     struct snd_pcm_runtime *runtime)
 {
 	snd_pcm_uframes_t avail;
+	unsigned int stop_threshold = 0;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		avail = snd_pcm_playback_avail(runtime);
@@ -197,7 +218,13 @@ static int snd_pcm_update_hw_ptr_post(struct snd_pcm_substream *substream,
 		avail = snd_pcm_capture_avail(runtime);
 	if (avail > runtime->avail_max)
 		runtime->avail_max = avail;
-	if (avail >= runtime->stop_threshold) {
+
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		stop_threshold = runtime->stop_threshold * ANDROID_BUF_NUM;
+	else
+		stop_threshold = runtime->stop_threshold;
+
+	if (avail >= stop_threshold) {
 		if (substream->runtime->status->state == SNDRV_PCM_STATE_DRAINING)
 			snd_pcm_drain_done(substream);
 		else
@@ -209,143 +236,52 @@ static int snd_pcm_update_hw_ptr_post(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-#define hw_ptr_error(substream, fmt, args...)				\
-	do {								\
-		if (xrun_debug(substream, 1)) {				\
-			if (printk_ratelimit()) {			\
-				snd_printd("PCM: " fmt, ##args);	\
-			}						\
-			dump_stack_on_xrun(substream);			\
-		}							\
-	} while (0)
-
-static int snd_pcm_update_hw_ptr_interrupt(struct snd_pcm_substream *substream)
+static inline int snd_pcm_update_hw_ptr_interrupt(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	snd_pcm_uframes_t pos;
-	snd_pcm_uframes_t old_hw_ptr, new_hw_ptr, hw_ptr_interrupt, hw_base;
-	snd_pcm_sframes_t hdelta, delta;
-	unsigned long jdelta;
+	snd_pcm_uframes_t new_hw_ptr, hw_ptr_interrupt;
+	snd_pcm_sframes_t delta;
 
-	old_hw_ptr = runtime->status->hw_ptr;
 	pos = snd_pcm_update_hw_ptr_pos(substream, runtime);
 	if (pos == SNDRV_PCM_POS_XRUN) {
 		xrun(substream);
 		return -EPIPE;
 	}
-	if (xrun_debug(substream, 8)) {
-		char name[16];
-		pcm_debug_name(substream, name, sizeof(name));
-		snd_printd("period_update: %s: pos=0x%x/0x%x/0x%x, "
-			   "hwptr=0x%lx, hw_base=0x%lx, hw_intr=0x%lx\n",
-			   name, (unsigned int)pos,
-			   (unsigned int)runtime->period_size,
-			   (unsigned int)runtime->buffer_size,
-			   (unsigned long)old_hw_ptr,
-			   (unsigned long)runtime->hw_ptr_base,
-			   (unsigned long)runtime->hw_ptr_interrupt);
-	}
-	hw_base = runtime->hw_ptr_base;
-	new_hw_ptr = hw_base + pos;
+	if (runtime->period_size == runtime->buffer_size)
+		goto __next_buf;
+	new_hw_ptr = runtime->hw_ptr_base + pos;
 	hw_ptr_interrupt = runtime->hw_ptr_interrupt + runtime->period_size;
-	delta = new_hw_ptr - hw_ptr_interrupt;
-	if (hw_ptr_interrupt >= runtime->boundary) {
-		hw_ptr_interrupt -= runtime->boundary;
-		if (hw_base < runtime->boundary / 2)
-			/* hw_base was already lapped; recalc delta */
-			delta = new_hw_ptr - hw_ptr_interrupt;
-	}
-	if (delta < 0) {
-		if (runtime->periods == 1 || new_hw_ptr < old_hw_ptr)
-			delta += runtime->buffer_size;
-		if (delta < 0) {
-			hw_ptr_error(substream, 
-				     "Unexpected hw_pointer value "
-				     "(stream=%i, pos=%ld, intr_ptr=%ld)\n",
-				     substream->stream, (long)pos,
-				     (long)hw_ptr_interrupt);
-#if 1
-			/* simply skipping the hwptr update seems more
-			 * robust in some cases, e.g. on VMware with
-			 * inaccurate timer source
-			 */
-			return 0; /* skip this update */
-#else
-			/* rebase to interrupt position */
-			hw_base = new_hw_ptr = hw_ptr_interrupt;
-			/* align hw_base to buffer_size */
-			hw_base -= hw_base % runtime->buffer_size;
-			delta = 0;
+
+	delta = hw_ptr_interrupt - new_hw_ptr;
+	if (delta > 0) {
+		if ((snd_pcm_uframes_t)delta < runtime->buffer_size / 2) {
+#ifdef CONFIG_SND_PCM_XRUN_DEBUG
+			if (runtime->periods > 1 && substream->pstr->xrun_debug) {
+				snd_printd(KERN_ERR "Unexpected hw_pointer value [1] (stream = %i, delta: -%ld, max jitter = %ld): wrong interrupt acknowledge?\n", substream->stream, (long) delta, runtime->buffer_size / 2);
+				if (substream->pstr->xrun_debug > 1)
+					dump_stack();
+			}
 #endif
-		} else {
-			hw_base += runtime->buffer_size;
-			if (hw_base >= runtime->boundary)
-				hw_base = 0;
-			new_hw_ptr = hw_base + pos;
+			return 0;
 		}
-	}
+	      __next_buf:
+		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+			runtime->hw_ptr_base += runtime->buffer_size * ANDROID_BUF_NUM;
+		else
+		runtime->hw_ptr_base += runtime->buffer_size;
 
-	/* Do jiffies check only in xrun_debug mode */
-	if (!xrun_debug(substream, 4))
-		goto no_jiffies_check;
-
-	/* Skip the jiffies check for hardwares with BATCH flag.
-	 * Such hardware usually just increases the position at each IRQ,
-	 * thus it can't give any strange position.
-	 */
-	if (runtime->hw.info & SNDRV_PCM_INFO_BATCH)
-		goto no_jiffies_check;
-	hdelta = new_hw_ptr - old_hw_ptr;
-	if (hdelta < runtime->delay)
-		goto no_jiffies_check;
-	hdelta -= runtime->delay;
-	jdelta = jiffies - runtime->hw_ptr_jiffies;
-	if (((hdelta * HZ) / runtime->rate) > jdelta + HZ/100) {
-		delta = jdelta /
-			(((runtime->period_size * HZ) / runtime->rate)
-								+ HZ/100);
-		hw_ptr_error(substream,
-			     "hw_ptr skipping! [Q] "
-			     "(pos=%ld, delta=%ld, period=%ld, "
-			     "jdelta=%lu/%lu/%lu)\n",
-			     (long)pos, (long)hdelta,
-			     (long)runtime->period_size, jdelta,
-			     ((hdelta * HZ) / runtime->rate), delta);
-		hw_ptr_interrupt = runtime->hw_ptr_interrupt +
-				   runtime->period_size * delta;
-		if (hw_ptr_interrupt >= runtime->boundary)
-			hw_ptr_interrupt -= runtime->boundary;
-		/* rebase to interrupt position */
-		hw_base = new_hw_ptr = hw_ptr_interrupt;
-		/* align hw_base to buffer_size */
-		hw_base -= hw_base % runtime->buffer_size;
-		delta = 0;
+		if (runtime->hw_ptr_base == runtime->boundary)
+			runtime->hw_ptr_base = 0;
+		new_hw_ptr = runtime->hw_ptr_base + pos;
 	}
- no_jiffies_check:
-	if (delta > runtime->period_size + runtime->period_size / 2) {
-		hw_ptr_error(substream,
-			     "Lost interrupts? "
-			     "(stream=%i, delta=%ld, intr_ptr=%ld)\n",
-			     substream->stream, (long)delta,
-			     (long)hw_ptr_interrupt);
-		/* rebase hw_ptr_interrupt */
-		hw_ptr_interrupt =
-			new_hw_ptr - new_hw_ptr % runtime->period_size;
-	}
-	runtime->hw_ptr_interrupt = hw_ptr_interrupt;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK &&
 	    runtime->silence_size > 0)
 		snd_pcm_playback_silence(substream, new_hw_ptr);
 
-	if (runtime->status->hw_ptr == new_hw_ptr)
-		return 0;
-
-	runtime->hw_ptr_base = hw_base;
 	runtime->status->hw_ptr = new_hw_ptr;
-	runtime->hw_ptr_jiffies = jiffies;
-	if (runtime->tstamp_mode == SNDRV_PCM_TSTAMP_ENABLE)
-		snd_pcm_gettime(runtime, (struct timespec *)&runtime->status->tstamp);
+	runtime->hw_ptr_interrupt = new_hw_ptr - new_hw_ptr % runtime->period_size;
 
 	return snd_pcm_update_hw_ptr_post(substream, runtime);
 }
@@ -355,9 +291,8 @@ int snd_pcm_update_hw_ptr(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	snd_pcm_uframes_t pos;
-	snd_pcm_uframes_t old_hw_ptr, new_hw_ptr, hw_base;
+	snd_pcm_uframes_t old_hw_ptr, new_hw_ptr;
 	snd_pcm_sframes_t delta;
-	unsigned long jdelta;
 
 	old_hw_ptr = runtime->status->hw_ptr;
 	pos = snd_pcm_update_hw_ptr_pos(substream, runtime);
@@ -365,67 +300,33 @@ int snd_pcm_update_hw_ptr(struct snd_pcm_substream *substream)
 		xrun(substream);
 		return -EPIPE;
 	}
-	if (xrun_debug(substream, 16)) {
-		char name[16];
-		pcm_debug_name(substream, name, sizeof(name));
-		snd_printd("hw_update: %s: pos=0x%x/0x%x/0x%x, "
-			   "hwptr=0x%lx, hw_base=0x%lx, hw_intr=0x%lx\n",
-			   name, (unsigned int)pos,
-			   (unsigned int)runtime->period_size,
-			   (unsigned int)runtime->buffer_size,
-			   (unsigned long)old_hw_ptr,
-			   (unsigned long)runtime->hw_ptr_base,
-			   (unsigned long)runtime->hw_ptr_interrupt);
-	}
-
-	hw_base = runtime->hw_ptr_base;
-	new_hw_ptr = hw_base + pos;
-
-	delta = new_hw_ptr - old_hw_ptr;
-	jdelta = jiffies - runtime->hw_ptr_jiffies;
-	if (delta < 0) {
-		delta += runtime->buffer_size;
-		if (delta < 0) {
-			hw_ptr_error(substream, 
-				     "Unexpected hw_pointer value [2] "
-				     "(stream=%i, pos=%ld, old_ptr=%ld, jdelta=%li)\n",
-				     substream->stream, (long)pos,
-				     (long)old_hw_ptr, jdelta);
+	new_hw_ptr = runtime->hw_ptr_base + pos;
+	delta = old_hw_ptr - new_hw_ptr;
+	if (delta > 0) {
+		if ((snd_pcm_uframes_t)delta < runtime->buffer_size / 2) {
+#ifdef CONFIG_SND_PCM_XRUN_DEBUG
+			if (runtime->periods > 2 && substream->pstr->xrun_debug) {
+				snd_printd(KERN_ERR "Unexpected hw_pointer value [2] (stream = %i, delta: -%ld, max jitter = %ld): wrong interrupt acknowledge?\n", substream->stream, (long) delta, runtime->buffer_size / 2);
+				if (substream->pstr->xrun_debug > 1)
+					dump_stack();
+			}
+#endif
 			return 0;
 		}
-		hw_base += runtime->buffer_size;
-		if (hw_base >= runtime->boundary)
-			hw_base = 0;
-		new_hw_ptr = hw_base + pos;
+		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+			runtime->hw_ptr_base += runtime->buffer_size * ANDROID_BUF_NUM;
+		else
+		runtime->hw_ptr_base += runtime->buffer_size;
+
+		if (runtime->hw_ptr_base == runtime->boundary)
+			runtime->hw_ptr_base = 0;
+		new_hw_ptr = runtime->hw_ptr_base + pos;
 	}
-	/* Do jiffies check only in xrun_debug mode */
-	if (!xrun_debug(substream, 4))
-		goto no_jiffies_check;
-	if (delta < runtime->delay)
-		goto no_jiffies_check;
-	delta -= runtime->delay;
-	if (((delta * HZ) / runtime->rate) > jdelta + HZ/100) {
-		hw_ptr_error(substream,
-			     "hw_ptr skipping! "
-			     "(pos=%ld, delta=%ld, period=%ld, jdelta=%lu/%lu)\n",
-			     (long)pos, (long)delta,
-			     (long)runtime->period_size, jdelta,
-			     ((delta * HZ) / runtime->rate));
-		return 0;
-	}
- no_jiffies_check:
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK &&
 	    runtime->silence_size > 0)
 		snd_pcm_playback_silence(substream, new_hw_ptr);
 
-	if (runtime->status->hw_ptr == new_hw_ptr)
-		return 0;
-
-	runtime->hw_ptr_base = hw_base;
 	runtime->status->hw_ptr = new_hw_ptr;
-	runtime->hw_ptr_jiffies = jiffies;
-	if (runtime->tstamp_mode == SNDRV_PCM_TSTAMP_ENABLE)
-		snd_pcm_gettime(runtime, (struct timespec *)&runtime->status->tstamp);
 
 	return snd_pcm_update_hw_ptr_post(substream, runtime);
 }
@@ -519,7 +420,7 @@ static inline unsigned int muldiv32(unsigned int a, unsigned int b,
 		*r = 0;
 		return UINT_MAX;
 	}
-	n = div_u64_rem(n, c, r);
+	div64_32(&n, c, r);
 	if (n >= UINT_MAX) {
 		*r = 0;
 		return UINT_MAX;
@@ -943,24 +844,47 @@ static int snd_interval_ratden(struct snd_interval *i,
 int snd_interval_list(struct snd_interval *i, unsigned int count, unsigned int *list, unsigned int mask)
 {
         unsigned int k;
-	struct snd_interval list_range;
+	int changed = 0;
 
 	if (!count) {
 		i->empty = 1;
 		return -EINVAL;
 	}
-	snd_interval_any(&list_range);
-	list_range.min = UINT_MAX;
-	list_range.max = 0;
         for (k = 0; k < count; k++) {
 		if (mask && !(mask & (1 << k)))
 			continue;
-		if (!snd_interval_test(i, list[k]))
-			continue;
-		list_range.min = min(list_range.min, list[k]);
-		list_range.max = max(list_range.max, list[k]);
+                if (i->min == list[k] && !i->openmin)
+                        goto _l1;
+                if (i->min < list[k]) {
+                        i->min = list[k];
+			i->openmin = 0;
+			changed = 1;
+                        goto _l1;
+                }
         }
-	return snd_interval_refine(i, &list_range);
+        i->empty = 1;
+        return -EINVAL;
+ _l1:
+        for (k = count; k-- > 0;) {
+		if (mask && !(mask & (1 << k)))
+			continue;
+                if (i->max == list[k] && !i->openmax)
+                        goto _l2;
+                if (i->max > list[k]) {
+                        i->max = list[k];
+			i->openmax = 0;
+			changed = 1;
+                        goto _l2;
+                }
+        }
+        i->empty = 1;
+        return -EINVAL;
+ _l2:
+	if (snd_interval_checkempty(i)) {
+		i->empty = 1;
+		return -EINVAL;
+	}
+        return changed;
 }
 
 EXPORT_SYMBOL(snd_interval_list);
@@ -1568,23 +1492,6 @@ static int snd_pcm_lib_ioctl_channel_info(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-static int snd_pcm_lib_ioctl_fifo_size(struct snd_pcm_substream *substream,
-				       void *arg)
-{
-	struct snd_pcm_hw_params *params = arg;
-	snd_pcm_format_t format;
-	int channels, width;
-
-	params->fifo_size = substream->runtime->hw.fifo_size;
-	if (!(substream->runtime->hw.info & SNDRV_PCM_INFO_FIFO_IN_FRAMES)) {
-		format = params_format(params);
-		channels = params_channels(params);
-		width = snd_pcm_format_physical_width(format);
-		params->fifo_size /= width * channels;
-	}
-	return 0;
-}
-
 /**
  * snd_pcm_lib_ioctl - a generic PCM ioctl callback
  * @substream: the pcm substream instance
@@ -1606,8 +1513,6 @@ int snd_pcm_lib_ioctl(struct snd_pcm_substream *substream,
 		return snd_pcm_lib_ioctl_reset(substream, arg);
 	case SNDRV_PCM_IOCTL1_CHANNEL_INFO:
 		return snd_pcm_lib_ioctl_channel_info(substream, arg);
-	case SNDRV_PCM_IOCTL1_FIFO_SIZE:
-		return snd_pcm_lib_ioctl_fifo_size(substream, arg);
 	}
 	return -ENXIO;
 }
@@ -1730,7 +1635,22 @@ static int snd_pcm_lib_write_transfer(struct snd_pcm_substream *substream,
 		if ((err = substream->ops->copy(substream, -1, hwoff, buf, frames)) < 0)
 			return err;
 	} else {
-		char *hwbuf = runtime->dma_area + frames_to_bytes(runtime, hwoff);
+		char *hwbuf = runtime->dma_area + frames_to_bytes(runtime, hwoff) 
+					  + (ring_buf_index * frames_to_bytes(runtime, runtime->buffer_size));
+	
+        if(frames == runtime->buffer_size) 
+			ring_buf_index = (ring_buf_index + 1) % ANDROID_BUF_NUM;
+
+		else if(frames != runtime->buffer_size) {
+			period_index += frames;
+			if(period_index >= runtime->buffer_size) {			
+				ring_buf_index = (ring_buf_index + 1) % ANDROID_BUF_NUM;
+				period_index -= runtime->buffer_size;
+			} 
+		}
+
+		if (snd_BUG_ON(runtime->dma_area)) return -EFAULT;
+//		printk("########### frames = %d #########\n", frames);
 		if (copy_from_user(hwbuf, buf, frames_to_bytes(runtime, frames)))
 			return -EFAULT;
 	}
@@ -1788,6 +1708,10 @@ static snd_pcm_sframes_t snd_pcm_lib_write1(struct snd_pcm_substream *substream,
 			if (err < 0)
 				goto _end_unlock;
 		}
+
+		if(avail > runtime->buffer_size)
+			avail = runtime->buffer_size;
+			
 		frames = size > avail ? avail : size;
 		cont = runtime->buffer_size - runtime->control->appl_ptr % runtime->buffer_size;
 		if (frames > cont)
@@ -1853,6 +1777,7 @@ snd_pcm_sframes_t snd_pcm_lib_write(struct snd_pcm_substream *substream, const v
 {
 	struct snd_pcm_runtime *runtime;
 	int nonblock;
+	snd_pcm_sframes_t ret;
 	int err;
 
 	err = pcm_sanity_check(substream);
@@ -1932,6 +1857,116 @@ snd_pcm_sframes_t snd_pcm_lib_writev(struct snd_pcm_substream *substream,
 
 EXPORT_SYMBOL(snd_pcm_lib_writev);
 
+#ifdef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING // sangsu fix : down sample
+
+static inline short WordToHword(int v, int scl)
+{
+    short out;
+    int llsb = (1<<(scl-1));
+    v += llsb;          /* round */
+    v >>= scl;
+    if (v>MAX_HWORD) {
+        v = MAX_HWORD;
+    } else if (v < MIN_HWORD) {
+        v = MIN_HWORD;
+    }
+    out = (short) v;
+    return out;
+}
+
+int FilterUD( short Imp[], short ImpD[],
+		     unsigned short Nwing, char Interp,
+		     short *Xp, short Ph, short Inc, unsigned short dhb)
+{
+    short a;
+    short *Hp, *Hdp, *End;
+    int v, t;
+    unsigned int Ho;
+    
+    v=0;
+    Ho = (Ph*(unsigned int)dhb)>>Np;
+    End = &Imp[Nwing];
+    if (Inc == 1)		/* If doing right wing...              */
+    {				/* ...drop extra coeff, so when Ph is  */
+	End--;			/*    0.5, we don't do too many mult's */
+	if (Ph == 0)		/* If the phase is zero...           */
+	  Ho += dhb;		/* ...then we've already skipped the */
+    }				/*    first sample, so we must also  */
+				/*    skip ahead in Imp[] and ImpD[] */
+    if (Interp)
+      while ((Hp = &Imp[Ho>>Na]) < End) {
+	  t = *Hp;		/* Get IR sample */
+	  Hdp = &ImpD[Ho>>Na];  /* get interp (lower Na) bits from diff table*/
+	  a = Ho & Amask;	/* a is logically between 0 and 1 */
+	  t += (((int)*Hdp)*a)>>Na; /* t is now interp'd filter coeff */
+	  t *= *Xp;		/* Mult coeff by input sample */
+	  if (t & 1<<(Nhxn-1))	/* Round, if needed */
+	    t += 1<<(Nhxn-1);
+	  t >>= Nhxn;		/* Leave some guard bits, but come back some */
+	  v += t;			/* The filter output */
+	  Ho += dhb;		/* IR step */
+	  Xp += Inc;		/* Input signal step. NO CHECK ON BOUNDS */
+      }
+    else 
+      while ((Hp = &Imp[Ho>>Na]) < End) {
+	  t = *Hp;		/* Get IR sample */
+	  t *= *Xp;		/* Mult coeff by input sample */
+	  if (t & 1<<(Nhxn-1))	/* Round, if needed */
+	    t += 1<<(Nhxn-1);
+	  t >>= Nhxn;		/* Leave some guard bits, but come back some */
+	  v += t;			/* The filter output */
+	  Ho += dhb;		/* IR step */
+	  Xp += Inc;		/* Input signal step. NO CHECK ON BOUNDS */
+      }
+    return(v);
+}
+
+/* Sampling rate conversion subroutine */
+
+static int SrcUD(short X[], short Y[], int newSample, unsigned int *Time,
+                 unsigned short Nx, unsigned short Nwing, unsigned short LpScl,
+                 short Imp[], short ImpD[], char Interp)
+{
+    short *Xp, *Ystart;
+    int v;
+    
+    double dh;                  /* Step through filter impulse response */
+    double dt;                  /* Step through input signal */
+    unsigned int endTime;              /* When Time reaches EndTime, return to user */
+    unsigned int dhb, dtb;             /* Fixed-point versions of Dh,Dt */
+    double factor = (double)newSample/(double)44100;
+
+    /* Account for increased filter gain when using factors less than 1 */
+    if (factor < 1)
+      LpScl = LpScl*factor + 0.5;
+
+    dt = 1.0/factor;            /* Output sampling period */
+    dtb = dt*(1<<Np) + 0.5;     /* Fixed-point representation */
+    
+    dh = MIN(Npc, factor*Npc);  /* Filter sampling period */
+    dhb = dh*(1<<Na) + 0.5;     /* Fixed-point representation */
+    
+    Ystart = Y;
+    endTime = *Time + (1<<Np)*(int)Nx;
+    while (*Time < endTime)
+    {
+        Xp = &X[*Time>>Np];     /* Ptr to current input sample */
+        v = FilterUD(Imp, ImpD, Nwing, Interp, Xp, (short)(*Time&Pmask),
+                     -1, dhb);  /* Perform left-wing inner product */
+        v += FilterUD(Imp, ImpD, Nwing, Interp, Xp+1, 
+		      /* previous (triggers warning): (short)((-*Time)&Pmask), */
+                      (short)((((*Time)^Pmask)+1)&Pmask),
+                      1, dhb);  /* Perform right-wing inner product */
+        v >>= Nhg;              /* Make guard bits */
+        v *= LpScl;             /* Normalize for unity filter gain */
+        *Y++ = WordToHword(v,NLpScl);   /* strip guard bits, deposit output */
+        *Time += dtb;           /* Move to next sample by time increment */
+    }
+    return (Y - Ystart);        /* Return the number of output samples */
+}
+#endif // sangsu fix : down sample
+
+
 static int snd_pcm_lib_read_transfer(struct snd_pcm_substream *substream, 
 				     unsigned int hwoff,
 				     unsigned long data, unsigned int off,
@@ -1945,8 +1980,20 @@ static int snd_pcm_lib_read_transfer(struct snd_pcm_substream *substream,
 			return err;
 	} else {
 		char *hwbuf = runtime->dma_area + frames_to_bytes(runtime, hwoff);
+#ifdef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
+    if(runtime->rate == 8000)
+    {
+  		memcpy(buf_user + frames_to_bytes(runtime, off) , hwbuf, frames_to_bytes(runtime, frames));
+    }
+    else
+    {
+  		if (copy_to_user(buf, hwbuf, frames_to_bytes(runtime, frames)))
+  			return -EFAULT;
+    }
+#else
 		if (copy_to_user(buf, hwbuf, frames_to_bytes(runtime, frames)))
 			return -EFAULT;
+#endif
 	}
 	return 0;
 }
@@ -1961,9 +2008,30 @@ static snd_pcm_sframes_t snd_pcm_lib_read1(struct snd_pcm_substream *substream,
 	snd_pcm_uframes_t xfer = 0;
 	snd_pcm_uframes_t offset = 0;
 	int err = 0;
+#ifdef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
+    unsigned int i;
+    unsigned short oldSize1, oldSize2;
+    unsigned short Ncreep;
+    unsigned short Nout;
+    int Ycount, last;
+    unsigned short Nx = 11288;
+    double factor = (double)(runtime->rate)/(double)44100;
+#endif	
 
 	if (size == 0)
 		return 0;
+
+#ifdef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
+//	printk("snd_pcm_lib_read1: sample_rate(%d) \n", runtime->rate);
+  if(runtime->rate == 8000)
+  {
+  	size = (((size*OLDSAMPLE/NEWSAMPLE<<1)+1)>>1)+94;
+        oldSize1 = size;
+  	buf_user = (char *)kmalloc(frames_to_bytes(runtime, oldSize1), GFP_KERNEL);
+        buf_user_org = buf_user;
+//	printk("# %d \n", size);
+  }
+#endif
 
 	snd_pcm_stream_lock_irq(substream);
 	switch (runtime->status->state) {
@@ -2047,9 +2115,48 @@ static snd_pcm_sframes_t snd_pcm_lib_read1(struct snd_pcm_substream *substream,
 		size -= frames;
 		xfer += frames;
 	}
+#ifdef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
+  if(runtime->rate == 8000)
+  {
+        /* Calc reach of LP filter wing & give some creeping room */
+        oldSize2 = xfer;
+
+  	xfer = SrcUD((short*)buf_user_org, (short*)buf_user_org, 8000, &Time, Nx, 
+			    SMALL_FILTER_NWING, SMALL_FILTER_SCALE, SMALL_FILTER_IMP, 
+			    SMALL_FILTER_IMPD, 1);
+//	printk("## %d %u %u\n", xfer, Time, Nx, Xoff);
+  	if ((err = copy_to_user((char __user *)data, buf_user_org, frames_to_bytes(runtime, xfer))) < 0) {
+  		xfer = 0;
+  		goto _end;
+  	}
+
+        Time -= (Nx<<Np);       /* Move converter Nx samples back in time */
+
+        Xp += Nx;               /* Advance by number of samples processed */
+        Ncreep = (Time>>Np) - Xoff; /* Calc time accumulation in Time */
+        if (Ncreep) {
+            Time -= (Ncreep<<Np);    /* Remove time accumulation */
+            Xp += Ncreep;            /* and add it to read pointer */
+        }
+
+        for (i=0; i<oldSize2-Xp+Xoff; i++) { /* Copy part of input signal */
+            buf_user_org[i] = buf_user_org[i+Xp-Xoff]; /* that must be re-used */
+        }
+
+        Xread = i;              /* Pos in input buff to read new data into */
+        Xp = Xoff;
+  }
+#endif
+
  _end_unlock:
 	snd_pcm_stream_unlock_irq(substream);
  _end:
+#ifdef CONFIG_SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
+  if(runtime->rate == 8000)
+  {
+   	kfree(buf_user);
+  }
+#endif
 	return xfer > 0 ? (snd_pcm_sframes_t)xfer : err;
 }
 

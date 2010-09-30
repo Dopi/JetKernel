@@ -132,7 +132,6 @@ config I2C_PIIX4
 	    Serverworks CSB5
 	    Serverworks CSB6
 	    Serverworks HT-1000
-	    Serverworks HT-1100
 	    SMSC Victory66
 
 	  This driver can also be built as a module.  If so, the module
@@ -211,7 +210,7 @@ config I2C_VIA
 	  will be called i2c-via.
 
 config I2C_VIAPRO
-	tristate "VIA VT82C596/82C686/82xx and CX700/VX8xx"
+	tristate "VIA VT82C596/82C686/82xx and CX700/VX800/VX820"
 	depends on PCI
 	help
 	  If you say yes to this option, support will be included for the VIA
@@ -225,8 +224,8 @@ config I2C_VIAPRO
 	    VT8237R/A/S
 	    VT8251
 	    CX700
-	    VX800/VX820
-	    VX855/VX875
+	    VX800
+	    VX820
 
 	  This driver can also be built as a module.  If so, the module
 	  will be called i2c-viapro.
@@ -298,7 +297,7 @@ config I2C_BLACKFIN_TWI
 config I2C_BLACKFIN_TWI_CLK_KHZ
 	int "Blackfin TWI I2C clock (kHz)"
 	depends on I2C_BLACKFIN_TWI
-	range 21 400
+	range 10 400
 	default 50
 	help
 	  The unit of the TWI clock is kHz.
@@ -325,16 +324,6 @@ config I2C_DAVINCI
 	  Please note that this driver might be needed to bring up other
 	  devices such as DaVinci NIC.
 	  For details please see http://www.ti.com/davinci
-
-config I2C_DESIGNWARE
-	tristate "Synopsys DesignWare"
-	depends on HAVE_CLK
-	help
-	  If you say yes to this option, support will be included for the
-	  Synopsys DesignWare I2C adapter. Only master mode is supported.
-
-	  This driver can also be built as a module.  If so, the module
-	  will be called i2c-designware.
 
 config I2C_GPIO
 	tristate "GPIO-based bitbanging I2C"
@@ -365,16 +354,6 @@ config I2C_IBM_IIC
 
 	  This driver can also be built as a module.  If so, the module
 	  will be called i2c-ibm_iic.
-
-config I2C_IMX
-	tristate "IMX I2C interface"
-	depends on ARCH_MXC
-	help
-	  Say Y here if you want to use the IIC bus controller on
-	  the Freescale i.MX/MXC processors.
-
-	  This driver can also be built as a module.  If so, the module
-	  will be called i2c-imx.
 
 config I2C_IOP3XX
 	tristate "Intel IOPx3xx and IXP4xx on-chip I2C interface"
@@ -475,22 +454,13 @@ config I2C_PXA_SLAVE
 	  is necessary for systems where the PXA may be a target on the
 	  I2C bus.
 
-config I2C_S3C2410
-	tristate "S3C2410 I2C Driver"
+config I2C_S3C
+	tristate "Samsung SoC I2C Driver (S3C24XX and S3C64XX series)"
 	depends on ARCH_S3C2410 || ARCH_S3C64XX
 	help
 	  Say Y here to include support for I2C controller in the
-	  Samsung S3C2410 based System-on-Chip devices.
-
-config I2C_S6000
-	tristate "S6000 I2C support"
-	depends on XTENSA_VARIANT_S6000
-	help
-	  This driver supports the on chip I2C device on the
-	  S6000 xtensa processor family.
-
-	  To compile this driver as a module, choose M here. The module
-	  will be called i2c-s6000.
+	  Samsung S3C based System-on-Chip devices such as the S3C2410,
+	  S3C2440, S3C2442, S3C2443 and S3C6410.
 
 config I2C_SH7760
 	tristate "Renesas SH7760 I2C Controller"
@@ -522,19 +492,6 @@ config I2C_SIMTEC
 
 	  This driver can also be built as a module. If so, the module
 	  will be called i2c-simtec.
-
-config I2C_STU300
-	tristate "ST Microelectronics DDC I2C interface"
-	depends on MACH_U300
-	default y if MACH_U300
-	help
-	  If you say yes to this option, support will be included for the
-	  I2C interface from ST Microelectronics simply called "DDC I2C"
-	  supporting both I2C and DDC, used in e.g. the U300 series
-	  mobile platforms.
-
-	  This driver can also be built as a module. If so, the module
-	  will be called i2c-stu300.
 
 config I2C_VERSATILE
 	tristate "ARM Versatile/Realview I2C bus support"
@@ -627,14 +584,12 @@ comment "Graphics adapter I2C/DDC channel drivers"
 	depends on PCI
 
 config I2C_VOODOO3
-	tristate "Voodoo 3 (DEPRECATED)"
+	tristate "Voodoo 3"
 	depends on PCI
 	select I2C_ALGOBIT
 	help
 	  If you say yes to this option, support will be included for the
-	  Voodoo 3 I2C interface. This driver is deprecated and you should
-	  use the tdfxfb driver instead, which additionally provides
-	  framebuffer support.
+	  Voodoo 3 I2C interface.
 
 	  This driver can also be built as a module.  If so, the module
 	  will be called i2c-voodoo3.
@@ -663,12 +618,12 @@ config I2C_ELEKTOR
 	  will be called i2c-elektor.
 
 config I2C_PCA_ISA
-	tristate "PCA9564/PCA9665 on an ISA bus"
+	tristate "PCA9564 on an ISA bus"
 	depends on ISA
 	select I2C_ALGOPCA
 	default n
 	help
-	  This driver supports ISA boards using the Philips PCA9564/PCA9665
+	  This driver supports ISA boards using the Philips PCA9564
 	  parallel bus to I2C bus controller.
 
 	  This driver can also be built as a module.  If so, the module
@@ -680,11 +635,11 @@ config I2C_PCA_ISA
 	  time).  If unsure, say N.
 
 config I2C_PCA_PLATFORM
-	tristate "PCA9564/PCA9665 as platform device"
+	tristate "PCA9564 as platform device"
 	select I2C_ALGOPCA
 	default n
 	help
-	  This driver supports a memory mapped Philips PCA9564/PCA9665
+	  This driver supports a memory mapped Philips PCA9564
 	  parallel bus to I2C bus controller.
 
 	  This driver can also be built as a module.  If so, the module

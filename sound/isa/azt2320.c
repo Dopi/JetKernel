@@ -184,10 +184,9 @@ static int __devinit snd_card_azt2320_probe(int dev,
 	struct snd_wss *chip;
 	struct snd_opl3 *opl3;
 
-	error = snd_card_create(index[dev], id[dev], THIS_MODULE,
-				sizeof(struct snd_card_azt2320), &card);
-	if (error < 0)
-		return error;
+	if ((card = snd_card_new(index[dev], id[dev], THIS_MODULE,
+				 sizeof(struct snd_card_azt2320))) == NULL)
+		return -ENOMEM;
 	acard = (struct snd_card_azt2320 *)card->private_data;
 
 	if ((error = snd_card_azt2320_pnp(dev, acard, pcard, pid))) {

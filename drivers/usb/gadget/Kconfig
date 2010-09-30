@@ -112,6 +112,7 @@ config	USB_GADGET_SELECTED
 choice
 	prompt "USB Peripheral Controller"
 	depends on USB_GADGET
+	default USB_GADGET_S3C_OTGD if (PLAT_S3C64XX || PLAT_S5P64XX || PLAT_S5PC1XX || PLAT_S5PV2XX)
 	help
 	   A USB device uses a controller to talk to its host.
 	   Systems should have only one such upstream link.
@@ -273,7 +274,7 @@ config USB_PXA27X
 	select USB_GADGET_SELECTED
 
 config USB_GADGET_S3C_HSOTG
-	boolean "S3C HS/OtG USB Device controller"
+	boolean "S3C HS/OTG USB Device controller"
 	depends on S3C_DEV_USB_HSOTG
 	select USB_GADGET_S3C_HSOTG_PIO
 	help
@@ -328,6 +329,19 @@ config USB_S3C2410_DEBUG
 	boolean "S3C2410 udc debug messages"
 	depends on USB_GADGET_S3C2410
 
+config USB_GADGET_S3C_OTGD
+	boolean "S3C HS USB OTG Device <riversky>"
+	depends on (PLAT_S3C64XX || PLAT_S5P64XX || PLAT_S5PC1XX || PLAT_S5PV2XX)
+	help
+	  Samsung's S3C64XX processors include high speed USB OTG2.0
+	  controller. It has 15 configurable endpoints, as well as
+	  endpoint zero (for control transfers).
+
+	  This driver has been tested on the S3C6410, S5P6440, S5PC100 processor.
+
+          Say "y" to link the driver statically, or "m" to build a
+          dynamically linked module called "s3c-udc-otg" and force all
+          gadget drivers to also be dynamically linked.
 #
 # Controllers available in both integrated and discrete versions
 #
@@ -532,6 +546,43 @@ config USB_DUMMY_HCD
 # NOTE:  Please keep dummy_hcd LAST so that "real hardware" appears
 # first and will be selected by default.
 
+endchoice
+
+comment "NOTE: S3C OTG device role enables the controller driver below"
+	depends on USB_GADGET_S3C_OTGD
+
+config USB_S3C_OTGD
+	tristate "S3C high speed(2.0, dual-speed) USB OTG device"
+        depends on USB_GADGET && USB_GADGET_S3C_OTGD 
+	default y
+	default USB_GADGET
+	select USB_GADGET_SELECTED
+	select USB_GADGET_DUALSPEED
+        help
+           Say "y" to link the driver statically, or "m" to build a
+           dynamically linked module called "s3c-udc-otg-hs" and force all
+           gadget drivers to also be dynamically linked.
+
+choice
+	prompt "S3C OTGD transfer mode"
+	depends on USB_S3C_OTGD
+	default y
+	help
+	   S3C USB OTG conteroller supports DMA mode and Slave mode
+	   for the dat transfer. You must slect one for the core
+	   operation mode.
+
+config USB_GADGET_S3C_OTGD_DMA_MODE
+	bool "enabled DMA MODE"
+	depends on USB_GADGET_S3C_OTGD
+	help
+	   S3C USB OTG core operates in DMA mode.
+
+config USB_GADGET_S3C_OTGD_SLAVE_MODE
+	bool "enabled Slave MODE"
+	depends on USB_GADGET_S3C_OTGD
+	help
+	   S3C USB OTG core operates in Slave mode.
 endchoice
 
 config USB_GADGET_DUALSPEED
@@ -750,6 +801,14 @@ config USB_G_PRINTER
 	  For more information, see Documentation/usb/gadget_printer.txt
 	  which includes sample code for accessing the device file.
 
+config USB_ANDROID
+       tristate "Android Gadget"
+       help
+         The Android gadget provides mass storage and adb transport.
+
+         Say "y" to link the driver statically, or "m" to build a
+         dynamically linked module called "g_android".
+
 config USB_CDC_COMPOSITE
 	tristate "CDC Composite Device (Ethernet and ACM)"
 	depends on NET
@@ -768,7 +827,13 @@ config USB_CDC_COMPOSITE
 # or video class gadget drivers), or specific hardware, here.
 
 # - none yet
-
+ 
 endchoice
+
+config USB_GADGET_FSA9480
+	tristate "USB switching device"
+	depends on I2C
+	default n
+	help
 
 endif # USB_GADGET

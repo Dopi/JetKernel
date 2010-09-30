@@ -1545,7 +1545,7 @@ smc911x_ethtool_getdrvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
 {
 	strncpy(info->driver, CARDNAME, sizeof(info->driver));
 	strncpy(info->version, version, sizeof(info->version));
-	strncpy(info->bus_info, dev_name(dev->dev.parent), sizeof(info->bus_info));
+	strncpy(info->bus_info, dev->dev.parent->bus_id, sizeof(info->bus_info));
 }
 
 static int smc911x_ethtool_nwayreset(struct net_device *dev)
@@ -1774,20 +1774,6 @@ static int __devinit smc911x_findirq(struct net_device *dev)
 	return probe_irq_off(cookie);
 }
 
-static const struct net_device_ops smc911x_netdev_ops = {
-	.ndo_open		= smc911x_open,
-	.ndo_stop		= smc911x_close,
-	.ndo_start_xmit		= smc911x_hard_start_xmit,
-	.ndo_tx_timeout		= smc911x_timeout,
-	.ndo_set_multicast_list	= smc911x_set_multicast_list,
-	.ndo_change_mtu		= eth_change_mtu,
-	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_set_mac_address	= eth_mac_addr,
-#ifdef CONFIG_NET_POLL_CONTROLLER
-	.ndo_poll_controller	= smc911x_poll_controller,
-#endif
-};
-
 /*
  * Function: smc911x_probe(unsigned long ioaddr)
  *
@@ -1918,6 +1904,17 @@ static int __devinit smc911x_probe(struct net_device *dev)
 
 	spin_lock_init(&lp->lock);
 
+#if defined(CONFIG_MACH_SMDK6410)||defined(CONFIG_MACH_SMDK2450)||defined(CONFIG_MACH_SMDKC100)
+	dev->dev_addr[0] = 0x00;
+	dev->dev_addr[1] = 0x09;
+	dev->dev_addr[2] = 0xc0;
+	dev->dev_addr[3] = 0xff;
+	dev->dev_addr[4] = 0xec;
+	dev->dev_addr[5] = 0x48;
+
+	SMC_SET_MAC_ADDR(lp, dev->dev_addr);
+#endif
+	
 	/* Get the MAC address */
 	SMC_GET_MAC_ADDR(lp, dev->dev_addr);
 
@@ -1954,9 +1951,16 @@ static int __devinit smc911x_probe(struct net_device *dev)
 	/* Fill in the fields of the device structure with ethernet values. */
 	ether_setup(dev);
 
-	dev->netdev_ops = &smc911x_netdev_ops;
+	dev->open = smc911x_open;
+	dev->stop = smc911x_close;
+	dev->hard_start_xmit = smc911x_hard_start_xmit;
+	dev->tx_timeout = smc911x_timeout;
 	dev->watchdog_timeo = msecs_to_jiffies(watchdog);
+	dev->set_multicast_list = smc911x_set_multicast_list;
 	dev->ethtool_ops = &smc911x_ethtool_ops;
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	dev->poll_controller = smc911x_poll_controller;
+#endif
 
 	INIT_WORK(&lp->phy_configure, smc911x_phy_configure);
 	lp->mii.phy_id_mask = 0x1f;
@@ -2055,6 +2059,7 @@ err_out:
  */
 static int __devinit smc911x_drv_probe(struct platform_device *pdev)
 {
+	struct smc911x_platdata *pd = pdev->dev.platform_data;
 	struct net_device *ndev;
 	struct resource *res;
 	struct smc911x_local *lp;

@@ -148,9 +148,9 @@ static int __devinit snd_gusclassic_probe(struct device *dev, unsigned int n)
 	struct snd_gus_card *gus;
 	int error;
 
-	error = snd_card_create(index[n], id[n], THIS_MODULE, 0, &card);
-	if (error < 0)
-		return error;
+	card = snd_card_new(index[n], id[n], THIS_MODULE, 0);
+	if (!card)
+		return -EINVAL;
 
 	if (pcm_channels[n] < 2)
 		pcm_channels[n] = 2;

@@ -965,11 +965,12 @@ static int __devinit snd_at73c213_probe(struct spi_device *spi)
 		return PTR_ERR(board->dac_clk);
 	}
 
+	retval = -ENOMEM;
+
 	/* Allocate "card" using some unused identifiers. */
 	snprintf(id, sizeof id, "at73c213_%d", board->ssc_id);
-	retval = snd_card_create(-1, id, THIS_MODULE,
-				 sizeof(struct snd_at73c213), &card);
-	if (retval < 0)
+	card = snd_card_new(-1, id, THIS_MODULE, sizeof(struct snd_at73c213));
+	if (!card)
 		goto out;
 
 	chip = card->private_data;

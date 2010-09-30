@@ -15,6 +15,7 @@
 #include <linux/kernel.h>
 #include <linux/irq.h>
 #include <linux/io.h>
+#include <linux/delay.h>
 
 #include <mach/map.h>
 #include <mach/gpio.h>
@@ -144,7 +145,7 @@ static int s3c64xx_gpiolib_4bit2_input(struct gpio_chip *chip, unsigned offset)
 	void __iomem *base = ourchip->base;
 	void __iomem *regcon = base;
 	unsigned long con;
-
+	
 	if (offset > 7)
 		offset -= 8;
 	else
@@ -153,9 +154,9 @@ static int s3c64xx_gpiolib_4bit2_input(struct gpio_chip *chip, unsigned offset)
 	con = __raw_readl(regcon);
 	con &= ~(0xf << con_4bit_shift(offset));
 	__raw_writel(con, regcon);
-
+	
 	gpio_dbg("%s: %p: CON %08lx\n", __func__, base, con);
-
+	
 	return 0;
 
 }
@@ -197,6 +198,7 @@ static struct s3c_gpio_cfg gpio_4bit_cfg_noint = {
 	.set_config	= s3c_gpio_setcfg_s3c64xx_4bit,
 	.set_pull	= s3c_gpio_setpull_updown,
 	.get_pull	= s3c_gpio_getpull_updown,
+	.set_pin	= s3c_gpio_setpin_updown,
 };
 
 static struct s3c_gpio_cfg gpio_4bit_cfg_eint0111 = {
@@ -204,6 +206,7 @@ static struct s3c_gpio_cfg gpio_4bit_cfg_eint0111 = {
 	.set_config	= s3c_gpio_setcfg_s3c64xx_4bit,
 	.set_pull	= s3c_gpio_setpull_updown,
 	.get_pull	= s3c_gpio_getpull_updown,
+	.set_pin	= s3c_gpio_setpin_updown,
 };
 
 static struct s3c_gpio_cfg gpio_4bit_cfg_eint0011 = {
@@ -211,6 +214,7 @@ static struct s3c_gpio_cfg gpio_4bit_cfg_eint0011 = {
 	.set_config	= s3c_gpio_setcfg_s3c64xx_4bit,
 	.set_pull	= s3c_gpio_setpull_updown,
 	.get_pull	= s3c_gpio_getpull_updown,
+	.set_pin	= s3c_gpio_setpin_updown,
 };
 
 static struct s3c_gpio_chip gpio_4bit[] = {
@@ -273,6 +277,14 @@ static struct s3c_gpio_chip gpio_4bit[] = {
 	},
 };
 
+int s3c64xx_gpio2int_gpl(struct gpio_chip *chip, unsigned pin)
+{
+	if (pin > 7 && pin < 15)
+		return IRQ_EINT(16) + (pin - 8);
+	else
+		return -1;
+}
+
 static struct s3c_gpio_chip gpio_4bit2[] = {
 	{
 		.base	= S3C64XX_GPH_BASE + 0x4,
@@ -297,6 +309,7 @@ static struct s3c_gpio_chip gpio_4bit2[] = {
 			.base	= S3C64XX_GPL(0),
 			.ngpio	= S3C64XX_GPIO_L_NR,
 			.label	= "GPL",
+			.to_irq 	= s3c64xx_gpio2int_gpl,
 		},
 	},
 };
@@ -305,6 +318,7 @@ static struct s3c_gpio_cfg gpio_2bit_cfg_noint = {
 	.set_config	= s3c_gpio_setcfg_s3c24xx,
 	.set_pull	= s3c_gpio_setpull_updown,
 	.get_pull	= s3c_gpio_getpull_updown,
+	.set_pin	= s3c_gpio_setpin_updown,
 };
 
 static struct s3c_gpio_cfg gpio_2bit_cfg_eint10 = {
@@ -312,6 +326,7 @@ static struct s3c_gpio_cfg gpio_2bit_cfg_eint10 = {
 	.set_config	= s3c_gpio_setcfg_s3c24xx,
 	.set_pull	= s3c_gpio_setpull_updown,
 	.get_pull	= s3c_gpio_getpull_updown,
+	.set_pin	= s3c_gpio_setpin_updown,
 };
 
 static struct s3c_gpio_cfg gpio_2bit_cfg_eint11 = {
@@ -319,6 +334,7 @@ static struct s3c_gpio_cfg gpio_2bit_cfg_eint11 = {
 	.set_config	= s3c_gpio_setcfg_s3c24xx,
 	.set_pull	= s3c_gpio_setpull_updown,
 	.get_pull	= s3c_gpio_getpull_updown,
+	.set_pin	= s3c_gpio_setpin_updown,
 };
 
 int s3c64xx_gpio2int_gpn(struct gpio_chip *chip, unsigned pin)
@@ -430,5 +446,161 @@ static __init int s3c64xx_gpiolib_init(void)
 
 	return 0;
 }
+EXPORT_SYMBOL(s3c64xx_gpiolib_init);
+
+int s3c_gpio_slp_cfgpin(unsigned int pin, unsigned int config)
+{
+	struct s3c_gpio_chip *chip = s3c_gpiolib_getchip(pin);
+	void __iomem *reg;
+	unsigned long flags;
+	int offset;
+	u32 con;
+	int shift;
+
+	if (!chip)
+		return -EINVAL;
+	if((chip->base == (S3C64XX_GPK_BASE + 0x4)) ||
+   		(chip->base == (S3C64XX_GPL_BASE + 0x4)) ||
+		(chip->base == S3C64XX_GPM_BASE) ||
+		(chip->base == S3C64XX_GPN_BASE))
+	{
+		return -EINVAL;
+	}
+ 	
+	if(config > 3)
+	{
+		return -EINVAL;
+	}
+
+	reg = chip->base + 0x0C;
+
+	offset = pin - chip->chip.base;
+	shift = offset * 2;
+
+	local_irq_save(flags);
+	
+	con = __raw_readl(reg);
+	con &= ~(3 << shift);
+        con |= config << shift;
+	 __raw_writel(con, reg);	
+	
+	local_irq_restore(flags);
+
+	return 0;
+}
+//EXPORT_SYMBOL(s3c_gpio_slp_cfgpin);
+
+s3c_gpio_pull_t s3c_gpio_get_slp_cfgpin(unsigned int pin)
+{
+	struct s3c_gpio_chip *chip = s3c_gpiolib_getchip(pin);
+	void __iomem *reg;
+	unsigned long flags;
+	int offset;
+	u32 con;
+	int shift;
+
+	if (!chip)
+		return -EINVAL;
+	if((chip->base == (S3C64XX_GPK_BASE + 0x4)) ||
+		(chip->base == (S3C64XX_GPL_BASE + 0x4)) ||
+		(chip->base == S3C64XX_GPM_BASE) ||
+		(chip->base == S3C64XX_GPN_BASE))
+	{
+		return -EINVAL;
+	}
+
+	reg = chip->base + 0x0C;
+
+	offset = pin - chip->chip.base;
+	shift = offset * 2;
+
+	local_irq_save(flags);
+
+	con = __raw_readl(reg);
+	con >>= shift;
+	con &= 0x3;
+
+	local_irq_restore(flags);
+	return (__force s3c_gpio_pull_t)con;
+}
+//EXPORT_SYMBOL(s3c_gpio_get_slp_cfgpin);
+
+int s3c_gpio_slp_setpull_updown(unsigned int pin, unsigned int config)
+{
+	struct s3c_gpio_chip *chip = s3c_gpiolib_getchip(pin);
+	void __iomem *reg;
+	unsigned long flags;
+	int offset;
+	u32 con;
+	int shift;
+
+	if (!chip)
+		return -EINVAL;
+	if((chip->base == (S3C64XX_GPK_BASE + 0x4)) ||
+		(chip->base == (S3C64XX_GPL_BASE + 0x4)) ||
+		(chip->base == S3C64XX_GPM_BASE) ||
+		(chip->base == S3C64XX_GPN_BASE))
+	{
+		return -EINVAL;
+	}
+	if(config > 3)
+	{
+		return -EINVAL;
+	}
+	reg = chip->base + 0x10;
+
+	offset = pin - chip->chip.base;
+	shift = offset * 2;
+
+	local_irq_save(flags);
+	
+	con = __raw_readl(reg);
+	con &= ~(3 << shift);
+	con |= config << shift;
+	__raw_writel(con, reg);
+
+	con = __raw_readl(reg);
+	
+	local_irq_restore(flags);
+
+	return 0;
+}
+//EXPORT_SYMBOL(s3c_gpio_slp_setpull_updown);
+
+s3c_gpio_pull_t s3c_gpio_slp_getpull_updown(unsigned int pin)
+{
+	struct s3c_gpio_chip *chip = s3c_gpiolib_getchip(pin);
+	void __iomem *reg;
+	unsigned long flags;
+	int offset;
+	u32 con;
+	int shift;
+
+	if (!chip)
+		return -EINVAL;
+	if((chip->base == (S3C64XX_GPK_BASE + 0x4)) ||
+		(chip->base == (S3C64XX_GPL_BASE + 0x4)) ||
+		(chip->base == S3C64XX_GPM_BASE) ||
+		(chip->base == S3C64XX_GPN_BASE))
+	{
+		return -EINVAL;
+	}
+	
+	reg = chip->base + 0x10;
+
+	offset = pin - chip->chip.base;
+	shift = offset * 2;
+
+	local_irq_save(flags);
+
+	con = __raw_readl(reg);
+	con >>= shift;
+	con &= 0x3;
+
+	local_irq_restore(flags);
+
+	return (__force s3c_gpio_pull_t)con;
+}
+//EXPORT_SYMBOL(s3c_gpio_slp_getpull_updown);
 
 core_initcall(s3c64xx_gpiolib_init);

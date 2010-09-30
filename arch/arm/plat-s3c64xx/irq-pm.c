@@ -104,7 +104,7 @@ static struct sysdev_driver s3c64xx_irq_driver = {
 
 static int __init s3c64xx_irq_pm_init(void)
 {
-	return sysdev_driver_register(&s3c64xx_sysclass, &s3c64xx_irq_driver);
+	return sysdev_driver_register(&s3c6410_sysclass, &s3c64xx_irq_driver); //(&s3c64xx_sysclass, &s3c64xx_irq_driver);
 }
 
 arch_initcall(s3c64xx_irq_pm_init);

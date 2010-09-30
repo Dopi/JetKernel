@@ -66,7 +66,6 @@ static struct usb_device_id p54u_table[] __devinitdata = {
 	{USB_DEVICE(0x0bf8, 0x1009)},   /* FUJITSU E-5400 USB D1700*/
 	{USB_DEVICE(0x0cde, 0x0006)},   /* Medion MD40900 */
 	{USB_DEVICE(0x0cde, 0x0008)},	/* Sagem XG703A */
-	{USB_DEVICE(0x0cde, 0x0015)},	/* Zcomax XG-705A */
 	{USB_DEVICE(0x0d8e, 0x3762)},	/* DLink DWL-G120 Cohiba */
 	{USB_DEVICE(0x124a, 0x4025)},	/* IOGear GWU513 (GW3887IK chip) */
 	{USB_DEVICE(0x1260, 0xee22)},	/* SMC 2862W-G version 2 */
@@ -427,16 +426,12 @@ static const char p54u_romboot_3887[] = "~~~~";
 static int p54u_firmware_reset_3887(struct ieee80211_hw *dev)
 {
 	struct p54u_priv *priv = dev->priv;
-	u8 *buf;
+	u8 buf[4];
 	int ret;
 
-	buf = kmalloc(4, GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
-	memcpy(buf, p54u_romboot_3887, 4);
+	memcpy(&buf, p54u_romboot_3887, sizeof(buf));
 	ret = p54u_bulk_msg(priv, P54U_PIPE_DATA,
-			    buf, 4);
-	kfree(buf);
+			    buf, sizeof(buf));
 	if (ret)
 		dev_err(&priv->udev->dev, "(p54usb) unable to jump to "
 			"boot ROM (%d)!\n", ret);

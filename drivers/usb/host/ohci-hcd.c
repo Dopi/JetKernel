@@ -88,17 +88,12 @@ static int ohci_restart (struct ohci_hcd *ohci);
 #ifdef CONFIG_PCI
 static void quirk_amd_pll(int state);
 static void amd_iso_dev_put(void);
-static void sb800_prefetch(struct ohci_hcd *ohci, int on);
 #else
 static inline void quirk_amd_pll(int state)
 {
 	return;
 }
 static inline void amd_iso_dev_put(void)
-{
-	return;
-}
-static inline void sb800_prefetch(struct ohci_hcd *ohci, int on)
 {
 	return;
 }
@@ -1002,9 +997,14 @@ MODULE_LICENSE ("GPL");
 #define SA1111_DRIVER		ohci_hcd_sa1111_driver
 #endif
 
-#if defined(CONFIG_ARCH_S3C2410) || defined(CONFIG_ARCH_S3C64XX)
+#if defined(CONFIG_ARCH_S3C2410) || defined(CONFIG_ARCH_S3C64XX) || defined(CONFIG_ARCH_S5PC1XX)
 #include "ohci-s3c2410.c"
 #define PLATFORM_DRIVER		ohci_hcd_s3c2410_driver
+#endif
+
+#if CONFIG_ARCH_S5PV2XX 
+#include "ohci-s5pv210.c"
+#define PLATFORM_DRIVER		ohci_hcd_s5pv210_driver
 #endif
 
 #ifdef CONFIG_ARCH_OMAP

@@ -22,6 +22,7 @@
 #include <linux/seq_file.h>
 #include <linux/delay.h>
 #include <linux/io.h>
+#include <linux/clk.h>
 
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
@@ -1761,7 +1762,7 @@ static void s3c_hsotg_epint(struct s3c_hsotg *hsotg, unsigned int idx,
 
 		/* this probably means something bad is happening */
 		if (ints & S3C_DIEPMSK_INTknEPMisMsk) {
-			dev_warn(hsotg->dev, "%s: ep%d: INTknEP\n",
+			dev_dbg(hsotg->dev, "%s: ep%d: INTknEP\n",
 				 __func__, idx);
 			clear |= S3C_DIEPMSK_INTknEPMisMsk;
 		}
@@ -3094,6 +3095,8 @@ static void s3c_hsotg_gate(struct platform_device *pdev, bool on)
 }
 
 struct s3c_hsotg_plat s3c_hsotg_default_pdata;
+static struct clk	*otg_clock = NULL;
+extern void otg_phy_init(int);
 
 static int __devinit s3c_hsotg_probe(struct platform_device *pdev)
 {
@@ -3164,7 +3167,7 @@ static int __devinit s3c_hsotg_probe(struct platform_device *pdev)
 
 	hsotg->gadget.is_dualspeed = 1;
 	hsotg->gadget.ops = &s3c_hsotg_gadget_ops;
-	hsotg->gadget.name = dev_name(dev);
+	hsotg->gadget.name = "s3c-udc";				/* dev_name(dev); */
 
 	hsotg->gadget.dev.parent = dev;
 	hsotg->gadget.dev.dma_mask = dev->dma_mask;
@@ -3182,12 +3185,21 @@ static int __devinit s3c_hsotg_probe(struct platform_device *pdev)
 		dev_err(dev, "failed to allocate ctrl req\n");
 		goto err_regs;
 	}
+	
+	otg_clock = clk_get(&pdev->dev, "otg");
+	if (otg_clock == NULL) {
+		printk(KERN_INFO "failed to find otg clock source\n");
+		return -ENOENT;
+	}
+	clk_enable(otg_clock);
 
 	/* reset the system */
 
 	s3c_hsotg_gate(pdev, true);
 
-	s3c_hsotg_otgreset(hsotg);
+	//s3c_hsotg_otgreset(hsotg);	/* riversky */
+	otg_phy_init(0x02);
+	
 	s3c_hsotg_corereset(hsotg);
 	s3c_hsotg_init(hsotg);
 
@@ -3217,6 +3229,11 @@ err_mem:
 static int __devexit s3c_hsotg_remove(struct platform_device *pdev)
 {
 	struct s3c_hsotg *hsotg = platform_get_drvdata(pdev);
+	if (otg_clock != NULL) {
+		clk_disable(otg_clock);
+		clk_put(otg_clock);
+		otg_clock = NULL;
+	}
 
 	s3c_hsotg_delete_debug(hsotg);
 

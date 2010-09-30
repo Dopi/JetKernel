@@ -1,6 +1,8 @@
 #ifndef __ASM_ARM_DMA_H
 #define __ASM_ARM_DMA_H
 
+typedef unsigned int dmach_t;
+
 #include <asm/memory.h>
 
 /*

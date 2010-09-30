@@ -33,6 +33,7 @@ config MACH_SMDK6410
 	select CPU_S3C6410
 	select S3C_DEV_HSMMC
 	select S3C_DEV_HSMMC1
+	select S3C_DEV_HSMMC2
 	select S3C_DEV_I2C1
 	select S3C_DEV_FB
 	select S3C_DEV_USB_HOST
@@ -48,12 +49,11 @@ config MACH_SMDK6410
 # either the boards need to be altered to have channel0 to an alternate
 # configuration or that only one slot can be used.
 
-choice
-	prompt "SMDK6410 MMC/SD slot setup"
-	depends on MACH_SMDK6410
+menu "SMDK6410 MMC/SD slot setup"
+	 depends on MACH_SMDK6410
 
 config SMDK6410_SD_CH0
-	bool "Use channel 0 only"
+	bool "Use channel 0"
 	depends on MACH_SMDK6410
 	help
           Select CON7 (channel 0) as the MMC/SD slot, as
@@ -62,7 +62,7 @@ config SMDK6410_SD_CH0
 	  channels 0 and 1 are the same.
        
 config SMDK6410_SD_CH1
-	bool "Use channel 1 only"
+	bool "Use channel 1"
 	depends on MACH_SMDK6410
 	help
           Select CON6 (channel 1) as the MMC/SD slot, as
@@ -70,7 +70,16 @@ config SMDK6410_SD_CH1
 	  resistors fitted so that the card detects for
 	  channels 0 and 1 are the same.
 
-endchoice
+config SMDK6410_SD_CH2
+	bool "Use channel 2"
+	depends on MACH_SMDK6410
+	help
+          Select CON6 (channel 1) as the MMC/SD slot, as
+	  at least some SMDK6410 boards come with the
+	  resistors fitted so that the card detects for
+	  channels 0 and 1 are the same.
+
+endmenu
 
 config SMDK6410_WM1190_EV1
 	bool "Support Wolfson Microelectronics 1190-EV1 PMIC card"
@@ -97,3 +106,16 @@ config MACH_NCP
 	select S3C64XX_SETUP_I2C1
 	help
           Machine support for the Samsung NCP
+
+config SEC_HEADSET
+        tristate "SEC 2 Wire detection driver"
+        default n
+        help
+         Provides support for detecting SEC 2 wire devices, such as wired
+         headset.
+
+config JET_OPTION
+	bool "Adjustments for S8000 Jet"
+	default n
+	help
+	  Provides support for S8000 Jet.

@@ -101,7 +101,6 @@ static void do_shm_rmid(struct ipc_namespace *ns, struct kern_ipc_perm *ipcp)
 void shm_exit_ns(struct ipc_namespace *ns)
 {
 	free_ipcs(ns, &shm_ids(ns), do_shm_rmid);
-	idr_destroy(&ns->ids[IPC_SHM_IDS].ipcs_idr);
 }
 #endif
 
@@ -411,7 +410,7 @@ static int newseg(struct ipc_namespace *ns, struct ipc_params *params)
 	return error;
 
 no_id:
-	if (is_file_hugepages(file) && shp->mlock_user)
+	if (shp->mlock_user)	/* shmflg & SHM_HUGETLB case */
 		user_shm_unlock(size, shp->mlock_user);
 	fput(file);
 no_file:

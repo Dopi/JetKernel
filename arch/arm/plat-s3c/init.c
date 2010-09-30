@@ -17,6 +17,7 @@
 #include <linux/ioport.h>
 #include <linux/serial_core.h>
 #include <linux/platform_device.h>
+#include <linux/delay.h>
 
 #include <mach/hardware.h>
 
@@ -86,11 +87,27 @@ void __init s3c24xx_init_clocks(int xtal)
 		(cpu->init_clocks)(xtal);
 }
 
+void __init s3c_init_clocks(int xtal) //ALMAR OK
+{
+	if (xtal == 0)
+		xtal = 12*1000*1000;
+
+	if (cpu == NULL)
+		panic("s3c_init_clocks: no cpu setup?\n");
+
+	if (cpu->init_clocks == NULL)
+		panic("s3c_init_clocks: cpu has no clock init\n");
+	else
+		(cpu->init_clocks)(xtal);
+}
+
 /* uart management */
 
 static int nr_uarts __initdata = 0;
 
+
 static struct s3c2410_uartcfg uart_cfgs[CONFIG_SERIAL_SAMSUNG_UARTS];
+//static struct s3c_uartcfg uart_cfgs[CONFIG_SERIAL_SAMSUNG_UARTS];
 
 /* s3c24xx_init_uartdevs
  *
@@ -129,6 +146,14 @@ void __init s3c24xx_init_uartdevs(char *name,
 	nr_uarts = no;
 }
 
+void __init s3c_init_uartdevs(char *name,
+				  struct s3c_uart_resources *res,
+				  struct s3c_uartcfg *cfg, int no)
+{
+	s3c24xx_init_uartdevs(name, s3c64xx_uart_resources, cfg, no);
+}
+
+
 void __init s3c24xx_init_uarts(struct s3c2410_uartcfg *cfg, int no)
 {
 	if (cpu == NULL)
@@ -136,6 +161,17 @@ void __init s3c24xx_init_uarts(struct s3c2410_uartcfg *cfg, int no)
 
 	if (cpu->init_uarts == NULL) {
 		printk(KERN_ERR "s3c24xx_init_uarts: cpu has no uart init\n");
+	} else
+		(cpu->init_uarts)(cfg, no);
+}
+
+void __init s3c_init_uarts(struct s3c_uartcfg *cfg, int no)
+{
+	if (cpu == NULL)
+		return;
+
+	if (cpu->init_uarts == NULL) {
+		printk(KERN_ERR "s3c_init_uarts: cpu has no uart init\n");
 	} else
 		(cpu->init_uarts)(cfg, no);
 }

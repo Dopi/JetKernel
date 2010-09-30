@@ -1225,81 +1225,60 @@ static int __devinit yenta_probe (struct pci_dev *dev, const struct pci_device_i
 }
 
 #ifdef CONFIG_PM
-static int yenta_dev_suspend_noirq(struct device *dev)
+static int yenta_dev_suspend (struct pci_dev *dev, pm_message_t state)
 {
-	struct pci_dev *pdev = to_pci_dev(dev);
-	struct yenta_socket *socket = pci_get_drvdata(pdev);
+	struct yenta_socket *socket = pci_get_drvdata(dev);
 	int ret;
 
-	ret = pcmcia_socket_dev_suspend(dev);
+	ret = pcmcia_socket_dev_suspend(&dev->dev, state);
 
-	if (!socket)
-		return ret;
+	if (socket) {
+		if (socket->type && socket->type->save_state)
+			socket->type->save_state(socket);
 
-	if (socket->type && socket->type->save_state)
-		socket->type->save_state(socket);
+		/* FIXME: pci_save_state needs to have a better interface */
+		pci_save_state(dev);
+		pci_read_config_dword(dev, 16*4, &socket->saved_state[0]);
+		pci_read_config_dword(dev, 17*4, &socket->saved_state[1]);
+		pci_disable_device(dev);
 
-	pci_save_state(pdev);
-	pci_read_config_dword(pdev, 16*4, &socket->saved_state[0]);
-	pci_read_config_dword(pdev, 17*4, &socket->saved_state[1]);
-	pci_disable_device(pdev);
-
-	/*
-	 * Some laptops (IBM T22) do not like us putting the Cardbus
-	 * bridge into D3.  At a guess, some other laptop will
-	 * probably require this, so leave it commented out for now.
-	 */
-	/* pci_set_power_state(dev, 3); */
+		/*
+		 * Some laptops (IBM T22) do not like us putting the Cardbus
+		 * bridge into D3.  At a guess, some other laptop will
+		 * probably require this, so leave it commented out for now.
+		 */
+		/* pci_set_power_state(dev, 3); */
+	}
 
 	return ret;
 }
 
-static int yenta_dev_resume_noirq(struct device *dev)
+
+static int yenta_dev_resume (struct pci_dev *dev)
 {
-	struct pci_dev *pdev = to_pci_dev(dev);
-	struct yenta_socket *socket = pci_get_drvdata(pdev);
-	int ret;
+	struct yenta_socket *socket = pci_get_drvdata(dev);
 
-	if (!socket)
-		return 0;
+	if (socket) {
+		int rc;
 
-	pci_write_config_dword(pdev, 16*4, socket->saved_state[0]);
-	pci_write_config_dword(pdev, 17*4, socket->saved_state[1]);
+		pci_set_power_state(dev, 0);
+		/* FIXME: pci_restore_state needs to have a better interface */
+		pci_restore_state(dev);
+		pci_write_config_dword(dev, 16*4, socket->saved_state[0]);
+		pci_write_config_dword(dev, 17*4, socket->saved_state[1]);
 
-	ret = pci_enable_device(pdev);
-	if (ret)
-		return ret;
+		rc = pci_enable_device(dev);
+		if (rc)
+			return rc;
 
-	pci_set_master(pdev);
+		pci_set_master(dev);
 
-	if (socket->type && socket->type->restore_state)
-		socket->type->restore_state(socket);
+		if (socket->type && socket->type->restore_state)
+			socket->type->restore_state(socket);
+	}
 
-	pcmcia_socket_dev_early_resume(dev);
-	return 0;
+	return pcmcia_socket_dev_resume(&dev->dev);
 }
-
-static int yenta_dev_resume(struct device *dev)
-{
-	pcmcia_socket_dev_late_resume(dev);
-	return 0;
-}
-
-static struct dev_pm_ops yenta_pm_ops = {
-	.suspend_noirq = yenta_dev_suspend_noirq,
-	.resume_noirq = yenta_dev_resume_noirq,
-	.resume = yenta_dev_resume,
-	.freeze_noirq = yenta_dev_suspend_noirq,
-	.thaw_noirq = yenta_dev_resume_noirq,
-	.thaw = yenta_dev_resume,
-	.poweroff_noirq = yenta_dev_suspend_noirq,
-	.restore_noirq = yenta_dev_resume_noirq,
-	.restore = yenta_dev_resume,
-};
-
-#define YENTA_PM_OPS	(&yenta_pm_ops)
-#else
-#define YENTA_PM_OPS	NULL
 #endif
 
 #define CB_ID(vend,dev,type)				\
@@ -1397,7 +1376,10 @@ static struct pci_driver yenta_cardbus_driver = {
 	.id_table	= yenta_table,
 	.probe		= yenta_probe,
 	.remove		= __devexit_p(yenta_close),
-	.driver.pm	= YENTA_PM_OPS,
+#ifdef CONFIG_PM
+	.suspend	= yenta_dev_suspend,
+	.resume		= yenta_dev_resume,
+#endif
 };
 
 

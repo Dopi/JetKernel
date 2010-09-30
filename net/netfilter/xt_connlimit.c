@@ -103,7 +103,7 @@ static int count_them(struct xt_connlimit_data *data,
 		      const struct nf_conntrack_tuple *tuple,
 		      const union nf_inet_addr *addr,
 		      const union nf_inet_addr *mask,
-		      u_int8_t family)
+		      const struct xt_match *match)
 {
 	const struct nf_conntrack_tuple_hash *found;
 	struct xt_connlimit_conn *conn;
@@ -113,7 +113,8 @@ static int count_them(struct xt_connlimit_data *data,
 	bool addit = true;
 	int matches = 0;
 
-	if (family == NFPROTO_IPV6)
+
+	if (match->family == NFPROTO_IPV6)
 		hash = &data->iphash[connlimit_iphash6(addr, mask)];
 	else
 		hash = &data->iphash[connlimit_iphash(addr->ip & mask->ip)];
@@ -156,7 +157,8 @@ static int count_them(struct xt_connlimit_data *data,
 			continue;
 		}
 
-		if (same_source_net(addr, mask, &conn->tuple.src.u3, family))
+		if (same_source_net(addr, mask, &conn->tuple.src.u3,
+		    match->family))
 			/* same source network -> be counted! */
 			++matches;
 		nf_ct_put(found_ct);
@@ -205,7 +207,7 @@ connlimit_mt(const struct sk_buff *skb, const struct xt_match_param *par)
 
 	spin_lock_bh(&info->data->lock);
 	connections = count_them(info->data, tuple_ptr, &addr,
-	                         &info->mask, par->family);
+	                         &info->mask, par->match);
 	spin_unlock_bh(&info->data->lock);
 
 	if (connections < 0) {

@@ -288,7 +288,9 @@ try_again:
 		err = ulen;
 
 out_free:
-	skb_free_datagram_locked(sk, skb);
+	lock_sock(sk);
+	skb_free_datagram(sk, skb);
+	release_sock(sk);
 out:
 	return err;
 

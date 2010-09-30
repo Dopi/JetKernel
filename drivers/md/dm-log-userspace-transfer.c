@@ -129,12 +129,10 @@ static int fill_pkg(struct cn_msg *msg, struct dm_ulog_request *tfr)
  * This is the connector callback that delivers data
  * that was sent from userspace.
  */
-static void cn_ulog_callback(struct cn_msg *msg, struct netlink_skb_parms *nsp)
+static void cn_ulog_callback(void *data)
 {
+	struct cn_msg *msg = (struct cn_msg *)data;
 	struct dm_ulog_request *tfr = (struct dm_ulog_request *)(msg + 1);
-
-	if (!cap_raised(nsp->eff_cap, CAP_SYS_ADMIN))
-		return;
 
 	spin_lock(&receiving_list_lock);
 	if (msg->len == 0)

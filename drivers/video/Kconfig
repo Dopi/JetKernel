@@ -1898,8 +1898,8 @@ config FB_TMIO_ACCELL
 	depends on FB_TMIO
 	default y
 
-config FB_S3C
-	tristate "Samsung S3C framebuffer support"
+config FB_S3C_ORG
+	tristate "Samsung S3C framebuffer support(2.6.31-org)"
 	depends on FB && ARCH_S3C64XX
 	select FB_CFB_FILLRECT
 	select FB_CFB_COPYAREA
@@ -1915,6 +1915,8 @@ config FB_S3C
 	  currently only have two.
 
 	  Currently the support is only for the S3C6400 and S3C6410 SoCs.
+
+source "drivers/video/samsung/Kconfig"
 
 config FB_S3C_DEBUG_REGWRITE
        bool "Debug register writes"

@@ -746,10 +746,10 @@ static int __devinit snd_portman_probe(struct platform_device *pdev)
 	if ((err = snd_portman_probe_port(p)) < 0)
 		return err;
 
-	err = snd_card_create(index[dev], id[dev], THIS_MODULE, 0, &card);
-	if (err < 0) {
+	card = snd_card_new(index[dev], id[dev], THIS_MODULE, 0);
+	if (card == NULL) {
 		snd_printd("Cannot create card\n");
-		return err;
+		return -ENOMEM;
 	}
 	strcpy(card->driver, DRIVER_NAME);
 	strcpy(card->shortname, CARD_NAME);

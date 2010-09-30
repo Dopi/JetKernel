@@ -27,6 +27,7 @@
 #include <mach/regs-clock.h>
 #include <mach/regs-irq.h>
 #include <asm/irq.h>
+#include <asm/gpio.h>
 
 #include <plat/pm.h>
 #include <plat/pm-core.h>
@@ -71,8 +72,8 @@ static inline void s3c_pm_debug_init(void)
 
 unsigned char pm_uart_udivslot;
 
-#ifdef CONFIG_S3C2410_PM_DEBUG
-
+//#ifdef CONFIG_S3C2410_PM_DEBUG
+#if 1
 struct pm_uart_save uart_save[CONFIG_SERIAL_SAMSUNG_UARTS];
 
 static void s3c_pm_save_uart(unsigned int uart, struct pm_uart_save *save)
@@ -168,7 +169,7 @@ void s3c_pm_do_save(struct sleep_save *ptr, int count)
 {
 	for (; count > 0; count--, ptr++) {
 		ptr->val = __raw_readl(ptr->reg);
-		S3C_PMDBG("saved %p value %08lx\n", ptr->reg, ptr->val);
+		//S3C_PMDBG("saved %p value %08lx\n", ptr->reg, ptr->val);
 	}
 }
 
@@ -186,8 +187,8 @@ void s3c_pm_do_save(struct sleep_save *ptr, int count)
 void s3c_pm_do_restore(struct sleep_save *ptr, int count)
 {
 	for (; count > 0; count--, ptr++) {
-		printk(KERN_DEBUG "restore %p (restore %08lx, was %08x)\n",
-		       ptr->reg, ptr->val, __raw_readl(ptr->reg));
+		//printk(KERN_DEBUG "restore %p (restore %08lx, was %08x)\n",
+		//       ptr->reg, ptr->val, __raw_readl(ptr->reg));
 
 		__raw_writel(ptr->val, ptr->reg);
 	}
@@ -247,6 +248,9 @@ static int s3c_pm_enter(suspend_state_t state)
 
 	s3c_pm_debug_init();
 
+	/* for smartQ MID, only eanble the power key to wakeup */
+	s3c_irqext_wake(IRQ_EINT(22), 1);
+	
 	S3C_PMDBG("%s(%d)\n", __func__, state);
 
 	if (pm_cpu_prep == NULL || pm_cpu_sleep == NULL) {
@@ -327,9 +331,12 @@ static int s3c_pm_enter(suspend_state_t state)
 
 	/* LEDs should now be 1110 */
 	s3c_pm_debug_smdkled(1 << 1, 0);
+	
+	/* for smartQ MID, only eanble the power key to wakeup */
+	s3c_irqext_wake(IRQ_EINT(22), 1);
 
 	s3c_pm_check_restore();
-
+	
 	/* ok, let's return from sleep */
 
 	S3C_PMDBG("S3C PM Resume (post-restore)\n");
@@ -357,9 +364,9 @@ static void s3c_pm_finish(void)
 
 static struct platform_suspend_ops s3c_pm_ops = {
 	.enter		= s3c_pm_enter,
-	.prepare	= s3c_pm_prepare,
+	.prepare		= s3c_pm_prepare,
 	.finish		= s3c_pm_finish,
-	.valid		= suspend_valid_only_mem,
+	.valid			= suspend_valid_only_mem,
 };
 
 /* s3c_pm_init

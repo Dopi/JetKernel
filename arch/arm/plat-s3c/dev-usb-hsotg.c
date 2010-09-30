@@ -29,7 +29,7 @@ static struct resource s3c_usb_hsotg_resources[] = {
 	[1] = {
 		.start	= IRQ_OTG,
 		.end	= IRQ_OTG,
-		.flags	= IORESOURCE_IRQ,
+		.flags= IORESOURCE_IRQ,
 	},
 };
 

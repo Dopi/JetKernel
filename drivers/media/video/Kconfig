@@ -954,4 +954,5 @@ config USB_S2255
 	  This driver can be compiled as a module, called s2255drv.
 
 endif # V4L_USB_DRIVERS
+
 endif # VIDEO_CAPTURE_DRIVERS

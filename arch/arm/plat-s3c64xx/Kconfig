@@ -39,9 +39,9 @@ config CPU_S3C6400_CLOCK
 	  Common clock support code for the S3C6400 that is shared
 	  by other CPUs in the series, such as the S3C6410.
 
-config S3C64XX_DMA
-	bool "S3C64XX DMA"
-	select S3C_DMA
+#config S3C64XX_DMA
+#	bool "S3C64XX DMA"
+#	select S3C_DMA
 
 # platform specific device setup
 
@@ -59,6 +59,41 @@ config S3C64XX_SETUP_I2C1
 	help
 	  Common setup code for i2c bus 1.
 
+config S3C64XX_ADC
+	bool "S3C64XX ADC D/D support"
+	help
+	 Analog to Digital conversion(ADC) D/D for S3C64XX support   
+
+config S3C64XX_DEV_FIMC0
+	bool
+	default y
+	help
+	  Compile in platform device definitions for FIMC controller 0
+
+config S3C64XX_DEV_FIMC1
+	bool
+	default y
+	help
+	  Compile in platform device definitions for FIMC controller 1
+
+config S3C64XX_SETUP_FIMC0
+	bool
+	default y
+	help
+	  Common setup code for FIMC controller 0
+
+config S3C64XX_SETUP_FIMC1
+	bool
+	default y
+	help
+	  Common setup code for FIMC controller 1
+
+config S3C64XX_DEV_RP
+	bool
+	default y
+	help
+	  Compile in platform device definitions for Renderer pipeline	  	  
+
 config S3C64XX_SETUP_FB_24BPP
 	bool
 	help
@@ -68,5 +103,26 @@ config S3C64XX_SETUP_SDHCI_GPIO
 	bool
 	help
 	  Common setup code for S3C64XX SDHCI GPIO configurations
+	  
+choice
+	prompt "PWM device support"
+	default NONE_PWM
 
+config S3C6410_PWM
+	bool "Support Old API"
+	help
+	  Support for exporting the PWM timer blocks via old type API
+
+config S3C_HAVE_PWM
+	bool "PWM device support"
+	select HAVE_PWM
+	help
+	   Support for exporting the PWM timer blocks via the pwm device
+
+config NONE_PWM
+	bool "No PWM support"
+	help
+	   PWM is not supported 
+
+endchoice
 endif

@@ -844,9 +844,8 @@ static void postfix_clear(struct filter_parse_state *ps)
 
 	while (!list_empty(&ps->postfix)) {
 		elt = list_first_entry(&ps->postfix, struct postfix_elt, list);
-		list_del(&elt->list);
 		kfree(elt->operand);
-		kfree(elt);
+		list_del(&elt->list);
 	}
 }
 

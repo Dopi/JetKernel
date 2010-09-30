@@ -711,7 +711,8 @@ static int snd_emu1010_load_firmware(struct snd_emu10k1 *emu, const char *filena
 static int emu1010_firmware_thread(void *data)
 {
 	struct snd_emu10k1 *emu = data;
-	u32 tmp, tmp2, reg;
+	int tmp, tmp2;
+	int reg;
 	int err;
 
 	for (;;) {
@@ -757,8 +758,7 @@ static int emu1010_firmware_thread(void *data)
 			snd_printk(KERN_INFO "emu1010: Audio Dock Firmware loaded\n");
 			snd_emu1010_fpga_read(emu, EMU_DOCK_MAJOR_REV, &tmp);
 			snd_emu1010_fpga_read(emu, EMU_DOCK_MINOR_REV, &tmp2);
-			snd_printk(KERN_INFO "Audio Dock ver: %u.%u\n",
-				   tmp, tmp2);
+			snd_printk("Audio Dock ver:%d.%d\n", tmp, tmp2);
 			/* Sync clocking between 1010 and Dock */
 			/* Allow DLL to settle */
 			msleep(10);
@@ -804,7 +804,8 @@ static int emu1010_firmware_thread(void *data)
 static int snd_emu10k1_emu1010_init(struct snd_emu10k1 *emu)
 {
 	unsigned int i;
-	u32 tmp, tmp2, reg;
+	int tmp, tmp2;
+	int reg;
 	int err;
 	const char *filename = NULL;
 
@@ -886,7 +887,7 @@ static int snd_emu10k1_emu1010_init(struct snd_emu10k1 *emu)
 	snd_printk(KERN_INFO "emu1010: Hana Firmware loaded\n");
 	snd_emu1010_fpga_read(emu, EMU_HANA_MAJOR_REV, &tmp);
 	snd_emu1010_fpga_read(emu, EMU_HANA_MINOR_REV, &tmp2);
-	snd_printk(KERN_INFO "emu1010: Hana version: %u.%u\n", tmp, tmp2);
+	snd_printk("emu1010: Hana version: %d.%d\n", tmp, tmp2);
 	/* Enable 48Volt power to Audio Dock */
 	snd_emu1010_fpga_write(emu, EMU_HANA_DOCK_PWR, EMU_HANA_DOCK_PWR_ON);
 

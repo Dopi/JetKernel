@@ -86,7 +86,7 @@ static int tlv320aic23_write(struct snd_soc_codec *codec, unsigned int reg,
 	 */
 
 	if ((reg < 0 || reg > 9) && (reg != 15)) {
-		printk(KERN_WARNING "%s Invalid register R%u\n", __func__, reg);
+		printk(KERN_WARNING "%s Invalid register R%d\n", __func__, reg);
 		return -1;
 	}
 
@@ -98,7 +98,7 @@ static int tlv320aic23_write(struct snd_soc_codec *codec, unsigned int reg,
 	if (codec->hw_write(codec->control_data, data, 2) == 2)
 		return 0;
 
-	printk(KERN_ERR "%s cannot write %03x to register R%u\n", __func__,
+	printk(KERN_ERR "%s cannot write %03x to register R%d\n", __func__,
 	       value, reg);
 
 	return -EIO;
@@ -182,6 +182,24 @@ static const struct snd_kcontrol_new tlv320aic23_snd_controls[] = {
 				  6, 4, 0, sidetone_vol_tlv),
 	SOC_ENUM("Playback De-emphasis", tlv320aic23_deemph),
 };
+
+/* add non dapm controls */
+static int tlv320aic23_add_controls(struct snd_soc_codec *codec)
+{
+
+	int err, i;
+
+	for (i = 0; i < ARRAY_SIZE(tlv320aic23_snd_controls); i++) {
+		err = snd_ctl_add(codec->card,
+				  snd_soc_cnew(&tlv320aic23_snd_controls[i],
+					       codec, NULL));
+		if (err < 0)
+			return err;
+	}
+
+	return 0;
+
+}
 
 /* PGA Mixer controls for Line and Mic switch */
 static const struct snd_kcontrol_new tlv320aic23_output_mixer_controls[] = {
@@ -273,14 +291,14 @@ static const unsigned short sr_valid_mask[] = {
  * Every divisor is a factor of 11*12
  */
 #define SR_MULT (11*12)
-#define A(x) (SR_MULT/x)
+#define A(x) (x) ? (SR_MULT/x) : 0
 static const unsigned char sr_adc_mult_table[] = {
-	A(2), A(2), A(12), A(12),  0, 0, A(3), A(1),
-	A(2), A(2), A(11), A(11),  0, 0, 0, A(1)
+	A(2), A(2), A(12), A(12),  A(0), A(0), A(3), A(1),
+	A(2), A(2), A(11), A(11),  A(0), A(0), A(0), A(1)
 };
 static const unsigned char sr_dac_mult_table[] = {
-	A(2), A(12), A(2), A(12),  0, 0, A(3), A(1),
-	A(2), A(11), A(2), A(11),  0, 0, 0, A(1)
+	A(2), A(12), A(2), A(12),  A(0), A(0), A(3), A(1),
+	A(2), A(11), A(2), A(11),  A(0), A(0), A(0), A(1)
 };
 
 static unsigned get_score(int adc, int adc_l, int adc_h, int need_adc,
@@ -405,7 +423,7 @@ static int tlv320aic23_hw_params(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_device *socdev = rtd->socdev;
-	struct snd_soc_codec *codec = socdev->card->codec;
+	struct snd_soc_codec *codec = socdev->codec;
 	u16 iface_reg;
 	int ret;
 	struct aic23 *aic23 = container_of(codec, struct aic23, codec);
@@ -453,7 +471,7 @@ static int tlv320aic23_pcm_prepare(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_device *socdev = rtd->socdev;
-	struct snd_soc_codec *codec = socdev->card->codec;
+	struct snd_soc_codec *codec = socdev->codec;
 
 	/* set active */
 	tlv320aic23_write(codec, TLV320AIC23_ACTIVE, 0x0001);
@@ -466,7 +484,7 @@ static void tlv320aic23_shutdown(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_device *socdev = rtd->socdev;
-	struct snd_soc_codec *codec = socdev->card->codec;
+	struct snd_soc_codec *codec = socdev->codec;
 	struct aic23 *aic23 = container_of(codec, struct aic23, codec);
 
 	/* deactivate */
@@ -523,8 +541,6 @@ static int tlv320aic23_set_dai_fmt(struct snd_soc_dai *codec_dai,
 	case SND_SOC_DAIFMT_I2S:
 		iface_reg |= TLV320AIC23_FOR_I2S;
 		break;
-	case SND_SOC_DAIFMT_DSP_A:
-		iface_reg |= TLV320AIC23_LRP_ON;
 	case SND_SOC_DAIFMT_DSP_B:
 		iface_reg |= TLV320AIC23_FOR_DSP;
 		break;
@@ -582,15 +598,6 @@ static int tlv320aic23_set_bias_level(struct snd_soc_codec *codec,
 #define AIC23_FORMATS	(SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S20_3LE | \
 			 SNDRV_PCM_FMTBIT_S24_3LE | SNDRV_PCM_FMTBIT_S32_LE)
 
-static struct snd_soc_dai_ops tlv320aic23_dai_ops = {
-	.prepare	= tlv320aic23_pcm_prepare,
-	.hw_params	= tlv320aic23_hw_params,
-	.shutdown	= tlv320aic23_shutdown,
-	.digital_mute	= tlv320aic23_mute,
-	.set_fmt	= tlv320aic23_set_dai_fmt,
-	.set_sysclk	= tlv320aic23_set_dai_sysclk,
-};
-
 struct snd_soc_dai tlv320aic23_dai = {
 	.name = "tlv320aic23",
 	.playback = {
@@ -605,7 +612,14 @@ struct snd_soc_dai tlv320aic23_dai = {
 		    .channels_max = 2,
 		    .rates = AIC23_RATES,
 		    .formats = AIC23_FORMATS,},
-	.ops = &tlv320aic23_dai_ops,
+	.ops = {
+		.prepare = tlv320aic23_pcm_prepare,
+		.hw_params = tlv320aic23_hw_params,
+		.shutdown = tlv320aic23_shutdown,
+		.digital_mute = tlv320aic23_mute,
+		.set_fmt = tlv320aic23_set_dai_fmt,
+		.set_sysclk = tlv320aic23_set_dai_sysclk,
+	}
 };
 EXPORT_SYMBOL_GPL(tlv320aic23_dai);
 
@@ -613,7 +627,7 @@ static int tlv320aic23_suspend(struct platform_device *pdev,
 			       pm_message_t state)
 {
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
-	struct snd_soc_codec *codec = socdev->card->codec;
+	struct snd_soc_codec *codec = socdev->codec;
 
 	tlv320aic23_write(codec, TLV320AIC23_ACTIVE, 0x0);
 	tlv320aic23_set_bias_level(codec, SND_SOC_BIAS_OFF);
@@ -624,11 +638,12 @@ static int tlv320aic23_suspend(struct platform_device *pdev,
 static int tlv320aic23_resume(struct platform_device *pdev)
 {
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
-	struct snd_soc_codec *codec = socdev->card->codec;
+	struct snd_soc_codec *codec = socdev->codec;
+	int i;
 	u16 reg;
 
 	/* Sync reg_cache with the hardware */
-	for (reg = 0; reg < TLV320AIC23_RESET; reg++) {
+	for (reg = 0; reg < ARRAY_SIZE(tlv320aic23_reg); i++) {
 		u16 val = tlv320aic23_read_reg_cache(codec, reg);
 		tlv320aic23_write(codec, reg, val);
 	}
@@ -645,7 +660,7 @@ static int tlv320aic23_resume(struct platform_device *pdev)
  */
 static int tlv320aic23_init(struct snd_soc_device *socdev)
 {
-	struct snd_soc_codec *codec = socdev->card->codec;
+	struct snd_soc_codec *codec = socdev->codec;
 	int ret = 0;
 	u16 reg;
 
@@ -703,8 +718,7 @@ static int tlv320aic23_init(struct snd_soc_device *socdev)
 
 	tlv320aic23_write(codec, TLV320AIC23_ACTIVE, 0x1);
 
-	snd_soc_add_controls(codec, tlv320aic23_snd_controls,
-				ARRAY_SIZE(tlv320aic23_snd_controls));
+	tlv320aic23_add_controls(codec);
 	tlv320aic23_add_widgets(codec);
 	ret = snd_soc_init_card(socdev);
 	if (ret < 0) {
@@ -732,7 +746,7 @@ static int tlv320aic23_codec_probe(struct i2c_client *i2c,
 				   const struct i2c_device_id *i2c_id)
 {
 	struct snd_soc_device *socdev = tlv320aic23_socdev;
-	struct snd_soc_codec *codec = socdev->card->codec;
+	struct snd_soc_codec *codec = socdev->codec;
 	int ret;
 
 	if (!i2c_check_functionality(i2c->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
@@ -790,7 +804,7 @@ static int tlv320aic23_probe(struct platform_device *pdev)
 	if (aic23 == NULL)
 		return -ENOMEM;
 	codec = &aic23->codec;
-	socdev->card->codec = codec;
+	socdev->codec = codec;
 	mutex_init(&codec->mutex);
 	INIT_LIST_HEAD(&codec->dapm_widgets);
 	INIT_LIST_HEAD(&codec->dapm_paths);
@@ -809,7 +823,7 @@ static int tlv320aic23_probe(struct platform_device *pdev)
 static int tlv320aic23_remove(struct platform_device *pdev)
 {
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
-	struct snd_soc_codec *codec = socdev->card->codec;
+	struct snd_soc_codec *codec = socdev->codec;
 	struct aic23 *aic23 = container_of(codec, struct aic23, codec);
 
 	if (codec->control_data)

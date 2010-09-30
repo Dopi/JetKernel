@@ -33,6 +33,9 @@ config USB_ARCH_HAS_OHCI
 	default y if ARCH_OMAP
 	default y if ARCH_LH7A404
 	default y if ARCH_S3C2410
+	default y if ARCH_S3C64XX
+	default y if ARCH_S5PC1XX
+	default y if ARCH_S5PV2XX
 	default y if PXA27x
 	default y if PXA3xx
 	default y if ARCH_EP93XX
@@ -58,6 +61,7 @@ config USB_ARCH_HAS_EHCI
 	default y if PPC_83xx
 	default y if SOC_AU1200
 	default y if ARCH_IXP4XX
+	default y if ARCH_S5PV2XX
 	default PCI
 
 # ARM SA1111 chips have a non-PCI based "OHCI-compatible" USB host interface.

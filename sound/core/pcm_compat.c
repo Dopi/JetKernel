@@ -232,11 +232,14 @@ static int snd_pcm_ioctl_hw_params_compat(struct snd_pcm_substream *substream,
 	if (! (runtime = substream->runtime))
 		return -ENOTTY;
 
+	data = kmalloc(sizeof(*data), GFP_KERNEL);
+	if (data == NULL)
+		return -ENOMEM;
 	/* only fifo_size is different, so just copy all */
-	data = memdup_user(data32, sizeof(*data32));
-	if (IS_ERR(data))
-		return PTR_ERR(data);
-
+	if (copy_from_user(data, data32, sizeof(*data32))) {
+		err = -EFAULT;
+		goto error;
+	}
 	if (refine)
 		err = snd_pcm_hw_refine(substream, data);
 	else

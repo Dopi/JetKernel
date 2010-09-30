@@ -1,6 +1,6 @@
 /* linux/arch/arm/plat-s3c/dev-i2c0.c
  *
- * Copyright 2008,2009 Simtec Electronics
+ * Copyright 2008 Simtec Electronics
  *	Ben Dooks <ben@simtec.co.uk>
  *	http://armlinux.simtec.co.uk/
  *
@@ -15,13 +15,13 @@
 #include <linux/string.h>
 #include <linux/platform_device.h>
 
-#include <mach/irqs.h>
 #include <mach/map.h>
 
 #include <plat/regs-iic.h>
 #include <plat/iic.h>
 #include <plat/devs.h>
 #include <plat/cpu.h>
+#include <plat/irqs.h>
 
 static struct resource s3c_i2c_resource[] = {
 	[0] = {
@@ -50,7 +50,7 @@ struct platform_device s3c_device_i2c0 = {
 static struct s3c2410_platform_i2c default_i2c_data0 __initdata = {
 	.flags		= 0,
 	.slave_addr	= 0x10,
-	.frequency	= 100*1000,
+	.frequency	= 400*1000,
 	.sda_delay	= 100,
 };
 

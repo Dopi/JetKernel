@@ -310,16 +310,12 @@ static int snd_ali_codec_ready(struct snd_ali *codec,
 	unsigned int res;
 	
 	end_time = jiffies + msecs_to_jiffies(250);
-
-	for (;;) {
+	do {
 		res = snd_ali_5451_peek(codec,port);
 		if (!(res & 0x8000))
 			return 0;
-		if (!time_after_eq(end_time, jiffies))
-			break;
 		schedule_timeout_uninterruptible(1);
-	}
-
+	} while (time_after_eq(end_time, jiffies));
 	snd_ali_5451_poke(codec, port, res & ~0x8000);
 	snd_printdd("ali_codec_ready: codec is not ready.\n ");
 	return -EIO;
@@ -331,17 +327,15 @@ static int snd_ali_stimer_ready(struct snd_ali *codec)
 	unsigned long dwChk1,dwChk2;
 	
 	dwChk1 = snd_ali_5451_peek(codec, ALI_STIMER);
-	end_time = jiffies + msecs_to_jiffies(250);
+	dwChk2 = snd_ali_5451_peek(codec, ALI_STIMER);
 
-	for (;;) {
+	end_time = jiffies + msecs_to_jiffies(250);
+	do {
 		dwChk2 = snd_ali_5451_peek(codec, ALI_STIMER);
 		if (dwChk2 != dwChk1)
 			return 0;
-		if (!time_after_eq(end_time, jiffies))
-			break;
 		schedule_timeout_uninterruptible(1);
-	}
-
+	} while (time_after_eq(end_time, jiffies));
 	snd_printk(KERN_ERR "ali_stimer_read: stimer is not ready.\n");
 	return -EIO;
 }
@@ -2148,7 +2142,7 @@ static int __devinit snd_ali_resources(struct snd_ali *codec)
 {
 	int err;
 
-	snd_ali_printk("resources allocation ...\n");
+	snd_ali_printk("resouces allocation ...\n");
 	err = pci_request_regions(codec->pci, "ALI 5451");
 	if (err < 0)
 		return err;
@@ -2160,7 +2154,7 @@ static int __devinit snd_ali_resources(struct snd_ali *codec)
 		return -EBUSY;
 	}
 	codec->irq = codec->pci->irq;
-	snd_ali_printk("resources allocated.\n");
+	snd_ali_printk("resouces allocated.\n");
 	return 0;
 }
 static int snd_ali_dev_free(struct snd_device *device)
@@ -2192,8 +2186,8 @@ static int __devinit snd_ali_create(struct snd_card *card,
 	if (err < 0)
 		return err;
 	/* check, if we can restrict PCI DMA transfers to 31 bits */
-	if (pci_set_dma_mask(pci, DMA_BIT_MASK(31)) < 0 ||
-	    pci_set_consistent_dma_mask(pci, DMA_BIT_MASK(31)) < 0) {
+	if (pci_set_dma_mask(pci, DMA_31BIT_MASK) < 0 ||
+	    pci_set_consistent_dma_mask(pci, DMA_31BIT_MASK) < 0) {
 		snd_printk(KERN_ERR "architecture does not support "
 			   "31bit PCI busmaster DMA\n");
 		pci_disable_device(pci);
@@ -2313,9 +2307,9 @@ static int __devinit snd_ali_probe(struct pci_dev *pci,
 
 	snd_ali_printk("probe ...\n");
 
-	err = snd_card_create(index, id, THIS_MODULE, 0, &card);
-	if (err < 0)
-		return err;
+	card = snd_card_new(index, id, THIS_MODULE, 0);
+	if (!card)
+		return -ENOMEM;
 
 	err = snd_ali_create(card, pci, pcm_channels, spdif, &codec);
 	if (err < 0)

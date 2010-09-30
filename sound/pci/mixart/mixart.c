@@ -61,7 +61,7 @@ MODULE_PARM_DESC(enable, "Enable Digigram " CARD_NAME " soundcard.");
  */
 
 static struct pci_device_id snd_mixart_ids[] = {
-	{ PCI_VDEVICE(MOTOROLA, 0x0003), 0, }, /* MC8240 */
+	{ 0x1057, 0x0003, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0, }, /* MC8240 */
 	{ 0, }
 };
 
@@ -1161,15 +1161,13 @@ static long snd_mixart_BA0_read(struct snd_info_entry *entry, void *file_private
 				unsigned long count, unsigned long pos)
 {
 	struct mixart_mgr *mgr = entry->private_data;
-	unsigned long maxsize;
 
-	if (pos >= MIXART_BA0_SIZE)
-		return 0;
-	maxsize = MIXART_BA0_SIZE - pos;
-	if (count > maxsize)
-		count = maxsize;
 	count = count & ~3; /* make sure the read size is a multiple of 4 bytes */
-	if (copy_to_user_fromio(buf, MIXART_MEM(mgr, pos), count))
+	if(count <= 0)
+		return 0;
+	if(pos + count > MIXART_BA0_SIZE)
+		count = (long)(MIXART_BA0_SIZE - pos);
+	if(copy_to_user_fromio(buf, MIXART_MEM( mgr, pos ), count))
 		return -EFAULT;
 	return count;
 }
@@ -1182,15 +1180,13 @@ static long snd_mixart_BA1_read(struct snd_info_entry *entry, void *file_private
 				unsigned long count, unsigned long pos)
 {
 	struct mixart_mgr *mgr = entry->private_data;
-	unsigned long maxsize;
 
-	if (pos > MIXART_BA1_SIZE)
-		return 0;
-	maxsize = MIXART_BA1_SIZE - pos;
-	if (count > maxsize)
-		count = maxsize;
 	count = count & ~3; /* make sure the read size is a multiple of 4 bytes */
-	if (copy_to_user_fromio(buf, MIXART_REG(mgr, pos), count))
+	if(count <= 0)
+		return 0;
+	if(pos + count > MIXART_BA1_SIZE)
+		count = (long)(MIXART_BA1_SIZE - pos);
+	if(copy_to_user_fromio(buf, MIXART_REG( mgr, pos ), count))
 		return -EFAULT;
 	return count;
 }
@@ -1295,7 +1291,7 @@ static int __devinit snd_mixart_probe(struct pci_dev *pci,
 	pci_set_master(pci);
 
 	/* check if we can restrict PCI DMA transfers to 32 bits */
-	if (pci_set_dma_mask(pci, DMA_BIT_MASK(32)) < 0) {
+	if (pci_set_dma_mask(pci, DMA_32BIT_MASK) < 0) {
 		snd_printk(KERN_ERR "architecture does not support 32bit PCI busmaster DMA\n");
 		pci_disable_device(pci);
 		return -ENXIO;
@@ -1370,12 +1366,12 @@ static int __devinit snd_mixart_probe(struct pci_dev *pci,
 		else
 			idx = index[dev] + i;
 		snprintf(tmpid, sizeof(tmpid), "%s-%d", id[dev] ? id[dev] : "MIXART", i);
-		err = snd_card_create(idx, tmpid, THIS_MODULE, 0, &card);
+		card = snd_card_new(idx, tmpid, THIS_MODULE, 0);
 
-		if (err < 0) {
+		if (! card) {
 			snd_printk(KERN_ERR "cannot allocate the card %d\n", i);
 			snd_mixart_free(mgr);
-			return err;
+			return -ENOMEM;
 		}
 
 		strcpy(card->driver, CARD_NAME);

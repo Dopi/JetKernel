@@ -1135,7 +1135,7 @@ static struct sdio_driver if_sdio_driver = {
 static int __init if_sdio_init_module(void)
 {
 	int ret = 0;
-
+	
 	lbs_deb_enter(LBS_DEB_SDIO);
 
 	printk(KERN_INFO "libertas_sdio: Libertas SDIO driver\n");
@@ -1161,6 +1161,7 @@ static void __exit if_sdio_exit_module(void)
 	sdio_unregister_driver(&if_sdio_driver);
 
 	lbs_deb_leave(LBS_DEB_SDIO);
+
 }
 
 module_init(if_sdio_init_module);

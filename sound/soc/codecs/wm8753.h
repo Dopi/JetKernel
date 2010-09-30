@@ -77,6 +77,12 @@
 #define WM8753_BIASCTL		0x3d
 #define WM8753_ADCTL2		0x3f
 
+struct wm8753_setup_data {
+	int spi;
+	int i2c_bus;
+	unsigned short i2c_address;
+};
+
 #define WM8753_PLL1			0
 #define WM8753_PLL2			1
 

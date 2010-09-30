@@ -22,6 +22,8 @@
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 
+#define DA9030_STATUS_CHDET	(1 << 3)
+
 #define DA9030_FAULT_LOG		0x0a
 #define DA9030_FAULT_LOG_OVER_TEMP	(1 << 7)
 #define DA9030_FAULT_LOG_VBAT_OVER	(1 << 4)
@@ -242,8 +244,6 @@ static void da9030_set_charge(struct da9030_charger *charger, int on)
 	}
 
 	da903x_write(charger->master, DA9030_CHARGE_CONTROL, val);
-
-	power_supply_changed(&charger->psy);
 }
 
 static void da9030_charger_check_state(struct da9030_charger *charger)
@@ -258,12 +258,6 @@ static void da9030_charger_check_state(struct da9030_charger *charger)
 			da9030_set_charge(charger, 1);
 		}
 	} else {
-		/* Charger has been pulled out */
-		if (!charger->chdet) {
-			da9030_set_charge(charger, 0);
-			return;
-		}
-
 		if (charger->adc.vbat_res >=
 		    charger->thresholds.vbat_charge_stop) {
 			da9030_set_charge(charger, 0);
@@ -401,11 +395,13 @@ static int da9030_battery_event(struct notifier_block *nb, unsigned long event,
 {
 	struct da9030_charger *charger =
 		container_of(nb, struct da9030_charger, nb);
+	int status;
 
 	switch (event) {
 	case DA9030_EVENT_CHDET:
-		cancel_delayed_work_sync(&charger->work);
-		schedule_work(&charger->work.work);
+		status = da903x_query_status(charger->master,
+					     DA9030_STATUS_CHDET);
+		da9030_set_charge(charger, status);
 		break;
 	case DA9030_EVENT_VBATMON:
 		da9030_battery_vbat_event(charger);
@@ -569,8 +565,7 @@ static int da9030_battery_remove(struct platform_device *dev)
 	da903x_unregister_notifier(charger->master, &charger->nb,
 				   DA9030_EVENT_CHDET | DA9030_EVENT_VBATMON |
 				   DA9030_EVENT_CHIOVER | DA9030_EVENT_TBAT);
-	cancel_delayed_work_sync(&charger->work);
-	da9030_set_charge(charger, 0);
+	cancel_delayed_work(&charger->work);
 	power_supply_unregister(&charger->psy);
 
 	kfree(charger);

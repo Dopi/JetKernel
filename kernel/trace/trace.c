@@ -275,10 +275,10 @@ unsigned long trace_flags = TRACE_ITER_PRINT_PARENT | TRACE_ITER_PRINTK |
 void trace_wake_up(void)
 {
 	/*
-	 * The runqueue_is_locked() can fail, but this is the best we
+	 * The grunqueue_is_locked() can fail, but this is the best we
 	 * have for now:
 	 */
-	if (!(trace_flags & TRACE_ITER_BLOCK) && !runqueue_is_locked())
+	if (!(trace_flags & TRACE_ITER_BLOCK) && !grunqueue_is_locked())
 		wake_up(&trace_wait);
 }
 

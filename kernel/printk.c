@@ -32,7 +32,6 @@
 #include <linux/security.h>
 #include <linux/bootmem.h>
 #include <linux/syscalls.h>
-#include <linux/kexec.h>
 
 #include <asm/uaccess.h>
 
@@ -74,6 +73,7 @@ EXPORT_SYMBOL(oops_in_progress);
  * driver system.
  */
 static DECLARE_MUTEX(console_sem);
+static DECLARE_MUTEX(secondary_console_sem);
 struct console *console_drivers;
 EXPORT_SYMBOL_GPL(console_drivers);
 
@@ -135,24 +135,6 @@ static char __log_buf[__LOG_BUF_LEN];
 static char *log_buf = __log_buf;
 static int log_buf_len = __LOG_BUF_LEN;
 static unsigned logged_chars; /* Number of chars produced since last read+clear operation */
-
-#ifdef CONFIG_KEXEC
-/*
- * This appends the listed symbols to /proc/vmcoreinfo
- *
- * /proc/vmcoreinfo is used by various utiilties, like crash and makedumpfile to
- * obtain access to symbols that are otherwise very difficult to locate.  These
- * symbols are specifically used so that utilities can access and extract the
- * dmesg log from a vmcore file after a crash.
- */
-void log_buf_kexec_setup(void)
-{
-	VMCOREINFO_SYMBOL(log_buf);
-	VMCOREINFO_SYMBOL(log_end);
-	VMCOREINFO_SYMBOL(log_buf_len);
-	VMCOREINFO_SYMBOL(logged_chars);
-}
-#endif
 
 static int __init log_buf_len_setup(char *str)
 {
@@ -499,6 +481,62 @@ static void call_console_drivers(unsigned start, unsigned end)
 	_call_console_drivers(start_print, end, msg_level);
 }
 
+#ifdef CONFIG_KERNEL_LOGGING
+extern void __iomem * log_buf_base;
+static unsigned long * log_index;
+static int ioremapped = 0;
+static char *logging_buffer = NULL;
+static int b_first_call_after_booting = 0;
+#ifdef CONFIG_SAMSUNG_WATCHDOG_RESET_BOOT
+#define LOGGING_RAMBUF_DATA_SIZE  ((LOGGING_RAMBUF_SIZE)-sizeof(unsigned int)-8)
+#else
+#define LOGGING_RAMBUF_DATA_SIZE  ((LOGGING_RAMBUF_SIZE)-8)
+#endif
+#define LOGGING_INDEX_MASK	((1 << 20) - 1)	// 1111 1111 1111 1111 1111 = 0xfffff = 1,048,575 // 1M = 1,048,576
+#define LOGGING_BUF(idx) (logging_buffer[(idx) & LOGGING_INDEX_MASK])
+#define LOGGING_RAM_MASK	1
+#endif	//	CONFIG_KERNEL_LOGGING
+extern unsigned long logging_mode;
+#define PRINTK_MASK		2
+
+#ifdef CONFIG_KERNEL_LOGGING
+static void emit_log_char_RAMbuf(char* src, int len)
+{
+	int chunk=0;
+	int offset=0;
+	if((logging_mode & LOGGING_RAM_MASK) && (!ioremapped && log_buf_base  ))
+	{
+	#ifdef CONFIG_SAMSUNG_WATCHDOG_RESET_BOOT
+		logging_buffer = (char *)(log_buf_base+sizeof(unsigned int)+8);
+		log_index = (unsigned long *)(log_buf_base+sizeof(unsigned int));
+	#else
+		logging_buffer = (char *)(log_buf_base+8);
+		log_index = (unsigned long *)(log_buf_base);
+	#endif
+		(*log_index) = 0;
+		ioremapped=1;
+	}
+
+	if((ioremapped) && (logging_mode & LOGGING_RAM_MASK))
+	{
+		do {
+			if((*log_index + len) > (LOGGING_RAMBUF_DATA_SIZE))
+				chunk = LOGGING_RAMBUF_DATA_SIZE - *log_index;
+			else
+				chunk = len;
+			
+			memcpy((void *)&LOGGING_BUF((*log_index)),src+offset, chunk);
+			*log_index += chunk;
+			len -= chunk;
+			offset += chunk;
+
+			if((*log_index) == LOGGING_RAMBUF_DATA_SIZE)
+				(*log_index)=0;
+		}while(len > 0);
+	}
+}
+#endif	// CONFIG_KERNEL_LOGGING
+
 static void emit_log_char(char c)
 {
 	LOG_BUF(log_end) = c;
@@ -637,7 +675,7 @@ static int acquire_console_semaphore_for_printk(unsigned int cpu)
 static const char recursion_bug_msg [] =
 		KERN_CRIT "BUG: recent printk recursion!\n";
 static int recursion_bug;
-static int new_text_line = 1;
+	static int new_text_line = 1;
 static char printk_buf[1024];
 
 asmlinkage int vprintk(const char *fmt, va_list args)
@@ -680,46 +718,54 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 	if (recursion_bug) {
 		recursion_bug = 0;
 		strcpy(printk_buf, recursion_bug_msg);
-		printed_len = strlen(recursion_bug_msg);
+		printed_len = sizeof(recursion_bug_msg);
 	}
 	/* Emit the output into the temporary buffer */
 	printed_len += vscnprintf(printk_buf + printed_len,
 				  sizeof(printk_buf) - printed_len, fmt, args);
 
 
-	p = printk_buf;
-
-	/* Do we have a loglevel in the string? */
-	if (p[0] == '<') {
-		unsigned char c = p[1];
-		if (c && p[2] == '>') {
-			switch (c) {
-			case '0' ... '7': /* loglevel */
-				current_log_level = c - '0';
-			/* Fallthrough - make sure we're on a new line */
-			case 'd': /* KERN_DEFAULT */
-				if (!new_text_line) {
-					emit_log_char('\n');
-					new_text_line = 1;
-				}
-			/* Fallthrough - skip the loglevel */
-			case 'c': /* KERN_CONT */
-				p += 3;
-				break;
-			}
-		}
-	}
-
 	/*
 	 * Copy the output into log_buf.  If the caller didn't provide
 	 * appropriate log level tags, we insert them here
 	 */
-	for ( ; *p; p++) {
+	for (p = printk_buf; *p; p++) {
 		if (new_text_line) {
+			/* If a token, set current_log_level and skip over */
+			if (p[0] == '<' && p[1] >= '0' && p[1] <= '7' &&
+			    p[2] == '>') {
+				current_log_level = p[1] - '0';
+				p += 3;
+				printed_len -= 3;
+			}
+
 			/* Always output the token */
 			emit_log_char('<');
 			emit_log_char(current_log_level + '0');
 			emit_log_char('>');
+#ifdef CONFIG_KERNEL_LOGGING
+			{
+				char tbuf[3];
+
+				// check kernel start
+				if( (b_first_call_after_booting == 0) &&
+					(logging_mode & LOGGING_RAM_MASK) && 
+					(!ioremapped && log_buf_base  ) )
+				{
+//					char tempStar[] = "********************************************\n";
+					char tempChar[] = "============== start kernel logging !! ==============\n";
+					
+					b_first_call_after_booting = 1;
+
+//					emit_log_char_RAMbuf(tempStar, sizeof(tempStar));
+					emit_log_char_RAMbuf(tempChar, sizeof(tempChar));
+//					emit_log_char_RAMbuf(tempStar, sizeof(tempStar));
+				}
+				
+				sprintf(tbuf, "<%1d>",default_message_loglevel);
+				emit_log_char_RAMbuf(tbuf, 3);
+			}
+#endif
 			printed_len += 3;
 			new_text_line = 0;
 
@@ -738,6 +784,9 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 
 				for (tp = tbuf; tp < tbuf + tlen; tp++)
 					emit_log_char(*tp);
+#ifdef CONFIG_KERNEL_LOGGING				
+				emit_log_char_RAMbuf(tbuf, tlen);
+#endif
 				printed_len += tlen;
 			}
 
@@ -749,6 +798,10 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 		if (*p == '\n')
 			new_text_line = 1;
 	}
+
+#ifdef CONFIG_KERNEL_LOGGING
+	emit_log_char_RAMbuf(printk_buf, strlen(printk_buf));
+#endif
 
 	/*
 	 * Try to acquire and then immediately release the
@@ -924,14 +977,12 @@ void suspend_console(void)
 	printk("Suspending console(s) (use no_console_suspend to debug)\n");
 	acquire_console_sem();
 	console_suspended = 1;
-	up(&console_sem);
 }
 
 void resume_console(void)
 {
 	if (!console_suspend_enabled)
 		return;
-	down(&console_sem);
 	console_suspended = 0;
 	release_console_sem();
 }
@@ -947,9 +998,11 @@ void resume_console(void)
 void acquire_console_sem(void)
 {
 	BUG_ON(in_interrupt());
-	down(&console_sem);
-	if (console_suspended)
+	if (console_suspended) {
+		down(&secondary_console_sem);
 		return;
+	}
+	down(&console_sem);
 	console_locked = 1;
 	console_may_schedule = 1;
 }
@@ -959,10 +1012,6 @@ int try_acquire_console_sem(void)
 {
 	if (down_trylock(&console_sem))
 		return -1;
-	if (console_suspended) {
-		up(&console_sem);
-		return -1;
-	}
 	console_locked = 1;
 	console_may_schedule = 0;
 	return 0;
@@ -1016,7 +1065,7 @@ void release_console_sem(void)
 	unsigned wake_klogd = 0;
 
 	if (console_suspended) {
-		up(&console_sem);
+		up(&secondary_console_sem);
 		return;
 	}
 
@@ -1326,14 +1375,30 @@ EXPORT_SYMBOL(printk_ratelimit);
 bool printk_timed_ratelimit(unsigned long *caller_jiffies,
 			unsigned int interval_msecs)
 {
-	if (*caller_jiffies == 0
-			|| !time_in_range(jiffies, *caller_jiffies,
-					*caller_jiffies
-					+ msecs_to_jiffies(interval_msecs))) {
-		*caller_jiffies = jiffies;
+	if (*caller_jiffies == 0 || time_after(jiffies, *caller_jiffies)) {
+		*caller_jiffies = jiffies + msecs_to_jiffies(interval_msecs);
 		return true;
 	}
 	return false;
 }
 EXPORT_SYMBOL(printk_timed_ratelimit);
+
+/* [LINUSYS] added by khoonk for printk leveling on 20060602 */
+unsigned long long	iPrintFlag = 0x0;
+
+int debug_check(unsigned int flag)
+{
+	unsigned int    id;
+
+	/* check "flag" here */
+	/* if skip, return 0.*/
+	id = flag & 0xffffffff;
+	if( !(id & iPrintFlag) )
+		return 0;
+
+	return 1;
+}
+EXPORT_SYMBOL(debug_check);
+EXPORT_SYMBOL(iPrintFlag);
+/* [LINUSYS] added by khoonk for printk leveling on 20060602 */
 #endif

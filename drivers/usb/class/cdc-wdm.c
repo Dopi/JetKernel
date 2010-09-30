@@ -313,13 +313,8 @@ static ssize_t wdm_write
 	r = usb_autopm_get_interface(desc->intf);
 	if (r < 0)
 		goto outnp;
-
-	if (!file->f_flags && O_NONBLOCK)
-		r = wait_event_interruptible(desc->wait, !test_bit(WDM_IN_USE,
-								&desc->flags));
-	else
-		if (test_bit(WDM_IN_USE, &desc->flags))
-			r = -EAGAIN;
+	r = wait_event_interruptible(desc->wait, !test_bit(WDM_IN_USE,
+							   &desc->flags));
 	if (r < 0)
 		goto out;
 
@@ -382,7 +377,7 @@ outnl:
 static ssize_t wdm_read
 (struct file *file, char __user *buffer, size_t count, loff_t *ppos)
 {
-	int rv, cntr = 0;
+	int rv, cntr;
 	int i = 0;
 	struct wdm_device *desc = file->private_data;
 
@@ -394,23 +389,10 @@ static ssize_t wdm_read
 	if (desc->length == 0) {
 		desc->read = 0;
 retry:
-		if (test_bit(WDM_DISCONNECTING, &desc->flags)) {
-			rv = -ENODEV;
-			goto err;
-		}
 		i++;
-		if (file->f_flags & O_NONBLOCK) {
-			if (!test_bit(WDM_READ, &desc->flags)) {
-				rv = cntr ? cntr : -EAGAIN;
-				goto err;
-			}
-			rv = 0;
-		} else {
-			rv = wait_event_interruptible(desc->wait,
-				test_bit(WDM_READ, &desc->flags));
-		}
+		rv = wait_event_interruptible(desc->wait,
+					      test_bit(WDM_READ, &desc->flags));
 
-		/* may have happened while we slept */
 		if (test_bit(WDM_DISCONNECTING, &desc->flags)) {
 			rv = -ENODEV;
 			goto err;
@@ -466,7 +448,7 @@ retry:
 
 err:
 	mutex_unlock(&desc->rlock);
-	if (rv < 0 && rv != -EAGAIN)
+	if (rv < 0)
 		dev_err(&desc->intf->dev, "wdm_read: exit error\n");
 	return rv;
 }

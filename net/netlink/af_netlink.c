@@ -2026,10 +2026,10 @@ static int __init netlink_proto_init(void)
 	if (!nl_table)
 		goto panic;
 
-	if (totalram_pages >= (128 * 1024))
-		limit = totalram_pages >> (21 - PAGE_SHIFT);
+	if (num_physpages >= (128 * 1024))
+		limit = num_physpages >> (21 - PAGE_SHIFT);
 	else
-		limit = totalram_pages >> (23 - PAGE_SHIFT);
+		limit = num_physpages >> (23 - PAGE_SHIFT);
 
 	order = get_bitmask_order(limit) - 1 + PAGE_SHIFT;
 	limit = (1UL << order) / sizeof(struct hlist_head);

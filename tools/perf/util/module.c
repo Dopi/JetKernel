@@ -422,7 +422,7 @@ static int mod_dso__load_module_paths(struct mod_dso *self)
 	len += strlen(uts.release);
 	len += strlen("/modules.dep");
 
-	path = calloc(1, len + 1);
+	path = calloc(1, len);
 	if (path == NULL)
 		goto out_failure;
 

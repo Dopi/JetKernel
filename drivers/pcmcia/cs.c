@@ -98,13 +98,10 @@ EXPORT_SYMBOL(pcmcia_socket_list_rwsem);
  * These functions check for the appropriate struct pcmcia_soket arrays,
  * and pass them to the low-level functions pcmcia_{suspend,resume}_socket
  */
-static int socket_early_resume(struct pcmcia_socket *skt);
-static int socket_late_resume(struct pcmcia_socket *skt);
 static int socket_resume(struct pcmcia_socket *skt);
 static int socket_suspend(struct pcmcia_socket *skt);
 
-static void pcmcia_socket_dev_run(struct device *dev,
-				  int (*cb)(struct pcmcia_socket *))
+int pcmcia_socket_dev_suspend(struct device *dev, pm_message_t state)
 {
 	struct pcmcia_socket *socket;
 
@@ -113,34 +110,29 @@ static void pcmcia_socket_dev_run(struct device *dev,
 		if (socket->dev.parent != dev)
 			continue;
 		mutex_lock(&socket->skt_mutex);
-		cb(socket);
+		socket_suspend(socket);
 		mutex_unlock(&socket->skt_mutex);
 	}
 	up_read(&pcmcia_socket_list_rwsem);
-}
 
-int pcmcia_socket_dev_suspend(struct device *dev)
-{
-	pcmcia_socket_dev_run(dev, socket_suspend);
 	return 0;
 }
 EXPORT_SYMBOL(pcmcia_socket_dev_suspend);
 
-void pcmcia_socket_dev_early_resume(struct device *dev)
-{
-	pcmcia_socket_dev_run(dev, socket_early_resume);
-}
-EXPORT_SYMBOL(pcmcia_socket_dev_early_resume);
-
-void pcmcia_socket_dev_late_resume(struct device *dev)
-{
-	pcmcia_socket_dev_run(dev, socket_late_resume);
-}
-EXPORT_SYMBOL(pcmcia_socket_dev_late_resume);
-
 int pcmcia_socket_dev_resume(struct device *dev)
 {
-	pcmcia_socket_dev_run(dev, socket_resume);
+	struct pcmcia_socket *socket;
+
+	down_read(&pcmcia_socket_list_rwsem);
+	list_for_each_entry(socket, &pcmcia_socket_list, socket_list) {
+		if (socket->dev.parent != dev)
+			continue;
+		mutex_lock(&socket->skt_mutex);
+		socket_resume(socket);
+		mutex_unlock(&socket->skt_mutex);
+	}
+	up_read(&pcmcia_socket_list_rwsem);
+
 	return 0;
 }
 EXPORT_SYMBOL(pcmcia_socket_dev_resume);
@@ -554,24 +546,29 @@ static int socket_suspend(struct pcmcia_socket *skt)
 	return 0;
 }
 
-static int socket_early_resume(struct pcmcia_socket *skt)
+/*
+ * Resume a socket.  If a card is present, verify its CIS against
+ * our cached copy.  If they are different, the card has been
+ * replaced, and we need to tell the drivers.
+ */
+static int socket_resume(struct pcmcia_socket *skt)
 {
+	int ret;
+
+	if (!(skt->state & SOCKET_SUSPEND))
+		return -EBUSY;
+
 	skt->socket = dead_socket;
 	skt->ops->init(skt);
 	skt->ops->set_socket(skt, &skt->socket);
-	if (skt->state & SOCKET_PRESENT)
-		skt->resume_status = socket_setup(skt, resume_delay);
-	return 0;
-}
 
-static int socket_late_resume(struct pcmcia_socket *skt)
-{
 	if (!(skt->state & SOCKET_PRESENT)) {
 		skt->state &= ~SOCKET_SUSPEND;
 		return socket_insert(skt);
 	}
 
-	if (skt->resume_status == 0) {
+	ret = socket_setup(skt, resume_delay);
+	if (ret == 0) {
 		/*
 		 * FIXME: need a better check here for cardbus cards.
 		 */
@@ -597,20 +594,6 @@ static int socket_late_resume(struct pcmcia_socket *skt)
 	skt->state &= ~SOCKET_SUSPEND;
 
 	return 0;
-}
-
-/*
- * Resume a socket.  If a card is present, verify its CIS against
- * our cached copy.  If they are different, the card has been
- * replaced, and we need to tell the drivers.
- */
-static int socket_resume(struct pcmcia_socket *skt)
-{
-	if (!(skt->state & SOCKET_SUSPEND))
-		return -EBUSY;
-
-	socket_early_resume(skt);
-	return socket_late_resume(skt);
 }
 
 static void socket_remove(struct pcmcia_socket *skt)

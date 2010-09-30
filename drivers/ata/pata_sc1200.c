@@ -235,7 +235,8 @@ static int sc1200_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 		.udma_mask = ATA_UDMA2,
 		.port_ops = &sc1200_port_ops
 	};
-	const struct ata_port_info *ppi[] = { &info, NULL };
+	/* Can't enable port 2 yet, see top comments */
+	const struct ata_port_info *ppi[] = { &info, };
 
 	return ata_pci_sff_init_one(dev, ppi, &sc1200_sht, NULL);
 }

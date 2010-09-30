@@ -232,23 +232,28 @@ static unsigned int speedstep_detect_chipset(void)
 	return 0;
 }
 
-static void get_freq_data(void *_speed)
-{
-	unsigned int *speed = _speed;
+struct get_freq_data {
+	unsigned int speed;
+	unsigned int processor;
+};
 
-	*speed = speedstep_get_frequency(speedstep_processor);
+static void get_freq_data(void *_data)
+{
+	struct get_freq_data *data = _data;
+
+	data->speed = speedstep_get_frequency(data->processor);
 }
 
 static unsigned int speedstep_get(unsigned int cpu)
 {
-	unsigned int speed;
+	struct get_freq_data data = { .processor = cpu };
 
 	/* You're supposed to ensure CPU is online. */
-	if (smp_call_function_single(cpu, get_freq_data, &speed, 1) != 0)
+	if (smp_call_function_single(cpu, get_freq_data, &data, 1) != 0)
 		BUG();
 
-	dprintk("detected %u kHz as current frequency\n", speed);
-	return speed;
+	dprintk("detected %u kHz as current frequency\n", data.speed);
+	return data.speed;
 }
 
 /**

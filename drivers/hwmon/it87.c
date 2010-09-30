@@ -1028,11 +1028,12 @@ static int __init it87_find(unsigned short *address,
 		chip_type, *address, sio_data->revision);
 
 	/* Read GPIO config and VID value from LDN 7 (GPIO) */
-	if (sio_data->type != it87) {
+	if (chip_type != IT8705F_DEVID) {
 		int reg;
 
 		superio_select(GPIO);
-		if (sio_data->type == it8718 || sio_data->type == it8720)
+		if ((chip_type == it8718) ||
+		    (chip_type == it8720))
 			sio_data->vid_value = superio_inb(IT87_SIO_VID_REG);
 
 		reg = superio_inb(IT87_SIO_PINX2_REG);

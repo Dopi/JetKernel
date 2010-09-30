@@ -1,0 +1,118 @@
+if S3C_DMA_PL080
+config SND_S3C64XX_SOC
+	tristate "Samsung SoC Audio AP"
+	depends on ARCH_S3C64XX 
+	help
+	  Say Y or M if you want to add support for codecs attached to
+	  the S3C AC97, I2S or SSP interface. You will also need
+	  to select the audio interfaces to support below.
+endif
+
+if S3C_DMA_PL080_SOL
+config SND_S3C64XX_SOC_SOL
+	tristate "Samsung SoC Audio Sol"
+	depends on ARCH_S3C64XX  
+	help
+	  Say Y or M if you want to add support for codecs attached to
+	  the S3C AC97, I2S or SSP interface. You will also need
+	  to select the audio interfaces to support below.
+endif
+
+config SND_S5P64XX_SOC
+	tristate "Samsung SoC Audio"
+	depends on ARCH_S5P64XX
+	help
+	  Say Y or M if you want to add support for codecs attached to
+	  the S3C AC97, I2S or SSP interface. You will also need
+	  to select the audio interfaces to support below.
+
+config SND_S5PC1XX_SOC
+	tristate "Samsung SoC Audio"
+	depends on ARCH_S5PC1XX
+	help
+	  Say Y or M if you want to add support for codecs attached to
+	  the S3C AC97, I2S or SSP interface. You will also need
+	  to select the audio interfaces to support below.
+
+config SND_S3C_I2S_V32
+	tristate
+
+config SND_S3C_I2S_V40
+	tristate
+
+config SND_S3C_I2S_V50
+	tristate
+
+config SND_S3C_AC97
+	tristate
+
+choice
+	prompt "Select the codec driver"
+	default SND_S3C64XX_SOC_AK4671
+	depends on SND_S3C64XX_SOC || SND_S5P64XX_SOC || SND_S5PC1XX_SOC || SND_S3C64XX_SOC_SOL
+
+config SND_S3C64XX_SOC_AK4671
+	bool "SoC I2S Audio support - AK4671"
+	depends on SND_S3C64XX_SOC || SND_S3C64XX_SOC_SOL
+	select SND_S3C_I2S_V32
+	select SND_SOC_AK4671
+	select SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
+	help
+	 Say Y if you want to add support for SoC audio with the AK4671.
+
+config SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
+	tristate "SoC I2S Audio support - rec downsampling for Android platform"
+	depends on SND_S3C64XX_SOC_AK4671
+	help
+	 Say Y if you want to add support for Rec Downsampling with the AK4671.
+
+
+config  SND_SMDK6410_WM8580
+	tristate "WM8580-I2S on SMDK6410"
+	depends on SND_S3C64XX_SOC || SND_S3C64XX_SOC_SOL
+	select SND_S3C_I2S_V40
+	select SND_SOC_WM8580
+
+config  SND_SMDK6410_S5M8751
+	tristate "S5M8751-I2S on SMDK6410"
+	depends on SND_S3C64XX_SOC || SND_S3C64XX_SOC_SOL
+	select SND_S3C_I2S_V32
+	select SND_SOC_S5M8751
+
+config  SND_SMDK6410_WM9713
+	tristate "WM9713-AC97 on SMDK6410"
+	depends on SND_S3C64XX_SOC || SND_S3C64XX_SOC_SOL
+	select SND_S3C_AC97
+	select SND_SOC_WM9713
+
+config  SND_SMDK6440_WM8580
+	tristate "WM8580-I2S on SMDK6440"
+	depends on SND_S5P64XX_SOC
+	select SND_S3C_I2S_V40
+	select SND_SOC_WM8580
+
+config  SND_SMDK6440_S5M8751
+	tristate "S5M8751-I2S on SMDK6440"
+	depends on SND_S5P64XX_SOC
+	select SND_S3C_I2S_V40
+	select SND_SOC_S5M8751
+
+config  SND_SMDKC100_WM8580
+	tristate "WM8580-I2S on SMDKC100"
+	depends on SND_S5PC1XX_SOC
+	select SND_S3C_I2S_V50
+	select SND_SOC_WM8580
+
+config  SND_SMDKC100_S5M8751
+	tristate "S5M8751-I2S on SMDKC100"
+	depends on SND_S5PC1XX_SOC
+	select SND_S3C_I2S_V32
+	select SND_SOC_S5M8751
+
+config  SND_SMDKC100_WM9713
+	tristate "WM9713-AC97 on SMDKC100"
+	depends on SND_S5PC1XX_SOC
+	select SND_S3C_AC97
+	select SND_SOC_WM9713
+
+endchoice

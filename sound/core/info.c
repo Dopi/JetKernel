@@ -154,6 +154,11 @@ EXPORT_SYMBOL(snd_seq_root);
 struct snd_info_entry *snd_oss_root;
 #endif
 
+static inline void snd_info_entry_prepare(struct proc_dir_entry *de)
+{
+	de->owner = THIS_MODULE;
+}
+
 static void snd_remove_proc_entry(struct proc_dir_entry *parent,
 				  struct proc_dir_entry *de)
 {
@@ -517,11 +522,32 @@ static const struct file_operations snd_info_entry_operations =
 	.release =		snd_info_entry_release,
 };
 
+/**
+ * snd_create_proc_entry - create a procfs entry
+ * @name: the name of the proc file
+ * @mode: the file permission bits, S_Ixxx
+ * @parent: the parent proc-directory entry
+ *
+ * Creates a new proc file entry with the given name and permission
+ * on the given directory.
+ *
+ * Returns the pointer of new instance or NULL on failure.
+ */
+static struct proc_dir_entry *snd_create_proc_entry(const char *name, mode_t mode,
+						    struct proc_dir_entry *parent)
+{
+	struct proc_dir_entry *p;
+	p = create_proc_entry(name, mode, parent);
+	if (p)
+		snd_info_entry_prepare(p);
+	return p;
+}
+
 int __init snd_info_init(void)
 {
 	struct proc_dir_entry *p;
 
-	p = create_proc_entry("asound", S_IFDIR | S_IRUGO | S_IXUGO, NULL);
+	p = snd_create_proc_entry("asound", S_IFDIR | S_IRUGO | S_IXUGO, NULL);
 	if (p == NULL)
 		return -ENOMEM;
 	snd_proc_root = p;
@@ -948,11 +974,12 @@ int snd_info_register(struct snd_info_entry * entry)
 		return -ENXIO;
 	root = entry->parent == NULL ? snd_proc_root : entry->parent->p;
 	mutex_lock(&info_mutex);
-	p = create_proc_entry(entry->name, entry->mode, root);
+	p = snd_create_proc_entry(entry->name, entry->mode, root);
 	if (!p) {
 		mutex_unlock(&info_mutex);
 		return -ENOMEM;
 	}
+	p->owner = entry->module;
 	if (!S_ISDIR(entry->mode))
 		p->proc_fops = &snd_info_entry_operations;
 	p->size = entry->size;

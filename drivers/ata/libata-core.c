@@ -709,13 +709,7 @@ u64 ata_tf_read_block(struct ata_taskfile *tf, struct ata_device *dev)
 		head = tf->device & 0xf;
 		sect = tf->lbal;
 
-		if (!sect) {
-			ata_dev_printk(dev, KERN_WARNING, "device reported "
-				       "invalid CHS sector 0\n");
-			sect = 1; /* oh well */
-		}
-
-		block = (cyl * dev->heads + head) * dev->sectors + sect - 1;
+		block = (cyl * dev->heads + head) * dev->sectors + sect;
 	}
 
 	return block;
@@ -5008,14 +5002,12 @@ void ata_qc_complete(struct ata_queued_cmd *qc)
 			qc->flags |= ATA_QCFLAG_FAILED;
 
 		if (unlikely(qc->flags & ATA_QCFLAG_FAILED)) {
-			/* always fill result TF for failed qc */
-			fill_result_tf(qc);
-
-			if (!ata_tag_internal(qc->tag))
+			if (!ata_tag_internal(qc->tag)) {
+				/* always fill result TF for failed qc */
+				fill_result_tf(qc);
 				ata_qc_schedule_eh(qc);
-			else
-				__ata_qc_complete(qc);
-			return;
+				return;
+			}
 		}
 
 		/* read result TF if requested */

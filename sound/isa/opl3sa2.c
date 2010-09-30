@@ -179,13 +179,12 @@ static unsigned char __snd_opl3sa2_read(struct snd_opl3sa2 *chip, unsigned char 
 	unsigned char result;
 #if 0
 	outb(0x1d, port);	/* password */
-	printk(KERN_DEBUG "read [0x%lx] = 0x%x\n", port, inb(port));
+	printk("read [0x%lx] = 0x%x\n", port, inb(port));
 #endif
 	outb(reg, chip->port);	/* register */
 	result = inb(chip->port + 1);
 #if 0
-	printk(KERN_DEBUG "read [0x%lx] = 0x%x [0x%x]\n",
-	       port, result, inb(port));
+	printk("read [0x%lx] = 0x%x [0x%x]\n", port, result, inb(port));
 #endif
 	return result;
 }
@@ -234,10 +233,7 @@ static int __devinit snd_opl3sa2_detect(struct snd_card *card)
 		snd_printk(KERN_ERR PFX "can't grab port 0x%lx\n", port);
 		return -EBUSY;
 	}
-	/*
-	snd_printk(KERN_DEBUG "REG 0A = 0x%x\n",
-		   snd_opl3sa2_read(chip, 0x0a));
-	*/
+	// snd_printk("REG 0A = 0x%x\n", snd_opl3sa2_read(chip, 0x0a));
 	chip->version = 0;
 	tmp = snd_opl3sa2_read(chip, OPL3SA2_MISC);
 	if (tmp == 0xff) {
@@ -481,7 +477,6 @@ OPL3SA2_DOUBLE_TLV("Master Playback Volume", 0, 0x07, 0x08, 0, 0, 15, 1,
 OPL3SA2_SINGLE("Mic Playback Switch", 0, 0x09, 7, 1, 1),
 OPL3SA2_SINGLE_TLV("Mic Playback Volume", 0, 0x09, 0, 31, 1,
 		   db_scale_5bit_12db_max),
-OPL3SA2_SINGLE("ZV Port Switch", 0, 0x02, 0, 1, 0),
 };
 
 static struct snd_kcontrol_new snd_opl3sa2_tone_controls[] = {
@@ -624,28 +619,25 @@ static void snd_opl3sa2_free(struct snd_card *card)
 {
 	struct snd_opl3sa2 *chip = card->private_data;
 	if (chip->irq >= 0)
-		free_irq(chip->irq, card);
+		free_irq(chip->irq, (void *)chip);
 	release_and_free_resource(chip->res_port);
 }
 
-static int snd_opl3sa2_card_new(int dev, struct snd_card **cardp)
+static struct snd_card *snd_opl3sa2_card_new(int dev)
 {
 	struct snd_card *card;
 	struct snd_opl3sa2 *chip;
-	int err;
 
-	err = snd_card_create(index[dev], id[dev], THIS_MODULE,
-			      sizeof(struct snd_opl3sa2), &card);
-	if (err < 0)
-		return err;
+	card = snd_card_new(index[dev], id[dev], THIS_MODULE, sizeof(struct snd_opl3sa2));
+	if (card == NULL)
+		return NULL;
 	strcpy(card->driver, "OPL3SA2");
-	strcpy(card->shortname, "Yamaha OPL3-SA");
+	strcpy(card->shortname, "Yamaha OPL3-SA2");
 	chip = card->private_data;
 	spin_lock_init(&chip->reg_lock);
 	chip->irq = -1;
 	card->private_free = snd_opl3sa2_free;
-	*cardp = card;
-	return 0;
+	return card;
 }
 
 static int __devinit snd_opl3sa2_probe(struct snd_card *card, int dev)
@@ -737,9 +729,9 @@ static int __devinit snd_opl3sa2_pnp_detect(struct pnp_dev *pdev,
 	if (dev >= SNDRV_CARDS)
 		return -ENODEV;
 
-	err = snd_opl3sa2_card_new(dev, &card);
-	if (err < 0)
-		return err;
+	card = snd_opl3sa2_card_new(dev);
+	if (! card)
+		return -ENOMEM;
 	if ((err = snd_opl3sa2_pnp(dev, card->private_data, pdev)) < 0) {
 		snd_card_free(card);
 		return err;
@@ -803,9 +795,9 @@ static int __devinit snd_opl3sa2_pnp_cdetect(struct pnp_card_link *pcard,
 	if (dev >= SNDRV_CARDS)
 		return -ENODEV;
 
-	err = snd_opl3sa2_card_new(dev, &card);
-	if (err < 0)
-		return err;
+	card = snd_opl3sa2_card_new(dev);
+	if (! card)
+		return -ENOMEM;
 	if ((err = snd_opl3sa2_pnp(dev, card->private_data, pdev)) < 0) {
 		snd_card_free(card);
 		return err;
@@ -884,9 +876,9 @@ static int __devinit snd_opl3sa2_isa_probe(struct device *pdev,
 	struct snd_card *card;
 	int err;
 
-	err = snd_opl3sa2_card_new(dev, &card);
-	if (err < 0)
-		return err;
+	card = snd_opl3sa2_card_new(dev);
+	if (! card)
+		return -ENOMEM;
 	snd_card_set_dev(card, pdev);
 	if ((err = snd_opl3sa2_probe(card, dev)) < 0) {
 		snd_card_free(card);

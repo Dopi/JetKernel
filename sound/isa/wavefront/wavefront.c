@@ -338,16 +338,15 @@ snd_wavefront_free(struct snd_card *card)
 	}
 }
 
-static int snd_wavefront_card_new(int dev, struct snd_card **cardp)
+static struct snd_card *snd_wavefront_card_new(int dev)
 {
 	struct snd_card *card;
 	snd_wavefront_card_t *acard;
-	int err;
 
-	err = snd_card_create(index[dev], id[dev], THIS_MODULE,
-			      sizeof(snd_wavefront_card_t), &card);
-	if (err < 0)
-		return err;
+	card = snd_card_new (index[dev], id[dev], THIS_MODULE,
+			     sizeof(snd_wavefront_card_t));
+	if (card == NULL)
+		return NULL;
 
 	acard = card->private_data;
 	acard->wavefront.irq = -1;
@@ -358,8 +357,7 @@ static int snd_wavefront_card_new(int dev, struct snd_card **cardp)
 	acard->wavefront.card = card;
 	card->private_free = snd_wavefront_free;
 
-	*cardp = card;
-	return 0;
+	return card;
 }
 
 static int __devinit
@@ -553,11 +551,11 @@ static int __devinit snd_wavefront_isa_match(struct device *pdev,
 		return 0;
 #endif
 	if (cs4232_pcm_port[dev] == SNDRV_AUTO_PORT) {
-		snd_printk(KERN_ERR "specify CS4232 port\n");
+		snd_printk("specify CS4232 port\n");
 		return 0;
 	}
 	if (ics2115_port[dev] == SNDRV_AUTO_PORT) {
-		snd_printk(KERN_ERR "specify ICS2115 port\n");
+		snd_printk("specify ICS2115 port\n");
 		return 0;
 	}
 	return 1;
@@ -569,9 +567,9 @@ static int __devinit snd_wavefront_isa_probe(struct device *pdev,
 	struct snd_card *card;
 	int err;
 
-	err = snd_wavefront_card_new(dev, &card);
-	if (err < 0)
-		return err;
+	card = snd_wavefront_card_new(dev);
+	if (! card)
+		return -ENOMEM;
 	snd_card_set_dev(card, pdev);
 	if ((err = snd_wavefront_probe(card, dev)) < 0) {
 		snd_card_free(card);
@@ -618,9 +616,9 @@ static int __devinit snd_wavefront_pnp_detect(struct pnp_card_link *pcard,
 	if (dev >= SNDRV_CARDS)
 		return -ENODEV;
 
-	res = snd_wavefront_card_new(dev, &card);
-	if (res < 0)
-		return res;
+	card = snd_wavefront_card_new(dev);
+	if (! card)
+		return -ENOMEM;
 
 	if (snd_wavefront_pnp (dev, card->private_data, pcard, pid) < 0) {
 		if (cs4232_pcm_port[dev] == SNDRV_AUTO_PORT) {

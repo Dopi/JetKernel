@@ -777,55 +777,36 @@ pipe_rdwr_release(struct inode *inode, struct file *filp)
 static int
 pipe_read_open(struct inode *inode, struct file *filp)
 {
-	int ret = -ENOENT;
-
+	/* We could have perhaps used atomic_t, but this and friends
+	   below are the only places.  So it doesn't seem worthwhile.  */
 	mutex_lock(&inode->i_mutex);
-
-	if (inode->i_pipe) {
-		ret = 0;
-		inode->i_pipe->readers++;
-	}
-
+	inode->i_pipe->readers++;
 	mutex_unlock(&inode->i_mutex);
 
-	return ret;
+	return 0;
 }
 
 static int
 pipe_write_open(struct inode *inode, struct file *filp)
 {
-	int ret = -ENOENT;
-
 	mutex_lock(&inode->i_mutex);
-
-	if (inode->i_pipe) {
-		ret = 0;
-		inode->i_pipe->writers++;
-	}
-
+	inode->i_pipe->writers++;
 	mutex_unlock(&inode->i_mutex);
 
-	return ret;
+	return 0;
 }
 
 static int
 pipe_rdwr_open(struct inode *inode, struct file *filp)
 {
-	int ret = -ENOENT;
-
 	mutex_lock(&inode->i_mutex);
-
-	if (inode->i_pipe) {
-		ret = 0;
-		if (filp->f_mode & FMODE_READ)
-			inode->i_pipe->readers++;
-		if (filp->f_mode & FMODE_WRITE)
-			inode->i_pipe->writers++;
-	}
-
+	if (filp->f_mode & FMODE_READ)
+		inode->i_pipe->readers++;
+	if (filp->f_mode & FMODE_WRITE)
+		inode->i_pipe->writers++;
 	mutex_unlock(&inode->i_mutex);
 
-	return ret;
+	return 0;
 }
 
 /*

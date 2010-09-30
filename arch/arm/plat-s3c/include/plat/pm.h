@@ -16,7 +16,7 @@
 */
 
 #ifdef CONFIG_PM
-
+#include <linux/sysdev.h>
 extern __init int s3c_pm_init(void);
 
 #else

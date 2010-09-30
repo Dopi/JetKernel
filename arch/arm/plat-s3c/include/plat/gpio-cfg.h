@@ -34,6 +34,7 @@ struct s3c_gpio_chip;
  * @cfg_eint: Configuration setting when used for external interrupt source
  * @get_pull: Read the current pull configuration for the GPIO
  * @set_pull: Set the current pull configuraiton for the GPIO
+ * @set_pin: Set the current output level for the GPIO
  * @set_config: Set the current configuration for the GPIO
  * @get_config: Read the current configuration for the GPIO
  *
@@ -49,6 +50,8 @@ struct s3c_gpio_cfg {
 	s3c_gpio_pull_t	(*get_pull)(struct s3c_gpio_chip *chip, unsigned offs);
 	int		(*set_pull)(struct s3c_gpio_chip *chip, unsigned offs,
 				    s3c_gpio_pull_t pull);
+	int		(*set_pin)(struct s3c_gpio_chip *chip, unsigned offs,
+				    s3c_gpio_pull_t level);
 
 	unsigned (*get_config)(struct s3c_gpio_chip *chip, unsigned offs);
 	int	 (*set_config)(struct s3c_gpio_chip *chip, unsigned offs,
@@ -77,6 +80,14 @@ struct s3c_gpio_cfg {
  */
 extern int s3c_gpio_cfgpin(unsigned int pin, unsigned int to);
 
+#define S3C_GPIO_SLP_OUT0	((__force s3c_gpio_pull_t)0x00)
+#define S3C_GPIO_SLP_OUT1	((__force s3c_gpio_pull_t)0x01)
+#define S3C_GPIO_SLP_INPUT	((__force s3c_gpio_pull_t)0x02)
+#define S3C_GPIO_SLP_PREV	((__force s3c_gpio_pull_t)0x03)
+
+extern int s3c_gpio_slp_cfgpin(unsigned int pin, unsigned int to);
+extern s3c_gpio_pull_t s3c_gpio_get_slp_cfgpin(unsigned int pin);
+
 /* Define values for the pull-{up,down} available for each gpio pin.
  *
  * These values control the state of the weak pull-{up,down} resistors
@@ -98,6 +109,7 @@ extern int s3c_gpio_cfgpin(unsigned int pin, unsigned int to);
  * code if the pin cannot support the requested pull setting.
 */
 extern int s3c_gpio_setpull(unsigned int pin, s3c_gpio_pull_t pull);
+extern int s3c_gpio_slp_setpull_updown(unsigned int pin, s3c_gpio_pull_t pull);
 
 /**
  * s3c_gpio_getpull() - get the pull resistor state of a gpio pin
@@ -106,5 +118,17 @@ extern int s3c_gpio_setpull(unsigned int pin, s3c_gpio_pull_t pull);
  * Read the pull resistor value for the specified pin.
 */
 extern s3c_gpio_pull_t s3c_gpio_getpull(unsigned int pin);
+extern s3c_gpio_pull_t s3c_gpio_slp_getpull_updown(unsigned int pin);
+
+/**
+ * s3c_gpio_setpin() - set the output of a gpio pin.
+ * @pin: The pin number.
+ * @level: The output level of the pin.
+ *
+ * This function sets the ooutput level for the
+ * specified pin. It will return 0 if successfull, or a negative error
+ * code if the pin cannot support the requested output/pin setting.
+*/
+extern int s3c_gpio_setpin(unsigned int pin, s3c_gpio_pull_t level);
 
 #endif /* __PLAT_GPIO_CFG_H */

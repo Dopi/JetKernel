@@ -1524,7 +1524,7 @@ static SETTINGS def_soft = {
 	.speed	= 8000
 } ;
 
-static __initdata MACHINE machTT = {
+static MACHINE machTT = {
 	.name		= "Atari",
 	.name2		= "TT",
 	.owner		= THIS_MODULE,
@@ -1553,7 +1553,7 @@ static __initdata MACHINE machTT = {
 	.capabilities	=  DSP_CAP_BATCH	/* As per SNDCTL_DSP_GETCAPS */
 };
 
-static __initdata MACHINE machFalcon = {
+static MACHINE machFalcon = {
 	.name		= "Atari",
 	.name2		= "FALCON",
 	.dma_alloc	= AtaAlloc,

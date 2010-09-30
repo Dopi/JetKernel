@@ -177,7 +177,6 @@ struct atmel_mci {
  *	available.
  * @wp_pin: GPIO pin used for card write protect sending, or negative
  *	if not available.
- * @detect_is_active_high: The state of the detect pin when it is active.
  * @detect_timer: Timer used for debouncing @detect_pin interrupts.
  */
 struct atmel_mci_slot {
@@ -197,7 +196,6 @@ struct atmel_mci_slot {
 
 	int			detect_pin;
 	int			wp_pin;
-	bool			detect_is_active_high;
 
 	struct timer_list	detect_timer;
 };
@@ -814,7 +812,7 @@ static void atmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		slot->sdc_reg |= MCI_SDCBUS_1BIT;
 		break;
 	case MMC_BUS_WIDTH_4:
-		slot->sdc_reg |= MCI_SDCBUS_4BIT;
+		slot->sdc_reg = MCI_SDCBUS_4BIT;
 		break;
 	}
 
@@ -926,8 +924,7 @@ static int atmci_get_cd(struct mmc_host *mmc)
 	struct atmel_mci_slot	*slot = mmc_priv(mmc);
 
 	if (gpio_is_valid(slot->detect_pin)) {
-		present = !(gpio_get_value(slot->detect_pin) ^
-			    slot->detect_is_active_high);
+		present = !gpio_get_value(slot->detect_pin);
 		dev_dbg(&mmc->class_dev, "card is %spresent\n",
 				present ? "" : "not ");
 	}
@@ -1031,8 +1028,7 @@ static void atmci_detect_change(unsigned long data)
 		return;
 
 	enable_irq(gpio_to_irq(slot->detect_pin));
-	present = !(gpio_get_value(slot->detect_pin) ^
-		    slot->detect_is_active_high);
+	present = !gpio_get_value(slot->detect_pin);
 	present_old = test_bit(ATMCI_CARD_PRESENT, &slot->flags);
 
 	dev_vdbg(&slot->mmc->class_dev, "detect change: %d (was %d)\n",
@@ -1460,7 +1456,6 @@ static int __init atmci_init_slot(struct atmel_mci *host,
 	slot->host = host;
 	slot->detect_pin = slot_data->detect_pin;
 	slot->wp_pin = slot_data->wp_pin;
-	slot->detect_is_active_high = slot_data->detect_is_active_high;
 	slot->sdc_reg = sdc_reg;
 
 	mmc->ops = &atmci_ops;
@@ -1482,8 +1477,7 @@ static int __init atmci_init_slot(struct atmel_mci *host,
 		if (gpio_request(slot->detect_pin, "mmc_detect")) {
 			dev_dbg(&mmc->class_dev, "no detect pin available\n");
 			slot->detect_pin = -EBUSY;
-		} else if (gpio_get_value(slot->detect_pin) ^
-				slot->detect_is_active_high) {
+		} else if (gpio_get_value(slot->detect_pin)) {
 			clear_bit(ATMCI_CARD_PRESENT, &slot->flags);
 		}
 	}
@@ -1609,7 +1603,7 @@ static int __init atmci_probe(struct platform_device *pdev)
 
 	tasklet_init(&host->tasklet, atmci_tasklet_func, (unsigned long)host);
 
-	ret = request_irq(irq, atmci_interrupt, 0, dev_name(&pdev->dev), host);
+	ret = request_irq(irq, atmci_interrupt, 0, pdev->dev.bus_id, host);
 	if (ret)
 		goto err_request_irq;
 

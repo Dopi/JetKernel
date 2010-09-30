@@ -338,7 +338,7 @@ static void __oom_kill_task(struct task_struct *p, int verbose)
 	 * all the memory it needs. That way it should be able to
 	 * exit() and clear out its resources quickly...
 	 */
-	p->rt.time_slice = HZ;
+	p->time_slice = HZ;
 	set_tsk_thread_flag(p, TIF_MEMDIE);
 
 	force_sig(SIGKILL, p);
@@ -400,7 +400,7 @@ static int oom_kill_process(struct task_struct *p, gfp_t gfp_mask, int order,
 		cpuset_print_task_mems_allowed(current);
 		task_unlock(current);
 		dump_stack();
-		mem_cgroup_print_oom_info(mem, p);
+		mem_cgroup_print_oom_info(mem, current);
 		show_mem();
 		if (sysctl_oom_dump_tasks)
 			dump_tasks(mem);

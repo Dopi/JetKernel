@@ -88,6 +88,19 @@ config VT_HW_CONSOLE_BINDING
 	 information. For framebuffer console users, please refer to
 	 <file:Documentation/fb/fbcon.txt>.
 
+config DEVMEM
+	bool "Memory device driver"
+	default y
+	help
+	  The memory driver provides two character devices, mem and kmem, which
+	  provide access to the system's memory. The mem device is a view of
+	  physical memory, and each byte in the device corresponds to the
+	  matching physical address. The kmem device is the same as mem, but
+	  the addresses correspond to the kernel's virtual address space rather
+	  than physical memory. These devices are standard parts of a Linux
+	  system and most users should say Y here. You might say N if very
+	  security conscience or memory is tight.
+
 config DEVKMEM
 	bool "/dev/kmem virtual device support"
 	default y
@@ -323,7 +336,7 @@ config SPECIALIX
 
 config SX
 	tristate "Specialix SX (and SI) card support"
-	depends on SERIAL_NONSTANDARD && (PCI || EISA || ISA) && BROKEN
+	depends on SERIAL_NONSTANDARD && (PCI || EISA || ISA)
 	help
 	  This is a driver for the SX and SI multiport serial cards.
 	  Please read the file <file:Documentation/serial/sx.txt> for details.
@@ -334,7 +347,7 @@ config SX
 
 config RIO
 	tristate "Specialix RIO system support"
-	depends on SERIAL_NONSTANDARD && BROKEN
+	depends on SERIAL_NONSTANDARD
 	help
 	  This is a driver for the Specialix RIO, a smart serial card which
 	  drives an outboard box that can support up to 128 ports.  Product
@@ -395,7 +408,7 @@ config NOZOMI
 
 config A2232
 	tristate "Commodore A2232 serial support (EXPERIMENTAL)"
-	depends on EXPERIMENTAL && ZORRO && BROKEN
+	depends on EXPERIMENTAL && ZORRO && BROKEN_ON_SMP
 	---help---
 	  This option supports the 2232 7-port serial card shipped with the
 	  Amiga 2000 and other Zorro-bus machines, dating from 1989.  At
@@ -1108,7 +1121,50 @@ config DEVPORT
 	depends on ISA || PCI
 	default y
 
+config DCC_TTY
+	tristate "DCC tty driver"
+	depends on ARM
+
 source "drivers/s390/char/Kconfig"
 
+config S3C_MEM
+	bool "Support for /dev/s3c-mem"
+	default y
+	---help---
+	  If you do say Y here, you can allocate physically linear memories from system memory.
+	  And you can share the memory at the other process using re-allocation ioctl.
+
+	  If unsure, say Y.
+
+config S3C_AES
+	bool "S3C AES support"
+	depends on CPU_S3C6410
+	default n
+	help
+	  Say Y here if you want to use the S3C AES
+	  
+config SMARTQ_GPIO
+	bool "SMARTQ MID GPIO"
+	depends on CPU_S3C6410
+	default y
+	
+choice
+	prompt "SMARTQ MID GPIO"
+	depends on SMARTQ_GPIO
+	help
+	    Select LCD either  4.3''  or  7 ''
+    config LCD_4
+	bool "Support for 4.3 inch LCD"
+	help
+	    for 4.3 inch, provide sysfs interface to APP
+    config LCD_7
+	bool "Support for 7 inch LCD"
+	help
+	    for 7 inch LCD
+endchoice
+
+	  
 endmenu
+
+
 

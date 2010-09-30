@@ -1,4 +1,4 @@
-/* linux/arch/arm/plat-s3c64xx/include/mach/regs-gpio.h
+/* linux/arch/arm/plat-s3c64xx/include/plat/regs-gpio.h
  *
  * Copyright 2008 Openmoko, Inc.
  * Copyright 2008 Simtec Electronics
@@ -10,6 +10,25 @@
 
 #ifndef __ASM_PLAT_S3C64XX_REGS_GPIO_H
 #define __ASM_PLAT_S3C64XX_REGS_GPIO_H __FILE__
+
+#include <plat/gpio-bank-a.h>
+#include <plat/gpio-bank-b.h>
+#include <plat/gpio-bank-c.h>
+#include <plat/gpio-bank-d.h>
+#include <plat/gpio-bank-e.h>
+#include <plat/gpio-bank-f.h>
+#include <plat/gpio-bank-g.h>
+#include <plat/gpio-bank-h.h>
+#include <plat/gpio-bank-i.h>
+#include <plat/gpio-bank-j.h>
+#include <plat/gpio-bank-k.h>
+#include <plat/gpio-bank-l.h>
+#include <plat/gpio-bank-n.h>
+#include <plat/gpio-bank-m.h>
+#include <plat/gpio-bank-o.h>
+#include <plat/gpio-bank-p.h>
+#include <plat/gpio-bank-q.h>
+#include <mach/map.h>
 
 /* Base addresses for each of the banks */
 
@@ -23,7 +42,7 @@
 #define S3C64XX_GPF_BASE	S3C64XX_GPIOREG(0x00A0)
 #define S3C64XX_GPG_BASE	S3C64XX_GPIOREG(0x00C0)
 #define S3C64XX_GPH_BASE	S3C64XX_GPIOREG(0x00E0)
-#define S3C64XX_GPI_BASE	S3C64XX_GPIOREG(0x0100)
+#define S3C64XX_GPI_BASE		S3C64XX_GPIOREG(0x0100)
 #define S3C64XX_GPJ_BASE	S3C64XX_GPIOREG(0x0120)
 #define S3C64XX_GPK_BASE	S3C64XX_GPIOREG(0x0800)
 #define S3C64XX_GPL_BASE	S3C64XX_GPIOREG(0x0810)
@@ -34,8 +53,8 @@
 #define S3C64XX_GPQ_BASE	S3C64XX_GPIOREG(0x0180)
 
 /* SPCON */
-
 #define S3C64XX_SPCON		S3C64XX_GPIOREG(0x1A0)
+#define S3C64XX_SPC_BASE	S3C64XX_SPCON
 
 #define S3C64XX_SPCON_DRVCON_CAM_MASK		(0x3 << 30)
 #define S3C64XX_SPCON_DRVCON_CAM_SHIFT		(30)
@@ -117,6 +136,15 @@
 #define S3C64XX_SPCON_LCD_SEL_RGB		(0x1 << 0)
 #define S3C64XX_SPCON_LCD_SEL_606_656		(0x2 << 0)
 
+/* Memory */
+
+#define S3C64XX_MEM0CONSTOP	S3C64XX_GPIOREG(0x01B0)
+#define S3C64XX_MEM1CONSTOP	S3C64XX_GPIOREG(0x01B4)
+#define S3C64XX_MEM0CONSLP0	S3C64XX_GPIOREG(0x01C0)
+#define S3C64XX_MEM0CONSLP1	S3C64XX_GPIOREG(0x01C4)
+#define S3C64XX_MEM1CONSLP	S3C64XX_GPIOREG(0x01C8)
+#define S3C64XX_MEM0DRVCON	S3C64XX_GPIOREG(0x01D0)
+#define S3C64XX_MEM1DRVCON	S3C64XX_GPIOREG(0x01D4)
 
 /* External interrupt registers */
 
@@ -182,6 +210,14 @@
 
 #define S3C64XX_SLPEN_USE_xSLP		(1 << 0)
 #define S3C64XX_SLPEN_CFG_BYSLPEN	(1 << 1)
+
+/* values for S3C_EXTINT0 */
+#define S3C64XX_EXTINT_LOWLEV	 (0x00)
+#define S3C64XX_EXTINT_HILEV	 (0x01)
+#define S3C64XX_EXTINT_FALLEDGE	 (0x02)
+#define S3C64XX_EXTINT_RISEEDGE	 (0x04)
+#define S3C64XX_EXTINT_BOTHEDGE	 (0x06)
+
 
 #endif /* __ASM_PLAT_S3C64XX_REGS_GPIO_H */
 

@@ -115,8 +115,6 @@ static int wf_lm75_probe(struct i2c_client *client,
 	return rc;
 }
 
-static struct i2c_driver wf_lm75_driver;
-
 static struct i2c_client *wf_lm75_create(struct i2c_adapter *adapter,
 					     u8 addr, int ds1775,
 					     const char *loc)
@@ -159,7 +157,7 @@ static struct i2c_client *wf_lm75_create(struct i2c_adapter *adapter,
 	 * Let i2c-core delete that device on driver removal.
 	 * This is safe because i2c-core holds the core_lock mutex for us.
 	 */
-	list_add_tail(&client->detected, &wf_lm75_driver.clients);
+	list_add_tail(&client->detected, &client->driver->clients);
 	return client;
  fail:
 	return NULL;

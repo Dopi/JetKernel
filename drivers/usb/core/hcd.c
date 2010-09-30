@@ -2190,7 +2190,7 @@ usb_hcd_platform_shutdown(struct platform_device* dev)
 {
 	struct usb_hcd *hcd = platform_get_drvdata(dev);
 
-	if (hcd->driver->shutdown)
+	if (!hcd && hcd->driver->shutdown)
 		hcd->driver->shutdown(hcd);
 }
 EXPORT_SYMBOL_GPL(usb_hcd_platform_shutdown);

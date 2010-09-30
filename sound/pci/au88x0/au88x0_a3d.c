@@ -462,10 +462,9 @@ static void a3dsrc_ZeroSliceIO(a3dsrc_t * a)
 /* Reset Single A3D source. */
 static void a3dsrc_ZeroState(a3dsrc_t * a)
 {
-	/*
-	printk(KERN_DEBUG "vortex: ZeroState slice: %d, source %d\n",
-	       a->slice, a->source);
-	*/
+
+	//printk("vortex: ZeroState slice: %d, source %d\n", a->slice, a->source);
+
 	a3dsrc_SetAtmosState(a, 0, 0, 0, 0);
 	a3dsrc_SetHrtfState(a, A3dHrirZeros, A3dHrirZeros);
 	a3dsrc_SetItdDline(a, A3dItdDlineZeros);

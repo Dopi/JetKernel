@@ -60,8 +60,6 @@ source "sound/aoa/Kconfig"
 
 source "sound/arm/Kconfig"
 
-source "sound/atmel/Kconfig"
-
 source "sound/spi/Kconfig"
 
 source "sound/mips/Kconfig"

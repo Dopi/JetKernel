@@ -34,6 +34,7 @@
 struct kvm_para_state {
 	u8 mmu_queue[MMU_QUEUE_SIZE];
 	int mmu_queue_len;
+	enum paravirt_lazy_mode mode;
 };
 
 static DEFINE_PER_CPU(struct kvm_para_state, para_state);
@@ -76,7 +77,7 @@ static void kvm_deferred_mmu_op(void *buffer, int len)
 {
 	struct kvm_para_state *state = kvm_para_state();
 
-	if (paravirt_get_lazy_mode() != PARAVIRT_LAZY_MMU) {
+	if (state->mode != PARAVIRT_LAZY_MMU) {
 		kvm_mmu_op(buffer, len);
 		return;
 	}
@@ -184,7 +185,10 @@ static void kvm_release_pt(unsigned long pfn)
 
 static void kvm_enter_lazy_mmu(void)
 {
+	struct kvm_para_state *state = kvm_para_state();
+
 	paravirt_enter_lazy_mmu();
+	state->mode = paravirt_get_lazy_mode();
 }
 
 static void kvm_leave_lazy_mmu(void)
@@ -193,6 +197,7 @@ static void kvm_leave_lazy_mmu(void)
 
 	mmu_queue_flush(state);
 	paravirt_leave_lazy_mmu();
+	state->mode = paravirt_get_lazy_mode();
 }
 
 static void __init paravirt_ops_setup(void)

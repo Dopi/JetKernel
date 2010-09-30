@@ -27,12 +27,12 @@
 #include <linux/err.h>
 #include <linux/mmc/host.h>
 #include <linux/io.h>
-#include <linux/regulator/consumer.h>
 
 #include <asm/sizes.h>
 
-#include <mach/hardware.h>
 #include <mach/dma.h>
+#include <mach/hardware.h>
+#include <mach/pxa-regs.h>
 #include <mach/mmc.h>
 
 #include "pxamci.h"
@@ -68,41 +68,7 @@ struct pxamci_host {
 	unsigned int		dma_dir;
 	unsigned int		dma_drcmrrx;
 	unsigned int		dma_drcmrtx;
-
-	struct regulator	*vcc;
 };
-
-static inline void pxamci_init_ocr(struct pxamci_host *host)
-{
-#ifdef CONFIG_REGULATOR
-	host->vcc = regulator_get(mmc_dev(host->mmc), "vmmc");
-
-	if (IS_ERR(host->vcc))
-		host->vcc = NULL;
-	else {
-		host->mmc->ocr_avail = mmc_regulator_get_ocrmask(host->vcc);
-		if (host->pdata && host->pdata->ocr_mask)
-			dev_warn(mmc_dev(host->mmc),
-				"ocr_mask/setpower will not be used\n");
-	}
-#endif
-	if (host->vcc == NULL) {
-		/* fall-back to platform data */
-		host->mmc->ocr_avail = host->pdata ?
-			host->pdata->ocr_mask :
-			MMC_VDD_32_33 | MMC_VDD_33_34;
-	}
-}
-
-static inline void pxamci_set_power(struct pxamci_host *host, unsigned int vdd)
-{
-#ifdef CONFIG_REGULATOR
-	if (host->vcc)
-		mmc_regulator_set_ocr(host->vcc, vdd);
-#endif
-	if (!host->vcc && host->pdata && host->pdata->setpower)
-		host->pdata->setpower(mmc_dev(host->mmc), vdd);
-}
 
 static void pxamci_stop_clock(struct pxamci_host *host)
 {
@@ -168,12 +134,12 @@ static void pxamci_setup_data(struct pxamci_host *host, struct mmc_data *data)
 
 	if (data->flags & MMC_DATA_READ) {
 		host->dma_dir = DMA_FROM_DEVICE;
-		dcmd = DCMD_INCTRGADDR | DCMD_FLOWSRC;
+		dcmd = DCMD_INCTRGADDR | DCMD_FLOWTRG;
 		DRCMR(host->dma_drcmrtx) = 0;
 		DRCMR(host->dma_drcmrrx) = host->dma | DRCMR_MAPVLD;
 	} else {
 		host->dma_dir = DMA_TO_DEVICE;
-		dcmd = DCMD_INCSRCADDR | DCMD_FLOWTRG;
+		dcmd = DCMD_INCSRCADDR | DCMD_FLOWSRC;
 		DRCMR(host->dma_drcmrrx) = 0;
 		DRCMR(host->dma_drcmrtx) = host->dma | DRCMR_MAPVLD;
 	}
@@ -473,7 +439,8 @@ static void pxamci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	if (host->power_mode != ios->power_mode) {
 		host->power_mode = ios->power_mode;
 
-		pxamci_set_power(host, ios->vdd);
+		if (host->pdata && host->pdata->setpower)
+			host->pdata->setpower(mmc_dev(mmc), ios->vdd);
 
 		if (ios->power_mode == MMC_POWER_ON)
 			host->cmdat |= CMDAT_INIT;
@@ -596,8 +563,9 @@ static int pxamci_probe(struct platform_device *pdev)
 	mmc->f_max = (cpu_is_pxa300() || cpu_is_pxa310()) ? 26000000
 							  : host->clkrate;
 
-	pxamci_init_ocr(host);
-
+	mmc->ocr_avail = host->pdata ?
+			 host->pdata->ocr_mask :
+			 MMC_VDD_32_33|MMC_VDD_33_34;
 	mmc->caps = 0;
 	host->cmdat = 0;
 	if (!cpu_is_pxa25x()) {
@@ -694,13 +662,10 @@ static int pxamci_remove(struct platform_device *pdev)
 	if (mmc) {
 		struct pxamci_host *host = mmc_priv(mmc);
 
-		mmc_remove_host(mmc);
-
-		if (host->vcc)
-			regulator_put(host->vcc);
-
 		if (host->pdata && host->pdata->exit)
 			host->pdata->exit(&pdev->dev, mmc);
+
+		mmc_remove_host(mmc);
 
 		pxamci_stop_clock(host);
 		writel(TXFIFO_WR_REQ|RXFIFO_RD_REQ|CLK_IS_OFF|STOP_CMD|

@@ -459,9 +459,8 @@ static inline void remove_deprecated_bus_links(struct device *dev) { }
  * bus_add_device - add device to bus
  * @dev: device being added
  *
- * - Add device's bus attributes.
- * - Create links to device's bus.
  * - Add the device to its bus's list of devices.
+ * - Create link to device's bus.
  */
 int bus_add_device(struct device *dev)
 {
@@ -484,7 +483,6 @@ int bus_add_device(struct device *dev)
 		error = make_deprecated_bus_links(dev);
 		if (error)
 			goto out_deprecated;
-		klist_add_tail(&dev->p->knode_bus, &bus->p->klist_devices);
 	}
 	return 0;
 
@@ -500,19 +498,24 @@ out_put:
 }
 
 /**
- * bus_probe_device - probe drivers for a new device
- * @dev: device to probe
+ * bus_attach_device - add device to bus
+ * @dev: device tried to attach to a driver
  *
- * - Automatically probe for a driver if the bus allows it.
+ * - Add device to bus's list of devices.
+ * - Try to attach to driver.
  */
-void bus_probe_device(struct device *dev)
+void bus_attach_device(struct device *dev)
 {
 	struct bus_type *bus = dev->bus;
-	int ret;
+	int ret = 0;
 
-	if (bus && bus->p->drivers_autoprobe) {
-		ret = device_attach(dev);
+	if (bus) {
+		if (bus->p->drivers_autoprobe)
+			ret = device_attach(dev);
 		WARN_ON(ret < 0);
+		if (ret >= 0)
+			klist_add_tail(&dev->p->knode_bus,
+				       &bus->p->klist_devices);
 	}
 }
 

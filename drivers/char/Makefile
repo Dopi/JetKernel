@@ -105,11 +105,17 @@ obj-$(CONFIG_IPMI_HANDLER)	+= ipmi/
 
 obj-$(CONFIG_HANGCHECK_TIMER)	+= hangcheck-timer.o
 obj-$(CONFIG_TCG_TPM)		+= tpm/
-
+obj-$(CONFIG_DCC_TTY)		+= dcc_tty.o
 obj-$(CONFIG_PS3_FLASH)		+= ps3flash.o
 
 obj-$(CONFIG_JS_RTC)		+= js-rtc.o
 js-rtc-y = rtc.o
+
+obj-$(CONFIG_S3C_MEM)		+= s3c_mem.o
+obj-$(CONFIG_S3C_AES)		+= s3c_aes.o s3c_aes_fifo.o
+obj-$(CONFIG_LCD_4)			+= smartq_gpio.o
+obj-$(CONFIG_LCD_7)			+= smartq_gpio.o
+
 
 # Files generated that shall be removed upon make clean
 clean-files := consolemap_deftbl.c defkeymap.c

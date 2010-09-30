@@ -297,18 +297,7 @@ static int nilfs_ioctl_move_inode_block(struct inode *inode,
 			       (unsigned long long)vdesc->vd_vblocknr);
 		return ret;
 	}
-	if (unlikely(!list_empty(&bh->b_assoc_buffers))) {
-		printk(KERN_CRIT "%s: conflicting %s buffer: ino=%llu, "
-		       "cno=%llu, offset=%llu, blocknr=%llu, vblocknr=%llu\n",
-		       __func__, vdesc->vd_flags ? "node" : "data",
-		       (unsigned long long)vdesc->vd_ino,
-		       (unsigned long long)vdesc->vd_cno,
-		       (unsigned long long)vdesc->vd_offset,
-		       (unsigned long long)vdesc->vd_blocknr,
-		       (unsigned long long)vdesc->vd_vblocknr);
-		brelse(bh);
-		return -EEXIST;
-	}
+	bh->b_private = vdesc;
 	list_add_tail(&bh->b_assoc_buffers, buffers);
 	return 0;
 }
@@ -346,10 +335,24 @@ static int nilfs_ioctl_move_blocks(struct the_nilfs *nilfs,
 	list_for_each_entry_safe(bh, n, &buffers, b_assoc_buffers) {
 		ret = nilfs_gccache_wait_and_mark_dirty(bh);
 		if (unlikely(ret < 0)) {
-			WARN_ON(ret == -EEXIST);
+			if (ret == -EEXIST) {
+				vdesc = bh->b_private;
+				printk(KERN_CRIT
+				       "%s: conflicting %s buffer: "
+				       "ino=%llu, cno=%llu, offset=%llu, "
+				       "blocknr=%llu, vblocknr=%llu\n",
+				       __func__,
+				       vdesc->vd_flags ? "node" : "data",
+				       (unsigned long long)vdesc->vd_ino,
+				       (unsigned long long)vdesc->vd_cno,
+				       (unsigned long long)vdesc->vd_offset,
+				       (unsigned long long)vdesc->vd_blocknr,
+				       (unsigned long long)vdesc->vd_vblocknr);
+			}
 			goto failed;
 		}
 		list_del_init(&bh->b_assoc_buffers);
+		bh->b_private = NULL;
 		brelse(bh);
 	}
 	return nmembs;
@@ -357,6 +360,7 @@ static int nilfs_ioctl_move_blocks(struct the_nilfs *nilfs,
  failed:
 	list_for_each_entry_safe(bh, n, &buffers, b_assoc_buffers) {
 		list_del_init(&bh->b_assoc_buffers);
+		bh->b_private = NULL;
 		brelse(bh);
 	}
 	return ret;

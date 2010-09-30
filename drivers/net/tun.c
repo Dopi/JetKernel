@@ -943,6 +943,8 @@ static int tun_set_iff(struct net *net, struct file *file, struct ifreq *ifr)
 		char *name;
 		unsigned long flags = 0;
 
+		err = -EINVAL;
+
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
 
@@ -956,7 +958,7 @@ static int tun_set_iff(struct net *net, struct file *file, struct ifreq *ifr)
 			flags |= TUN_TAP_DEV;
 			name = "tap%d";
 		} else
-			return -EINVAL;
+			goto failed;
 
 		if (*ifr->ifr_name)
 			name = ifr->ifr_name;

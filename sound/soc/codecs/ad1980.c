@@ -93,6 +93,20 @@ SOC_ENUM("Capture Source", ad1980_cap_src),
 SOC_SINGLE("Mic Boost Switch", AC97_MIC, 6, 1, 0),
 };
 
+/* add non dapm controls */
+static int ad1980_add_controls(struct snd_soc_codec *codec)
+{
+	int err, i;
+
+	for (i = 0; i < ARRAY_SIZE(ad1980_snd_ac97_controls); i++) {
+		err = snd_ctl_add(codec->card, snd_soc_cnew(
+				&ad1980_snd_ac97_controls[i], codec, NULL));
+		if (err < 0)
+			return err;
+	}
+	return 0;
+}
+
 static unsigned int ac97_read(struct snd_soc_codec *codec,
 	unsigned int reg)
 {
@@ -109,7 +123,7 @@ static unsigned int ac97_read(struct snd_soc_codec *codec,
 	default:
 		reg = reg >> 1;
 
-		if (reg >= ARRAY_SIZE(ad1980_reg))
+		if (reg >= (ARRAY_SIZE(ad1980_reg)))
 			return -EINVAL;
 
 		return cache[reg];
@@ -123,7 +137,7 @@ static int ac97_write(struct snd_soc_codec *codec, unsigned int reg,
 
 	soc_ac97_ops.write(codec->ac97, reg, val);
 	reg = reg >> 1;
-	if (reg < ARRAY_SIZE(ad1980_reg))
+	if (reg < (ARRAY_SIZE(ad1980_reg)))
 		cache[reg] = val;
 
 	return 0;
@@ -137,13 +151,13 @@ struct snd_soc_dai ad1980_dai = {
 		.channels_min = 2,
 		.channels_max = 6,
 		.rates = SNDRV_PCM_RATE_48000,
-		.formats = SND_SOC_STD_AC97_FMTS, },
+		.formats = SNDRV_PCM_FMTBIT_S16_LE, },
 	.capture = {
 		.stream_name = "Capture",
 		.channels_min = 2,
 		.channels_max = 2,
 		.rates = SNDRV_PCM_RATE_48000,
-		.formats = SND_SOC_STD_AC97_FMTS, },
+		.formats = SNDRV_PCM_FMTBIT_S16_LE, },
 };
 EXPORT_SYMBOL_GPL(ad1980_dai);
 
@@ -186,10 +200,10 @@ static int ad1980_soc_probe(struct platform_device *pdev)
 
 	printk(KERN_INFO "AD1980 SoC Audio Codec\n");
 
-	socdev->card->codec = kzalloc(sizeof(struct snd_soc_codec), GFP_KERNEL);
-	if (socdev->card->codec == NULL)
+	socdev->codec = kzalloc(sizeof(struct snd_soc_codec), GFP_KERNEL);
+	if (socdev->codec == NULL)
 		return -ENOMEM;
-	codec = socdev->card->codec;
+	codec = socdev->codec;
 	mutex_init(&codec->mutex);
 
 	codec->reg_cache =
@@ -255,8 +269,7 @@ static int ad1980_soc_probe(struct platform_device *pdev)
 	ext_status = ac97_read(codec, AC97_EXTENDED_STATUS);
 	ac97_write(codec, AC97_EXTENDED_STATUS, ext_status&~0x3800);
 
-	snd_soc_add_controls(codec, ad1980_snd_ac97_controls,
-				ARRAY_SIZE(ad1980_snd_ac97_controls));
+	ad1980_add_controls(codec);
 	ret = snd_soc_init_card(socdev);
 	if (ret < 0) {
 		printk(KERN_ERR "ad1980: failed to register card\n");
@@ -275,15 +288,15 @@ codec_err:
 	kfree(codec->reg_cache);
 
 cache_err:
-	kfree(socdev->card->codec);
-	socdev->card->codec = NULL;
+	kfree(socdev->codec);
+	socdev->codec = NULL;
 	return ret;
 }
 
 static int ad1980_soc_remove(struct platform_device *pdev)
 {
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
-	struct snd_soc_codec *codec = socdev->card->codec;
+	struct snd_soc_codec *codec = socdev->codec;
 
 	if (codec == NULL)
 		return 0;

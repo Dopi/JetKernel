@@ -153,7 +153,7 @@ enum quirk_type {
 	QUIRK_MIDI_YAMAHA,
 	QUIRK_MIDI_MIDIMAN,
 	QUIRK_MIDI_NOVATION,
-	QUIRK_MIDI_FASTLANE,
+	QUIRK_MIDI_RAW,
 	QUIRK_MIDI_EMAGIC,
 	QUIRK_MIDI_CME,
 	QUIRK_MIDI_US122L,
@@ -210,7 +210,7 @@ struct snd_usb_midi_endpoint_info {
 /*
  */
 
-#define combine_word(s)    ((*(s)) | ((unsigned int)(s)[1] << 8))
+#define combine_word(s)    ((*s) | ((unsigned int)(s)[1] << 8))
 #define combine_triple(s)  (combine_word(s) | ((unsigned int)(s)[2] << 16))
 #define combine_quad(s)    (combine_triple(s) | ((unsigned int)(s)[3] << 24))
 

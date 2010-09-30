@@ -345,13 +345,13 @@ int s3c2410_dma_enqueue(unsigned int channel, void *id,
 	if (!chan)
 		return -EINVAL;
 
-	buff = kzalloc(sizeof(struct s3c64xx_dma_buff), GFP_KERNEL);
+	buff = kzalloc(sizeof(struct s3c64xx_dma_buff), GFP_ATOMIC);
 	if (!buff) {
 		printk(KERN_ERR "%s: no memory for buffer\n", __func__);
 		return -ENOMEM;
 	}
 
-	lli = dma_pool_alloc(dma_pool, GFP_KERNEL, &buff->lli_dma);
+	lli = dma_pool_alloc(dma_pool, GFP_ATOMIC, &buff->lli_dma);
 	if (!lli) {
 		printk(KERN_ERR "%s: no memory for lli\n", __func__);
 		ret = -ENOMEM;
@@ -583,14 +583,19 @@ static irqreturn_t s3c64xx_dma_irq(int irq, void *pw)
 	u32 tcstat, errstat;
 	u32 bit;
 	int offs;
-
+	printk("%s %d \n", __func__, __LINE__);
 	tcstat = readl(dmac->regs + PL080_TC_STATUS);
 	errstat = readl(dmac->regs + PL080_ERR_STATUS);
 
+	
+	if (tcstat == 0) {
+		return IRQ_HANDLED;
+	}
+
 	for (offs = 0, bit = 1; offs < 8; offs++, bit <<= 1) {
 		if (tcstat & bit) {
-			writel(bit, dmac->regs + PL080_TC_CLEAR);
 			s3c64xx_dma_tcirq(dmac, offs);
+			writel(bit, dmac->regs + PL080_TC_CLEAR);
 		}
 
 		if (errstat & bit) {

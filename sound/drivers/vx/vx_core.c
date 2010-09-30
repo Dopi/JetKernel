@@ -688,8 +688,7 @@ int snd_vx_dsp_load(struct vx_core *chip, const struct firmware *dsp)
 		image = dsp->data + i;
 		/* Wait DSP ready for a new read */
 		if ((err = vx_wait_isr_bit(chip, ISR_TX_EMPTY)) < 0) {
-			printk(KERN_ERR
-			       "dsp loading error at position %d\n", i);
+			printk("dsp loading error at position %d\n", i);
 			return err;
 		}
 		cptr = image;

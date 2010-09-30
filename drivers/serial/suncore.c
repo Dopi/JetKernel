@@ -53,21 +53,20 @@ void sunserial_unregister_minors(struct uart_driver *drv, int count)
 EXPORT_SYMBOL(sunserial_unregister_minors);
 
 int sunserial_console_match(struct console *con, struct device_node *dp,
-			    struct uart_driver *drv, int line, bool ignore_line)
+			    struct uart_driver *drv, int line)
 {
+	int off;
+
 	if (!con || of_console_device != dp)
 		return 0;
 
-	if (!ignore_line) {
-		int off = 0;
+	off = 0;
+	if (of_console_options &&
+	    *of_console_options == 'b')
+		off = 1;
 
-		if (of_console_options &&
-		    *of_console_options == 'b')
-			off = 1;
-
-		if ((line & 1) != off)
-			return 0;
-	}
+	if ((line & 1) != off)
+		return 0;
 
 	con->index = line;
 	drv->cons = con;
@@ -77,24 +76,23 @@ int sunserial_console_match(struct console *con, struct device_node *dp,
 }
 EXPORT_SYMBOL(sunserial_console_match);
 
-void sunserial_console_termios(struct console *con, struct device_node *uart_dp)
+void
+sunserial_console_termios(struct console *con)
 {
-	const char *mode, *s;
+	struct device_node *dp;
+	const char *od, *mode, *s;
 	char mode_prop[] = "ttyX-mode";
 	int baud, bits, stop, cflag;
 	char parity;
 
-	if (!strcmp(uart_dp->name, "rsc") ||
-	    !strcmp(uart_dp->name, "rsc-console") ||
-	    !strcmp(uart_dp->name, "rsc-control")) {
-		mode = of_get_property(uart_dp,
+	dp = of_find_node_by_path("/options");
+	od = of_get_property(dp, "output-device", NULL);
+	if (!strcmp(od, "rsc")) {
+		mode = of_get_property(of_console_device,
 				       "ssp-console-modes", NULL);
 		if (!mode)
 			mode = "115200,8,n,1,-";
-	} else if (!strcmp(uart_dp->name, "lom-console")) {
-		mode = "9600,8,n,1,-";
 	} else {
-		struct device_node *dp;
 		char c;
 
 		c = 'a';
@@ -103,7 +101,6 @@ void sunserial_console_termios(struct console *con, struct device_node *uart_dp)
 
 		mode_prop[3] = c;
 
-		dp = of_find_node_by_path("/options");
 		mode = of_get_property(dp, mode_prop, NULL);
 		if (!mode)
 			mode = "9600,8,n,1,-";

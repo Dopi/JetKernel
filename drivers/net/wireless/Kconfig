@@ -176,6 +176,15 @@ config LIBERTAS_THINFIRM_USB
 	---help---
 	  A driver for Marvell Libertas 8388 USB devices using thinfirm.
 
+#config MARVELL_8686_SDIO
+#	tristate "Official driver for Marvell SDIO 8686 <smartQ>"
+#	depends on WLAN_80211 && MMC
+#	select WIRELESS_EXT
+#	select IEEE80211
+#	select FW_LOADER
+#	---help---
+#	  Official driver for Marvell 8686 devices.
+	  
 config AIRO
 	tristate "Cisco/Aironet 34X/35X/4500/4800 ISA and PCI cards"
 	depends on ISA_DMA_API && WLAN_80211 && (PCI || BROKEN)

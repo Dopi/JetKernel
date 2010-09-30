@@ -767,7 +767,6 @@ leave:
 static int watchdog_open(struct inode *inode, struct file *filp)
 {
 	struct fschmd_data *pos, *data = NULL;
-	int watchdog_is_open;
 
 	/* We get called from drivers/char/misc.c with misc_mtx hold, and we
 	   call misc_register() from fschmd_probe() with watchdog_data_mutex
@@ -782,12 +781,10 @@ static int watchdog_open(struct inode *inode, struct file *filp)
 		}
 	}
 	/* Note we can never not have found data, so we don't check for this */
-	watchdog_is_open = test_and_set_bit(0, &data->watchdog_is_open);
-	if (!watchdog_is_open)
-		kref_get(&data->kref);
+	kref_get(&data->kref);
 	mutex_unlock(&watchdog_data_mutex);
 
-	if (watchdog_is_open)
+	if (test_and_set_bit(0, &data->watchdog_is_open))
 		return -EBUSY;
 
 	/* Start the watchdog */
@@ -822,7 +819,7 @@ static int watchdog_release(struct inode *inode, struct file *filp)
 static ssize_t watchdog_write(struct file *filp, const char __user *buf,
 	size_t count, loff_t *offset)
 {
-	int ret;
+	size_t ret;
 	struct fschmd_data *data = filp->private_data;
 
 	if (count) {

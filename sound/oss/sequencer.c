@@ -212,6 +212,7 @@ int sequencer_write(int dev, struct file *file, const char __user *buf, int coun
 {
 	unsigned char event_rec[EV_SZ], ev_code;
 	int p = 0, c, ev_size;
+	int err;
 	int mode = translate_mode(file);
 
 	dev = dev >> 4;
@@ -284,7 +285,7 @@ int sequencer_write(int dev, struct file *file, const char __user *buf, int coun
 		{
 			if (!midi_opened[event_rec[2]])
 			{
-				int err, mode;
+				int mode;
 				int dev = event_rec[2];
 
 				if (dev >= max_mididev || midi_devs[dev]==NULL)

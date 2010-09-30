@@ -1468,9 +1468,9 @@ static int __devinit snd_card_fm801_probe(struct pci_dev *pci,
 		return -ENOENT;
 	}
 
-	err = snd_card_create(index[dev], id[dev], THIS_MODULE, 0, &card);
-	if (err < 0)
-		return err;
+	card = snd_card_new(index[dev], id[dev], THIS_MODULE, 0);
+	if (card == NULL)
+		return -ENOMEM;
 	if ((err = snd_fm801_create(card, pci, tea575x_tuner[dev], &chip)) < 0) {
 		snd_card_free(card);
 		return err;

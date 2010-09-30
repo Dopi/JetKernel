@@ -16,12 +16,12 @@
 #include <linux/platform_device.h>
 #include <linux/types.h>
 #include <linux/workqueue.h>
-#include <linux/interrupt.h>
-#include <linux/kernel.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/control.h>
 #include <sound/ac97_codec.h>
+
+#define SND_SOC_VERSION "0.13.2"
 
 /*
  * Convenience kcontrol builders
@@ -118,14 +118,6 @@
 	.info = snd_soc_info_volsw, \
 	.get = xhandler_get, .put = xhandler_put, \
 	.private_value = SOC_SINGLE_VALUE(xreg, xshift, xmax, xinvert) }
-#define SOC_DOUBLE_EXT(xname, xreg, shift_left, shift_right, xmax, xinvert,\
-	 xhandler_get, xhandler_put) \
-{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = (xname),\
-	.info = snd_soc_info_volsw, \
-	.get = xhandler_get, .put = xhandler_put, \
-	.private_value = (unsigned long)&(struct soc_mixer_control) \
-		{.reg = xreg, .shift = shift_left, .rshift = shift_right, \
-		 .max = xmax, .invert = xinvert} }
 #define SOC_SINGLE_EXT_TLV(xname, xreg, xshift, xmax, xinvert,\
 	 xhandler_get, xhandler_put, tlv_array) \
 {	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, \
@@ -164,8 +156,7 @@ enum snd_soc_bias_level {
 	SND_SOC_BIAS_OFF,
 };
 
-struct snd_jack;
-struct snd_soc_card;
+
 struct snd_soc_device;
 struct snd_soc_pcm_stream;
 struct snd_soc_ops;
@@ -176,11 +167,6 @@ struct snd_soc_platform;
 struct snd_soc_codec;
 struct soc_enum;
 struct snd_soc_ac97_ops;
-struct snd_soc_jack;
-struct snd_soc_jack_pin;
-#ifdef CONFIG_GPIOLIB
-struct snd_soc_jack_gpio;
-#endif
 
 typedef int (*hw_write_t)(void *,const char* ,int);
 typedef int (*hw_read_t)(void *,char* ,int);
@@ -201,18 +187,9 @@ int snd_soc_init_card(struct snd_soc_device *socdev);
 int snd_soc_set_runtime_hwparams(struct snd_pcm_substream *substream,
 	const struct snd_pcm_hardware *hw);
 
-/* Jack reporting */
-int snd_soc_jack_new(struct snd_soc_card *card, const char *id, int type,
-		     struct snd_soc_jack *jack);
-void snd_soc_jack_report(struct snd_soc_jack *jack, int status, int mask);
-int snd_soc_jack_add_pins(struct snd_soc_jack *jack, int count,
-			  struct snd_soc_jack_pin *pins);
-#ifdef CONFIG_GPIOLIB
-int snd_soc_jack_add_gpios(struct snd_soc_jack *jack, int count,
-			struct snd_soc_jack_gpio *gpios);
-void snd_soc_jack_free_gpios(struct snd_soc_jack *jack, int count,
-			struct snd_soc_jack_gpio *gpios);
-#endif
+/* codec IO */
+#define snd_soc_read(codec, reg) codec->read(codec, reg)
+#define snd_soc_write(codec, reg, value) codec->write(codec, reg, value)
 
 /* codec register bit access */
 int snd_soc_update_bits(struct snd_soc_codec *codec, unsigned short reg,
@@ -229,8 +206,6 @@ void snd_soc_free_ac97_codec(struct snd_soc_codec *codec);
  */
 struct snd_kcontrol *snd_soc_cnew(const struct snd_kcontrol_new *_template,
 	void *data, char *long_name);
-int snd_soc_add_controls(struct snd_soc_codec *codec,
-	const struct snd_kcontrol_new *controls, int num_controls);
 int snd_soc_info_enum_double(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_info *uinfo);
 int snd_soc_info_enum_ext(struct snd_kcontrol *kcontrol,
@@ -265,47 +240,33 @@ int snd_soc_get_volsw_s8(struct snd_kcontrol *kcontrol,
 int snd_soc_put_volsw_s8(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol);
 
-/**
- * struct snd_soc_jack_pin - Describes a pin to update based on jack detection
- *
- * @pin:    name of the pin to update
- * @mask:   bits to check for in reported jack status
- * @invert: if non-zero then pin is enabled when status is not reported
- */
-struct snd_soc_jack_pin {
-	struct list_head list;
-	const char *pin;
-	int mask;
-	bool invert;
-};
 
-/**
- * struct snd_soc_jack_gpio - Describes a gpio pin for jack detection
- *
- * @gpio:         gpio number
- * @name:         gpio name
- * @report:       value to report when jack detected
- * @invert:       report presence in low state
- * @debouce_time: debouce time in ms
- */
-#ifdef CONFIG_GPIOLIB
-struct snd_soc_jack_gpio {
-	unsigned int gpio;
-	const char *name;
-	int report;
-	int invert;
-	int debounce_time;
-	struct snd_soc_jack *jack;
-	struct work_struct work;
-};
-#endif
-
-struct snd_soc_jack {
-	struct snd_jack *jack;
-	struct snd_soc_card *card;
-	struct list_head pins;
-	int status;
-};
+// 20081120 LSI
+/* kcontrols for sktlinux */
+int snd_soc_info_audio_play_path(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_info *uinfo);
+int snd_soc_get_audio_play_path(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
+int snd_soc_put_audio_play_path(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
+int snd_soc_info_audio_phone_path(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_info *uinfo);
+int snd_soc_get_audio_phone_path(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
+int snd_soc_put_audio_phone_path(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
+int snd_soc_info_audio_rec_path(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_info *uinfo);
+int snd_soc_get_audio_rec_path(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
+int snd_soc_put_audio_rec_path(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
+int snd_soc_info_audio_mic_path(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_info *uinfo);
+int snd_soc_get_audio_mic_path(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
+int snd_soc_put_audio_mic_path(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
 
 /* SoC PCM stream information */
 struct snd_soc_pcm_stream {
@@ -335,7 +296,6 @@ struct snd_soc_codec {
 	struct module *owner;
 	struct mutex mutex;
 	struct device *dev;
-	struct snd_soc_device *socdev;
 
 	struct list_head list;
 
@@ -368,9 +328,9 @@ struct snd_soc_codec {
 	struct list_head dapm_paths;
 	enum snd_soc_bias_level bias_level;
 	enum snd_soc_bias_level suspend_bias_level;
+	unsigned int dapm_state;
+	unsigned int suspend_dapm_state;
 	struct delayed_work delayed_work;
-	struct list_head up_list;
-	struct list_head down_list;
 
 	/* codec DAI's */
 	struct snd_soc_dai *dai;
@@ -388,6 +348,7 @@ struct snd_soc_codec_device {
 	int (*remove)(struct platform_device *pdev);
 	int (*suspend)(struct platform_device *pdev, pm_message_t state);
 	int (*resume)(struct platform_device *pdev);
+	int (*shutdown)(struct platform_device *pdev);
 };
 
 /* SoC platform interface */
@@ -424,12 +385,6 @@ struct snd_soc_dai_link  {
 	/* codec/machine specific init - e.g. add machine controls */
 	int (*init)(struct snd_soc_codec *codec);
 
-	/* Symmetry requirements */
-	unsigned int symmetric_rates:1;
-
-	/* Symmetry data - only valid if symmetry is being enforced */
-	unsigned int rate;
-
 	/* DAI pcm */
 	struct snd_pcm *pcm;
 };
@@ -463,8 +418,6 @@ struct snd_soc_card {
 
 	struct snd_soc_device *socdev;
 
-	struct snd_soc_codec *codec;
-
 	struct snd_soc_platform *platform;
 	struct delayed_work delayed_work;
 	struct work_struct deferred_resume_work;
@@ -474,6 +427,7 @@ struct snd_soc_card {
 struct snd_soc_device {
 	struct device *dev;
 	struct snd_soc_card *card;
+	struct snd_soc_codec *codec;
 	struct snd_soc_codec_device *codec_dev;
 	void *codec_data;
 };
@@ -502,19 +456,6 @@ struct soc_enum {
 	const unsigned int *values;
 	void *dapm;
 };
-
-/* codec IO */
-static inline unsigned int snd_soc_read(struct snd_soc_codec *codec,
-					unsigned int reg)
-{
-	return codec->read(codec, reg);
-}
-
-static inline unsigned int snd_soc_write(struct snd_soc_codec *codec,
-					 unsigned int reg, unsigned int val)
-{
-	return codec->write(codec, reg, val);
-}
 
 #include <sound/soc-dai.h>
 

@@ -103,10 +103,7 @@ snd_emu10k1_synth_get_voice(struct snd_emu10k1 *hw)
 			int ch;
 			vp = &emu->voices[best[i].voice];
 			if ((ch = vp->ch) < 0) {
-				/*
-				printk(KERN_WARNING
-				       "synth_get_voice: ch < 0 (%d) ??", i);
-				*/
+				//printk("synth_get_voice: ch < 0 (%d) ??", i);
 				continue;
 			}
 			vp->emu->num_voices--;
@@ -338,7 +335,7 @@ start_voice(struct snd_emux_voice *vp)
 		return -EINVAL;
 	emem->map_locked++;
 	if (snd_emu10k1_memblk_map(hw, emem) < 0) {
-		/* printk(KERN_ERR "emu: cannot map!\n"); */
+		// printk("emu: cannot map!\n");
 		return -ENOMEM;
 	}
 	mapped_offset = snd_emu10k1_memblk_offset(emem) >> 1;

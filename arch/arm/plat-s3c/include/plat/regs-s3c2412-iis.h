@@ -15,7 +15,7 @@
 
 #define S3C2412_IISCON			(0x00)
 #define S3C2412_IISMOD			(0x04)
-#define S3C2412_IISFIC			(0x08)
+#define S3C2412_IISFIC				(0x08)
 #define S3C2412_IISPSR			(0x0C)
 #define S3C2412_IISTXD			(0x10)
 #define S3C2412_IISRXD			(0x14)

@@ -2125,10 +2125,10 @@ static int __devinit snd_audiodrive_pnpc(int dev, struct snd_audiodrive *acard,
 #define is_isapnp_selected(dev)		0
 #endif
 
-static int snd_es18xx_card_new(int dev, struct snd_card **cardp)
+static struct snd_card *snd_es18xx_card_new(int dev)
 {
-	return snd_card_create(index[dev], id[dev], THIS_MODULE,
-			       sizeof(struct snd_audiodrive), cardp);
+	return snd_card_new(index[dev], id[dev], THIS_MODULE,
+			    sizeof(struct snd_audiodrive));
 }
 
 static int __devinit snd_audiodrive_probe(struct snd_card *card, int dev)
@@ -2197,9 +2197,9 @@ static int __devinit snd_es18xx_isa_probe1(int dev, struct device *devptr)
 	struct snd_card *card;
 	int err;
 
-	err = snd_es18xx_card_new(dev, &card);
-	if (err < 0)
-		return err;
+	card = snd_es18xx_card_new(dev);
+	if (! card)
+		return -ENOMEM;
 	snd_card_set_dev(card, devptr);
 	if ((err = snd_audiodrive_probe(card, dev)) < 0) {
 		snd_card_free(card);
@@ -2303,9 +2303,9 @@ static int __devinit snd_audiodrive_pnp_detect(struct pnp_dev *pdev,
 	if (dev >= SNDRV_CARDS)
 		return -ENODEV;
 
-	err = snd_es18xx_card_new(dev, &card);
-	if (err < 0)
-		return err;
+	card = snd_es18xx_card_new(dev);
+	if (! card)
+		return -ENOMEM;
 	if ((err = snd_audiodrive_pnp(dev, card->private_data, pdev)) < 0) {
 		snd_card_free(card);
 		return err;
@@ -2362,9 +2362,9 @@ static int __devinit snd_audiodrive_pnpc_detect(struct pnp_card_link *pcard,
 	if (dev >= SNDRV_CARDS)
 		return -ENODEV;
 
-	res = snd_es18xx_card_new(dev, &card);
-	if (res < 0)
-		return res;
+	card = snd_es18xx_card_new(dev);
+	if (! card)
+		return -ENOMEM;
 
 	if ((res = snd_audiodrive_pnpc(dev, card->private_data, pcard, pid)) < 0) {
 		snd_card_free(card);

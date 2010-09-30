@@ -2601,6 +2601,15 @@ int shmem_unuse(swp_entry_t entry, struct page *page)
 #endif /* CONFIG_SHMEM */
 
 /* common code */
+void shmem_set_file(struct vm_area_struct *vma, struct file *file) 
+{ 
+		ima_counts_get(file); 
+		if (vma->vm_file) 
+			fput(vma->vm_file); 
+		vma->vm_file = file; 
+		vma->vm_ops = &shmem_vm_ops; 
+} 
+EXPORT_SYMBOL_GPL(shmem_set_file); 
 
 /**
  * shmem_file_setup - get an unlinked file living in tmpfs
@@ -2681,10 +2690,7 @@ int shmem_zero_setup(struct vm_area_struct *vma)
 	if (IS_ERR(file))
 		return PTR_ERR(file);
 
-	if (vma->vm_file)
-		fput(vma->vm_file);
-	vma->vm_file = file;
-	vma->vm_ops = &shmem_vm_ops;
+	shmem_set_file(vma, file);
 	return 0;
 }
 

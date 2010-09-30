@@ -184,7 +184,7 @@ static void s3c24xx_i2c_message_start(struct s3c24xx_i2c *i2c,
 	iiccon = readl(i2c->regs + S3C2410_IICCON);
 	writel(stat, i2c->regs + S3C2410_IICSTAT);
 
-	dev_dbg(i2c->dev, "START: %08lx to IICSTAT, %02x to DS\n", stat, addr);
+	dev_dbg(i2c->dev, "START: 0x%08lx to IICSTAT, 0x%02x to DS\n", stat, addr);
 	writeb(addr, i2c->regs + S3C2410_IICDS);
 
 	/* delay here to ensure the data byte has gotten onto the bus
@@ -998,12 +998,14 @@ static int __init i2c_adap_s3c_init(void)
 {
 	return platform_driver_register(&s3c24xx_i2c_driver);
 }
-subsys_initcall(i2c_adap_s3c_init);
+//subsys_initcall(i2c_adap_s3c_init);
 
 static void __exit i2c_adap_s3c_exit(void)
 {
 	platform_driver_unregister(&s3c24xx_i2c_driver);
 }
+
+module_init(i2c_adap_s3c_init);
 module_exit(i2c_adap_s3c_exit);
 
 MODULE_DESCRIPTION("S3C24XX I2C Bus driver");

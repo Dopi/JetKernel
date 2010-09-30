@@ -25,6 +25,8 @@
 #include <asm/atomic.h>
 #include <asm/device.h>
 
+#define BUS_ID_SIZE		20
+
 struct device;
 struct device_private;
 struct device_driver;
@@ -58,6 +60,9 @@ struct bus_type {
 	int (*probe)(struct device *dev);
 	int (*remove)(struct device *dev);
 	void (*shutdown)(struct device *dev);
+ 	int (*suspend_late)(struct device *dev, pm_message_t state);
+ 	int (*resume_early)(struct device *dev);
+
 
 	int (*suspend)(struct device *dev, pm_message_t state);
 	int (*resume)(struct device *dev);
@@ -365,11 +370,17 @@ struct device_dma_parameters {
 };
 
 struct device {
+	struct klist		klist_children;
+	struct klist_node	knode_parent;	/* node in sibling list */
+	struct klist_node	knode_driver;
+	struct klist_node	knode_bus;
 	struct device		*parent;
 
 	struct device_private	*p;
 
 	struct kobject kobj;
+	char	bus_id[BUS_ID_SIZE];	/* position on parent bus */
+	unsigned		uevent_suppress:1;
 	const char		*init_name; /* initial name of the device */
 	struct device_type	*type;
 
@@ -422,6 +433,7 @@ struct device {
 static inline const char *dev_name(const struct device *dev)
 {
 	return kobject_name(&dev->kobj);
+	return dev->bus_id;
 }
 
 extern int dev_set_name(struct device *dev, const char *name, ...)

@@ -663,14 +663,6 @@ static struct zl10353_config cxusb_zl10353_xc3028_config = {
 	.parallel_ts = 1,
 };
 
-static struct zl10353_config cxusb_zl10353_xc3028_config_no_i2c_gate = {
-	.demod_address = 0x0f,
-	.if2 = 45600,
-	.no_tuner = 1,
-	.parallel_ts = 1,
-	.disable_i2c_gate_ctrl = 1,
-};
-
 static struct mt352_config cxusb_mt352_xc3028_config = {
 	.demod_address = 0x0f,
 	.if2 = 4560,
@@ -902,7 +894,7 @@ static int cxusb_dualdig4_frontend_attach(struct dvb_usb_adapter *adap)
 	cxusb_bluebird_gpio_pulse(adap->dev, 0x02, 1);
 
 	if ((adap->fe = dvb_attach(zl10353_attach,
-				   &cxusb_zl10353_xc3028_config_no_i2c_gate,
+				   &cxusb_zl10353_xc3028_config,
 				   &adap->dev->i2c_adap)) == NULL)
 		return -EIO;
 

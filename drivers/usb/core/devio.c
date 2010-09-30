@@ -1139,13 +1139,6 @@ static int proc_do_submiturb(struct dev_state *ps, struct usbdevfs_urb *uurb,
 			free_async(as);
 			return -ENOMEM;
 		}
-		/* Isochronous input data may end up being discontiguous
-		 * if some of the packets are short.  Clear the buffer so
-		 * that the gaps don't leak kernel data to userspace.
-		 */
-		if (is_in && uurb->type == USBDEVFS_URB_TYPE_ISO)
-			memset(as->urb->transfer_buffer, 0,
-					uurb->buffer_length);
 	}
 	as->urb->dev = ps->dev;
 	as->urb->pipe = (uurb->type << 30) |
@@ -1247,14 +1240,10 @@ static int processcompl(struct async *as, void __user * __user *arg)
 	void __user *addr = as->userurb;
 	unsigned int i;
 
-	if (as->userbuffer && urb->actual_length) {
-		if (urb->number_of_packets > 0)		/* Isochronous */
-			i = urb->transfer_buffer_length;
-		else					/* Non-Isoc */
-			i = urb->actual_length;
-		if (copy_to_user(as->userbuffer, urb->transfer_buffer, i))
+	if (as->userbuffer)
+		if (copy_to_user(as->userbuffer, urb->transfer_buffer,
+				 urb->transfer_buffer_length))
 			goto err_out;
-	}
 	if (put_user(as->status, &userurb->status))
 		goto err_out;
 	if (put_user(urb->actual_length, &userurb->actual_length))
@@ -1273,11 +1262,14 @@ static int processcompl(struct async *as, void __user * __user *arg)
 		}
 	}
 
+	free_async(as);
+
 	if (put_user(addr, (void __user * __user *)arg))
 		return -EFAULT;
 	return 0;
 
 err_out:
+	free_async(as);
 	return -EFAULT;
 }
 
@@ -1307,11 +1299,8 @@ static struct async *reap_as(struct dev_state *ps)
 static int proc_reapurb(struct dev_state *ps, void __user *arg)
 {
 	struct async *as = reap_as(ps);
-	if (as) {
-		int retval = processcompl(as, (void __user * __user *)arg);
-		free_async(as);
-		return retval;
-	}
+	if (as)
+		return processcompl(as, (void __user * __user *)arg);
 	if (signal_pending(current))
 		return -EINTR;
 	return -EIO;
@@ -1319,16 +1308,11 @@ static int proc_reapurb(struct dev_state *ps, void __user *arg)
 
 static int proc_reapurbnonblock(struct dev_state *ps, void __user *arg)
 {
-	int retval;
 	struct async *as;
 
-	as = async_getcompleted(ps);
-	retval = -EAGAIN;
-	if (as) {
-		retval = processcompl(as, (void __user * __user *)arg);
-		free_async(as);
-	}
-	return retval;
+	if (!(as = async_getcompleted(ps)))
+		return -EAGAIN;
+	return processcompl(as, (void __user * __user *)arg);
 }
 
 #ifdef CONFIG_COMPAT
@@ -1379,9 +1363,9 @@ static int processcompl_compat(struct async *as, void __user * __user *arg)
 	void __user *addr = as->userurb;
 	unsigned int i;
 
-	if (as->userbuffer && urb->actual_length)
+	if (as->userbuffer)
 		if (copy_to_user(as->userbuffer, urb->transfer_buffer,
-				 urb->actual_length))
+				 urb->transfer_buffer_length))
 			return -EFAULT;
 	if (put_user(as->status, &userurb->status))
 		return -EFAULT;
@@ -1401,6 +1385,7 @@ static int processcompl_compat(struct async *as, void __user * __user *arg)
 		}
 	}
 
+	free_async(as);
 	if (put_user(ptr_to_compat(addr), (u32 __user *)arg))
 		return -EFAULT;
 	return 0;
@@ -1409,11 +1394,8 @@ static int processcompl_compat(struct async *as, void __user * __user *arg)
 static int proc_reapurb_compat(struct dev_state *ps, void __user *arg)
 {
 	struct async *as = reap_as(ps);
-	if (as) {
-		int retval = processcompl_compat(as, (void __user * __user *)arg);
-		free_async(as);
-		return retval;
-	}
+	if (as)
+		return processcompl_compat(as, (void __user * __user *)arg);
 	if (signal_pending(current))
 		return -EINTR;
 	return -EIO;
@@ -1421,16 +1403,11 @@ static int proc_reapurb_compat(struct dev_state *ps, void __user *arg)
 
 static int proc_reapurbnonblock_compat(struct dev_state *ps, void __user *arg)
 {
-	int retval;
 	struct async *as;
 
-	retval = -EAGAIN;
-	as = async_getcompleted(ps);
-	if (as) {
-		retval = processcompl_compat(as, (void __user * __user *)arg);
-		free_async(as);
-	}
-	return retval;
+	if (!(as = async_getcompleted(ps)))
+		return -EAGAIN;
+	return processcompl_compat(as, (void __user * __user *)arg);
 }
 
 #endif

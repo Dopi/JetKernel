@@ -263,7 +263,6 @@ static int kaweth_control(struct kaweth_device *kaweth,
 			  int timeout)
 {
 	struct usb_ctrlrequest *dr;
-	int retval;
 
 	dbg("kaweth_control()");
 
@@ -279,21 +278,18 @@ static int kaweth_control(struct kaweth_device *kaweth,
 		return -ENOMEM;
 	}
 
-	dr->bRequestType = requesttype;
+	dr->bRequestType= requesttype;
 	dr->bRequest = request;
 	dr->wValue = cpu_to_le16(value);
 	dr->wIndex = cpu_to_le16(index);
 	dr->wLength = cpu_to_le16(size);
 
-	retval = kaweth_internal_control_msg(kaweth->dev,
-					     pipe,
-					     dr,
-					     data,
-					     size,
-					     timeout);
-
-	kfree(dr);
-	return retval;
+	return kaweth_internal_control_msg(kaweth->dev,
+					pipe,
+					dr,
+					data,
+					size,
+					timeout);
 }
 
 /****************************************************************

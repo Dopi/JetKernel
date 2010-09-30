@@ -255,9 +255,11 @@ static inline bool nf_ct_kill(struct nf_conn *ct)
 }
 
 /* These are for NAT.  Icky. */
-extern s16 (*nf_ct_nat_offset)(const struct nf_conn *ct,
-			       enum ip_conntrack_dir dir,
-			       u32 seq);
+/* Update TCP window tracking data when NAT mangles the packet */
+extern void nf_conntrack_tcp_update(const struct sk_buff *skb,
+				    unsigned int dataoff,
+				    struct nf_conn *ct, int dir,
+				    s16 offset);
 
 /* Fake conntrack entry for untracked connections */
 extern struct nf_conn nf_conntrack_untracked;

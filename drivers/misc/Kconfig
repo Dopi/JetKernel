@@ -13,6 +13,23 @@ menuconfig MISC_DEVICES
 
 if MISC_DEVICES
 
+config ANDROID_PMEM
+	bool "Android pmem allocator"
+	default y
+
+config VIDEO_SAMSUNG_MEMSIZE_PMEM
+	int "Memory size in kbytes for pmem common"
+	depends on ANDROID_PMEM
+	default "4096"
+
+config SAMSUNG_DPRAM
+	bool "DPRAM device"
+	default y
+
+config SAMSUNG_multipdp
+	bool "MULTIPDP driver"
+	default y	
+
 config ATMEL_PWM
 	tristate "Atmel AT32/AT91 PWM support"
 	depends on AVR32 || ARCH_AT91SAM9263 || ARCH_AT91SAM9RL || ARCH_AT91CAP9
@@ -159,6 +176,13 @@ config ENCLOSURE_SERVICES
 	  driver (SCSI/ATA) which supports enclosures
 	  or a SCSI enclosure device (SES) to use these services.
 
+config KERNEL_DEBUGGER_CORE
+	bool "Kernel Debugger Core"
+	default n
+	---help---
+	  Generic kernel debugging command processor used by low level
+	  (interrupt context) platform-specific debuggers.
+
 config SGI_XP
 	tristate "Support communication between SGI SSIs"
 	depends on NET
@@ -232,6 +256,17 @@ config ISL29003
 
 	  This driver can also be built as a module.  If so, the module
 	  will be called isl29003.
+
+config UID_STAT
+	bool "UID based statistics tracking exported to /proc/uid_stat"
+	default n
+
+#config SMARTQ_BT_RFKILL
+#	tristate "Bluetooth power control driver for smartQ5/7"
+#	select RFKILL
+#	default n
+#	---help---
+#	 Creates an rfkill entry in sysfs for power control of Bluetooth
 
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"

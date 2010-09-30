@@ -1,7 +1,7 @@
 /*
- * SoC audio driver for EM-X270, eXeda and CM-X300
+ * em-x270.c  --  SoC audio for EM-X270
  *
- * Copyright 2007, 2009 CompuLab, Ltd.
+ * Copyright 2007 CompuLab, Ltd.
  *
  * Author: Mike Rapoport <mike@compulab.co.il>
  *
@@ -29,6 +29,8 @@
 #include <sound/soc-dapm.h>
 
 #include <asm/mach-types.h>
+#include <mach/pxa-regs.h>
+#include <mach/hardware.h>
 #include <mach/audio.h>
 
 #include "../codecs/wm9712.h"
@@ -68,8 +70,7 @@ static int __init em_x270_init(void)
 {
 	int ret;
 
-	if (!(machine_is_em_x270() || machine_is_exeda()
-	      || machine_is_cm_x300()))
+	if (!machine_is_em_x270())
 		return -ENODEV;
 
 	em_x270_snd_device = platform_device_alloc("soc-audio", -1);
@@ -96,5 +97,5 @@ module_exit(em_x270_exit);
 
 /* Module information */
 MODULE_AUTHOR("Mike Rapoport");
-MODULE_DESCRIPTION("ALSA SoC EM-X270, eXeda and CM-X300");
+MODULE_DESCRIPTION("ALSA SoC EM-X270");
 MODULE_LICENSE("GPL");

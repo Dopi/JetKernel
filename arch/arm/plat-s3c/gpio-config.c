@@ -60,6 +60,26 @@ int s3c_gpio_setpull(unsigned int pin, s3c_gpio_pull_t pull)
 }
 EXPORT_SYMBOL(s3c_gpio_setpull);
 
+int s3c_gpio_setpin(unsigned int pin, s3c_gpio_pull_t level)
+{
+	struct s3c_gpio_chip *chip = s3c_gpiolib_getchip(pin);
+	unsigned long flags;
+	int offset, ret;
+
+	if (!chip)
+		return -EINVAL;
+
+	offset = pin - chip->chip.base;
+
+	local_irq_save(flags);
+	ret = s3c_gpio_do_setpin(chip, offset, level);
+	local_irq_restore(flags);
+
+	return ret;
+}
+EXPORT_SYMBOL(s3c_gpio_setpin);
+
+
 #ifdef CONFIG_S3C_GPIO_CFG_S3C24XX
 int s3c_gpio_setcfg_s3c24xx_banka(struct s3c_gpio_chip *chip,
 				  unsigned int off, unsigned int cfg)
@@ -163,4 +183,30 @@ s3c_gpio_pull_t s3c_gpio_getpull_updown(struct s3c_gpio_chip *chip,
 	pup &= 0x3;
 	return (__force s3c_gpio_pull_t)pup;
 }
+
+int s3c_gpio_setpin_updown(struct s3c_gpio_chip *chip,
+			    unsigned int off, s3c_gpio_pull_t level)
+{
+	void __iomem *reg = chip->base + 0x04;
+	unsigned int baseaddr = (unsigned int)chip->base;
+	u32 lvl;
+#if defined CONFIG_CPU_S3C6410
+	if(((baseaddr & 0xFFF) == 0x0E0) 			/* If it is GPH */
+		|| ((baseaddr & 0xFFF) == 0x800) 		/* If it is GPK */
+		|| ((baseaddr & 0xFFF) == 0x810)) 	/* If it is GPL */
+	   reg += 0x4;
+#elif defined CONFIG_CPU_S5P6440
+	if(((baseaddr & 0xFFF) == 0x0E0) 			/* If it is GPH */
+		|| ((baseaddr & 0xFFF) == 0x290)) 	/* If it is GPR */
+	   reg += 0x4;
+#elif defined CONFIG_CPU_S5PC100
+#endif
+	lvl = __raw_readl(reg);
+	lvl &= ~(1 << off);
+	lvl |= (level << off);
+	__raw_writel(lvl, reg);
+
+	return 0;
+}
+
 #endif

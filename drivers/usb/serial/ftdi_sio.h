@@ -81,9 +81,6 @@
 
 /* OpenDCC (www.opendcc.de) product id */
 #define FTDI_OPENDCC_PID	0xBFD8
-#define FTDI_OPENDCC_SNIFFER_PID	0xBFD9
-#define FTDI_OPENDCC_THROTTLE_PID	0xBFDA
-#define FTDI_OPENDCC_GATEWAY_PID	0xBFDB
 
 /* Sprog II (Andrew Crosland's SprogII DCC interface) */
 #define FTDI_SPROG_II		0xF0C8
@@ -933,7 +930,6 @@
  */
 #define ADI_VID 		0x0456
 #define ADI_GNICE_PID 		0xF000
-#define ADI_GNICEPLUS_PID 	0xF001
 
 /*
  * JETI SPECTROMETER SPECBOS 1201
@@ -970,12 +966,6 @@
  * OpenRD Base, Client use VID 0x0403
  */
 #define MARVELL_OPENRD_PID	0x9e90
-
-/*
- * Hameg HO820 and HO870 interface (using VID 0x0403)
- */
-#define        HAMEG_HO820_PID         0xed74
-#define        HAMEG_HO870_PID         0xed71
 
 /*
  *   BmRequestType:  1100 0000b

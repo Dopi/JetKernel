@@ -324,18 +324,14 @@ static void snd_sb16_free(struct snd_card *card)
 #define is_isapnp_selected(dev)		0
 #endif
 
-static int snd_sb16_card_new(int dev, struct snd_card **cardp)
+static struct snd_card *snd_sb16_card_new(int dev)
 {
-	struct snd_card *card;
-	int err;
-
-	err = snd_card_create(index[dev], id[dev], THIS_MODULE,
-			      sizeof(struct snd_card_sb16), &card);
-	if (err < 0)
-		return err;
+	struct snd_card *card = snd_card_new(index[dev], id[dev], THIS_MODULE,
+					sizeof(struct snd_card_sb16));
+	if (card == NULL)
+		return NULL;
 	card->private_free = snd_sb16_free;
-	*cardp = card;
-	return 0;
+	return card;
 }
 
 static int __devinit snd_sb16_probe(struct snd_card *card, int dev)
@@ -493,9 +489,9 @@ static int __devinit snd_sb16_isa_probe1(int dev, struct device *pdev)
 	struct snd_card *card;
 	int err;
 
-	err = snd_sb16_card_new(dev, &card);
-	if (err < 0)
-		return err;
+	card = snd_sb16_card_new(dev);
+	if (! card)
+		return -ENOMEM;
 
 	acard = card->private_data;
 	/* non-PnP FM port address is hardwired with base port address */
@@ -614,9 +610,9 @@ static int __devinit snd_sb16_pnp_detect(struct pnp_card_link *pcard,
 	for ( ; dev < SNDRV_CARDS; dev++) {
 		if (!enable[dev] || !isapnp[dev])
 			continue;
-		res = snd_sb16_card_new(dev, &card);
-		if (res < 0)
-			return res;
+		card = snd_sb16_card_new(dev);
+		if (! card)
+			return -ENOMEM;
 		snd_card_set_dev(card, &pcard->card->dev);
 		if ((res = snd_card_sb16_pnp(dev, card->private_data, pcard, pid)) < 0 ||
 		    (res = snd_sb16_probe(card, dev)) < 0) {

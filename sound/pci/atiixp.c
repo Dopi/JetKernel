@@ -287,10 +287,10 @@ struct atiixp {
 /*
  */
 static struct pci_device_id snd_atiixp_ids[] = {
-	{ PCI_VDEVICE(ATI, 0x4341), 0 }, /* SB200 */
-	{ PCI_VDEVICE(ATI, 0x4361), 0 }, /* SB300 */
-	{ PCI_VDEVICE(ATI, 0x4370), 0 }, /* SB400 */
-	{ PCI_VDEVICE(ATI, 0x4382), 0 }, /* SB600 */
+	{ 0x1002, 0x4341, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0 }, /* SB200 */
+	{ 0x1002, 0x4361, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0 }, /* SB300 */
+	{ 0x1002, 0x4370, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0 }, /* SB400 */
+	{ 0x1002, 0x4382, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0 }, /* SB600 */
 	{ 0, }
 };
 
@@ -1393,12 +1393,6 @@ static struct ac97_quirk ac97_quirks[] __devinitdata = {
 		.name = "HP nx6125",
 		.type = AC97_TUNE_MUTE_LED
 	},
-	{
-		.subvendor = 0x103c,
-		.subdevice = 0x3091,
-		.name = "unknown HP",
-		.type = AC97_TUNE_MUTE_LED
-	},
 	{ } /* terminator */
 };
 
@@ -1651,9 +1645,9 @@ static int __devinit snd_atiixp_probe(struct pci_dev *pci,
 	struct atiixp *chip;
 	int err;
 
-	err = snd_card_create(index, id, THIS_MODULE, 0, &card);
-	if (err < 0)
-		return err;
+	card = snd_card_new(index, id, THIS_MODULE, 0);
+	if (card == NULL)
+		return -ENOMEM;
 
 	strcpy(card->driver, spdif_aclink ? "ATIIXP" : "ATIIXP-SPDMA");
 	strcpy(card->shortname, "ATI IXP");

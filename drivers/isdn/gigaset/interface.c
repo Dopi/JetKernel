@@ -408,28 +408,33 @@ static int if_write_room(struct tty_struct *tty)
 	return retval;
 }
 
+/* FIXME: This function does not have error returns */
+
 static int if_chars_in_buffer(struct tty_struct *tty)
 {
 	struct cardstate *cs;
-	int retval = 0;
+	int retval = -ENODEV;
 
 	cs = (struct cardstate *) tty->driver_data;
 	if (!cs) {
 		pr_err("%s: no cardstate\n", __func__);
-		return 0;
+		return -ENODEV;
 	}
 
 	gig_dbg(DEBUG_IF, "%u: %s()", cs->minor_index, __func__);
 
-	mutex_lock(&cs->mutex);
+	if (mutex_lock_interruptible(&cs->mutex))
+		return -ERESTARTSYS; // FIXME -EINTR?
 
-	if (!cs->connected)
+	if (!cs->connected) {
 		gig_dbg(DEBUG_IF, "not connected");
-	else if (!cs->open_count)
+		retval = -ENODEV;
+	} else if (!cs->open_count)
 		dev_warn(cs->dev, "%s: device not opened\n", __func__);
-	else if (cs->mstate != MS_LOCKED)
+	else if (cs->mstate != MS_LOCKED) {
 		dev_warn(cs->dev, "can't write to unlocked device\n");
-	else
+		retval = -EBUSY;
+	} else
 		retval = cs->ops->chars_in_buffer(cs);
 
 	mutex_unlock(&cs->mutex);

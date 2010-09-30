@@ -1240,7 +1240,6 @@ EXPORT_SYMBOL_GPL(s3c24xx_serial_init);
 static int __init s3c24xx_serial_modinit(void)
 {
 	int ret;
-
 	ret = uart_register_driver(&s3c24xx_uart_drv);
 	if (ret < 0) {
 		printk(KERN_ERR "failed to register UART driver\n");
@@ -1395,7 +1394,7 @@ static int __init
 s3c24xx_serial_console_setup(struct console *co, char *options)
 {
 	struct uart_port *port;
-	int baud = 9600;
+	int baud = 115200;
 	int bits = 8;
 	int parity = 'n';
 	int flow = 'n';

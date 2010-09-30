@@ -575,10 +575,8 @@ static int ac97_switch_put(struct snd_kcontrol *ctl,
 static int ac97_volume_info(struct snd_kcontrol *ctl,
 			    struct snd_ctl_elem_info *info)
 {
-	int stereo = (ctl->private_value >> 16) & 1;
-
 	info->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	info->count = stereo ? 2 : 1;
+	info->count = 2;
 	info->value.integer.min = 0;
 	info->value.integer.max = 0x1f;
 	return 0;
@@ -589,7 +587,6 @@ static int ac97_volume_get(struct snd_kcontrol *ctl,
 {
 	struct oxygen *chip = ctl->private_data;
 	unsigned int codec = (ctl->private_value >> 24) & 1;
-	int stereo = (ctl->private_value >> 16) & 1;
 	unsigned int index = ctl->private_value & 0xff;
 	u16 reg;
 
@@ -597,8 +594,7 @@ static int ac97_volume_get(struct snd_kcontrol *ctl,
 	reg = oxygen_read_ac97(chip, codec, index);
 	mutex_unlock(&chip->mutex);
 	value->value.integer.value[0] = 31 - (reg & 0x1f);
-	if (stereo)
-		value->value.integer.value[1] = 31 - ((reg >> 8) & 0x1f);
+	value->value.integer.value[1] = 31 - ((reg >> 8) & 0x1f);
 	return 0;
 }
 
@@ -607,7 +603,6 @@ static int ac97_volume_put(struct snd_kcontrol *ctl,
 {
 	struct oxygen *chip = ctl->private_data;
 	unsigned int codec = (ctl->private_value >> 24) & 1;
-	int stereo = (ctl->private_value >> 16) & 1;
 	unsigned int index = ctl->private_value & 0xff;
 	u16 oldreg, newreg;
 	int change;
@@ -617,11 +612,8 @@ static int ac97_volume_put(struct snd_kcontrol *ctl,
 	newreg = oldreg;
 	newreg = (newreg & ~0x1f) |
 		(31 - (value->value.integer.value[0] & 0x1f));
-	if (stereo)
-		newreg = (newreg & ~0x1f00) |
-			((31 - (value->value.integer.value[1] & 0x1f)) << 8);
-	else
-		newreg = (newreg & ~0x1f00) | ((newreg & 0x1f) << 8);
+	newreg = (newreg & ~0x1f00) |
+		((31 - (value->value.integer.value[0] & 0x1f)) << 8);
 	change = newreg != oldreg;
 	if (change)
 		oxygen_write_ac97(chip, codec, index, newreg);
@@ -681,7 +673,7 @@ static int ac97_fp_rec_volume_put(struct snd_kcontrol *ctl,
 		.private_value = ((codec) << 24) | ((invert) << 16) | \
 				 ((bitnr) << 8) | (index), \
 	}
-#define AC97_VOLUME(xname, codec, index, stereo) { \
+#define AC97_VOLUME(xname, codec, index) { \
 		.iface = SNDRV_CTL_ELEM_IFACE_MIXER, \
 		.name = xname, \
 		.access = SNDRV_CTL_ELEM_ACCESS_READWRITE | \
@@ -690,7 +682,7 @@ static int ac97_fp_rec_volume_put(struct snd_kcontrol *ctl,
 		.get = ac97_volume_get, \
 		.put = ac97_volume_put, \
 		.tlv = { .p = ac97_db_scale, }, \
-		.private_value = ((codec) << 24) | ((stereo) << 16) | (index), \
+		.private_value = ((codec) << 24) | (index), \
 	}
 
 static DECLARE_TLV_DB_SCALE(monitor_db_scale, -1000, 1000, 0);
@@ -890,18 +882,18 @@ static const struct {
 };
 
 static const struct snd_kcontrol_new ac97_controls[] = {
-	AC97_VOLUME("Mic Capture Volume", 0, AC97_MIC, 0),
+	AC97_VOLUME("Mic Capture Volume", 0, AC97_MIC),
 	AC97_SWITCH("Mic Capture Switch", 0, AC97_MIC, 15, 1),
 	AC97_SWITCH("Mic Boost (+20dB)", 0, AC97_MIC, 6, 0),
 	AC97_SWITCH("Line Capture Switch", 0, AC97_LINE, 15, 1),
-	AC97_VOLUME("CD Capture Volume", 0, AC97_CD, 1),
+	AC97_VOLUME("CD Capture Volume", 0, AC97_CD),
 	AC97_SWITCH("CD Capture Switch", 0, AC97_CD, 15, 1),
-	AC97_VOLUME("Aux Capture Volume", 0, AC97_AUX, 1),
+	AC97_VOLUME("Aux Capture Volume", 0, AC97_AUX),
 	AC97_SWITCH("Aux Capture Switch", 0, AC97_AUX, 15, 1),
 };
 
 static const struct snd_kcontrol_new ac97_fp_controls[] = {
-	AC97_VOLUME("Front Panel Playback Volume", 1, AC97_HEADPHONE, 1),
+	AC97_VOLUME("Front Panel Playback Volume", 1, AC97_HEADPHONE),
 	AC97_SWITCH("Front Panel Playback Switch", 1, AC97_HEADPHONE, 15, 1),
 	{
 		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,

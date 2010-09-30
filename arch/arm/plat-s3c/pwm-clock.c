@@ -315,7 +315,7 @@ static int __init clk_pwm_tdiv_register(unsigned int id)
 	divclk->clk.id = id;
 	divclk->divisor = tcfg_to_divisor(tcfg1);
 
-	return s3c24xx_register_clock(&divclk->clk);
+	return s3c_register_clock(&divclk->clk);
 }
 
 static inline struct clk *s3c24xx_pwmclk_tclk(unsigned int id)
@@ -392,7 +392,7 @@ static __init int clk_pwm_tin_register(struct clk *pwm)
 	struct clk *parent;
 	int ret;
 
-	ret = s3c24xx_register_clock(pwm);
+	ret = s3c_register_clock(pwm);
 	if (ret < 0)
 		return ret;
 
@@ -430,7 +430,7 @@ __init void s3c_pwmclk_init(void)
 
 	for (clk = 0; clk < ARRAY_SIZE(clk_timer_scaler); clk++) {
 		clk_timer_scaler[clk].parent = clk_timers;
-		ret = s3c24xx_register_clock(&clk_timer_scaler[clk]);
+		ret = s3c_register_clock(&clk_timer_scaler[clk]);
 		if (ret < 0) {
 			printk(KERN_ERR "error adding pwm scaler%d clock\n", clk);
 			return;
@@ -438,7 +438,7 @@ __init void s3c_pwmclk_init(void)
 	}
 
 	for (clk = 0; clk < ARRAY_SIZE(clk_timer_tclk); clk++) {
-		ret = s3c24xx_register_clock(&clk_timer_tclk[clk]);
+		ret = s3c_register_clock(&clk_timer_tclk[clk]);
 		if (ret < 0) {
 			printk(KERN_ERR "error adding pww tclk%d\n", clk);
 			return;

@@ -58,11 +58,11 @@ struct ima_iint_cache *ima_iint_insert(struct inode *inode)
 
 	if (!ima_initialized)
 		return iint;
-	iint = kmem_cache_alloc(iint_cache, GFP_NOFS);
+	iint = kmem_cache_alloc(iint_cache, GFP_KERNEL);
 	if (!iint)
 		return iint;
 
-	rc = radix_tree_preload(GFP_NOFS);
+	rc = radix_tree_preload(GFP_KERNEL);
 	if (rc < 0)
 		goto out;
 

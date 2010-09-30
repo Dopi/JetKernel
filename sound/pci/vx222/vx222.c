@@ -204,9 +204,9 @@ static int __devinit snd_vx222_probe(struct pci_dev *pci,
 		return -ENOENT;
 	}
 
-	err = snd_card_create(index[dev], id[dev], THIS_MODULE, 0, &card);
-	if (err < 0)
-		return err;
+	card = snd_card_new(index[dev], id[dev], THIS_MODULE, 0);
+	if (card == NULL)
+		return -ENOMEM;
 
 	switch ((int)pci_id->driver_data) {
 	case VX_PCI_VX222_OLD:

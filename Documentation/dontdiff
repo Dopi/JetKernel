@@ -152,6 +152,7 @@ piggy.gz
 piggyback
 pnmtologo
 ppc_defs.h*
+promcon_tbl.c
 pss_boot.h
 qconf
 raid6altivec*.c

@@ -19,6 +19,7 @@
 #include <linux/input.h>
 #include <linux/major.h>
 #include <linux/device.h>
+#include <linux/wakelock.h>
 #include "input-compat.h"
 
 struct evdev {
@@ -42,6 +43,7 @@ struct evdev_client {
 	struct fasync_struct *fasync;
 	struct evdev *evdev;
 	struct list_head node;
+	struct wake_lock wake_lock;
 };
 
 static struct evdev *evdev_table[EVDEV_MINORS];
@@ -54,6 +56,7 @@ static void evdev_pass_event(struct evdev_client *client,
 	 * Interrupts are disabled, just acquire the lock
 	 */
 	spin_lock(&client->buffer_lock);
+	wake_lock_timeout(&client->wake_lock, 5 * HZ);
 	client->buffer[client->head++] = *event;
 	client->head &= EVDEV_BUFFER_SIZE - 1;
 	spin_unlock(&client->buffer_lock);
@@ -70,8 +73,11 @@ static void evdev_event(struct input_handle *handle,
 	struct evdev *evdev = handle->private;
 	struct evdev_client *client;
 	struct input_event event;
+	struct timespec ts;
 
-	do_gettimeofday(&event.time);
+	ktime_get_ts(&ts);
+	 event.time.tv_sec = ts.tv_sec;
+	 event.time.tv_usec = ts.tv_nsec / NSEC_PER_USEC;
 	event.type = type;
 	event.code = code;
 	event.value = value;
@@ -232,6 +238,7 @@ static int evdev_release(struct inode *inode, struct file *file)
 	mutex_unlock(&evdev->mutex);
 
 	evdev_detach_client(evdev, client);
+	wake_lock_destroy(&client->wake_lock);
 	kfree(client);
 
 	evdev_close_device(evdev);
@@ -268,6 +275,7 @@ static int evdev_open(struct inode *inode, struct file *file)
 	}
 
 	spin_lock_init(&client->buffer_lock);
+	wake_lock_init(&client->wake_lock, WAKE_LOCK_SUSPEND, "evdev");
 	client->evdev = evdev;
 	evdev_attach_client(evdev, client);
 
@@ -331,6 +339,8 @@ static int evdev_fetch_next_event(struct evdev_client *client,
 	if (have_event) {
 		*event = client->buffer[client->tail++];
 		client->tail &= EVDEV_BUFFER_SIZE - 1;
+		if (client->head == client->tail)
+			wake_unlock(&client->wake_lock);
 	}
 
 	spin_unlock_irq(&client->buffer_lock);

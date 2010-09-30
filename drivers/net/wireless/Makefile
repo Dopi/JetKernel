@@ -44,6 +44,8 @@ obj-$(CONFIG_USB_NET_RNDIS_WLAN)	+= rndis_wlan.o
 obj-$(CONFIG_USB_ZD1201)	+= zd1201.o
 obj-$(CONFIG_LIBERTAS)		+= libertas/
 
+obj-$(CONFIG_MARVELL_8686_SDIO) += marvell8686/
+
 obj-$(CONFIG_LIBERTAS_THINFIRM)	+= libertas_tf/
 
 obj-$(CONFIG_ADM8211)	+= adm8211.o

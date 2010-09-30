@@ -66,10 +66,10 @@ void show_swap_cache_info(void)
 }
 
 /*
- * __add_to_swap_cache resembles add_to_page_cache_locked on swapper_space,
+ * add_to_swap_cache resembles add_to_page_cache_locked on swapper_space,
  * but sets SwapCache flag and private instead of mapping and index.
  */
-static int __add_to_swap_cache(struct page *page, swp_entry_t entry)
+int add_to_swap_cache(struct page *page, swp_entry_t entry, gfp_t gfp_mask)
 {
 	int error;
 
@@ -77,37 +77,28 @@ static int __add_to_swap_cache(struct page *page, swp_entry_t entry)
 	VM_BUG_ON(PageSwapCache(page));
 	VM_BUG_ON(!PageSwapBacked(page));
 
-	page_cache_get(page);
-	SetPageSwapCache(page);
-	set_page_private(page, entry.val);
-
-	spin_lock_irq(&swapper_space.tree_lock);
-	error = radix_tree_insert(&swapper_space.page_tree, entry.val, page);
-	if (likely(!error)) {
-		total_swapcache_pages++;
-		__inc_zone_page_state(page, NR_FILE_PAGES);
-		INC_CACHE_INFO(add_total);
-	}
-	spin_unlock_irq(&swapper_space.tree_lock);
-
-	if (unlikely(error)) {
-		set_page_private(page, 0UL);
-		ClearPageSwapCache(page);
-		page_cache_release(page);
-	}
-
-	return error;
-}
-
-
-int add_to_swap_cache(struct page *page, swp_entry_t entry, gfp_t gfp_mask)
-{
-	int error;
-
 	error = radix_tree_preload(gfp_mask);
 	if (!error) {
-		error = __add_to_swap_cache(page, entry);
+		page_cache_get(page);
+		SetPageSwapCache(page);
+		set_page_private(page, entry.val);
+
+		spin_lock_irq(&swapper_space.tree_lock);
+		error = radix_tree_insert(&swapper_space.page_tree,
+						entry.val, page);
+		if (likely(!error)) {
+			total_swapcache_pages++;
+			__inc_zone_page_state(page, NR_FILE_PAGES);
+			INC_CACHE_INFO(add_total);
+		}
+		spin_unlock_irq(&swapper_space.tree_lock);
 		radix_tree_preload_end();
+
+		if (unlikely(error)) {
+			set_page_private(page, 0UL);
+			ClearPageSwapCache(page);
+			page_cache_release(page);
+		}
 	}
 	return error;
 }
@@ -298,24 +289,13 @@ struct page *read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask,
 		}
 
 		/*
-		 * call radix_tree_preload() while we can wait.
-		 */
-		err = radix_tree_preload(gfp_mask & GFP_KERNEL);
-		if (err)
-			break;
-
-		/*
 		 * Swap entry may have been freed since our caller observed it.
 		 */
 		err = swapcache_prepare(entry);
-		if (err == -EEXIST) {	/* seems racy */
-			radix_tree_preload_end();
+		if (err == -EEXIST) /* seems racy */
 			continue;
-		}
-		if (err) {		/* swp entry is obsolete ? */
-			radix_tree_preload_end();
+		if (err)           /* swp entry is obsolete ? */
 			break;
-		}
 
 		/*
 		 * Associate the page with swap entry in the swap cache.
@@ -327,9 +307,8 @@ struct page *read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask,
 		 */
 		__set_page_locked(new_page);
 		SetPageSwapBacked(new_page);
-		err = __add_to_swap_cache(new_page, entry);
+		err = add_to_swap_cache(new_page, entry, gfp_mask & GFP_KERNEL);
 		if (likely(!err)) {
-			radix_tree_preload_end();
 			/*
 			 * Initiate read into locked page and return.
 			 */
@@ -337,7 +316,6 @@ struct page *read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask,
 			swap_readpage(new_page);
 			return new_page;
 		}
-		radix_tree_preload_end();
 		ClearPageSwapBacked(new_page);
 		__clear_page_locked(new_page);
 		swapcache_free(entry, NULL);

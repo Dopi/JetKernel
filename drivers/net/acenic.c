@@ -1209,8 +1209,7 @@ static int __devinit ace_init(struct net_device *dev)
 	memset(ap->info, 0, sizeof(struct ace_info));
 	memset(ap->skb, 0, sizeof(struct ace_skb));
 
-	ecode = ace_load_firmware(dev);
-	if (ecode)
+	if (ace_load_firmware(dev))
 		goto init_error;
 
 	ap->fw_running = 0;

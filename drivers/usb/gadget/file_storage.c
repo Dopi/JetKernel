@@ -369,7 +369,7 @@ static struct {
 } mod_data = {					// Default values
 	.transport_parm		= "BBB",
 	.protocol_parm		= "SCSI",
-	.removable		= 0,
+	.removable		= 1,
 	.can_stall		= 1,
 	.cdrom			= 0,
 	.vendor			= DRIVER_VENDOR_ID,
@@ -4184,6 +4184,7 @@ static void fsg_suspend(struct usb_gadget *gadget)
 
 	DBG(fsg, "suspend\n");
 	set_bit(SUSPENDED, &fsg->atomic_bitflags);
+	fsg->running = 0;
 }
 
 static void fsg_resume(struct usb_gadget *gadget)

@@ -243,9 +243,9 @@ static int __devinit snd_sgalaxy_probe(struct device *devptr, unsigned int dev)
 	struct snd_card *card;
 	struct snd_wss *chip;
 
-	err = snd_card_create(index[dev], id[dev], THIS_MODULE, 0, &card);
-	if (err < 0)
-		return err;
+	card = snd_card_new(index[dev], id[dev], THIS_MODULE, 0);
+	if (card == NULL)
+		return -ENOMEM;
 
 	xirq = irq[dev];
 	if (xirq == SNDRV_AUTO_IRQ) {

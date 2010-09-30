@@ -1395,10 +1395,13 @@ static int snd_timer_user_ginfo(struct file *file,
 	struct list_head *p;
 	int err = 0;
 
-	ginfo = memdup_user(_ginfo, sizeof(*ginfo));
-	if (IS_ERR(ginfo))
-		return PTR_ERR(ginfo);
-
+	ginfo = kmalloc(sizeof(*ginfo), GFP_KERNEL);
+	if (! ginfo)
+		return -ENOMEM;
+	if (copy_from_user(ginfo, _ginfo, sizeof(*ginfo))) {
+		kfree(ginfo);
+		return -EFAULT;
+	}
 	tid = ginfo->tid;
 	memset(ginfo, 0, sizeof(*ginfo));
 	ginfo->tid = tid;
@@ -1822,9 +1825,13 @@ static long snd_timer_user_ioctl(struct file *file, unsigned int cmd,
 static int snd_timer_user_fasync(int fd, struct file * file, int on)
 {
 	struct snd_timer_user *tu;
+	int err;
 
 	tu = file->private_data;
-	return fasync_helper(fd, file, on, &tu->fasync);
+	err = fasync_helper(fd, file, on, &tu->fasync);
+        if (err < 0)
+		return err;
+	return 0;
 }
 
 static ssize_t snd_timer_user_read(struct file *file, char __user *buffer,

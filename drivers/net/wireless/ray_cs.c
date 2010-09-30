@@ -2878,7 +2878,7 @@ static int write_essid(struct file *file, const char __user *buffer,
 		       unsigned long count, void *data)
 {
 	static char proc_essid[33];
-	unsigned int len = count;
+	int len = count;
 
 	if (len > 32)
 		len = 32;

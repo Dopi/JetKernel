@@ -104,7 +104,7 @@ static int sclhi(struct i2c_algo_bit_data *adap)
 		 * chips may hold it low ("clock stretching") while they
 		 * are processing data internally.
 		 */
-		if (time_after(jiffies, start + adap->timeout))
+		if (time_after_eq(jiffies, start + adap->timeout))
 			return -ETIMEDOUT;
 		cond_resched();
 	}
@@ -350,6 +350,7 @@ static int sendbytes(struct i2c_adapter *i2c_adap, struct i2c_msg *msg)
 	int wrcount = 0;
 
 	while (count > 0) {
+		udelay(30);		//temporary added for touchscreen i2c driver
 		retval = i2c_outb(i2c_adap, *temp);
 
 		/* OK/ACK; or ignored NAK */
@@ -407,6 +408,7 @@ static int readbytes(struct i2c_adapter *i2c_adap, struct i2c_msg *msg)
 	const unsigned flags = msg->flags;
 
 	while (count > 0) {
+		udelay(30); //temporary added for touchscreen i2c driver
 		inval = i2c_inb(i2c_adap);
 		if (inval >= 0) {
 			*temp = inval;
@@ -554,6 +556,7 @@ static int bit_xfer(struct i2c_adapter *i2c_adap,
 			}
 		} else {
 			/* write bytes from buffer */
+
 			ret = sendbytes(i2c_adap, pmsg);
 			if (ret >= 1)
 				bit_dbg(2, &i2c_adap->dev, "wrote %d byte%s\n",
@@ -604,7 +607,9 @@ static int i2c_bit_prepare_bus(struct i2c_adapter *adap)
 
 	/* register new adapter to i2c module... */
 	adap->algo = &i2c_bit_algo;
-	adap->retries = 3;
+
+	adap->timeout = 100;	/* default values, should	*/
+	adap->retries = 3;	/* be replaced by defines	*/
 
 	return 0;
 }

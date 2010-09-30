@@ -37,6 +37,15 @@ config KEYBOARD_AMIGA
 config ATARI_KBD_CORE
 	bool
 
+config KEYPAD_S3C
+	tristate "S3C keypad support"
+	depends on (CPU_S3C6400 || CPU_S3C6410)
+	default y
+	help
+	  Say Y here if you want to use the S3C SMDK keypad.
+	  To compile this driver as a module, choose M here: the
+	  module will be called s3c-keypad.
+
 config KEYBOARD_ATARI
 	tristate "Atari keyboard"
 	depends on ATARI

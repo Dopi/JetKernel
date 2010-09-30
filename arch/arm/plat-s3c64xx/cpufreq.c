@@ -36,13 +36,14 @@ static struct s3c64xx_dvfs s3c64xx_dvfs_table[] = {
 
 static struct cpufreq_frequency_table s3c64xx_freq_table[] = {
 	{ 0,  66000 },
-	{ 0, 133000 },
-	{ 1, 222000 },
-	{ 1, 266000 },
+	{ 1, 133000 },
+	{ 1, 166500 },	/* { 1, 222000 }, 222Mhz can't resume */
+	{ 2, 266000 },
 	{ 2, 333000 },
 	{ 2, 400000 },
 	{ 3, 532000 },
 	{ 3, 533000 },
+	{ 4, 666000 },
 	{ 4, 667000 },
 	{ 0, CPUFREQ_TABLE_END },
 };

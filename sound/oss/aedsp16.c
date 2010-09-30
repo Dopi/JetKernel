@@ -325,9 +325,8 @@
 /*
  * Size of character arrays that store name and version of sound card
  */
-#define CARDNAMELEN	15	/* Size of the card's name in chars     */
-#define CARDVERLEN	10	/* Size of the card's version in chars	*/
-#define CARDVERDIGITS	2	/* Number of digits in the version	*/
+#define CARDNAMELEN 15		/* Size of the card's name in chars     */
+#define CARDVERLEN  2		/* Size of the card's version in chars  */
 
 #if defined(CONFIG_SC6600)
 /*
@@ -411,7 +410,7 @@
 
 static int      soft_cfg __initdata = 0;	/* bitmapped config */
 static int      soft_cfg_mss __initdata = 0;	/* bitmapped mss config */
-static int      ver[CARDVERDIGITS] __initdata = {0, 0};	/* DSP Ver:
+static int      ver[CARDVERLEN] __initdata = {0, 0};	/* DSP Ver:
 						   hi->ver[0] lo->ver[1] */
 
 #if defined(CONFIG_SC6600)
@@ -958,7 +957,7 @@ static int __init aedsp16_dsp_version(int port)
 	 * string is finished.
 	 */
 		ver[len++] = ret;
-	  } while (len < CARDVERDIGITS);
+	  } while (len < CARDVERLEN);
 	sprintf(DSPVersion, "%d.%d", ver[0], ver[1]);
 
 	DBG(("success.\n"));

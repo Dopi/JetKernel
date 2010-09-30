@@ -53,10 +53,10 @@ static int __devinit snd_adlib_probe(struct device *dev, unsigned int n)
 	struct snd_opl3 *opl3;
 	int error;
 
-	error = snd_card_create(index[n], id[n], THIS_MODULE, 0, &card);
-	if (error < 0) {
+	card = snd_card_new(index[n], id[n], THIS_MODULE, 0);
+	if (!card) {
 		dev_err(dev, "could not create card\n");
-		return error;
+		return -EINVAL;
 	}
 
 	card->private_data = request_region(port[n], 4, CRD_NAME);

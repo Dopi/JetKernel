@@ -1063,8 +1063,7 @@ ssize_t fuse_direct_io(struct file *file, const char __user *buf,
 				break;
 		}
 	}
-	if (!IS_ERR(req))
-		fuse_put_request(fc, req);
+	fuse_put_request(fc, req);
 	if (res > 0)
 		*ppos = pos;
 
@@ -1600,7 +1599,7 @@ static int fuse_ioctl_copy_user(struct page **pages, struct iovec *iov,
 			kaddr += copy;
 		}
 
-		kunmap(page);
+		kunmap(map);
 	}
 
 	return 0;

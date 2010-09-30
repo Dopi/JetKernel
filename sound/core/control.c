@@ -723,11 +723,14 @@ static int snd_ctl_elem_read_user(struct snd_card *card,
 {
 	struct snd_ctl_elem_value *control;
 	int result;
-
-	control = memdup_user(_control, sizeof(*control));
-	if (IS_ERR(control))
-		return PTR_ERR(control);
-
+	
+	control = kmalloc(sizeof(*control), GFP_KERNEL);
+	if (control == NULL)
+		return -ENOMEM;	
+	if (copy_from_user(control, _control, sizeof(*control))) {
+		kfree(control);
+		return -EFAULT;
+	}
 	snd_power_lock(card);
 	result = snd_power_wait(card, SNDRV_CTL_POWER_D0);
 	if (result >= 0)
@@ -781,10 +784,13 @@ static int snd_ctl_elem_write_user(struct snd_ctl_file *file,
 	struct snd_card *card;
 	int result;
 
-	control = memdup_user(_control, sizeof(*control));
-	if (IS_ERR(control))
-		return PTR_ERR(control);
-
+	control = kmalloc(sizeof(*control), GFP_KERNEL);
+	if (control == NULL)
+		return -ENOMEM;	
+	if (copy_from_user(control, _control, sizeof(*control))) {
+		kfree(control);
+		return -EFAULT;
+	}
 	card = file->card;
 	snd_power_lock(card);
 	result = snd_power_wait(card, SNDRV_CTL_POWER_D0);
@@ -910,10 +916,13 @@ static int snd_ctl_elem_user_tlv(struct snd_kcontrol *kcontrol,
 	if (op_flag > 0) {
 		if (size > 1024 * 128)	/* sane value */
 			return -EINVAL;
-
-		new_data = memdup_user(tlv, size);
-		if (IS_ERR(new_data))
-			return PTR_ERR(new_data);
+		new_data = kmalloc(size, GFP_KERNEL);
+		if (new_data == NULL)
+			return -ENOMEM;
+		if (copy_from_user(new_data, tlv, size)) {
+			kfree(new_data);
+			return -EFAULT;
+		}
 		change = ue->tlv_data_size != size;
 		if (!change)
 			change = memcmp(ue->tlv_data, new_data, size);
@@ -1364,9 +1373,12 @@ EXPORT_SYMBOL(snd_ctl_unregister_ioctl_compat);
 static int snd_ctl_fasync(int fd, struct file * file, int on)
 {
 	struct snd_ctl_file *ctl;
-
+	int err;
 	ctl = file->private_data;
-	return fasync_helper(fd, file, on, &ctl->fasync);
+	err = fasync_helper(fd, file, on, &ctl->fasync);
+	if (err < 0)
+		return err;
+	return 0;
 }
 
 /*
