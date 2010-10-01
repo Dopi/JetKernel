@@ -75,11 +75,12 @@ struct adb_dev {
 static struct usb_interface_descriptor adb_interface_desc = {
 	.bLength                = USB_DT_INTERFACE_SIZE,
 	.bDescriptorType        = USB_DT_INTERFACE,
-	.bInterfaceNumber       = 0,
+	/* .bInterfaceNumber = DYNAMIC */
 	.bNumEndpoints          = 2,
 	.bInterfaceClass        = 0xFF,
 	.bInterfaceSubClass     = 0x42,
 	.bInterfaceProtocol     = 1,
+	/* .iInterface = DYNAMIC */
 };
 
 static struct usb_endpoint_descriptor adb_highspeed_in_desc = {
@@ -126,11 +127,30 @@ static struct usb_descriptor_header *hs_adb_descs[] = {
 	NULL,
 };
 
+/* string descriptors: */
+
+#define ADB_IDX	0
+
+/* static strings, in UTF-8 */
+static struct usb_string adb_string_defs[] = {
+	[ADB_IDX].s = "S3C6410 Android ADB",
+	{  /* ZEROES END LIST */ },
+};
+
+static struct usb_gadget_strings adb_string_table = {
+	.language =		0x0409,	/* en-us */
+	.strings =		adb_string_defs,
+};
+
+static struct usb_gadget_strings *adb_strings[] = {
+	&adb_string_table,
+	NULL,
+};
+
 /* used when adb function is disabled */
 static struct usb_descriptor_header *null_adb_descs[] = {
 	NULL,
 };
-
 
 /* temporary variable used between adb_open() and adb_gadget_bind() */
 static struct adb_dev *_adb_dev;
@@ -181,7 +201,7 @@ static inline void _unlock(atomic_t *excl)
 }
 
 /* add a request to the tail of a list */
-void req_put(struct adb_dev *dev, struct list_head *head,
+void inline req_put(struct adb_dev *dev, struct list_head *head,
 		struct usb_request *req)
 {
 	unsigned long flags;
@@ -250,8 +270,9 @@ static int __init create_bulk_endpoints(struct adb_dev *dev,
 		DBG(cdev, "usb_ep_autoconfig for ep_in failed\n");
 		return -ENODEV;
 	}
-	DBG(cdev, "usb_ep_autoconfig for ep_in got %s\n", ep->name);
+	DBG(cdev, "usb_ep_autoconfig for adb ep_in got %s\n", ep->name);
 	dev->ep_in = ep;
+	ep->driver_data = dev;	/* claim */
 
 	ep = usb_ep_autoconfig(cdev->gadget, out_desc);
 	if (!ep) {
@@ -260,6 +281,7 @@ static int __init create_bulk_endpoints(struct adb_dev *dev,
 	}
 	DBG(cdev, "usb_ep_autoconfig for adb ep_out got %s\n", ep->name);
 	dev->ep_out = ep;
+	ep->driver_data = dev;	/* claim */
 
 	/* now allocate requests for our endpoints */
 	for (i = 0; i < RX_REQ_MAX; i++) {
@@ -455,7 +477,6 @@ static ssize_t adb_write(struct file *fp, const char __user *buf,
 
 static int adb_open(struct inode *ip, struct file *fp)
 {
-	printk(KERN_INFO "adb_open\n");
 	if (_lock(&_adb_dev->open_excl))
 		return -EBUSY;
 
@@ -469,7 +490,7 @@ static int adb_open(struct inode *ip, struct file *fp)
 
 static int adb_release(struct inode *ip, struct file *fp)
 {
-	printk(KERN_INFO "adb_release\n");
+	if(_adb_dev != NULL)
 	_unlock(&_adb_dev->open_excl);
 	return 0;
 }
@@ -488,6 +509,16 @@ static struct miscdevice adb_device = {
 	.name = shortname,
 	.fops = &adb_fops,
 };
+
+#if	USBCV_CH9_REMOTE_WAKE_UP_TEST
+//To send wakeup signal for USBCV test scenario
+static int adb_function_suspend(struct usb_function *f) {
+	mdelay(200);
+	printk("[%s] Request usb_gadget_wakeup()\n", __func__);
+	usb_gadget_wakeup(f->config->cdev->gadget);
+}	
+#endif
+
 
 static int __init
 adb_function_bind(struct usb_configuration *c, struct usb_function *f)
@@ -556,20 +587,30 @@ static int adb_function_set_alt(struct usb_function *f,
 	int ret;
 
 	DBG(cdev, "adb_function_set_alt intf: %d alt: %d\n", intf, alt);
+
+	if(dev->ep_in->driver_data)
+		usb_ep_disable(dev->ep_in);
 	ret = usb_ep_enable(dev->ep_in,
 			ep_choose(cdev->gadget,
 				&adb_highspeed_in_desc,
 				&adb_fullspeed_in_desc));
 	if (ret)
 		return ret;
+	dev->ep_in->driver_data = dev;
+	
+	if(dev->ep_out->driver_data)
+		usb_ep_disable(dev->ep_out);
 	ret = usb_ep_enable(dev->ep_out,
 			ep_choose(cdev->gadget,
 				&adb_highspeed_out_desc,
 				&adb_fullspeed_out_desc));
 	if (ret) {
 		usb_ep_disable(dev->ep_in);
+		dev->ep_in->driver_data = NULL;
 		return ret;
 	}
+	dev->ep_out->driver_data = dev;
+
 	dev->online = 1;
 
 	/* readers may be blocked waiting for us to go online */
@@ -585,8 +626,12 @@ static void adb_function_disable(struct usb_function *f)
 	DBG(cdev, "adb_function_disable\n");
 	dev->online = 0;
 	dev->error = 1;
+	
 	usb_ep_disable(dev->ep_in);
+	dev->ep_in->driver_data = NULL;
+	
 	usb_ep_disable(dev->ep_out);
+	dev->ep_out->driver_data = NULL;
 
 	/* readers may be blocked waiting for us to go online */
 	wake_up(&dev->read_wq);
@@ -598,10 +643,20 @@ int __init adb_function_add(struct usb_composite_dev *cdev,
 	struct usb_configuration *c)
 {
 	struct adb_dev *dev;
-	int ret;
+	int ret, status;
 
 	printk(KERN_INFO "adb_function_add\n");
 
+//by ss1
+	/* maybe allocate device-global string IDs, and patch descriptors */
+	if (adb_string_defs[ADB_IDX].id == 0) {
+		status = usb_string_id(c->cdev);
+		if (status < 0)
+			return status;
+		adb_string_defs[ADB_IDX].id = status;
+		adb_interface_desc.iInterface = status;
+	}
+	
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (!dev)
 		return -ENOMEM;
@@ -621,12 +676,16 @@ int __init adb_function_add(struct usb_composite_dev *cdev,
 
 	dev->cdev = cdev;
 	dev->function.name = "adb";
+	dev->function.strings = adb_strings;
 	dev->function.descriptors = null_adb_descs;
 	dev->function.hs_descriptors = null_adb_descs;
 	dev->function.bind = adb_function_bind;
 	dev->function.unbind = adb_function_unbind;
 	dev->function.set_alt = adb_function_set_alt;
 	dev->function.disable = adb_function_disable;
+#if	USBCV_CH9_REMOTE_WAKE_UP_TEST
+	dev->function.suspend = adb_function_suspend;
+#endif
 
 	/* _adb_dev must be set before calling usb_gadget_register_driver */
 	_adb_dev = dev;
@@ -653,8 +712,8 @@ void adb_function_enable(int enable)
 	struct adb_dev *dev = _adb_dev;
 
 	if (dev) {
-		DBG(dev->cdev, "adb_function_enable(%s)\n",
-			enable ? "true" : "false");
+		printk("[%s] adb_function => (%s)\n", __func__, 
+			enable ? "enabled" : "disabled");
 
 		if (enable) {
 			dev->function.descriptors = fs_adb_descs;
@@ -664,5 +723,7 @@ void adb_function_enable(int enable)
 			dev->function.hs_descriptors = null_adb_descs;
 		}
 	}
+	else
+		printk("[%s] dev does not exist\n", __func__);
 }
 

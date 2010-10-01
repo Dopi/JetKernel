@@ -199,6 +199,21 @@ endchoice
 	  
 # device definitions to compile in
 
+#option for OS tick timer (fixed/dynamic)
+choice
+	prompt "OS Timer support "
+	default DYNAMIC_TIMER
+
+	config FIXED_TIMER
+	bool "Fixed Tick timer"
+
+	config DYNAMIC_TIMER
+	bool "Tickless and HR Timer"
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+
+endchoice
+
 config S3C_DEV_HSMMC
 	bool
 	help

@@ -99,7 +99,6 @@ struct rtc_pll_info {
 
 #ifdef __KERNEL__
 
-#include <linux/types.h>
 #include <linux/interrupt.h>
 
 extern int rtc_month_days(unsigned int month, unsigned int year);
@@ -232,11 +231,6 @@ typedef struct rtc_task {
 int rtc_register(rtc_task_t *task);
 int rtc_unregister(rtc_task_t *task);
 int rtc_control(rtc_task_t *t, unsigned int cmd, unsigned long arg);
-
-static inline bool is_leap_year(unsigned int year)
-{
-	return (!(year % 4) && (year % 100)) || !(year % 400);
-}
 
 #endif /* __KERNEL__ */
 

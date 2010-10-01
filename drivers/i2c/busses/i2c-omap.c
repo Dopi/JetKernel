@@ -193,24 +193,22 @@ static inline u16 omap_i2c_read_reg(struct omap_i2c_dev *i2c_dev, int reg)
 
 static int __init omap_i2c_get_clocks(struct omap_i2c_dev *dev)
 {
-	int ret;
-
-	dev->iclk = clk_get(dev->dev, "ick");
-	if (IS_ERR(dev->iclk)) {
-		ret = PTR_ERR(dev->iclk);
-		dev->iclk = NULL;
-		return ret;
+	if (cpu_is_omap16xx() || cpu_class_is_omap2()) {
+		dev->iclk = clk_get(dev->dev, "i2c_ick");
+		if (IS_ERR(dev->iclk)) {
+			dev->iclk = NULL;
+			return -ENODEV;
+		}
 	}
 
-	dev->fclk = clk_get(dev->dev, "fck");
+	dev->fclk = clk_get(dev->dev, "i2c_fck");
 	if (IS_ERR(dev->fclk)) {
-		ret = PTR_ERR(dev->fclk);
 		if (dev->iclk != NULL) {
 			clk_put(dev->iclk);
 			dev->iclk = NULL;
 		}
 		dev->fclk = NULL;
-		return ret;
+		return -ENODEV;
 	}
 
 	return 0;
@@ -220,15 +218,18 @@ static void omap_i2c_put_clocks(struct omap_i2c_dev *dev)
 {
 	clk_put(dev->fclk);
 	dev->fclk = NULL;
-	clk_put(dev->iclk);
-	dev->iclk = NULL;
+	if (dev->iclk != NULL) {
+		clk_put(dev->iclk);
+		dev->iclk = NULL;
+	}
 }
 
 static void omap_i2c_unidle(struct omap_i2c_dev *dev)
 {
 	WARN_ON(!dev->idle);
 
-	clk_enable(dev->iclk);
+	if (dev->iclk != NULL)
+		clk_enable(dev->iclk);
 	clk_enable(dev->fclk);
 	dev->idle = 0;
 	if (dev->iestate)
@@ -253,7 +254,8 @@ static void omap_i2c_idle(struct omap_i2c_dev *dev)
 	}
 	dev->idle = 1;
 	clk_disable(dev->fclk);
-	clk_disable(dev->iclk);
+	if (dev->iclk != NULL)
+		clk_disable(dev->iclk);
 }
 
 static int omap_i2c_init(struct omap_i2c_dev *dev)
@@ -310,14 +312,15 @@ static int omap_i2c_init(struct omap_i2c_dev *dev)
 	omap_i2c_write_reg(dev, OMAP_I2C_CON_REG, 0);
 
 	if (cpu_class_is_omap1()) {
-		/*
-		 * The I2C functional clock is the armxor_ck, so there's
-		 * no need to get "armxor_ck" separately.  Now, if OMAP2420
-		 * always returns 12MHz for the functional clock, we can
-		 * do this bit unconditionally.
-		 */
-		fclk_rate = clk_get_rate(dev->fclk);
+		struct clk *armxor_ck;
 
+		armxor_ck = clk_get(NULL, "armxor_ck");
+		if (IS_ERR(armxor_ck))
+			dev_warn(dev->dev, "Could not get armxor_ck\n");
+		else {
+			fclk_rate = clk_get_rate(armxor_ck);
+			clk_put(armxor_ck);
+		}
 		/* TRM for 5912 says the I2C clock must be prescaled to be
 		 * between 7 - 12 MHz. The XOR input clock is typically
 		 * 12, 13 or 19.2 MHz. So we should have code that produces:
@@ -333,18 +336,8 @@ static int omap_i2c_init(struct omap_i2c_dev *dev)
 
 	if (cpu_is_omap2430() || cpu_is_omap34xx()) {
 
-		/*
-		 * HSI2C controller internal clk rate should be 19.2 Mhz for
-		 * HS and for all modes on 2430. On 34xx we can use lower rate
-		 * to get longer filter period for better noise suppression.
-		 * The filter is iclk (fclk for HS) period.
-		 */
-		if (dev->speed > 400 || cpu_is_omap2430())
-			internal_clk = 19200;
-		else if (dev->speed > 100)
-			internal_clk = 9600;
-		else
-			internal_clk = 4000;
+		/* HSI2C controller internal clk rate should be 19.2 Mhz */
+		internal_clk = 19200;
 		fclk_rate = clk_get_rate(dev->fclk) / 1000;
 
 		/* Compute prescaler divisor */
@@ -353,28 +346,17 @@ static int omap_i2c_init(struct omap_i2c_dev *dev)
 
 		/* If configured for High Speed */
 		if (dev->speed > 400) {
-			unsigned long scl;
-
 			/* For first phase of HS mode */
-			scl = internal_clk / 400;
-			fsscll = scl - (scl / 3) - 7;
-			fssclh = (scl / 3) - 5;
+			fsscll = internal_clk / (400 * 2) - 6;
+			fssclh = internal_clk / (400 * 2) - 6;
 
 			/* For second phase of HS mode */
-			scl = fclk_rate / dev->speed;
-			hsscll = scl - (scl / 3) - 7;
-			hssclh = (scl / 3) - 5;
-		} else if (dev->speed > 100) {
-			unsigned long scl;
-
-			/* Fast mode */
-			scl = internal_clk / dev->speed;
-			fsscll = scl - (scl / 3) - 7;
-			fssclh = (scl / 3) - 5;
+			hsscll = fclk_rate / (dev->speed * 2) - 6;
+			hssclh = fclk_rate / (dev->speed * 2) - 6;
 		} else {
-			/* Standard mode */
-			fsscll = internal_clk / (dev->speed * 2) - 7;
-			fssclh = internal_clk / (dev->speed * 2) - 5;
+			/* To handle F/S modes */
+			fsscll = internal_clk / (dev->speed * 2) - 6;
+			fssclh = internal_clk / (dev->speed * 2) - 6;
 		}
 		scll = (hsscll << OMAP_I2C_SCLL_HSSCLL) | fsscll;
 		sclh = (hssclh << OMAP_I2C_SCLH_HSSCLH) | fssclh;
@@ -672,17 +654,9 @@ omap_i2c_isr(int this_irq, void *dev_id)
 			break;
 		}
 
-		err = 0;
-complete:
-		/*
-		 * Ack the stat in one go, but [R/X]DR and [R/X]RDY should be
-		 * acked after the data operation is complete.
-		 * Ref: TRM SWPU114Q Figure 18-31
-		 */
-		omap_i2c_write_reg(dev, OMAP_I2C_STAT_REG, stat &
-				~(OMAP_I2C_STAT_RRDY | OMAP_I2C_STAT_RDR |
-				OMAP_I2C_STAT_XRDY | OMAP_I2C_STAT_XDR));
+		omap_i2c_write_reg(dev, OMAP_I2C_STAT_REG, stat);
 
+		err = 0;
 		if (stat & OMAP_I2C_STAT_NACK) {
 			err |= OMAP_I2C_STAT_NACK;
 			omap_i2c_write_reg(dev, OMAP_I2C_CON_REG,
@@ -693,22 +667,16 @@ complete:
 			err |= OMAP_I2C_STAT_AL;
 		}
 		if (stat & (OMAP_I2C_STAT_ARDY | OMAP_I2C_STAT_NACK |
-					OMAP_I2C_STAT_AL)) {
-			omap_i2c_ack_stat(dev, stat &
-				(OMAP_I2C_STAT_RRDY | OMAP_I2C_STAT_RDR |
-				OMAP_I2C_STAT_XRDY | OMAP_I2C_STAT_XDR));
+					OMAP_I2C_STAT_AL))
 			omap_i2c_complete_cmd(dev, err);
-			return IRQ_HANDLED;
-		}
 		if (stat & (OMAP_I2C_STAT_RRDY | OMAP_I2C_STAT_RDR)) {
 			u8 num_bytes = 1;
 			if (dev->fifo_size) {
 				if (stat & OMAP_I2C_STAT_RRDY)
 					num_bytes = dev->fifo_size;
-				else    /* read RXSTAT on RDR interrupt */
-					num_bytes = (omap_i2c_read_reg(dev,
-							OMAP_I2C_BUFSTAT_REG)
-							>> 8) & 0x3F;
+				else
+					num_bytes = omap_i2c_read_reg(dev,
+							OMAP_I2C_BUFSTAT_REG);
 			}
 			while (num_bytes) {
 				num_bytes--;
@@ -745,10 +713,9 @@ complete:
 			if (dev->fifo_size) {
 				if (stat & OMAP_I2C_STAT_XRDY)
 					num_bytes = dev->fifo_size;
-				else    /* read TXSTAT on XDR interrupt */
+				else
 					num_bytes = omap_i2c_read_reg(dev,
-							OMAP_I2C_BUFSTAT_REG)
-							& 0x3F;
+							OMAP_I2C_BUFSTAT_REG);
 			}
 			while (num_bytes) {
 				num_bytes--;
@@ -775,27 +742,6 @@ complete:
 							"data to send\n");
 					break;
 				}
-
-				/*
-				 * OMAP3430 Errata 1.153: When an XRDY/XDR
-				 * is hit, wait for XUDF before writing data
-				 * to DATA_REG. Otherwise some data bytes can
-				 * be lost while transferring them from the
-				 * memory to the I2C interface.
-				 */
-
-				if (dev->rev <= OMAP_I2C_REV_ON_3430) {
-						while (!(stat & OMAP_I2C_STAT_XUDF)) {
-							if (stat & (OMAP_I2C_STAT_NACK | OMAP_I2C_STAT_AL)) {
-								omap_i2c_ack_stat(dev, stat & (OMAP_I2C_STAT_XRDY | OMAP_I2C_STAT_XDR));
-								err |= OMAP_I2C_STAT_XUDF;
-								goto complete;
-							}
-							cpu_relax();
-							stat = omap_i2c_read_reg(dev, OMAP_I2C_STAT_REG);
-						}
-				}
-
 				omap_i2c_write_reg(dev, OMAP_I2C_DATA_REG, w);
 			}
 			omap_i2c_ack_stat(dev,
@@ -842,7 +788,7 @@ omap_i2c_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	ioarea = request_mem_region(mem->start, resource_size(mem),
+	ioarea = request_mem_region(mem->start, (mem->end - mem->start) + 1,
 			pdev->name);
 	if (!ioarea) {
 		dev_err(&pdev->dev, "I2C region already claimed\n");
@@ -864,7 +810,7 @@ omap_i2c_probe(struct platform_device *pdev)
 	dev->idle = 1;
 	dev->dev = &pdev->dev;
 	dev->irq = irq->start;
-	dev->base = ioremap(mem->start, resource_size(mem));
+	dev->base = ioremap(mem->start, mem->end - mem->start + 1);
 	if (!dev->base) {
 		r = -ENOMEM;
 		goto err_free_mem;
@@ -915,7 +861,7 @@ omap_i2c_probe(struct platform_device *pdev)
 	i2c_set_adapdata(adap, dev);
 	adap->owner = THIS_MODULE;
 	adap->class = I2C_CLASS_HWMON;
-	strlcpy(adap->name, "OMAP I2C adapter", sizeof(adap->name));
+	strncpy(adap->name, "OMAP I2C adapter", sizeof(adap->name));
 	adap->algo = &omap_i2c_algo;
 	adap->dev.parent = &pdev->dev;
 
@@ -941,7 +887,7 @@ err_free_mem:
 	platform_set_drvdata(pdev, NULL);
 	kfree(dev);
 err_release_region:
-	release_mem_region(mem->start, resource_size(mem));
+	release_mem_region(mem->start, (mem->end - mem->start) + 1);
 
 	return r;
 }
@@ -961,7 +907,7 @@ omap_i2c_remove(struct platform_device *pdev)
 	iounmap(dev->base);
 	kfree(dev);
 	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	release_mem_region(mem->start, resource_size(mem));
+	release_mem_region(mem->start, (mem->end - mem->start) + 1);
 	return 0;
 }
 

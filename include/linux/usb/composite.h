@@ -124,7 +124,6 @@ struct usb_function {
 	void			(*suspend)(struct usb_function *);
 	void			(*resume)(struct usb_function *);
 
-	/* private: */
 	/* internals */
 	struct list_head		list;
 };
@@ -220,7 +219,6 @@ struct usb_configuration {
 
 	struct usb_composite_dev	*cdev;
 
-	/* private: */
 	/* internals */
 	struct list_head	list;
 	struct list_head	functions;
@@ -246,10 +244,6 @@ int usb_add_config(struct usb_composite_dev *,
  *	value; it should return zero on successful initialization.
  * @unbind: Reverses @bind(); called as a side effect of unregistering
  *	this driver.
- * @suspend: Notifies when the host stops sending USB traffic,
- *	after function notifications
- * @resume: Notifies configuration when the host restarts USB traffic,
- *	before function notifications
  *
  * Devices default to reporting self powered operation.  Devices which rely
  * on bus powered operation should report this in their @bind() method.
@@ -274,10 +268,6 @@ struct usb_composite_driver {
 
 	int			(*bind)(struct usb_composite_dev *);
 	int			(*unbind)(struct usb_composite_dev *);
-
-	/* global suspend hooks */
-	void			(*suspend)(struct usb_composite_dev *);
-	void			(*resume)(struct usb_composite_dev *);
 };
 
 extern int usb_composite_register(struct usb_composite_driver *);
@@ -323,7 +313,6 @@ struct usb_composite_dev {
 
 	struct usb_configuration	*config;
 
-	/* private: */
 	/* internals */
 	struct usb_device_descriptor	desc;
 	struct list_head		configs;

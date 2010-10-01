@@ -36,8 +36,7 @@
 #include <asm/mach-types.h>
 #include <mach/sec_headset.h>
 
-//extern int call_state;
-int call_state = 0;
+extern int call_state;
 
 // #define CONFIG_DEBUG_SEC_HEADSET
 

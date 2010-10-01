@@ -79,7 +79,7 @@ pn_header_desc = {
 	.bLength =		sizeof pn_header_desc,
 	.bDescriptorType =	USB_DT_CS_INTERFACE,
 	.bDescriptorSubType =	USB_CDC_HEADER_TYPE,
-	.bcdCDC =		cpu_to_le16(0x0110),
+	.bcdCDC =		__constant_cpu_to_le16(0x0110),
 };
 
 static const struct usb_cdc_header_desc
@@ -87,7 +87,7 @@ pn_phonet_desc = {
 	.bLength =		sizeof pn_phonet_desc,
 	.bDescriptorType =	USB_DT_CS_INTERFACE,
 	.bDescriptorSubType =	USB_CDC_PHONET_TYPE,
-	.bcdCDC =		cpu_to_le16(0x1505), /* ??? */
+	.bcdCDC =		__constant_cpu_to_le16(0x1505), /* ??? */
 };
 
 static struct usb_cdc_union_desc
@@ -138,7 +138,7 @@ pn_hs_sink_desc = {
 
 	.bEndpointAddress =	USB_DIR_OUT,
 	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize =	cpu_to_le16(512),
+	.wMaxPacketSize =	__constant_cpu_to_le16(512),
 };
 
 static struct usb_endpoint_descriptor
@@ -157,7 +157,7 @@ pn_hs_source_desc = {
 
 	.bEndpointAddress =	USB_DIR_IN,
 	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize =	cpu_to_le16(512),
+	.wMaxPacketSize =	__constant_cpu_to_le16(512),
 };
 
 static struct usb_descriptor_header *fs_pn_function[] = {
@@ -188,7 +188,8 @@ static struct usb_descriptor_header *hs_pn_function[] = {
 
 static int pn_net_open(struct net_device *dev)
 {
-	netif_wake_queue(dev);
+	if (netif_carrier_ok(dev))
+		netif_wake_queue(dev);
 	return 0;
 }
 
@@ -218,7 +219,8 @@ static void pn_tx_complete(struct usb_ep *ep, struct usb_request *req)
 	}
 
 	dev_kfree_skb_any(skb);
-	netif_wake_queue(dev);
+	if (netif_carrier_ok(dev))
+		netif_wake_queue(dev);
 }
 
 static int pn_net_xmit(struct sk_buff *skb, struct net_device *dev)
@@ -253,7 +255,7 @@ out_unlock:
 	spin_unlock_irqrestore(&port->lock, flags);
 out:
 	if (unlikely(skb)) {
-		dev_kfree_skb(skb);
+		dev_kfree_skb_any(skb);
 		dev->stats.tx_dropped++;
 	}
 	return 0;
@@ -381,6 +383,7 @@ static void __pn_reset(struct usb_function *f)
 	struct phonet_port *port = netdev_priv(dev);
 
 	netif_carrier_off(dev);
+	netif_stop_queue(dev);
 	port->usb = NULL;
 
 	usb_ep_disable(fp->out_ep);
@@ -424,6 +427,8 @@ static int pn_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 			fp->in_ep->driver_data = fp;
 
 			netif_carrier_on(dev);
+			if (netif_running(dev))
+				netif_wake_queue(dev);
 			for (i = 0; i < phonet_rxq_size; i++)
 				pn_rx_submit(fp, fp->out_reqv[i], GFP_ATOMIC);
 		}
@@ -569,10 +574,9 @@ static struct net_device *dev;
 int __init phonet_bind_config(struct usb_configuration *c)
 {
 	struct f_phonet *fp;
-	int err, size;
+	int err;
 
-	size = sizeof(*fp) + (phonet_rxq_size * sizeof(struct usb_request *));
-	fp = kzalloc(size, GFP_KERNEL);
+	fp = kzalloc(sizeof(*fp), GFP_KERNEL);
 	if (!fp)
 		return -ENOMEM;
 
@@ -597,13 +601,16 @@ int __init gphonet_setup(struct usb_gadget *gadget)
 
 	/* Create net device */
 	BUG_ON(dev);
-	dev = alloc_netdev(sizeof(*port), "upnlink%d", pn_net_setup);
+	dev = alloc_netdev(sizeof(*port)
+		+ (phonet_rxq_size * sizeof(struct usb_request *)),
+				"upnlink%d", pn_net_setup);
 	if (!dev)
 		return -ENOMEM;
 
 	port = netdev_priv(dev);
 	spin_lock_init(&port->lock);
 	netif_carrier_off(dev);
+	netif_stop_queue(dev);
 	SET_NETDEV_DEV(dev, &gadget->dev);
 
 	err = register_netdev(dev);

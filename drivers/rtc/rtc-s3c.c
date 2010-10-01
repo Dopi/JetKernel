@@ -8,7 +8,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  *
- * S3C2410/S3C2440/S3C24XX Internal RTC Driver
+ * S3C Internal RTC Driver
 */
 
 #include <linux/module.h>
@@ -28,6 +28,26 @@
 #include <asm/irq.h>
 #include <asm/mach/time.h>
 #include <plat/regs-rtc.h>
+
+#define SET_RTC_DEFAULT_RESET_TIME
+#define CONFIG_RTC_SYNC
+
+#ifdef CONFIG_RTC_SYNC
+#include <linux/cpufreq.h>
+
+#include <plat/s3c64xx-dvfs.h>
+#include <linux/kernel_stat.h>
+#endif /* CONFIG_SYNC_RTC */
+
+
+#ifdef SET_RTC_DEFAULT_RESET_TIME
+#define DEFAULT_RESET_TIME_YEAR 	(2000)
+#define DEFAULT_RESET_TIME_MON	 	(1)
+#define DEFAULT_RESET_TIME_DATE	 	(1)
+#define DEFAULT_RESET_TIME_HOUR 	(0)
+#define DEFAULT_RESET_TIME_MIN 		(0)
+#define DEFAULT_RESET_TIME_SEC	 	(0)
+#endif /* SET_RTC_DEFAULT_RESET_TIME */
 
 /* I have yet to find an S3C implementation with more than one
  * of these rtc blocks in */
@@ -49,66 +69,163 @@ extern void s3c_rtc_set_freq_regs(void __iomem *base, uint freq, uint s3c_freq);
 extern void s3c_rtc_enable_set(struct platform_device *dev,void __iomem *base, int en);
 extern unsigned int s3c_rtc_set_bit_byte(void __iomem *base, uint offset, uint val);
 extern unsigned int s3c_rtc_read_alarm_status(void __iomem *base);
-/* IRQ Handlers */
-
-#define CONFIG_MACH_VOLANS 1
-#ifdef CONFIG_MACH_VOLANS
-#define RTC_SYNC_INTERVAL	(HZ*3600)
 
 static int s3c_rtc_gettime(struct device *dev, struct rtc_time *rtc_tm);
 
-/* EXPORTED FUNCTIONS. */
-void __iomem *get_rtc_base(void)
+#ifdef CONFIG_RTC_SYNC
+//#define RTC_SYNC_DEBUG_MSG
+
+#define RTC_SYNC_SAVE_DELTA_INTERVAL	(HZ*30)		/* 30 seconds */
+#define RTC_SYNC_ADJUST_INTERVAL	(HZ*60*60)	/* 1 hour */
+#define RTC_SYNC_DETECT_IDLE_INTERVAL 	(HZ*5)		/* 5 seconds */
+#define RTC_SYNC_AFTER_BUSY_INTERVAL	(HZ*55)		/* 55 seconds */
+
+#define RTC_SYNC_FORCE_INTERVAL		(HZ*60*60*4)	/* 4 hours */
+#define RTC_SYNC_MAX_BUSY_COUNT		(RTC_SYNC_FORCE_INTERVAL / (RTC_SYNC_DETECT_IDLE_INTERVAL + RTC_SYNC_AFTER_BUSY_INTERVAL))
+#define RTC_SYNC_IDLE_CPUFREQ  		(66000)
+#define RTC_SYNC_IDLE_PERCENT		(80)
+
+enum rtc_sync_state {RS_SAVE_DELTA, RS_WAIT_ADJUST_TIME, RS_WAIT_ADJUST_TIME_AFTER_BUSY, RS_DETECT_IDLE, RS_TRY_ADJUST};
+
+static void rtc_sync_work_handler(struct work_struct * __unused);
+static DECLARE_DELAYED_WORK(rtc_sync_work, rtc_sync_work_handler);
+static void rtc_sync_start (void);
+static void rtc_sync_start_save_delta(void);
+
+static struct timespec		ts_saved_delta;
+static enum rtc_sync_state   	rtc_sync_state;
+
+static inline int detect_cpu_idle (unsigned int old_idle_tick)
 {
-	return s3c_rtc_base;
+	unsigned int cpufreq  = cpufreq_quick_get(0);
+	unsigned int idle_tick = kstat_cpu(0).cpustat.idle + kstat_cpu(0).cpustat.iowait;
+	unsigned int unit_idle_tick = idle_tick - old_idle_tick;
+	int	     state = false;
+	
+	old_idle_tick = idle_tick;
+
+	if (cpufreq == RTC_SYNC_IDLE_CPUFREQ && unit_idle_tick > (RTC_SYNC_DETECT_IDLE_INTERVAL * RTC_SYNC_IDLE_PERCENT / 100))
+	{
+		state = true;
+	}
+
+#ifdef RTC_SYNC_DEBUG_MSG
+	printk ("RTC_SYNC: %s cpufreq:%d, idle_tick:%d\n", 
+		(state == true)?"<idle>":"<busy>", cpufreq, unit_idle_tick);
+#endif
+	return state;
 }
 
-unsigned long current_rtc_seconds(void)
+static void rtc_sync_adjust(void)
 {
-	unsigned long sec = 0;
-	struct rtc_time tm;
+	struct rtc_time		rtc_time;
+	static time_t		rtc_time_t;
+	struct timespec		ts_system, ts_rtc, ts_delta, ts_delta_delta;
 
-	s3c_rtc_gettime(NULL, &tm);
-	rtc_tm_to_time(&tm, &sec);
+	getnstimeofday(&ts_system);
+	s3c_rtc_gettime(NULL, &rtc_time);
 
-	return sec;
+	rtc_tm_to_time(&rtc_time, &rtc_time_t);
+	/* RTC precision is 1 second; adjust delta for avg 1/2 sec err */
+	set_normalized_timespec(&ts_rtc, rtc_time_t, NSEC_PER_SEC>>1);
+	
+	ts_delta = timespec_sub(ts_system, ts_rtc);
+	ts_delta_delta = timespec_sub (ts_saved_delta, ts_delta);
+
+	if (ts_delta_delta.tv_sec < -2 || ts_delta_delta.tv_sec >= 2)
+	{
+		/* 
+		 * A differential beteen system time and rtc is over 2 second
+		 * , let's adjust system time and save time delta
+		 */
+		set_normalized_timespec(&ts_system, rtc_time_t + ts_saved_delta.tv_sec, ts_saved_delta.tv_nsec);
+		do_settimeofday(&ts_system);
+		printk ("RTC_SYNC: adjust system time from rtc\n");
+	}
 }
 
-EXPORT_SYMBOL(get_rtc_base);
-EXPORT_SYMBOL(current_rtc_seconds);
-
-/* INTERNAL FUNCTIONS. */
-static void rtc_sync_handler(struct work_struct * __unused);
-static DECLARE_DELAYED_WORK(rtc_sync_work, rtc_sync_handler);
-
-static void volans_update_system_time(void)
+static void rtc_sync_save_delta(void)
 {
-	struct rtc_time tm;
+	struct rtc_time		rtc_time;
+	static time_t		rtc_time_t;
+	struct timespec		ts_system, ts_rtc;
 
-	struct timespec time;
-	struct timeval sync_time;
+	getnstimeofday(&ts_system);
+	s3c_rtc_gettime(NULL, &rtc_time);
 
-	time.tv_nsec = 0;
+	rtc_tm_to_time(&rtc_time, &rtc_time_t);
+	/* RTC precision is 1 second; adjust delta for avg 1/2 sec err */
+	set_normalized_timespec(&ts_rtc, rtc_time_t, NSEC_PER_SEC>>1);
 
-	s3c_rtc_gettime(NULL, &tm);
-	rtc_tm_to_time(&tm, &time.tv_sec);
+	ts_saved_delta = timespec_sub(ts_system, ts_rtc);
 
-	/* RTC and system time synchronization. */
-	do_settimeofday(&time);
-
-	/* Time verification. */
-	do_gettimeofday(&sync_time);
-
-	pr_info("%s- RTC: %ld / System Time: %ld\n", __func__,
-			time.tv_sec, sync_time.tv_sec);
+#ifdef RTC_SYNC_DEBUG_MSG
+	printk ("RTC_SYNC: save delta sec:%d nsec:%d\n", ts_saved_delta.tv_sec, ts_saved_delta.tv_nsec);
+#endif
 }
 
-static void rtc_sync_handler(struct work_struct * __unused)
+static void rtc_sync_work_handler(struct work_struct * __unused)
 {
-	volans_update_system_time();
-	schedule_delayed_work(&rtc_sync_work, RTC_SYNC_INTERVAL);
+	static unsigned int 	old_idle_tick, busy_count;
+	int 			next_interval;
+	int 			cpu_idle;
+
+	if (rtc_sync_state == RS_SAVE_DELTA)
+	{
+		rtc_sync_save_delta();
+		rtc_sync_start();
+		return;
+	}
+
+	switch (rtc_sync_state)
+	{
+	case RS_WAIT_ADJUST_TIME:
+		/* start adjust service */
+		busy_count = 0;
+	case RS_WAIT_ADJUST_TIME_AFTER_BUSY:
+		/* prepare detect cpu idle */
+		old_idle_tick = kstat_cpu(0).cpustat.idle + kstat_cpu(0).cpustat.iowait;
+		rtc_sync_state = RS_DETECT_IDLE;
+		next_interval = RTC_SYNC_DETECT_IDLE_INTERVAL;
+		break;
+	case RS_DETECT_IDLE:
+		cpu_idle = detect_cpu_idle(old_idle_tick);
+
+		/* when cpu idle or passing the adjust force time */
+		if (cpu_idle || ++busy_count > RTC_SYNC_MAX_BUSY_COUNT)
+		{
+			rtc_sync_state = RS_TRY_ADJUST;
+			rtc_sync_adjust();
+			rtc_sync_state = RS_WAIT_ADJUST_TIME;
+			next_interval = RTC_SYNC_ADJUST_INTERVAL;
+		}
+		else
+		{
+			rtc_sync_state = RS_WAIT_ADJUST_TIME_AFTER_BUSY;
+			next_interval = RTC_SYNC_AFTER_BUSY_INTERVAL;
+		}
+		break;
+	default:
+		return;
+	}
+	schedule_delayed_work(&rtc_sync_work, next_interval);
 }
-#endif	/* CONFIG_MACH_VOLANS */
+
+static inline void  rtc_sync_start ()
+{
+	rtc_sync_state = RS_WAIT_ADJUST_TIME;
+	schedule_delayed_work(&rtc_sync_work, RTC_SYNC_ADJUST_INTERVAL);
+}
+
+static inline void  rtc_sync_start_save_delta ()
+{
+	rtc_sync_state = RS_SAVE_DELTA;
+	schedule_delayed_work(&rtc_sync_work, RTC_SYNC_SAVE_DELTA_INTERVAL);
+}
+
+#endif	/* CONFIG_RTC_SYNC */
+
+/* IRQ Handlers */
 
 static irqreturn_t s3c_rtc_alarmirq(int irq, void *id)
 {
@@ -116,23 +233,21 @@ static irqreturn_t s3c_rtc_alarmirq(int irq, void *id)
 
 	rtc_update_irq(rdev, 1, RTC_AF | RTC_IRQF);
 
-	s3c_rtc_set_bit_byte(s3c_rtc_base,S3C2410_INTP,S3C2410_INTP_ALM);
+	s3c_rtc_set_bit_byte(s3c_rtc_base,S3C_INTP,S3C_INTP_ALM);
 
 	return IRQ_HANDLED;
 }
 
-#if !defined(CONFIG_MACH_VOLANS)
 static irqreturn_t s3c_rtc_tickirq(int irq, void *id)
 {
 	struct rtc_device *rdev = id;
 
 	rtc_update_irq(rdev, 1, RTC_PF | RTC_IRQF);
 
-	s3c_rtc_set_bit_byte(s3c_rtc_base,S3C2410_INTP,S3C2410_INTP_TIC);
+	s3c_rtc_set_bit_byte(s3c_rtc_base,S3C_INTP,S3C_INTP_TIC);
 
 	return IRQ_HANDLED;
 }
-#endif	/* CONFIG_MACH_VOLANS */
 
 /* Update control registers */
 static void s3c_rtc_setaie(int to)
@@ -141,26 +256,23 @@ static void s3c_rtc_setaie(int to)
 
 	pr_debug("%s: aie=%d\n", __func__, to);
 
-	tmp = readb(s3c_rtc_base + S3C2410_RTCALM) & ~S3C2410_RTCALM_ALMEN;
+	tmp = readb(s3c_rtc_base + S3C_RTCALM) & ~S3C_RTCALM_ALMEN;
 
 	if (to)
-		tmp |= S3C2410_RTCALM_ALMEN;
+		tmp |= S3C_RTCALM_ALMEN;
 
-	writeb(tmp, s3c_rtc_base + S3C2410_RTCALM);
-
+	writeb(tmp, s3c_rtc_base + S3C_RTCALM);
 }
 
 static int s3c_rtc_setpie(struct device *dev, int enabled)
 {
 	pr_debug("%s: pie=%d\n", __func__, enabled);
 
-#if !defined(CONFIG_MACH_VOLANS)
 	spin_lock_irq(&s3c_rtc_pie_lock);
 
 	s3c_rtc_set_pie(s3c_rtc_base,enabled);
 
 	spin_unlock_irq(&s3c_rtc_pie_lock);
-#endif	/* CONFIG_MACH_VOLANS */
 
 	return 0;
 }
@@ -169,7 +281,7 @@ static int s3c_rtc_setfreq(struct device *dev, int freq)
 {
 	spin_lock_irq(&s3c_rtc_pie_lock);
 
-	s3c_rtc_set_freq_regs(s3c_rtc_base,freq,s3c_rtc_freq);
+	s3c_rtc_set_freq_regs(s3c_rtc_base, freq, s3c_rtc_freq);
 
 	spin_unlock_irq(&s3c_rtc_pie_lock);
 
@@ -184,12 +296,12 @@ static int s3c_rtc_gettime(struct device *dev, struct rtc_time *rtc_tm)
 	void __iomem *base = s3c_rtc_base;
 
  retry_get_time:
-	rtc_tm->tm_min  = readb(base + S3C2410_RTCMIN);
-	rtc_tm->tm_hour = readb(base + S3C2410_RTCHOUR);
-	rtc_tm->tm_mday = readb(base + S3C2410_RTCDATE);
-	rtc_tm->tm_mon  = readb(base + S3C2410_RTCMON);
-	rtc_tm->tm_year = readb(base + S3C2410_RTCYEAR);
-	rtc_tm->tm_sec  = readb(base + S3C2410_RTCSEC);
+	rtc_tm->tm_min  = readb(base + S3C_RTCMIN);
+	rtc_tm->tm_hour = readb(base + S3C_RTCHOUR);
+	rtc_tm->tm_mday = readb(base + S3C_RTCDATE);
+	rtc_tm->tm_mon  = readb(base + S3C_RTCMON);
+	rtc_tm->tm_year = readb(base + S3C_RTCYEAR);
+	rtc_tm->tm_sec  = readb(base + S3C_RTCSEC);
 
 	/* the only way to work out wether the system was mid-update
 	 * when we read it is to check the second counter, and if it
@@ -227,6 +339,11 @@ static int s3c_rtc_settime(struct device *dev, struct rtc_time *tm)
 		 tm->tm_year, tm->tm_mon, tm->tm_mday,
 		 tm->tm_hour, tm->tm_min, tm->tm_sec);
 
+#ifdef CONFIG_RTC_SYNC
+	cancel_delayed_work(&rtc_sync_work);
+	rtc_sync_start_save_delta ();
+#endif	/* CONFIG_RTC_SYNC */
+
 	/* we get around y2k by simply not supporting it */
 
 	if (year < 0 || year >= 100) {
@@ -234,12 +351,12 @@ static int s3c_rtc_settime(struct device *dev, struct rtc_time *tm)
 		return -EINVAL;
 	}
 
-	writeb(bin2bcd(tm->tm_sec),  base + S3C2410_RTCSEC);
-	writeb(bin2bcd(tm->tm_min),  base + S3C2410_RTCMIN);
-	writeb(bin2bcd(tm->tm_hour), base + S3C2410_RTCHOUR);
-	writeb(bin2bcd(tm->tm_mday), base + S3C2410_RTCDATE);
-	writeb(bin2bcd(tm->tm_mon + 1), base + S3C2410_RTCMON);
-	writeb(bin2bcd(year), base + S3C2410_RTCYEAR);
+	writeb(bin2bcd(tm->tm_sec),  base + S3C_RTCSEC);
+	writeb(bin2bcd(tm->tm_min),  base + S3C_RTCMIN);
+	writeb(bin2bcd(tm->tm_hour), base + S3C_RTCHOUR);
+	writeb(bin2bcd(tm->tm_mday), base + S3C_RTCDATE);
+	writeb(bin2bcd(tm->tm_mon + 1), base + S3C_RTCMON);
+	writeb(bin2bcd(year), base + S3C_RTCYEAR);
 
 	return 0;
 }
@@ -250,16 +367,16 @@ static int s3c_rtc_getalarm(struct device *dev, struct rtc_wkalrm *alrm)
 	void __iomem *base = s3c_rtc_base;
 	unsigned int alm_en;
 
-	alm_tm->tm_sec  = readb(base + S3C2410_ALMSEC);
-	alm_tm->tm_min  = readb(base + S3C2410_ALMMIN);
-	alm_tm->tm_hour = readb(base + S3C2410_ALMHOUR);
-	alm_tm->tm_mon  = readb(base + S3C2410_ALMMON);
-	alm_tm->tm_mday = readb(base + S3C2410_ALMDATE);
-	alm_tm->tm_year = readb(base + S3C2410_ALMYEAR);
+	alm_tm->tm_sec  = readb(base + S3C_ALMSEC);
+	alm_tm->tm_min  = readb(base + S3C_ALMMIN);
+	alm_tm->tm_hour = readb(base + S3C_ALMHOUR);
+	alm_tm->tm_mon  = readb(base + S3C_ALMMON);
+	alm_tm->tm_mday = readb(base + S3C_ALMDATE);
+	alm_tm->tm_year = readb(base + S3C_ALMYEAR);
 
-	alm_en = readb(base + S3C2410_RTCALM);
+	alm_en = readb(base + S3C_RTCALM);
 
-	alrm->enabled = (alm_en & S3C2410_RTCALM_ALMEN) ? 1 : 0;
+	alrm->enabled = (alm_en & S3C_RTCALM_ALMEN) ? 1 : 0;
 
 	pr_debug("read alarm %02x %02x.%02x.%02x %02x/%02x/%02x\n",
 		 alm_en,
@@ -269,34 +386,34 @@ static int s3c_rtc_getalarm(struct device *dev, struct rtc_wkalrm *alrm)
 
 	/* decode the alarm enable field */
 
-	if (alm_en & S3C2410_RTCALM_SECEN)
+	if (alm_en & S3C_RTCALM_SECEN)
 		alm_tm->tm_sec = bcd2bin(alm_tm->tm_sec);
 	else
 		alm_tm->tm_sec = 0xff;
 
-	if (alm_en & S3C2410_RTCALM_MINEN)
+	if (alm_en & S3C_RTCALM_MINEN)
 		alm_tm->tm_min = bcd2bin(alm_tm->tm_min);
 	else
 		alm_tm->tm_min = 0xff;
 
-	if (alm_en & S3C2410_RTCALM_HOUREN)
+	if (alm_en & S3C_RTCALM_HOUREN)
 		alm_tm->tm_hour = bcd2bin(alm_tm->tm_hour);
 	else
 		alm_tm->tm_hour = 0xff;
 
-	if (alm_en & S3C2410_RTCALM_DAYEN)
+	if (alm_en & S3C_RTCALM_DAYEN)
 		alm_tm->tm_mday = bcd2bin(alm_tm->tm_mday);
 	else
 		alm_tm->tm_mday = 0xff;
 
-	if (alm_en & S3C2410_RTCALM_MONEN) {
+	if (alm_en & S3C_RTCALM_MONEN) {
 		alm_tm->tm_mon = bcd2bin(alm_tm->tm_mon);
 		alm_tm->tm_mon -= 1;
 	} else {
 		alm_tm->tm_mon = 0xff;
 	}
 
-	if (alm_en & S3C2410_RTCALM_YEAREN)
+	if (alm_en & S3C_RTCALM_YEAREN)
 		alm_tm->tm_year = bcd2bin(alm_tm->tm_year);
 	else
 		alm_tm->tm_year = 0xffff;
@@ -312,47 +429,47 @@ static int s3c_rtc_setalarm(struct device *dev, struct rtc_wkalrm *alrm)
 
 	int year = tm->tm_year - 100;
 
-	pr_info("s3c_rtc_setalarm: %d, %02x/%02x/%02x %02x.%02x.%02x\n",
+	pr_debug("s3c_rtc_setalarm: %d, %02x/%02x/%02x %02x.%02x.%02x\n",
 		 alrm->enabled,
 		 tm->tm_mday & 0xff, tm->tm_mon & 0xff, tm->tm_year & 0xff,
 		 tm->tm_hour & 0xff, tm->tm_min & 0xff, tm->tm_sec);
 
-	alrm_en = readb(base + S3C2410_RTCALM) & S3C2410_RTCALM_ALMEN;
-	writeb(0x00, base + S3C2410_RTCALM);
+	alrm_en = readb(base + S3C_RTCALM) & S3C_RTCALM_ALMEN;
+	writeb(0x00, base + S3C_RTCALM);
 
 	if (tm->tm_sec < 60 && tm->tm_sec >= 0) {
-		alrm_en |= S3C2410_RTCALM_SECEN;
-		writeb(bin2bcd(tm->tm_sec), base + S3C2410_ALMSEC);
+		alrm_en |= S3C_RTCALM_SECEN;
+		writeb(bin2bcd(tm->tm_sec), base + S3C_ALMSEC);
 	}
 
 	if (tm->tm_min < 60 && tm->tm_min >= 0) {
-		alrm_en |= S3C2410_RTCALM_MINEN;
-		writeb(bin2bcd(tm->tm_min), base + S3C2410_ALMMIN);
+		alrm_en |= S3C_RTCALM_MINEN;
+		writeb(bin2bcd(tm->tm_min), base + S3C_ALMMIN);
 	}
 
 	if (tm->tm_hour < 24 && tm->tm_hour >= 0) {
-		alrm_en |= S3C2410_RTCALM_HOUREN;
-		writeb(bin2bcd(tm->tm_hour), base + S3C2410_ALMHOUR);
+		alrm_en |= S3C_RTCALM_HOUREN;
+		writeb(bin2bcd(tm->tm_hour), base + S3C_ALMHOUR);
 	}
 
 	if (tm->tm_mday >= 0) {
-		alrm_en |= S3C2410_RTCALM_DAYEN;
-		writeb(bin2bcd(tm->tm_mday), base + S3C2410_ALMDATE);
+		alrm_en |= S3C_RTCALM_DAYEN;
+		writeb(bin2bcd(tm->tm_mday), base + S3C_ALMDATE);
 	}
 
 	if (tm->tm_mon < 13 && tm->tm_mon >= 0) {
-		alrm_en |= S3C2410_RTCALM_MONEN;
-		writeb(bin2bcd(tm->tm_mon + 1), base + S3C2410_ALMMON);
+		alrm_en |= S3C_RTCALM_MONEN;
+		writeb(bin2bcd(tm->tm_mon + 1), base + S3C_ALMMON);
 	}
 
 	if (year < 100 && year >= 0) {
-		alrm_en |= S3C2410_RTCALM_YEAREN;
-		writeb(bin2bcd(year), base + S3C2410_ALMYEAR);
+		alrm_en |= S3C_RTCALM_YEAREN;
+		writeb(bin2bcd(year), base + S3C_ALMYEAR);
 	}
 
-	pr_info("setting S3C2410_RTCALM to %08x\n", alrm_en);
+	pr_debug("setting S3C_RTCALM to %08x\n", alrm_en);
 
-	writeb(alrm_en, base + S3C2410_RTCALM);
+	writeb(alrm_en, base + S3C_RTCALM);
 
 	s3c_rtc_setaie(alrm->enabled);
 
@@ -390,7 +507,7 @@ static int s3c_rtc_ioctl(struct device *dev,
 			goto exit;
 		}
 
-		pr_debug("s3c2410_rtc: setting frequency %ld\n", arg);
+		pr_debug("s3c_rtc: setting frequency %ld\n", arg);
 
 		s3c_rtc_setfreq(dev, arg);
 		ret = 0;
@@ -407,10 +524,10 @@ static int s3c_rtc_ioctl(struct device *dev,
 
 static int s3c_rtc_proc(struct device *dev, struct seq_file *seq)
 {
-	unsigned int ticnt = readb(s3c_rtc_base + S3C2410_TICNT);
+	unsigned int ticnt = readb(s3c_rtc_base + S3C_TICNT);
 
 	seq_printf(seq, "periodic_IRQ\t: %s\n",
-		     (ticnt & S3C2410_TICNT_ENABLE) ? "yes" : "no" );
+		     (ticnt & S3C_TICNT_ENABLE) ? "yes" : "no" );
 	return 0;
 }
 
@@ -421,18 +538,15 @@ static int s3c_rtc_open(struct device *dev)
 	int ret;
 
 	ret = request_irq(s3c_rtc_alarmno, s3c_rtc_alarmirq,
-			  IRQF_DISABLED,  "s3c2410-rtc alarm", rtc_dev);
+			  IRQF_DISABLED,  "s3c-rtc alarm", rtc_dev);
 
 	if (ret) {
 		dev_err(dev, "IRQ%d error %d\n", s3c_rtc_alarmno, ret);
 		return ret;
 	}
 
-	return ret;
-
-#if !defined(CONFIG_MACH_VOLANS)
 	ret = request_irq(s3c_rtc_tickno, s3c_rtc_tickirq,
-			  IRQF_DISABLED,  "s3c2410-rtc tick", rtc_dev);
+			  IRQF_DISABLED,  "s3c-rtc tick", rtc_dev);
 
 	if (ret) {
 		dev_err(dev, "IRQ%d error %d\n", s3c_rtc_tickno, ret);
@@ -444,7 +558,6 @@ static int s3c_rtc_open(struct device *dev)
  tick_err:
 	free_irq(s3c_rtc_alarmno, rtc_dev);
 	return ret;
-#endif	/* CONFIG_MACH_VOLANS */
 }
 
 static void s3c_rtc_release(struct device *dev)
@@ -456,9 +569,7 @@ static void s3c_rtc_release(struct device *dev)
 
 	s3c_rtc_setpie(dev, 0);
 	free_irq(s3c_rtc_alarmno, rtc_dev);
-#if !defined(CONFIG_MACH_VOLANS)
 	free_irq(s3c_rtc_tickno, rtc_dev);
-#endif	/* CONFIG_MACH_VOLANS */
 }
 
 static const struct rtc_class_ops s3c_rtcops = {
@@ -482,7 +593,7 @@ static void s3c_rtc_enable(struct platform_device *pdev, int en)
 		return;
 
 	s3c_rtc_enable_set(pdev,base,en);
-}
+		}
 
 static int s3c_rtc_remove(struct platform_device *dev)
 {
@@ -498,10 +609,9 @@ static int s3c_rtc_remove(struct platform_device *dev)
 	release_resource(s3c_rtc_mem);
 	kfree(s3c_rtc_mem);
 
-#ifdef CONFIG_MACH_VOLANS
-	s3c_rtc_enable(dev, 0);
+#ifdef CONFIG_RTC_SYNC
 	cancel_delayed_work(&rtc_sync_work);
-#endif	/* CONFIG_MACH_VOLANS */
+#endif	/* CONFIG_RTC_SYNC */
 
 	return 0;
 }
@@ -529,7 +639,7 @@ static int s3c_rtc_probe(struct platform_device *pdev)
 		return -ENOENT;
 	}
 
-	printk("s3c2410_rtc: tick irq %d, alarm irq %d\n",
+	printk("s3c_rtc: tick irq %d, alarm irq %d\n",
 		 s3c_rtc_tickno, s3c_rtc_alarmno);
 
 	/* get the memory region */
@@ -561,8 +671,8 @@ static int s3c_rtc_probe(struct platform_device *pdev)
 
 	s3c_rtc_enable(pdev, 1);
 
- 	pr_debug("s3c2410_rtc: RTCCON=%02x\n",
-		 readb(s3c_rtc_base + S3C2410_RTCCON));
+ 	pr_debug("s3c_rtc: RTCCON=%02x\n",
+		 readb(s3c_rtc_base + S3C_RTCCON));
 
 	s3c_rtc_setfreq(&pdev->dev, 1);
 
@@ -581,19 +691,41 @@ static int s3c_rtc_probe(struct platform_device *pdev)
 
 	rtc->max_user_freq = S3C_MAX_CNT;
 
+#ifdef SET_RTC_DEFAULT_RESET_TIME
+	{
+		struct rtc_time tm;
+
+		s3c_rtc_gettime (pdev, &tm);
+		if (rtc_valid_tm (&tm) != 0)
+		{
+			struct rtc_time reset_tm = {
+				.tm_sec = DEFAULT_RESET_TIME_SEC,
+				.tm_min = DEFAULT_RESET_TIME_MIN,
+				.tm_hour = DEFAULT_RESET_TIME_HOUR,
+				.tm_mday = DEFAULT_RESET_TIME_DATE,
+				.tm_mon = DEFAULT_RESET_TIME_MON - 1,
+				.tm_year = DEFAULT_RESET_TIME_YEAR - 1900,
+				};
+
+			s3c_rtc_settime (pdev, &reset_tm);
+		}
+	}
+#else
+
 	/* check rtc time */
-	for (bcd_loop = S3C2410_RTCSEC ; bcd_loop <= S3C2410_RTCYEAR ; bcd_loop +=0x4)
+	for (bcd_loop = S3C_RTCSEC ; bcd_loop <= S3C_RTCYEAR ; bcd_loop +=0x4)
 	{
 		bcd_tmp = readb(s3c_rtc_base + bcd_loop);
 		if(((bcd_tmp & 0xf) > 0x9) || ((bcd_tmp & 0xf0) > 0x90))
 			writeb(0, s3c_rtc_base + bcd_loop);
 	}
+#endif
 
 	platform_set_drvdata(pdev, rtc);
 
-#ifdef CONFIG_MACH_VOLANS
-	schedule_delayed_work(&rtc_sync_work, RTC_SYNC_INTERVAL);
-#endif	/* CONFIG_MACH_VOLANS */
+#ifdef CONFIG_RTC_SYNC
+	rtc_sync_start_save_delta();
+#endif	/* CONFIG_RTC_SYNC */
 
 	return 0;
 
@@ -611,47 +743,29 @@ static int s3c_rtc_probe(struct platform_device *pdev)
 #ifdef CONFIG_PM
 
 /* RTC Power management control */
-static struct timespec s3c_rtc_delta;
+
 static int ticnt_save;
 
 static int s3c_rtc_suspend(struct platform_device *pdev, pm_message_t state)
 {
-	struct rtc_time tm;
-	struct timespec time;
-
-	time.tv_nsec = 0;
 	/* save TICNT for anyone using periodic interrupts */
-	ticnt_save = readb(s3c_rtc_base + S3C2410_TICNT);
-
-	s3c_rtc_gettime(&pdev->dev, &tm);
-	rtc_tm_to_time(&tm, &time.tv_sec);
-	save_time_delta(&s3c_rtc_delta, &time);
-
-#ifdef CONFIG_MACH_VOLANS
-	cancel_delayed_work(&rtc_sync_work);
-#else
+	ticnt_save = readb(s3c_rtc_base + S3C_TICNT);
 	s3c_rtc_enable(pdev, 0);
-#endif	/* CONFIG_MACH_VOLANS */
+
+#ifdef CONFIG_RTC_SYNC
+	cancel_delayed_work(&rtc_sync_work);
+#endif	/* CONFIG_RTC_SYNC */
 	return 0;
 }
 
 static int s3c_rtc_resume(struct platform_device *pdev)
 {
-#ifdef CONFIG_MACH_VOLANS
-	schedule_delayed_work(&rtc_sync_work, HZ/10);
-#else
-	struct rtc_time tm;
-	struct timespec time;
-
-	time.tv_nsec = 0;
-
 	s3c_rtc_enable(pdev, 1);
-	s3c_rtc_gettime(&pdev->dev, &tm);
-	rtc_tm_to_time(&tm, &time.tv_sec);
-	restore_time_delta(&s3c_rtc_delta, &time);
-	writeb(ticnt_save, s3c_rtc_base + S3C2410_TICNT);
-#endif	/* CONFIG_MACH_VOLANS */
-
+	writeb(ticnt_save, s3c_rtc_base + S3C_TICNT);
+#ifdef CONFIG_RTC_SYNC
+	rtc_sync_start ();
+#endif
+	printk ("%s\n", __func__);
 	return 0;
 }
 #else
@@ -659,28 +773,28 @@ static int s3c_rtc_resume(struct platform_device *pdev)
 #define s3c_rtc_resume  NULL
 #endif
 
-static struct platform_driver s3c2410_rtc_driver = {
+static struct platform_driver s3c_rtc_driver = {
 	.probe		= s3c_rtc_probe,
 	.remove		= s3c_rtc_remove,
 	.suspend	= s3c_rtc_suspend,
 	.resume		= s3c_rtc_resume,
 	.driver		= {
-		.name	= "s3c2410-rtc",
+		.name	= "s3c-rtc",
 		.owner	= THIS_MODULE,
 	},
 };
 
-static char __initdata banner[] = "S3C24XX RTC, (c) 2004,2006 Simtec Electronics\n";
+static char __initdata banner[] = "S3C RTC, (c) 2004,2006 Simtec Electronics\n";
 
 static int __init s3c_rtc_init(void)
 {
 	printk(banner);
-	return platform_driver_register(&s3c2410_rtc_driver);
+	return platform_driver_register(&s3c_rtc_driver);
 }
 
 static void __exit s3c_rtc_exit(void)
 {
-	platform_driver_unregister(&s3c2410_rtc_driver);
+	platform_driver_unregister(&s3c_rtc_driver);
 }
 
 module_init(s3c_rtc_init);
@@ -689,4 +803,4 @@ module_exit(s3c_rtc_exit);
 MODULE_DESCRIPTION("Samsung S3C RTC Driver");
 MODULE_AUTHOR("Ben Dooks <ben@simtec.co.uk>");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS("platform:s3c2410-rtc");
+MODULE_ALIAS("platform:s3c-rtc");

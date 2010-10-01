@@ -9,10 +9,10 @@
  * This is the maximum DMA address(physical address) that can be DMAd to.
  *
  */
-//#define MAX_DMA_ADDRESS			0x40000000
-#define MAX_DMA_TRANSFER_SIZE   	0x100000 /* Data Unit is half word  */
+#define MAX_DMA_ADDRESS		0x40000000
+#define MAX_DMA_TRANSFER_SIZE   0x100000 /* Data Unit is half word  */
 
-#define DMACH_LOW_LEVEL			(1<<28)	/* use this to specifiy hardware ch no */
+#define DMACH_LOW_LEVEL	(1<<28)	/* use this to specifiy hardware ch no */
 
 /* We have 4 dma controllers - DMA0, DMA1, SDMA0, SDMA1 */
 #define S3C_DMA_CONTROLLERS        	(4)
@@ -21,12 +21,12 @@
 #define S3C_DMA_CHANNELS		(S3C_DMA_CONTROLLERS*S3C_CHANNELS_PER_DMA)
 
 /* flags */
-#define S3C2410_DMAF_SLOW         	(1<<0)   /* slow, so don't worry about */
-#define S3C2410_DMAF_AUTOSTART    	(1<<1)   /* auto-start if buffer queued */
+#define S3C2410_DMAF_SLOW         (1<<0)   /* slow, so don't worry about */
+#define S3C2410_DMAF_AUTOSTART    (1<<1)   /* auto-start if buffer queued */
 
 /* DMA Register definitions */
-#define S3C2410_DCON_AUTORELOAD 	(0<<22)
-#define S3C2410_DCON_NORELOAD   	(1<<22)
+#define S3C2410_DCON_AUTORELOAD (0<<22)
+#define S3C2410_DCON_NORELOAD   (1<<22)
 
 /*=================================================*/
 /*   DMA Register Definitions for S3C6400          */
@@ -109,12 +109,12 @@
 #define S3C_DMAC_C7CONTROL1   		(0x1F0)
 #define S3C_DMAC_C7CONFIGURATION   	(0x1F4)
 
-/* DMACConfiguration(0x30) */
-#define S3C_DMA_CONTROLLER_ENABLE 	(1<<0)
+/*DMACConfiguration(0x30)*/
+#define S3C_DMA_CONTROLLER_ENABLE 	(1<<0)		
 
-/* DMACCxControl0 : Channel control register 0 */
-#define S3C_DMACONTROL_TC_INT_ENABLE 	(1<<31)
-#define S3C_DMACONTROL_DEST_NO_INC	(0<<27)
+/*DMACCxControl0 : Channel control register 0*/
+#define S3C_DMACONTROL_TC_INT_ENABLE 	(1<<31)	
+#define S3C_DMACONTROL_DEST_NO_INC	(0<<27)	
 #define S3C_DMACONTROL_DEST_INC		(1<<27)
 #define S3C_DMACONTROL_SRC_NO_INC	(0<<26)
 #define S3C_DMACONTROL_SRC_INC		(1<<26)
@@ -148,7 +148,7 @@
 #define S3C_DMACONTROL_SBSIZE_256	(7<<12)
 
 
-/* Channel configuration register, DMACCxConfiguration */
+/*Channel configuration register, DMACCxConfiguration*/
 #define S3C_DMACONFIG_HALT		(1<<18) /*The contents of the channels FIFO are drained*/
 #define S3C_DMACONFIG_ACTIVE		(1<<17) /*Check channel fifo has data or not*/
 #define S3C_DMACONFIG_LOCK		(1<<16)
@@ -164,10 +164,10 @@
 #define S3C_DMACONFIG_SRCPERIPHERAL(x)	((x)<<1)
 #define S3C_DMACONFIG_CHANNEL_ENABLE	(1<<0)
 
-#define S3C_DMA1			16
+#define S3C_DMA1		16
 
-#define S3C_DEST_SHIFT 			6
-#define S3C_SRC_SHIFT 			1
+#define S3C_DEST_SHIFT 		6
+#define S3C_SRC_SHIFT 		1
 
 
 /* #define S3C_DMAC_CSRCADDR(ch)   	S3C_DMAC_C##ch##SRCADDR */
@@ -180,4 +180,4 @@
 
 
 
-#endif //__ARM_MACH_DMA_PL080_H
+#endif //__ARM_MACH_DMA_PL080_H 

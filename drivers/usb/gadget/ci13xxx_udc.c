@@ -51,11 +51,11 @@
  * - Gadget API (majority of optional features)
  * - Suspend & Remote Wakeup
  */
-#include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/dmapool.h>
 #include <linux/dma-mapping.h>
 #include <linux/init.h>
+#include <linux/interrupt.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/irq.h>
@@ -143,7 +143,7 @@ static struct {
 #define CAP_DEVICEADDR      (0x014UL)
 #define CAP_ENDPTLISTADDR   (0x018UL)
 #define CAP_PORTSC          (0x044UL)
-#define CAP_DEVLC           (0x084UL)
+#define CAP_DEVLC           (0x0B4UL)
 #define CAP_USBMODE         (hw_bank.lpm ? 0x0C8UL : 0x068UL)
 #define CAP_ENDPTSETUPSTAT  (hw_bank.lpm ? 0x0D8UL : 0x06CUL)
 #define CAP_ENDPTPRIME      (hw_bank.lpm ? 0x0DCUL : 0x070UL)
@@ -1977,17 +1977,15 @@ static int ep_enable(struct usb_ep *ep,
 	if (!list_empty(&mEp->qh[mEp->dir].queue))
 		warn("enabling a non-empty endpoint!");
 
-	mEp->dir  = usb_endpoint_dir_in(desc) ? TX : RX;
-	mEp->num  = usb_endpoint_num(desc);
-	mEp->type = usb_endpoint_type(desc);
+	mEp->dir  = (desc->bEndpointAddress & USB_ENDPOINT_DIR_MASK) ? TX : RX;
+	mEp->num  =  desc->bEndpointAddress & USB_ENDPOINT_NUMBER_MASK;
+	mEp->type =  desc->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK;
 
 	mEp->ep.maxpacket = __constant_le16_to_cpu(desc->wMaxPacketSize);
 
 	direction = mEp->dir;
 	do {
 		dbg_event(_usb_addr(mEp), "ENABLE", 0);
-
-		mEp->qh[mEp->dir].ptr->cap = 0;
 
 		if (mEp->type == USB_ENDPOINT_XFER_CONTROL)
 			mEp->qh[mEp->dir].ptr->cap |=  QH_IOS;
@@ -2628,7 +2626,7 @@ static int udc_probe(struct device *dev, void __iomem *regs, const char *name)
 	INIT_LIST_HEAD(&udc->gadget.ep_list);
 	udc->gadget.ep0 = NULL;
 
-	dev_set_name(&udc->gadget.dev, "gadget");
+	strcpy(udc->gadget.dev.bus_id, "gadget");
 	udc->gadget.dev.dma_mask = dev->dma_mask;
 	udc->gadget.dev.parent   = dev;
 	udc->gadget.dev.release  = udc_release;

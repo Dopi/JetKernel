@@ -21,12 +21,11 @@
 #include <linux/sysdev.h>
 #include <plat/regs-timer.h>
 
-
 #define pwmch_t int
 
 /* we have 4 pwm channels */
-#define S3C_PWM_CHANNELS        5
-#define PRESCALER 		((4-1)/2)
+#define S3C_PWM_CHANNELS        4
+
 
 struct s3c_pwm_client {
 	char                *name;
@@ -74,5 +73,52 @@ struct s3c_pwm_chan_s {
 	/* system device */
 	struct sys_device	sysdev;
 };
+
+/* the currently allocated channel information */
+extern s3c6410_pwm_chan_t s3c_chans[];
+
+
+/* functions --------------------------------------------------------------- */
+
+/* s3c6410_pwm_request
+ *
+ * request a pwm channel exclusivley
+*/
+
+extern int s3c6410_pwm_request(pwmch_t channel, s3c_pwm_client_t *, void *dev);
+
+
+/* s3c_dma_ctrl
+ *
+ * change the state of the dma channel
+*/
+
+//extern int s3c_dma_ctrl(dmach_t channel, s3c_chan_op_t op);
+
+/* s3c_dma_setflags
+ *
+ * set the channel's flags to a given state
+*/
+
+
+/* s3c6410_pwm_free
+ *
+ * free the dma channel (will also abort any outstanding operations)
+*/
+
+extern int s3c6410_pwm_free(pwmch_t channel, s3c_pwm_client_t *);
+
+
+/* s3c_dma_config
+ *
+ * configure the dma channel
+*/
+
+
+
+
+extern int s3c6410_pwm_set_buffdone_fn(pwmch_t, s3c_pwm_cbfn_t rtn);
+
+extern int s3c6410_timer_setup (int channel, int usec, unsigned long g_tcnt, unsigned long g_tcmp);
 
 #endif /* __ASM_ARCH_DMA_H */

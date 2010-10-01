@@ -89,16 +89,11 @@ static void qset_fill_qh(struct whc_qset *qset, struct urb *urb)
 		QH_INFO3_TX_RATE_53_3
 		| QH_INFO3_TX_PWR(0) /* 0 == max power */
 		);
-
-	qset->qh.cur_window = cpu_to_le32((1 << qset->max_burst) - 1);
 }
 
 /**
  * qset_clear - clear fields in a qset so it may be reinserted into a
- * schedule.
- *
- * The sequence number and current window are not cleared (see
- * qset_reset()).
+ * schedule
  */
 void qset_clear(struct whc *whc, struct whc_qset *qset)
 {
@@ -106,8 +101,9 @@ void qset_clear(struct whc *whc, struct whc_qset *qset)
 	qset->remove = 0;
 
 	qset->qh.link = cpu_to_le32(QH_LINK_NTDS(8) | QH_LINK_T);
-	qset->qh.status = qset->qh.status & QH_STATUS_SEQ_MASK;
+	qset->qh.status = cpu_to_le16(QH_STATUS_ICUR(qset->td_start));
 	qset->qh.err_count = 0;
+	qset->qh.cur_window = cpu_to_le32((1 << qset->max_burst) - 1);
 	qset->qh.scratch[0] = 0;
 	qset->qh.scratch[1] = 0;
 	qset->qh.scratch[2] = 0;
@@ -115,20 +111,6 @@ void qset_clear(struct whc *whc, struct whc_qset *qset)
 	memset(&qset->qh.overlay, 0, sizeof(qset->qh.overlay));
 
 	init_completion(&qset->remove_complete);
-}
-
-/**
- * qset_reset - reset endpoint state in a qset.
- *
- * Clears the sequence number and current window.  This qset must not
- * be in the ASL or PZL.
- */
-void qset_reset(struct whc *whc, struct whc_qset *qset)
-{
-	wait_for_completion(&qset->remove_complete);
-
-	qset->qh.status &= ~QH_STATUS_SEQ_MASK;
-	qset->qh.cur_window = cpu_to_le32((1 << qset->max_burst) - 1);
 }
 
 /**

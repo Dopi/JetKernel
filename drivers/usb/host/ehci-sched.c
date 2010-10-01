@@ -323,7 +323,7 @@ static int tt_available (
 		 * already scheduled transactions
 		 */
 		if (125 < usecs) {
-			int ufs = (usecs / 125);
+			int ufs = (usecs / 125) - 1;
 			int i;
 			for (i = uframe; i < (uframe + ufs) && i < 8; i++)
 				if (0 < tt_usecs[i]) {
@@ -542,7 +542,6 @@ static int qh_link_periodic (struct ehci_hcd *ehci, struct ehci_qh *qh)
 		}
 	}
 	qh->qh_state = QH_STATE_LINKED;
-	qh->xacterrs = 0;
 	qh_get (qh);
 
 	/* update per-qh bandwidth for usbfs */
@@ -564,7 +563,7 @@ static int qh_unlink_periodic(struct ehci_hcd *ehci, struct ehci_qh *qh)
 	//   and this qh is active in the current uframe
 	//   (and overlay token SplitXstate is false?)
 	// THEN
-	//   qh->hw_info1 |= cpu_to_hc32(1 << 7 /* "ignore" */);
+	//   qh->hw_info1 |= __constant_cpu_to_hc32(1 << 7 /* "ignore" */);
 
 	/* high bandwidth, or otherwise part of every microframe */
 	if ((period = qh->period) == 0)
@@ -761,10 +760,8 @@ static int qh_schedule(struct ehci_hcd *ehci, struct ehci_qh *qh)
 	if (status) {
 		/* "normal" case, uframing flexible except with splits */
 		if (qh->period) {
-			int		i;
-
-			for (i = qh->period; status && i > 0; --i) {
-				frame = ++ehci->random_frame % qh->period;
+			frame = qh->period - 1;
+			do {
 				for (uframe = 0; uframe < 8; uframe++) {
 					status = check_intr_schedule (ehci,
 							frame, uframe, qh,
@@ -772,7 +769,7 @@ static int qh_schedule(struct ehci_hcd *ehci, struct ehci_qh *qh)
 					if (status == 0)
 						break;
 				}
-			}
+			} while (status && frame--);
 
 		/* qh->period == 0 means every uframe */
 		} else {
@@ -1620,14 +1617,11 @@ itd_complete (
 				desc->status = -EPROTO;
 
 			/* HC need not update length with this error */
-			if (!(t & EHCI_ISOC_BABBLE)) {
-				desc->actual_length = EHCI_ITD_LENGTH(t);
-				urb->actual_length += desc->actual_length;
-			}
+			if (!(t & EHCI_ISOC_BABBLE))
+				desc->actual_length = EHCI_ITD_LENGTH (t);
 		} else if (likely ((t & EHCI_ISOC_ACTIVE) == 0)) {
 			desc->status = 0;
-			desc->actual_length = EHCI_ITD_LENGTH(t);
-			urb->actual_length += desc->actual_length;
+			desc->actual_length = EHCI_ITD_LENGTH (t);
 		} else {
 			/* URB was too late */
 			desc->status = -EXDEV;
@@ -2018,8 +2012,7 @@ sitd_complete (
 			desc->status = -EPROTO;
 	} else {
 		desc->status = 0;
-		desc->actual_length = desc->length - SITD_LENGTH(t);
-		urb->actual_length += desc->actual_length;
+		desc->actual_length = desc->length - SITD_LENGTH (t);
 	}
 	stream->depth -= stream->interval << 3;
 

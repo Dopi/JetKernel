@@ -98,7 +98,8 @@ static int navman_open(struct tty_struct *tty,
 	return result;
 }
 
-static void navman_close(struct usb_serial_port *port)
+static void navman_close(struct tty_struct *tty,
+			struct usb_serial_port *port, struct file *filp)
 {
 	dbg("%s - port %d", __func__, port->number);
 

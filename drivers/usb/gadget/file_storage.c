@@ -247,8 +247,7 @@
 #include <linux/string.h>
 #include <linux/freezer.h>
 #include <linux/utsname.h>
-
-#include <asm/unaligned.h>
+#include <linux/switch.h>
 
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
@@ -367,9 +366,13 @@ static struct {
 	char		*protocol_name;
 
 } mod_data = {					// Default values
+//added by ss1.yang
+//	.file = "/lib/modules/gadgetdisk_dev_block_ram0",	
+	.file = "/dev/block/mmcblk0",	
 	.transport_parm		= "BBB",
 	.protocol_parm		= "SCSI",
-	.removable		= 1,
+//modified by ss1.yang
+	.removable		= 1, //0,
 	.can_stall		= 1,
 	.cdrom			= 0,
 	.vendor			= DRIVER_VENDOR_ID,
@@ -714,6 +717,7 @@ struct fsg_dev {
 	unsigned int		nluns;
 	struct lun		*luns;
 	struct lun		*curlun;
+	struct switch_dev	sdev;
 };
 
 typedef void (*fsg_routine_t)(struct fsg_dev *);
@@ -740,6 +744,7 @@ static struct fsg_dev			*the_fsg;
 static struct usb_gadget_driver		fsg_driver;
 
 static void	close_backing_file(struct lun *curlun);
+static void	close_all_backing_files(struct fsg_dev *fsg);
 
 
 /*-------------------------------------------------------------------------*/
@@ -801,9 +806,29 @@ static int fsg_set_halt(struct fsg_dev *fsg, struct usb_ep *ep)
 
 /* Routines for unaligned data access */
 
-static u32 get_unaligned_be24(u8 *buf)
+static u16 get_be16(u8 *buf)
 {
-	return 0xffffff & (u32) get_unaligned_be32(buf - 1);
+	return ((u16) buf[0] << 8) | ((u16) buf[1]);
+}
+
+static u32 get_be32(u8 *buf)
+{
+	return ((u32) buf[0] << 24) | ((u32) buf[1] << 16) |
+			((u32) buf[2] << 8) | ((u32) buf[3]);
+}
+
+static void put_be16(u8 *buf, u16 val)
+{
+	buf[0] = val >> 8;
+	buf[1] = val;
+}
+
+static void put_be32(u8 *buf, u32 val)
+{
+	buf[0] = val >> 24;
+	buf[1] = val >> 16;
+	buf[2] = val >> 8;
+	buf[3] = val & 0xff;
 }
 
 
@@ -828,13 +853,13 @@ device_desc = {
 	.bLength =		sizeof device_desc,
 	.bDescriptorType =	USB_DT_DEVICE,
 
-	.bcdUSB =		cpu_to_le16(0x0200),
+	.bcdUSB =		__constant_cpu_to_le16(0x0200),
 	.bDeviceClass =		USB_CLASS_PER_INTERFACE,
 
 	/* The next three values can be overridden by module parameters */
-	.idVendor =		cpu_to_le16(DRIVER_VENDOR_ID),
-	.idProduct =		cpu_to_le16(DRIVER_PRODUCT_ID),
-	.bcdDevice =		cpu_to_le16(0xffff),
+	.idVendor =		__constant_cpu_to_le16(DRIVER_VENDOR_ID),
+	.idProduct =		__constant_cpu_to_le16(DRIVER_PRODUCT_ID),
+	.bcdDevice =		__constant_cpu_to_le16(0xffff),
 
 	.iManufacturer =	STRING_MANUFACTURER,
 	.iProduct =		STRING_PRODUCT,
@@ -907,7 +932,7 @@ fs_intr_in_desc = {
 
 	.bEndpointAddress =	USB_DIR_IN,
 	.bmAttributes =		USB_ENDPOINT_XFER_INT,
-	.wMaxPacketSize =	cpu_to_le16(2),
+	.wMaxPacketSize =	__constant_cpu_to_le16(2),
 	.bInterval =		32,	// frames -> 32 ms
 };
 
@@ -935,7 +960,7 @@ dev_qualifier = {
 	.bLength =		sizeof dev_qualifier,
 	.bDescriptorType =	USB_DT_DEVICE_QUALIFIER,
 
-	.bcdUSB =		cpu_to_le16(0x0200),
+	.bcdUSB =		__constant_cpu_to_le16(0x0200),
 	.bDeviceClass =		USB_CLASS_PER_INTERFACE,
 
 	.bNumConfigurations =	1,
@@ -948,7 +973,7 @@ hs_bulk_in_desc = {
 
 	/* bEndpointAddress copied from fs_bulk_in_desc during fsg_bind() */
 	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize =	cpu_to_le16(512),
+	.wMaxPacketSize =	__constant_cpu_to_le16(512),
 };
 
 static struct usb_endpoint_descriptor
@@ -958,7 +983,7 @@ hs_bulk_out_desc = {
 
 	/* bEndpointAddress copied from fs_bulk_out_desc during fsg_bind() */
 	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize =	cpu_to_le16(512),
+	.wMaxPacketSize =	__constant_cpu_to_le16(512),
 	.bInterval =		1,	// NAK every 1 uframe
 };
 
@@ -969,7 +994,7 @@ hs_intr_in_desc = {
 
 	/* bEndpointAddress copied from fs_intr_in_desc during fsg_bind() */
 	.bmAttributes =		USB_ENDPOINT_XFER_INT,
-	.wMaxPacketSize =	cpu_to_le16(2),
+	.wMaxPacketSize =	__constant_cpu_to_le16(2),
 	.bInterval =		9,	// 2**(9-1) = 256 uframes -> 32 ms
 };
 
@@ -1564,9 +1589,9 @@ static int do_read(struct fsg_dev *fsg)
 	/* Get the starting Logical Block Address and check that it's
 	 * not too big */
 	if (fsg->cmnd[0] == SC_READ_6)
-		lba = get_unaligned_be24(&fsg->cmnd[1]);
+		lba = (fsg->cmnd[1] << 16) | get_be16(&fsg->cmnd[2]);
 	else {
-		lba = get_unaligned_be32(&fsg->cmnd[2]);
+		lba = get_be32(&fsg->cmnd[2]);
 
 		/* We allow DPO (Disable Page Out = don't save data in the
 		 * cache) and FUA (Force Unit Access = don't read from the
@@ -1692,16 +1717,14 @@ static int do_write(struct fsg_dev *fsg)
 		curlun->sense_data = SS_WRITE_PROTECTED;
 		return -EINVAL;
 	}
-	spin_lock(&curlun->filp->f_lock);
 	curlun->filp->f_flags &= ~O_SYNC;	// Default is not to wait
-	spin_unlock(&curlun->filp->f_lock);
 
 	/* Get the starting Logical Block Address and check that it's
 	 * not too big */
 	if (fsg->cmnd[0] == SC_WRITE_6)
-		lba = get_unaligned_be24(&fsg->cmnd[1]);
+		lba = (fsg->cmnd[1] << 16) | get_be16(&fsg->cmnd[2]);
 	else {
-		lba = get_unaligned_be32(&fsg->cmnd[2]);
+		lba = get_be32(&fsg->cmnd[2]);
 
 		/* We allow DPO (Disable Page Out = don't save data in the
 		 * cache) and FUA (Force Unit Access = write directly to the
@@ -1711,11 +1734,8 @@ static int do_write(struct fsg_dev *fsg)
 			curlun->sense_data = SS_INVALID_FIELD_IN_CDB;
 			return -EINVAL;
 		}
-		if (fsg->cmnd[1] & 0x08) {	// FUA
-			spin_lock(&curlun->filp->f_lock);
+		if (fsg->cmnd[1] & 0x08)	// FUA
 			curlun->filp->f_flags |= O_SYNC;
-			spin_unlock(&curlun->filp->f_lock);
-		}
 	}
 	if (lba >= curlun->num_sectors) {
 		curlun->sense_data = SS_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE;
@@ -1922,7 +1942,7 @@ static int do_verify(struct fsg_dev *fsg)
 
 	/* Get the starting Logical Block Address and check that it's
 	 * not too big */
-	lba = get_unaligned_be32(&fsg->cmnd[2]);
+	lba = get_be32(&fsg->cmnd[2]);
 	if (lba >= curlun->num_sectors) {
 		curlun->sense_data = SS_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE;
 		return -EINVAL;
@@ -1935,7 +1955,7 @@ static int do_verify(struct fsg_dev *fsg)
 		return -EINVAL;
 	}
 
-	verification_length = get_unaligned_be16(&fsg->cmnd[7]);
+	verification_length = get_be16(&fsg->cmnd[7]);
 	if (unlikely(verification_length == 0))
 		return -EIO;		// No default reply
 
@@ -2085,7 +2105,7 @@ static int do_request_sense(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 	memset(buf, 0, 18);
 	buf[0] = valid | 0x70;			// Valid, current error
 	buf[2] = SK(sd);
-	put_unaligned_be32(sdinfo, &buf[3]);	/* Sense information */
+	put_be32(&buf[3], sdinfo);		// Sense information
 	buf[7] = 18 - 8;			// Additional sense length
 	buf[12] = ASC(sd);
 	buf[13] = ASCQ(sd);
@@ -2096,7 +2116,7 @@ static int do_request_sense(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 static int do_read_capacity(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 {
 	struct lun	*curlun = fsg->curlun;
-	u32		lba = get_unaligned_be32(&fsg->cmnd[2]);
+	u32		lba = get_be32(&fsg->cmnd[2]);
 	int		pmi = fsg->cmnd[8];
 	u8		*buf = (u8 *) bh->buf;
 
@@ -2106,9 +2126,8 @@ static int do_read_capacity(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 		return -EINVAL;
 	}
 
-	put_unaligned_be32(curlun->num_sectors - 1, &buf[0]);
-						/* Max logical block */
-	put_unaligned_be32(512, &buf[4]);	/* Block length */
+	put_be32(&buf[0], curlun->num_sectors - 1);	// Max logical block
+	put_be32(&buf[4], 512);				// Block length
 	return 8;
 }
 
@@ -2127,7 +2146,7 @@ static void store_cdrom_address(u8 *dest, int msf, u32 addr)
 		dest[0] = 0;		/* Reserved */
 	} else {
 		/* Absolute sector */
-		put_unaligned_be32(addr, dest);
+		put_be32(dest, addr);
 	}
 }
 
@@ -2135,7 +2154,7 @@ static int do_read_header(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 {
 	struct lun	*curlun = fsg->curlun;
 	int		msf = fsg->cmnd[1] & 0x02;
-	u32		lba = get_unaligned_be32(&fsg->cmnd[2]);
+	u32		lba = get_be32(&fsg->cmnd[2]);
 	u8		*buf = (u8 *) bh->buf;
 
 	if ((fsg->cmnd[1] & ~0x02) != 0) {		/* Mask away MSF */
@@ -2235,13 +2254,10 @@ static int do_mode_sense(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 			buf[2] = 0x04;	// Write cache enable,
 					// Read cache not disabled
 					// No cache retention priorities
-			put_unaligned_be16(0xffff, &buf[4]);
-					/* Don't disable prefetch */
-					/* Minimum prefetch = 0 */
-			put_unaligned_be16(0xffff, &buf[8]);
-					/* Maximum prefetch */
-			put_unaligned_be16(0xffff, &buf[10]);
-					/* Maximum prefetch ceiling */
+			put_be16(&buf[4], 0xffff);  // Don't disable prefetch
+					// Minimum prefetch = 0
+			put_be16(&buf[8], 0xffff);  // Maximum prefetch
+			put_be16(&buf[10], 0xffff); // Maximum prefetch ceiling
 		}
 		buf += 12;
 	}
@@ -2258,7 +2274,7 @@ static int do_mode_sense(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 	if (mscmnd == SC_MODE_SENSE_6)
 		buf0[0] = len - 1;
 	else
-		put_unaligned_be16(len - 2, buf0);
+		put_be16(buf0, len - 2);
 	return len;
 }
 
@@ -2346,10 +2362,9 @@ static int do_read_format_capacities(struct fsg_dev *fsg,
 	buf[3] = 8;		// Only the Current/Maximum Capacity Descriptor
 	buf += 4;
 
-	put_unaligned_be32(curlun->num_sectors, &buf[0]);
-						/* Number of blocks */
-	put_unaligned_be32(512, &buf[4]);	/* Block length */
-	buf[4] = 0x02;				/* Current capacity */
+	put_be32(&buf[0], curlun->num_sectors);		// Number of blocks
+	put_be32(&buf[4], 512);				// Block length
+	buf[4] = 0x02;					// Current capacity
 	return 12;
 }
 
@@ -2637,7 +2652,7 @@ static int send_status(struct fsg_dev *fsg)
 		struct bulk_cs_wrap	*csw = bh->buf;
 
 		/* Store and send the Bulk-only CSW */
-		csw->Signature = cpu_to_le32(USB_BULK_CS_SIG);
+		csw->Signature = __constant_cpu_to_le32(USB_BULK_CS_SIG);
 		csw->Tag = fsg->tag;
 		csw->Residue = cpu_to_le32(fsg->residue);
 		csw->Status = status;
@@ -2869,7 +2884,7 @@ static int do_scsi_command(struct fsg_dev *fsg)
 		break;
 
 	case SC_MODE_SELECT_10:
-		fsg->data_size_from_cmnd = get_unaligned_be16(&fsg->cmnd[7]);
+		fsg->data_size_from_cmnd = get_be16(&fsg->cmnd[7]);
 		if ((reply = check_command(fsg, 10, DATA_DIR_FROM_HOST,
 				(1<<1) | (3<<7), 0,
 				"MODE SELECT(10)")) == 0)
@@ -2885,7 +2900,7 @@ static int do_scsi_command(struct fsg_dev *fsg)
 		break;
 
 	case SC_MODE_SENSE_10:
-		fsg->data_size_from_cmnd = get_unaligned_be16(&fsg->cmnd[7]);
+		fsg->data_size_from_cmnd = get_be16(&fsg->cmnd[7]);
 		if ((reply = check_command(fsg, 10, DATA_DIR_TO_HOST,
 				(1<<1) | (1<<2) | (3<<7), 0,
 				"MODE SENSE(10)")) == 0)
@@ -2910,8 +2925,7 @@ static int do_scsi_command(struct fsg_dev *fsg)
 		break;
 
 	case SC_READ_10:
-		fsg->data_size_from_cmnd =
-				get_unaligned_be16(&fsg->cmnd[7]) << 9;
+		fsg->data_size_from_cmnd = get_be16(&fsg->cmnd[7]) << 9;
 		if ((reply = check_command(fsg, 10, DATA_DIR_TO_HOST,
 				(1<<1) | (0xf<<2) | (3<<7), 1,
 				"READ(10)")) == 0)
@@ -2919,8 +2933,7 @@ static int do_scsi_command(struct fsg_dev *fsg)
 		break;
 
 	case SC_READ_12:
-		fsg->data_size_from_cmnd =
-				get_unaligned_be32(&fsg->cmnd[6]) << 9;
+		fsg->data_size_from_cmnd = get_be32(&fsg->cmnd[6]) << 9;
 		if ((reply = check_command(fsg, 12, DATA_DIR_TO_HOST,
 				(1<<1) | (0xf<<2) | (0xf<<6), 1,
 				"READ(12)")) == 0)
@@ -2938,7 +2951,7 @@ static int do_scsi_command(struct fsg_dev *fsg)
 	case SC_READ_HEADER:
 		if (!mod_data.cdrom)
 			goto unknown_cmnd;
-		fsg->data_size_from_cmnd = get_unaligned_be16(&fsg->cmnd[7]);
+		fsg->data_size_from_cmnd = get_be16(&fsg->cmnd[7]);
 		if ((reply = check_command(fsg, 10, DATA_DIR_TO_HOST,
 				(3<<7) | (0x1f<<1), 1,
 				"READ HEADER")) == 0)
@@ -2948,7 +2961,7 @@ static int do_scsi_command(struct fsg_dev *fsg)
 	case SC_READ_TOC:
 		if (!mod_data.cdrom)
 			goto unknown_cmnd;
-		fsg->data_size_from_cmnd = get_unaligned_be16(&fsg->cmnd[7]);
+		fsg->data_size_from_cmnd = get_be16(&fsg->cmnd[7]);
 		if ((reply = check_command(fsg, 10, DATA_DIR_TO_HOST,
 				(7<<6) | (1<<1), 1,
 				"READ TOC")) == 0)
@@ -2956,7 +2969,7 @@ static int do_scsi_command(struct fsg_dev *fsg)
 		break;
 
 	case SC_READ_FORMAT_CAPACITIES:
-		fsg->data_size_from_cmnd = get_unaligned_be16(&fsg->cmnd[7]);
+		fsg->data_size_from_cmnd = get_be16(&fsg->cmnd[7]);
 		if ((reply = check_command(fsg, 10, DATA_DIR_TO_HOST,
 				(3<<7), 1,
 				"READ FORMAT CAPACITIES")) == 0)
@@ -3014,8 +3027,7 @@ static int do_scsi_command(struct fsg_dev *fsg)
 		break;
 
 	case SC_WRITE_10:
-		fsg->data_size_from_cmnd =
-				get_unaligned_be16(&fsg->cmnd[7]) << 9;
+		fsg->data_size_from_cmnd = get_be16(&fsg->cmnd[7]) << 9;
 		if ((reply = check_command(fsg, 10, DATA_DIR_FROM_HOST,
 				(1<<1) | (0xf<<2) | (3<<7), 1,
 				"WRITE(10)")) == 0)
@@ -3023,8 +3035,7 @@ static int do_scsi_command(struct fsg_dev *fsg)
 		break;
 
 	case SC_WRITE_12:
-		fsg->data_size_from_cmnd =
-				get_unaligned_be32(&fsg->cmnd[6]) << 9;
+		fsg->data_size_from_cmnd = get_be32(&fsg->cmnd[6]) << 9;
 		if ((reply = check_command(fsg, 12, DATA_DIR_FROM_HOST,
 				(1<<1) | (0xf<<2) | (0xf<<6), 1,
 				"WRITE(12)")) == 0)
@@ -3084,7 +3095,7 @@ static int received_cbw(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 
 	/* Is the CBW valid? */
 	if (req->actual != USB_BULK_CB_WRAP_LEN ||
-			cbw->Signature != cpu_to_le32(
+			cbw->Signature != __constant_cpu_to_le32(
 				USB_BULK_CB_SIG)) {
 		DBG(fsg, "invalid CBW: len %u sig 0x%x\n",
 				req->actual,
@@ -3357,6 +3368,7 @@ static int do_set_config(struct fsg_dev *fsg, u8 new_config)
 			INFO(fsg, "%s speed config #%d\n", speed, fsg->config);
 		}
 	}
+	switch_set_state (&fsg->sdev, new_config);
 	return rc;
 }
 
@@ -3583,10 +3595,12 @@ static int fsg_main_thread(void *fsg_)
 	fsg->thread_task = NULL;
 	spin_unlock_irq(&fsg->lock);
 
-	/* If we are exiting because of a signal, unregister the
-	 * gadget driver. */
-	if (test_and_clear_bit(REGISTERED, &fsg->atomic_bitflags))
+	/* In case we are exiting because of a signal, unregister the
+	 * gadget driver and close the backing file. */
+	if (test_and_clear_bit(REGISTERED, &fsg->atomic_bitflags)) {
 		usb_gadget_unregister_driver(&fsg_driver);
+		close_all_backing_files(fsg);
+	}
 
 	/* Let the unbind and cleanup routines know the thread has exited */
 	complete_and_exit(&fsg->thread_notifier, 0);
@@ -3689,6 +3703,14 @@ static void close_backing_file(struct lun *curlun)
 		fput(curlun->filp);
 		curlun->filp = NULL;
 	}
+}
+
+static void close_all_backing_files(struct fsg_dev *fsg)
+{
+	int	i;
+
+	for (i = 0; i < fsg->nluns; ++i)
+		close_backing_file(&fsg->luns[i]);
 }
 
 
@@ -3825,7 +3847,6 @@ static void /* __init_or_exit */ fsg_unbind(struct usb_gadget *gadget)
 		if (curlun->registered) {
 			device_remove_file(&curlun->dev, &dev_attr_ro);
 			device_remove_file(&curlun->dev, &dev_attr_file);
-			close_backing_file(curlun);
 			device_unregister(&curlun->dev);
 			curlun->registered = 0;
 		}
@@ -3851,6 +3872,7 @@ static void /* __init_or_exit */ fsg_unbind(struct usb_gadget *gadget)
 	}
 
 	set_gadget_data(gadget, NULL);
+	switch_dev_unregister(&the_fsg->sdev);
 }
 
 
@@ -3942,6 +3964,16 @@ static int __init check_parameters(struct fsg_dev *fsg)
 	return 0;
 }
 
+static ssize_t print_switch_name(struct switch_dev *sdev, char *buf)
+{
+        return sprintf(buf, "usb_mass_storage\n");
+}
+ 
+static ssize_t print_switch_state(struct switch_dev *sdev, char *buf)
+{
+        struct fsg_dev  *fsg = container_of(sdev, struct fsg_dev, sdev);
+        return sprintf(buf, "%s\n", (fsg->config ? "online" : "offline"));
+}
 
 static int __init fsg_bind(struct usb_gadget *gadget)
 {
@@ -4160,6 +4192,11 @@ static int __init fsg_bind(struct usb_gadget *gadget)
 
 	set_bit(REGISTERED, &fsg->atomic_bitflags);
 
+        the_fsg->sdev.name = "usb_mass_storage";
+        the_fsg->sdev.print_name = print_switch_name;
+        the_fsg->sdev.print_state = print_switch_state;
+        switch_dev_register(&the_fsg->sdev);
+
 	/* Tell the thread to start working */
 	wake_up_process(fsg->thread_task);
 	return 0;
@@ -4171,6 +4208,7 @@ autoconf_fail:
 out:
 	fsg->state = FSG_STATE_TERMINATED;	// The thread is dead
 	fsg_unbind(gadget);
+	close_all_backing_files(fsg);
 	complete(&fsg->thread_notifier);
 	return rc;
 }
@@ -4184,7 +4222,6 @@ static void fsg_suspend(struct usb_gadget *gadget)
 
 	DBG(fsg, "suspend\n");
 	set_bit(SUSPENDED, &fsg->atomic_bitflags);
-	fsg->running = 0;
 }
 
 static void fsg_resume(struct usb_gadget *gadget)
@@ -4265,6 +4302,7 @@ static void __exit fsg_cleanup(void)
 	/* Wait for the thread to finish up */
 	wait_for_completion(&fsg->thread_notifier);
 
+	close_all_backing_files(fsg);
 	kref_put(&fsg->ref, fsg_release);
 }
 module_exit(fsg_cleanup);

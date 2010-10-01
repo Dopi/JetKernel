@@ -12,6 +12,9 @@
  * published by the Free Software Foundation.
 */
 
+#ifndef __ASM_PLAT_S3C64XX_GPIO_BANK_H_H
+#define __ASM_PLAT_S3C64XX_GPIO_BANK_H_H __FILE__
+
 #define S3C64XX_GPHCON0			(S3C64XX_GPH_BASE + 0x00)
 #define S3C64XX_GPHCON1			(S3C64XX_GPH_BASE + 0x04)
 #define S3C64XX_GPHDAT			(S3C64XX_GPH_BASE + 0x08)
@@ -61,14 +64,15 @@
 #define S3C64XX_GPH7_ADDR_CF1		(0x06 << 28)
 #define S3C64XX_GPH7_EINT_G6_7		(0x07 << 28)
 
-#define S3C64XX_GPH8_MMC1_DATA6		(0x02 <<  0)
-#define S3C64XX_GPH8_MMC2_DATA2		(0x03 <<  0)
-#define S3C64XX_GPH8_I2S_V40_LRCLK	(0x05 <<  0)
-#define S3C64XX_GPH8_ADDR_CF2		(0x06 <<  0)
-#define S3C64XX_GPH8_EINT_G6_8		(0x07 <<  0)
+#define S3C64XX_GPH8_MMC1_DATA6		(0x02 << 0)
+#define S3C64XX_GPH8_MMC2_DATA2		(0x03 << 0)
+#define S3C64XX_GPH8_I2S_V40_LRCLK	(0x05 << 0)
+#define S3C64XX_GPH8_ADDR_CF2		(0x06 << 0)
+#define S3C64XX_GPH8_EINT_G6_8		(0x07 << 0)
 
-#define S3C64XX_GPH9_OUTPUT		(0x01 <<  4)
-#define S3C64XX_GPH9_MMC1_DATA7		(0x02 <<  4)
-#define S3C64XX_GPH9_MMC2_DATA3		(0x03 <<  4)
-#define S3C64XX_GPH9_I2S_V40_DI		(0x05 <<  4)
-#define S3C64XX_GPH9_EINT_G6_9		(0x07 <<  4)
+#define S3C64XX_GPH9_MMC1_DATA7		(0x02 << 4)
+#define S3C64XX_GPH9_MMC2_DATA3		(0x03 << 4)
+#define S3C64XX_GPH9_I2S_V40_DI		(0x05 << 4)
+#define S3C64XX_GPH9_EINT_G6_9		(0x07 << 4)
+
+#endif	/* __ASM_PLAT_S3C64XX_GPIO_BANK_H_H */

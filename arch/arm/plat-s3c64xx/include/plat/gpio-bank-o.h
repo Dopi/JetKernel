@@ -12,6 +12,9 @@
  * published by the Free Software Foundation.
 */
 
+#ifndef __ASM_PLAT_S3C64XX_GPIO_BANK_O_H
+#define __ASM_PLAT_S3C64XX_GPIO_BANK_O_H __FILE__
+
 #define S3C64XX_GPOCON			(S3C64XX_GPO_BASE + 0x00)
 #define S3C64XX_GPODAT			(S3C64XX_GPO_BASE + 0x04)
 #define S3C64XX_GPOPUD			(S3C64XX_GPO_BASE + 0x08)
@@ -68,3 +71,4 @@
 #define S3C64XX_GPO15_MEM0_ADDR15	(0x02 << 30)
 #define S3C64XX_GPO15_EINT_G7_15	(0x03 << 30)
 
+#endif	/* __ASM_PLAT_S3C64XX_GPIO_BANK_O_H */

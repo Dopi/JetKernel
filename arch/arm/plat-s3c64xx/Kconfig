@@ -95,12 +95,6 @@ config S3C64XX_SETUP_FIMC1
 	help
 	  Common setup code for FIMC controller 1
 
-config S3C64XX_DEV_RP
-	bool
-	default y
-	help
-	  Compile in platform device definitions for Renderer pipeline	  	  
-
 config S3C64XX_SETUP_FB_24BPP
 	bool
 	help

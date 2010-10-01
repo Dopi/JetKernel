@@ -426,7 +426,7 @@ static int __devinit twl4030_rtc_probe(struct platform_device *pdev)
 
 	ret = request_irq(irq, twl4030_rtc_interrupt,
 				IRQF_TRIGGER_RISING,
-				dev_name(&rtc->dev), rtc);
+				rtc->dev.bus_id, rtc);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "IRQ is not free.\n");
 		goto out1;
@@ -495,7 +495,9 @@ static int twl4030_rtc_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	irqstat = rtc_irq_bits;
 
-	mask_rtc_irq_bit(BIT_RTC_INTERRUPTS_REG_IT_TIMER_M);
+	/* REVISIT alarm may need to wake us from sleep */
+	mask_rtc_irq_bit(BIT_RTC_INTERRUPTS_REG_IT_TIMER_M |
+			 BIT_RTC_INTERRUPTS_REG_IT_ALARM_M);
 	return 0;
 }
 

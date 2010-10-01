@@ -64,12 +64,10 @@
 #define M41T80_FEATURE_BL	(1 << 1)	/* Battery low indicator */
 #define M41T80_FEATURE_SQ	(1 << 2)	/* Squarewave feature */
 #define M41T80_FEATURE_WD	(1 << 3)	/* Extra watchdog resolution */
-#define M41T80_FEATURE_SQ_ALT	(1 << 4)	/* RSx bits are in reg 4 */
 
 #define DRV_VERSION "0.05"
 
 static const struct i2c_device_id m41t80_id[] = {
-	{ "m41t62", M41T80_FEATURE_SQ | M41T80_FEATURE_SQ_ALT },
 	{ "m41t65", M41T80_FEATURE_HT | M41T80_FEATURE_WD },
 	{ "m41t80", M41T80_FEATURE_SQ },
 	{ "m41t81", M41T80_FEATURE_HT | M41T80_FEATURE_SQ},
@@ -395,15 +393,12 @@ static ssize_t m41t80_sysfs_show_sqwfreq(struct device *dev,
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct m41t80_data *clientdata = i2c_get_clientdata(client);
-	int val, reg_sqw;
+	int val;
 
 	if (!(clientdata->features & M41T80_FEATURE_SQ))
 		return -EINVAL;
 
-	reg_sqw = M41T80_REG_SQW;
-	if (clientdata->features & M41T80_FEATURE_SQ_ALT)
-		reg_sqw = M41T80_REG_WDAY;
-	val = i2c_smbus_read_byte_data(client, reg_sqw);
+	val = i2c_smbus_read_byte_data(client, M41T80_REG_SQW);
 	if (val < 0)
 		return -EIO;
 	val = (val >> 4) & 0xf;
@@ -424,7 +419,7 @@ static ssize_t m41t80_sysfs_set_sqwfreq(struct device *dev,
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct m41t80_data *clientdata = i2c_get_clientdata(client);
-	int almon, sqw, reg_sqw;
+	int almon, sqw;
 	int val = simple_strtoul(buf, NULL, 0);
 
 	if (!(clientdata->features & M41T80_FEATURE_SQ))
@@ -445,16 +440,13 @@ static ssize_t m41t80_sysfs_set_sqwfreq(struct device *dev,
 	almon = i2c_smbus_read_byte_data(client, M41T80_REG_ALARM_MON);
 	if (almon < 0)
 		return -EIO;
-	reg_sqw = M41T80_REG_SQW;
-	if (clientdata->features & M41T80_FEATURE_SQ_ALT)
-		reg_sqw = M41T80_REG_WDAY;
-	sqw = i2c_smbus_read_byte_data(client, reg_sqw);
+	sqw = i2c_smbus_read_byte_data(client, M41T80_REG_SQW);
 	if (sqw < 0)
 		return -EIO;
 	sqw = (sqw & 0x0f) | (val << 4);
 	if (i2c_smbus_write_byte_data(client, M41T80_REG_ALARM_MON,
 				      almon & ~M41T80_ALMON_SQWE) < 0 ||
-	    i2c_smbus_write_byte_data(client, reg_sqw, sqw) < 0)
+	    i2c_smbus_write_byte_data(client, M41T80_REG_SQW, sqw) < 0)
 		return -EIO;
 	if (val && i2c_smbus_write_byte_data(client, M41T80_REG_ALARM_MON,
 					     almon | M41T80_ALMON_SQWE) < 0)

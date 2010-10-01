@@ -797,15 +797,17 @@ cmos_do_probe(struct device *dev, struct resource *ports, int rtc_irq)
 		goto cleanup2;
 	}
 
-	pr_info("%s: %s%s, %zd bytes nvram%s\n",
-		dev_name(&cmos_rtc.rtc->dev),
-		!is_valid_irq(rtc_irq) ? "no alarms" :
-			cmos_rtc.mon_alrm ? "alarms up to one year" :
-			cmos_rtc.day_alrm ? "alarms up to one month" :
-			"alarms up to one day",
-		cmos_rtc.century ? ", y3k" : "",
-		nvram.size,
-		is_hpet_enabled() ? ", hpet irqs" : "");
+	pr_info("%s: alarms up to one %s%s, %zd bytes nvram%s\n",
+			dev_name(&cmos_rtc.rtc->dev),
+			is_valid_irq(rtc_irq)
+				?  (cmos_rtc.mon_alrm
+					? "year"
+					: (cmos_rtc.day_alrm
+						? "month" : "day"))
+				: "no",
+			cmos_rtc.century ? ", y3k" : "",
+			nvram.size,
+			is_hpet_enabled() ? ", hpet irqs" : "");
 
 	return 0;
 
@@ -1174,34 +1176,23 @@ static struct platform_driver cmos_platform_driver = {
 	}
 };
 
-#ifdef CONFIG_PNP
-static bool pnp_driver_registered;
-#endif
-static bool platform_driver_registered;
-
 static int __init cmos_init(void)
 {
 	int retval = 0;
 
 #ifdef	CONFIG_PNP
-	retval = pnp_register_driver(&cmos_pnp_driver);
-	if (retval == 0)
-		pnp_driver_registered = true;
+	pnp_register_driver(&cmos_pnp_driver);
 #endif
 
-	if (!cmos_rtc.dev) {
+	if (!cmos_rtc.dev)
 		retval = platform_driver_probe(&cmos_platform_driver,
 					       cmos_platform_probe);
-		if (retval == 0)
-			platform_driver_registered = true;
-	}
 
 	if (retval == 0)
 		return 0;
 
 #ifdef	CONFIG_PNP
-	if (pnp_driver_registered)
-		pnp_unregister_driver(&cmos_pnp_driver);
+	pnp_unregister_driver(&cmos_pnp_driver);
 #endif
 	return retval;
 }
@@ -1210,11 +1201,9 @@ module_init(cmos_init);
 static void __exit cmos_exit(void)
 {
 #ifdef	CONFIG_PNP
-	if (pnp_driver_registered)
-		pnp_unregister_driver(&cmos_pnp_driver);
+	pnp_unregister_driver(&cmos_pnp_driver);
 #endif
-	if (platform_driver_registered)
-		platform_driver_unregister(&cmos_platform_driver);
+	platform_driver_unregister(&cmos_platform_driver);
 }
 module_exit(cmos_exit);
 

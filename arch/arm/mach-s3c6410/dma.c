@@ -17,12 +17,10 @@
 #include <linux/serial_core.h>
 
 #include <asm/dma.h>
-#include <mach/s3c-dma.h>
-#include <plat/map-base.h>
-#include <plat/s3c-dma.h>
-#include <plat/regs-clock.h>
+#include <mach/dma.h>
 #include <asm/io.h>
 
+#include <plat/dma.h>
 #include <plat/cpu.h>
 
 
@@ -349,32 +347,11 @@ static struct s3c_dma_selection __initdata s3c6410_dma_sel = {
 static int __init s3c6410_dma_add(struct sys_device *sysdev)
 {
 	s3c_dma_init(S3C_DMA_CHANNELS, IRQ_DMA0, 0x20);
-	__raw_writel(__raw_readl(S3C_HCLK_GATE) | 3 << 12, S3C_HCLK_GATE);
 	return s3c_dma_init_map(&s3c6410_dma_sel);
 }
 
-#ifdef CONFIG_PM
-static int s3c6410_dma_resume(struct sys_device *dev)
-{
-	__raw_writel(__raw_readl(S3C_HCLK_GATE) | 3 << 12, S3C_HCLK_GATE);
-	return 0;
-}
-
-static int s3c6410_dma_suspend (struct sys_device *dev, pm_message_t state)
-{
-	__raw_writel(__raw_readl(S3C_HCLK_GATE) & ~(3 << 12), S3C_HCLK_GATE);
-	return 0;
-}
-
-#else
-#define s3c6410_dma_resume NULL
-#define s3c6410_dma_suspend NULL
-#endif
-
 static struct sysdev_driver s3c6410_dma_driver = {
 	.add	= s3c6410_dma_add,
-	/*.suspend = s3c6410_dma_suspend,*/
-	/*.resume = s3c6410_dma_resume,*/
 };
 
 static int __init s3c6410_dma_init(void)

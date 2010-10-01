@@ -5,6 +5,7 @@
 
 #include <linux/slab.h>
 #include <linux/list.h>
+#include <linux/smp_lock.h>
 #include <linux/errno.h>
 #include <linux/dmapool.h>
 
@@ -118,8 +119,6 @@ struct cppi {
 	void __iomem			*mregs;		/* Mentor regs */
 	void __iomem			*tibase;	/* TI/CPPI regs */
 
-	int				irq;
-
 	struct cppi_channel		tx[4];
 	struct cppi_channel		rx[4];
 
@@ -128,7 +127,7 @@ struct cppi {
 	struct list_head		tx_complete;
 };
 
-/* CPPI IRQ handler */
-extern irqreturn_t cppi_interrupt(int, void *);
+/* irq handling hook */
+extern void cppi_completion(struct musb *, u32 rx, u32 tx);
 
 #endif				/* end of ifndef _CPPI_DMA_H_ */

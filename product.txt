@@ -1,0 +1,7 @@
+eth0: register 'rndis_host' at usb-0000:00:13.2-3, RNDIS device, ffff880046523210
+usb 2-3: New USB device found, idVendor=04e8, idProduct=6785
+usb 2-3: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+usb 2-3: Product: GT-I8000
+usb 2-3: Manufacturer: Samsung Electronics
+usb 2-3: SerialNumber: c62a0200-3f71-0801-ec00-0259dcaf3235
+

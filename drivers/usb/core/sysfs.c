@@ -13,7 +13,6 @@
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/usb.h>
-#include <linux/usb/quirks.h>
 #include "usb.h"
 
 /* Active configuration fields */
@@ -552,8 +551,8 @@ static struct attribute *dev_string_attrs[] = {
 static mode_t dev_string_attrs_are_visible(struct kobject *kobj,
 		struct attribute *a, int n)
 {
-	struct device *dev = container_of(kobj, struct device, kobj);
-	struct usb_device *udev = to_usb_device(dev);
+	struct usb_device *udev = to_usb_device(
+			container_of(kobj, struct device, kobj));
 
 	if (a == &dev_attr_manufacturer.attr) {
 		if (udev->manufacturer == NULL)
@@ -585,8 +584,8 @@ static ssize_t
 read_descriptors(struct kobject *kobj, struct bin_attribute *attr,
 		char *buf, loff_t off, size_t count)
 {
-	struct device *dev = container_of(kobj, struct device, kobj);
-	struct usb_device *udev = to_usb_device(dev);
+	struct usb_device *udev = to_usb_device(
+			container_of(kobj, struct device, kobj));
 	size_t nleft = count;
 	size_t srclen, n;
 	int cfgno;
@@ -786,8 +785,8 @@ static struct attribute *intf_assoc_attrs[] = {
 static mode_t intf_assoc_attrs_are_visible(struct kobject *kobj,
 		struct attribute *a, int n)
 {
-	struct device *dev = container_of(kobj, struct device, kobj);
-	struct usb_interface *intf = to_usb_interface(dev);
+	struct usb_interface *intf = to_usb_interface(
+			container_of(kobj, struct device, kobj));
 
 	if (intf->intf_assoc == NULL)
 		return 0;
@@ -814,8 +813,7 @@ int usb_create_sysfs_intf_files(struct usb_interface *intf)
 	if (intf->sysfs_files_created || intf->unregistering)
 		return 0;
 
-	if (alt->string == NULL &&
-			!(udev->quirks & USB_QUIRK_CONFIG_INTF_STRINGS))
+	if (alt->string == NULL)
 		alt->string = usb_cache_string(udev, alt->desc.iInterface);
 	if (alt->string)
 		retval = device_create_file(&intf->dev, &dev_attr_interface);

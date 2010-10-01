@@ -88,7 +88,8 @@ static int xbof = -1;
 static int  ir_startup (struct usb_serial *serial);
 static int  ir_open(struct tty_struct *tty, struct usb_serial_port *port,
 					struct file *filep);
-static void ir_close(struct usb_serial_port *port);
+static void ir_close(struct tty_struct *tty, struct usb_serial_port *port,
+					struct file *filep);
 static int  ir_write(struct tty_struct *tty, struct usb_serial_port *port,
 					const unsigned char *buf, int count);
 static void ir_write_bulk_callback (struct urb *urb);
@@ -345,7 +346,8 @@ static int ir_open(struct tty_struct *tty,
 	return result;
 }
 
-static void ir_close(struct usb_serial_port *port)
+static void ir_close(struct tty_struct *tty,
+			struct usb_serial_port *port, struct file * filp)
 {
 	dbg("%s - port %d", __func__, port->number);
 

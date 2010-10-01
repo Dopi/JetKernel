@@ -651,35 +651,6 @@ static int keyspan_pda_chars_in_buffer(struct tty_struct *tty)
 }
 
 
-static void keyspan_pda_dtr_rts(struct usb_serial_port *port, int on)
-{
-	struct usb_serial *serial = port->serial;
-
-	if (serial->dev) {
-		if (on)
-			keyspan_pda_set_modem_info(serial, (1<<7) | (1<< 2));
-		else
-			keyspan_pda_set_modem_info(serial, 0);
-	}
-}
-
-static int keyspan_pda_carrier_raised(struct usb_serial_port *port)
-{
-	struct usb_serial *serial = port->serial;
-	unsigned char modembits;
-
-	/* If we can read the modem status and the DCD is low then
-	   carrier is not raised yet */
-	if (keyspan_pda_get_modem_info(serial, &modembits) >= 0) {
-		if (!(modembits & (1>>6)))
-			return 0;
-	}
-	/* Carrier raised, or we failed (eg disconnected) so
-	   progress accordingly */
-	return 1;
-}
-
-
 static int keyspan_pda_open(struct tty_struct *tty,
 			struct usb_serial_port *port, struct file *filp)
 {
@@ -711,6 +682,13 @@ static int keyspan_pda_open(struct tty_struct *tty,
 	priv->tx_room = room;
 	priv->tx_throttled = room ? 0 : 1;
 
+	/* the normal serial device seems to always turn on DTR and RTS here,
+	   so do the same */
+	if (tty && (tty->termios->c_cflag & CBAUD))
+		keyspan_pda_set_modem_info(serial, (1<<7) | (1<<2));
+	else
+		keyspan_pda_set_modem_info(serial, 0);
+
 	/*Start reading from the device*/
 	port->interrupt_in_urb->dev = serial->dev;
 	rc = usb_submit_urb(port->interrupt_in_urb, GFP_KERNEL);
@@ -722,11 +700,19 @@ static int keyspan_pda_open(struct tty_struct *tty,
 error:
 	return rc;
 }
-static void keyspan_pda_close(struct usb_serial_port *port)
+
+
+static void keyspan_pda_close(struct tty_struct *tty,
+			struct usb_serial_port *port, struct file *filp)
 {
 	struct usb_serial *serial = port->serial;
 
 	if (serial->dev) {
+		/* the normal serial device seems to always shut
+		   off DTR and RTS now */
+		if (tty->termios->c_cflag & HUPCL)
+			keyspan_pda_set_modem_info(serial, 0);
+
 		/* shutdown our bulk reads and writes */
 		usb_kill_urb(port->write_urb);
 		usb_kill_urb(port->interrupt_in_urb);
@@ -809,7 +795,7 @@ static int keyspan_pda_startup(struct usb_serial *serial)
 	return 0;
 }
 
-static void keyspan_pda_release(struct usb_serial *serial)
+static void keyspan_pda_shutdown(struct usb_serial *serial)
 {
 	dbg("%s", __func__);
 
@@ -853,8 +839,6 @@ static struct usb_serial_driver keyspan_pda_device = {
 	.usb_driver = 		&keyspan_pda_driver,
 	.id_table =		id_table_std,
 	.num_ports =		1,
-	.dtr_rts =		keyspan_pda_dtr_rts,
-	.carrier_raised	=	keyspan_pda_carrier_raised,
 	.open =			keyspan_pda_open,
 	.close =		keyspan_pda_close,
 	.write =		keyspan_pda_write,
@@ -869,7 +853,7 @@ static struct usb_serial_driver keyspan_pda_device = {
 	.tiocmget =		keyspan_pda_tiocmget,
 	.tiocmset =		keyspan_pda_tiocmset,
 	.attach =		keyspan_pda_startup,
-	.release =		keyspan_pda_release,
+	.shutdown =		keyspan_pda_shutdown,
 };
 
 

@@ -102,7 +102,7 @@
 #define USB_REQ_LOOPBACK_DATA_READ	0x16
 #define USB_REQ_SET_INTERFACE_DS	0x17
 
-/* The Link Power Management (LPM) ECN defines USB_REQ_TEST_AND_SET command,
+/* The Link Power Mangement (LPM) ECN defines USB_REQ_TEST_AND_SET command,
  * used by hubs to put ports into a new L1 suspend state, except that it
  * forgot to define its number ...
  */
@@ -191,8 +191,6 @@ struct usb_ctrlrequest {
 #define USB_DT_WIRE_ADAPTER		0x21
 #define USB_DT_RPIPE			0x22
 #define USB_DT_CS_RADIO_CONTROL		0x23
-/* From the USB 3.0 spec */
-#define	USB_DT_SS_ENDPOINT_COMP		0x30
 
 /* Conventional codes for class-specific descriptors.  The convention is
  * defined in the USB "Common Class" Spec (3.11).  Individual class specs
@@ -355,199 +353,6 @@ struct usb_endpoint_descriptor {
 #define USB_ENDPOINT_XFER_INT		3
 #define USB_ENDPOINT_MAX_ADJUSTABLE	0x80
 
-/*-------------------------------------------------------------------------*/
-
-/**
- * usb_endpoint_num - get the endpoint's number
- * @epd: endpoint to be checked
- *
- * Returns @epd's number: 0 to 15.
- */
-static inline int usb_endpoint_num(const struct usb_endpoint_descriptor *epd)
-{
-	return epd->bEndpointAddress & USB_ENDPOINT_NUMBER_MASK;
-}
-
-/**
- * usb_endpoint_type - get the endpoint's transfer type
- * @epd: endpoint to be checked
- *
- * Returns one of USB_ENDPOINT_XFER_{CONTROL, ISOC, BULK, INT} according
- * to @epd's transfer type.
- */
-static inline int usb_endpoint_type(const struct usb_endpoint_descriptor *epd)
-{
-	return epd->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK;
-}
-
-/**
- * usb_endpoint_dir_in - check if the endpoint has IN direction
- * @epd: endpoint to be checked
- *
- * Returns true if the endpoint is of type IN, otherwise it returns false.
- */
-static inline int usb_endpoint_dir_in(const struct usb_endpoint_descriptor *epd)
-{
-	return ((epd->bEndpointAddress & USB_ENDPOINT_DIR_MASK) == USB_DIR_IN);
-}
-
-/**
- * usb_endpoint_dir_out - check if the endpoint has OUT direction
- * @epd: endpoint to be checked
- *
- * Returns true if the endpoint is of type OUT, otherwise it returns false.
- */
-static inline int usb_endpoint_dir_out(
-				const struct usb_endpoint_descriptor *epd)
-{
-	return ((epd->bEndpointAddress & USB_ENDPOINT_DIR_MASK) == USB_DIR_OUT);
-}
-
-/**
- * usb_endpoint_xfer_bulk - check if the endpoint has bulk transfer type
- * @epd: endpoint to be checked
- *
- * Returns true if the endpoint is of type bulk, otherwise it returns false.
- */
-static inline int usb_endpoint_xfer_bulk(
-				const struct usb_endpoint_descriptor *epd)
-{
-	return ((epd->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) ==
-		USB_ENDPOINT_XFER_BULK);
-}
-
-/**
- * usb_endpoint_xfer_control - check if the endpoint has control transfer type
- * @epd: endpoint to be checked
- *
- * Returns true if the endpoint is of type control, otherwise it returns false.
- */
-static inline int usb_endpoint_xfer_control(
-				const struct usb_endpoint_descriptor *epd)
-{
-	return ((epd->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) ==
-		USB_ENDPOINT_XFER_CONTROL);
-}
-
-/**
- * usb_endpoint_xfer_int - check if the endpoint has interrupt transfer type
- * @epd: endpoint to be checked
- *
- * Returns true if the endpoint is of type interrupt, otherwise it returns
- * false.
- */
-static inline int usb_endpoint_xfer_int(
-				const struct usb_endpoint_descriptor *epd)
-{
-	return ((epd->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) ==
-		USB_ENDPOINT_XFER_INT);
-}
-
-/**
- * usb_endpoint_xfer_isoc - check if the endpoint has isochronous transfer type
- * @epd: endpoint to be checked
- *
- * Returns true if the endpoint is of type isochronous, otherwise it returns
- * false.
- */
-static inline int usb_endpoint_xfer_isoc(
-				const struct usb_endpoint_descriptor *epd)
-{
-	return ((epd->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) ==
-		USB_ENDPOINT_XFER_ISOC);
-}
-
-/**
- * usb_endpoint_is_bulk_in - check if the endpoint is bulk IN
- * @epd: endpoint to be checked
- *
- * Returns true if the endpoint has bulk transfer type and IN direction,
- * otherwise it returns false.
- */
-static inline int usb_endpoint_is_bulk_in(
-				const struct usb_endpoint_descriptor *epd)
-{
-	return (usb_endpoint_xfer_bulk(epd) && usb_endpoint_dir_in(epd));
-}
-
-/**
- * usb_endpoint_is_bulk_out - check if the endpoint is bulk OUT
- * @epd: endpoint to be checked
- *
- * Returns true if the endpoint has bulk transfer type and OUT direction,
- * otherwise it returns false.
- */
-static inline int usb_endpoint_is_bulk_out(
-				const struct usb_endpoint_descriptor *epd)
-{
-	return (usb_endpoint_xfer_bulk(epd) && usb_endpoint_dir_out(epd));
-}
-
-/**
- * usb_endpoint_is_int_in - check if the endpoint is interrupt IN
- * @epd: endpoint to be checked
- *
- * Returns true if the endpoint has interrupt transfer type and IN direction,
- * otherwise it returns false.
- */
-static inline int usb_endpoint_is_int_in(
-				const struct usb_endpoint_descriptor *epd)
-{
-	return (usb_endpoint_xfer_int(epd) && usb_endpoint_dir_in(epd));
-}
-
-/**
- * usb_endpoint_is_int_out - check if the endpoint is interrupt OUT
- * @epd: endpoint to be checked
- *
- * Returns true if the endpoint has interrupt transfer type and OUT direction,
- * otherwise it returns false.
- */
-static inline int usb_endpoint_is_int_out(
-				const struct usb_endpoint_descriptor *epd)
-{
-	return (usb_endpoint_xfer_int(epd) && usb_endpoint_dir_out(epd));
-}
-
-/**
- * usb_endpoint_is_isoc_in - check if the endpoint is isochronous IN
- * @epd: endpoint to be checked
- *
- * Returns true if the endpoint has isochronous transfer type and IN direction,
- * otherwise it returns false.
- */
-static inline int usb_endpoint_is_isoc_in(
-				const struct usb_endpoint_descriptor *epd)
-{
-	return (usb_endpoint_xfer_isoc(epd) && usb_endpoint_dir_in(epd));
-}
-
-/**
- * usb_endpoint_is_isoc_out - check if the endpoint is isochronous OUT
- * @epd: endpoint to be checked
- *
- * Returns true if the endpoint has isochronous transfer type and OUT direction,
- * otherwise it returns false.
- */
-static inline int usb_endpoint_is_isoc_out(
-				const struct usb_endpoint_descriptor *epd)
-{
-	return (usb_endpoint_xfer_isoc(epd) && usb_endpoint_dir_out(epd));
-}
-
-/*-------------------------------------------------------------------------*/
-
-/* USB_DT_SS_ENDPOINT_COMP: SuperSpeed Endpoint Companion descriptor */
-struct usb_ss_ep_comp_descriptor {
-	__u8  bLength;
-	__u8  bDescriptorType;
-
-	__u8  bMaxBurst;
-	__u8  bmAttributes;
-	__u16 wBytesPerInterval;
-} __attribute__ ((packed));
-
-#define USB_DT_SS_EP_COMP_SIZE		6
 
 /*-------------------------------------------------------------------------*/
 
@@ -768,7 +573,6 @@ enum usb_device_speed {
 	USB_SPEED_LOW, USB_SPEED_FULL,		/* usb 1.1 */
 	USB_SPEED_HIGH,				/* usb 2.0 */
 	USB_SPEED_VARIABLE,			/* wireless (usb 2.5) */
-	USB_SPEED_SUPER,			/* usb 3.0 */
 };
 
 enum usb_device_state {
@@ -780,8 +584,8 @@ enum usb_device_state {
 	/* chapter 9 and authentication (wireless) device states */
 	USB_STATE_ATTACHED,
 	USB_STATE_POWERED,			/* wired */
-	USB_STATE_RECONNECTING,			/* auth */
 	USB_STATE_UNAUTHENTICATED,		/* auth */
+	USB_STATE_RECONNECTING,			/* auth */
 	USB_STATE_DEFAULT,			/* limited function */
 	USB_STATE_ADDRESS,
 	USB_STATE_CONFIGURED,			/* most functions */

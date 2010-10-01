@@ -28,6 +28,8 @@
 #include <linux/signal.h>
 #include <linux/platform_device.h>
 
+#include <mach/hardware.h>
+
 static struct clk *usb_host_clock;
 
 static void ep93xx_start_hc(struct device *dev)
@@ -47,7 +49,7 @@ static int usb_hcd_ep93xx_probe(const struct hc_driver *driver,
 	struct usb_hcd *hcd;
 
 	if (pdev->resource[1].flags != IORESOURCE_IRQ) {
-		dbg("resource[1] is not IORESOURCE_IRQ");
+		pr_debug("resource[1] is not IORESOURCE_IRQ");
 		return -ENOMEM;
 	}
 
@@ -65,18 +67,12 @@ static int usb_hcd_ep93xx_probe(const struct hc_driver *driver,
 
 	hcd->regs = ioremap(hcd->rsrc_start, hcd->rsrc_len);
 	if (hcd->regs == NULL) {
-		dbg("ioremap failed");
+		pr_debug("ioremap failed");
 		retval = -ENOMEM;
 		goto err2;
 	}
 
-	usb_host_clock = clk_get(&pdev->dev, NULL);
-	if (IS_ERR(usb_host_clock)) {
-		dbg("clk_get failed");
-		retval = PTR_ERR(usb_host_clock);
-		goto err3;
-	}
-
+	usb_host_clock = clk_get(&pdev->dev, "usb_host");
 	ep93xx_start_hc(&pdev->dev);
 
 	ohci_hcd_init(hcd_to_ohci(hcd));
@@ -86,7 +82,6 @@ static int usb_hcd_ep93xx_probe(const struct hc_driver *driver,
 		return retval;
 
 	ep93xx_stop_hc(&pdev->dev);
-err3:
 	iounmap(hcd->regs);
 err2:
 	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);

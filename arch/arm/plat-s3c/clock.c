@@ -313,11 +313,12 @@ struct clk clk_usb_bus = {
 	.parent		= &clk_upll,
 };
 
+/*
 struct clk s3c24xx_uclk = {
 	.name		= "uclk",
 	.id		= -1,
 };
-
+*/
 /* initialise the clock system */
 
 int s3c_register_clock(struct clk *clk)

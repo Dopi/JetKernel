@@ -15,10 +15,10 @@
 /*=================================================*/
 /*   DMA Register Definitions for PL330 DMAC       */
 
-#define S3C_DMAC_DS  			(0x00)
+#define S3C_DMAC_DS  			(0x00)		
 #define S3C_DMAC_DPC   			(0x04)
 #define S3C_DMAC_INTEN  		(0x20)		/* R/W */
-#define S3C_DMAC_ES  			(0x24)
+#define S3C_DMAC_ES  			(0x24)		
 #define S3C_DMAC_INTSTATUS	   	(0x28)
 #define S3C_DMAC_INTCLR			(0x2C)		/* W/O */
 #define S3C_DMAC_FSM		  	(0x30)

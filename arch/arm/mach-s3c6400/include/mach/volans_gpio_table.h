@@ -155,35 +155,35 @@ static struct __gpio_config volans_gpio_table[] = {
 		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
 	},
 	{
-		.gpio = GPIO_CAM_D0,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
+		.gpio = GPIO_CAM_D_0,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
 		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
 	},
 	{
-		.gpio = GPIO_CAM_D1,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
+		.gpio = GPIO_CAM_D_1,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
 		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
 	},
 	{
-		.gpio = GPIO_CAM_D2,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
+		.gpio = GPIO_CAM_D_2,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
 		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
 	},
 	{
-		.gpio = GPIO_CAM_D3,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
+		.gpio = GPIO_CAM_D_3,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
 		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
 	},
 	{
-		.gpio = GPIO_CAM_D4,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
+		.gpio = GPIO_CAM_D_4,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
 		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
 	},
 	{
-		.gpio = GPIO_CAM_D5,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
+		.gpio = GPIO_CAM_D_5,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
 		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
 	},
 	{
-		.gpio = GPIO_CAM_D6,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
+		.gpio = GPIO_CAM_D_6,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
 		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
 	},
 	{
-		.gpio = GPIO_CAM_D7,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
+		.gpio = GPIO_CAM_D_7,		.af = S3C_GPIO_INPUT,			.level = GPIO_LEVEL_NONE,
 		.pull = S3C_GPIO_PULL_DOWN,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_DOWN
 	},
 	{
@@ -502,7 +502,7 @@ static struct __gpio_config volans_gpio_table[] = {
 		.pull = S3C_GPIO_PULL_NONE,	.slp_con = S3C_GPIO_SLP_OUT0,	.slp_pull = S3C_GPIO_PULL_NONE
 	},
 	{
-		.gpio = GPIO_BT_WAKE,		.af = GPIO_BT_WAKE_AF,			.level = GPIO_LEVEL_LOW,
+		.gpio = GPIO_PS_VOUT,		.af = GPIO_PS_VOUT_AF,			.level = GPIO_LEVEL_LOW,
 		.pull = S3C_GPIO_PULL_NONE,	.slp_con = S3C_GPIO_SLP_OUT0,	.slp_pull = S3C_GPIO_PULL_NONE
 	},
 	/* GPN Group - Alive */
@@ -568,11 +568,11 @@ static struct __gpio_config volans_gpio_table[] = {
 	},
 	/* GPO Group */
 	{
-		.gpio = GPIO_REV_2,			.af = GPIO_REV_2_AF,			.level = GPIO_LEVEL_NONE,
+		.gpio = GPIO_REV_2,		.af = GPIO_REV_2_AF,			.level = GPIO_LEVEL_NONE,
 		.pull = S3C_GPIO_PULL_NONE,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_NONE
 	},
 	{
-		.gpio = GPIO_REV_3,			.af = GPIO_REV_3_AF,			.level = GPIO_LEVEL_NONE,
+		.gpio = GPIO_LUM_PWM,		.af = GPIO_LUM_PWM_AF,			.level = GPIO_LEVEL_NONE,
 		.pull = S3C_GPIO_PULL_NONE,	.slp_con = S3C_GPIO_SLP_INPUT,	.slp_pull = S3C_GPIO_PULL_NONE
 	},
 	{

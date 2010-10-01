@@ -13,7 +13,8 @@ obj-				:=
 # Core support for S3C6410 system
 
 obj-$(CONFIG_CPU_S3C6410)	+= cpu.o
-obj-$(CONFIG_S3C_DMA_PL080) += dma.o
+obj-$(CONFIG_S3C_DMA_PL080)	+= dma.o
+obj-$(CONFIG_CPU_S3C6410)	+= irq.o
 
 # Helper and device support
 
@@ -24,7 +25,8 @@ obj-$(CONFIG_PM)    += pm.o
 # machine support
 
 obj-$(CONFIG_MACH_ANW6410)	+= mach-anw6410.o
-obj-$(CONFIG_MACH_SMDK6410)	+= mach-smdk6410.o sec_headset.o
+#obj-$(CONFIG_MACH_SMDK6410)	+= mach-smdk6410.o sec_headset.o
+obj-$(CONFIG_MACH_SMDK6410)	+= omnia_II.o sec_headset.o
 obj-$(CONFIG_MACH_NCP)		+= mach-ncp.o
 
 

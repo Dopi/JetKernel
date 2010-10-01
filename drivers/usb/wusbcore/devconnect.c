@@ -267,8 +267,6 @@ static void wusbhc_devconnect_acked_work(struct work_struct *work)
 	mutex_lock(&wusbhc->mutex);
 	wusbhc_devconnect_acked(wusbhc, wusb_dev);
 	mutex_unlock(&wusbhc->mutex);
-
-	wusb_dev_put(wusb_dev);
 }
 
 /*
@@ -398,8 +396,7 @@ static void __wusbhc_dev_disconnect(struct wusbhc *wusbhc,
 
 	/* After a device disconnects, change the GTK (see [WUSB]
 	 * section 6.2.11.2). */
-	if (wusbhc->active)
-		wusbhc_gtk_rekey(wusbhc);
+	wusbhc_gtk_rekey(wusbhc);
 
 	/* The Wireless USB part has forgotten about the device already; now
 	 * khubd's timer will pick up the disconnection and remove the USB
@@ -474,7 +471,7 @@ static void __wusbhc_keep_alive(struct wusbhc *wusbhc)
  */
 static void wusbhc_keep_alive_run(struct work_struct *ws)
 {
-	struct delayed_work *dw = to_delayed_work(ws);
+	struct delayed_work *dw = container_of(ws, struct delayed_work, work);
 	struct wusbhc *wusbhc =	container_of(dw, struct wusbhc, keep_alive_timer);
 
 	mutex_lock(&wusbhc->mutex);
@@ -892,8 +889,6 @@ static void wusb_dev_add_ncb(struct usb_device *usb_dev)
 	if (usb_dev->wusb == 0 || usb_dev->devnum == 1)
 		return;		/* skip non wusb and wusb RHs */
 
-	usb_set_device_state(usb_dev, USB_STATE_UNAUTHENTICATED);
-
 	wusbhc = wusbhc_get_by_usb_dev(usb_dev);
 	if (wusbhc == NULL)
 		goto error_nodev;
@@ -1087,21 +1082,15 @@ error_mmcie_set:
  * wusbhc_devconnect_stop - stop managing connected devices
  * @wusbhc: the WUSB HC
  *
- * Disconnects any devices still connected, stops the keep alives and
- * removes the Host Info IE.
+ * Removes the Host Info IE and stops the keep alives.
+ *
+ * FIXME: should this disconnect all devices?
  */
 void wusbhc_devconnect_stop(struct wusbhc *wusbhc)
 {
-	int i;
-
-	mutex_lock(&wusbhc->mutex);
-	for (i = 0; i < wusbhc->ports_max; i++) {
-		if (wusbhc->port[i].wusb_dev)
-			__wusbhc_dev_disconnect(wusbhc, &wusbhc->port[i]);
-	}
-	mutex_unlock(&wusbhc->mutex);
-
 	cancel_delayed_work_sync(&wusbhc->keep_alive_timer);
+	WARN_ON(!list_empty(&wusbhc->cack_list));
+
 	wusbhc_mmcie_rm(wusbhc, &wusbhc->wuie_host_info->hdr);
 	kfree(wusbhc->wuie_host_info);
 	wusbhc->wuie_host_info = NULL;

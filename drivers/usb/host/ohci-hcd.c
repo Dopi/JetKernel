@@ -571,7 +571,7 @@ static int ohci_init (struct ohci_hcd *ohci)
  */
 static int ohci_run (struct ohci_hcd *ohci)
 {
-	u32			mask, val;
+	u32			mask, temp;
 	int			first = ohci->fminterval == 0;
 	struct usb_hcd		*hcd = ohci_to_hcd(ohci);
 
@@ -580,8 +580,8 @@ static int ohci_run (struct ohci_hcd *ohci)
 	/* boot firmware should have set this up (5.1.1.3.1) */
 	if (first) {
 
-		val = ohci_readl (ohci, &ohci->regs->fminterval);
-		ohci->fminterval = val & 0x3fff;
+		temp = ohci_readl (ohci, &ohci->regs->fminterval);
+		ohci->fminterval = temp & 0x3fff;
 		if (ohci->fminterval != FI)
 			ohci_dbg (ohci, "fminterval delta %d\n",
 				ohci->fminterval - FI);
@@ -600,25 +600,25 @@ static int ohci_run (struct ohci_hcd *ohci)
 
 	switch (ohci->hc_control & OHCI_CTRL_HCFS) {
 	case OHCI_USB_OPER:
-		val = 0;
+		temp = 0;
 		break;
 	case OHCI_USB_SUSPEND:
 	case OHCI_USB_RESUME:
 		ohci->hc_control &= OHCI_CTRL_RWC;
 		ohci->hc_control |= OHCI_USB_RESUME;
-		val = 10 /* msec wait */;
+		temp = 10 /* msec wait */;
 		break;
 	// case OHCI_USB_RESET:
 	default:
 		ohci->hc_control &= OHCI_CTRL_RWC;
 		ohci->hc_control |= OHCI_USB_RESET;
-		val = 50 /* msec wait */;
+		temp = 50 /* msec wait */;
 		break;
 	}
 	ohci_writel (ohci, ohci->hc_control, &ohci->regs->control);
 	// flush the writes
 	(void) ohci_readl (ohci, &ohci->regs->control);
-	msleep(val);
+	msleep(temp);
 
 	memset (ohci->hcca, 0, sizeof (struct ohci_hcca));
 
@@ -628,9 +628,9 @@ static int ohci_run (struct ohci_hcd *ohci)
 retry:
 	/* HC Reset requires max 10 us delay */
 	ohci_writel (ohci, OHCI_HCR,  &ohci->regs->cmdstatus);
-	val = 30;	/* ... allow extra time */
+	temp = 30;	/* ... allow extra time */
 	while ((ohci_readl (ohci, &ohci->regs->cmdstatus) & OHCI_HCR) != 0) {
-		if (--val == 0) {
+		if (--temp == 0) {
 			spin_unlock_irq (&ohci->lock);
 			ohci_err (ohci, "USB HC reset timed out!\n");
 			return -1;
@@ -699,23 +699,23 @@ retry:
 	ohci_writel (ohci, mask, &ohci->regs->intrenable);
 
 	/* handle root hub init quirks ... */
-	val = roothub_a (ohci);
-	val &= ~(RH_A_PSM | RH_A_OCPM);
+	temp = roothub_a (ohci);
+	temp &= ~(RH_A_PSM | RH_A_OCPM);
 	if (ohci->flags & OHCI_QUIRK_SUPERIO) {
 		/* NSC 87560 and maybe others */
-		val |= RH_A_NOCP;
-		val &= ~(RH_A_POTPGT | RH_A_NPS);
-		ohci_writel (ohci, val, &ohci->regs->roothub.a);
+		temp |= RH_A_NOCP;
+		temp &= ~(RH_A_POTPGT | RH_A_NPS);
+		ohci_writel (ohci, temp, &ohci->regs->roothub.a);
 	} else if ((ohci->flags & OHCI_QUIRK_AMD756) ||
 			(ohci->flags & OHCI_QUIRK_HUB_POWER)) {
 		/* hub power always on; required for AMD-756 and some
 		 * Mac platforms.  ganged overcurrent reporting, if any.
 		 */
-		val |= RH_A_NPS;
-		ohci_writel (ohci, val, &ohci->regs->roothub.a);
+		temp |= RH_A_NPS;
+		ohci_writel (ohci, temp, &ohci->regs->roothub.a);
 	}
 	ohci_writel (ohci, RH_HS_LPSC, &ohci->regs->roothub.status);
-	ohci_writel (ohci, (val & RH_A_NPS) ? 0 : RH_B_PPCM,
+	ohci_writel (ohci, (temp & RH_A_NPS) ? 0 : RH_B_PPCM,
 						&ohci->regs->roothub.b);
 	// flush those writes
 	(void) ohci_readl (ohci, &ohci->regs->control);
@@ -724,7 +724,7 @@ retry:
 	spin_unlock_irq (&ohci->lock);
 
 	// POTPGT delay is bits 24-31, in 2 ms units.
-	mdelay ((val >> 23) & 0x1fe);
+	mdelay ((temp >> 23) & 0x1fe);
 	hcd->state = HC_STATE_RUNNING;
 
 	if (quirk_zfmicro(ohci)) {
@@ -997,14 +997,9 @@ MODULE_LICENSE ("GPL");
 #define SA1111_DRIVER		ohci_hcd_sa1111_driver
 #endif
 
-#if defined(CONFIG_ARCH_S3C2410) || defined(CONFIG_ARCH_S3C64XX) || defined(CONFIG_ARCH_S5PC1XX)
+#ifdef CONFIG_ARCH_S3C2410
 #include "ohci-s3c2410.c"
 #define PLATFORM_DRIVER		ohci_hcd_s3c2410_driver
-#endif
-
-#if CONFIG_ARCH_S5PV2XX 
-#include "ohci-s5pv210.c"
-#define PLATFORM_DRIVER		ohci_hcd_s5pv210_driver
 #endif
 
 #ifdef CONFIG_ARCH_OMAP
@@ -1054,8 +1049,7 @@ MODULE_LICENSE ("GPL");
 
 #if defined(CONFIG_CPU_SUBTYPE_SH7720) || \
     defined(CONFIG_CPU_SUBTYPE_SH7721) || \
-    defined(CONFIG_CPU_SUBTYPE_SH7763) || \
-    defined(CONFIG_CPU_SUBTYPE_SH7786)
+    defined(CONFIG_CPU_SUBTYPE_SH7763)
 #include "ohci-sh.c"
 #define PLATFORM_DRIVER		ohci_hcd_sh_driver
 #endif
@@ -1110,7 +1104,7 @@ static int __init ohci_hcd_mod_init(void)
 	set_bit(USB_OHCI_LOADED, &usb_hcds_loaded);
 
 #ifdef DEBUG
-	ohci_debug_root = debugfs_create_dir("ohci", usb_debug_root);
+	ohci_debug_root = debugfs_create_dir("ohci", NULL);
 	if (!ohci_debug_root) {
 		retval = -ENOENT;
 		goto error_debug;

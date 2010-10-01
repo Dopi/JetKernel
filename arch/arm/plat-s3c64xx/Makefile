@@ -53,6 +53,4 @@ obj-$(CONFIG_S3C64XX_DEV_FIMC1)   += dev-fimc1.o
 obj-$(CONFIG_S3C64XX_SETUP_FIMC0) += setup-fimc0.o
 obj-$(CONFIG_S3C64XX_SETUP_FIMC1) += setup-fimc1.o
 
-obj-$(CONFIG_S3C64XX_DEV_RP)      += dev-rp.o
-obj-$(CONFIG_HAVE_PWM)		  			+= pwm.o
 obj-$(CONFIG_S3C6410_PWM)	  			+= pwm-s3c6410.o

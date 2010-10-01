@@ -27,7 +27,6 @@
 
 #include <linux/usb/composite.h>
 
-
 /*
  * The code in this file is utility code, used to build a gadget driver
  * from one or more "function" drivers, one or more "configuration"
@@ -149,17 +148,16 @@ done:
 int usb_function_deactivate(struct usb_function *function)
 {
 	struct usb_composite_dev	*cdev = function->config->cdev;
-	unsigned long			flags;
 	int				status = 0;
 
-	spin_lock_irqsave(&cdev->lock, flags);
+	spin_lock(&cdev->lock);
 
 	if (cdev->deactivations == 0)
 		status = usb_gadget_disconnect(cdev->gadget);
 	if (status == 0)
 		cdev->deactivations++;
 
-	spin_unlock_irqrestore(&cdev->lock, flags);
+	spin_unlock(&cdev->lock);
 	return status;
 }
 
@@ -236,6 +234,7 @@ static int config_buf(struct usb_configuration *config,
 	int				len = USB_BUFSIZ - USB_DT_CONFIG_SIZE;
 	struct usb_function		*f;
 	int				status;
+	int				interfaceCount = 0;
 
 	/* write the config descriptor */
 	c = buf;
@@ -266,8 +265,16 @@ static int config_buf(struct usb_configuration *config,
 			descriptors = f->hs_descriptors;
 		else
 			descriptors = f->descriptors;
-		if (!descriptors)
+		if (!descriptors || descriptors[0] == NULL) {
+			for (; f != config->interface[interfaceCount];) {
+				interfaceCount++;
+				c->bNumInterfaces--;
+			}
 			continue;
+		}
+		for (; f != config->interface[interfaceCount];)
+			interfaceCount++;
+
 		status = usb_descriptor_fillbuf(next, len,
 			(const struct usb_descriptor_header **) descriptors);
 		if (status < 0)
@@ -420,7 +427,8 @@ static int set_config(struct usb_composite_dev *cdev,
 		struct usb_function	*f = c->interface[tmp];
 
 		if (!f)
-			break;
+			//break;
+			continue;
 
 		result = f->set_alt(f, tmp, 0);
 		if (result < 0) {
@@ -459,7 +467,10 @@ int __init usb_add_config(struct usb_composite_dev *cdev,
 	int				status = -EINVAL;
 	struct usb_configuration	*c;
 
-	DBG(cdev, "adding config #%u '%s'/%p\n",
+/*	DBG(cdev, "adding config #%u '%s'/%p\n",
+			config->bConfigurationValue,
+			config->label, config);
+*/	printk("adding config #%u '%s'/%p\n",
 			config->bConfigurationValue,
 			config->label, config);
 
@@ -756,11 +767,11 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 	case USB_REQ_GET_CONFIGURATION:
 		if (ctrl->bRequestType != USB_DIR_IN)
 			goto unknown;
-		if (cdev->config)
+		if (cdev->config) {
 			*(u8 *)req->buf = cdev->config->bConfigurationValue;
-		else
+			value = min(w_length, (u16) 1);
+		} else
 			*(u8 *)req->buf = 0;
-		value = min(w_length, (u16) 1);
 		break;
 
 	/* function drivers must handle get/set altsetting; if there's
@@ -795,7 +806,7 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 		break;
 	default:
 unknown:
-		DBG(cdev,
+		VDBG(cdev,
 			"non-core control req%02x.%02x v%04x i%04x l%d\n",
 			ctrl->bRequestType, ctrl->bRequest,
 			w_value, w_index, w_length);
@@ -810,11 +821,25 @@ unknown:
 		 */
 		if ((ctrl->bRequestType & USB_RECIP_MASK)
 				== USB_RECIP_INTERFACE) {
-			f = cdev->config->interface[intf];
-			if (f && f->setup)
-				value = f->setup(f, ctrl);
-			else
+			if (cdev->config == NULL)
+				return value;
+/* 
+ * by ss1.yang check w_index is proper value 
+ * because of USBCV - MSC Test - MSC ClassRequestTest_DeviceConfigured
+ * Issuing Get Max LUN request with invalid wIndex parameter
+ */
+//			if (cdev->config && w_index < MAX_CONFIG_INTERFACES) {				
+			if (cdev->config && w_index < cdev->config->next_interface_id) {
+				f = cdev->config->interface[intf];
+				if (f && f->setup)
+					value = f->setup(f, ctrl);
+				else
+					f = NULL;
+			}
+			else {
+				printk("\n invalid w_index [interface %d]\n", w_index);
 				f = NULL;
+			}
 		}
 		if (value < 0 && !f) {
 			struct usb_configuration	*c;
@@ -823,7 +848,6 @@ unknown:
 			if (c && c->setup)
 				value = c->setup(c, ctrl);
 		}
-
 		goto done;
 	}
 
@@ -1014,7 +1038,7 @@ composite_suspend(struct usb_gadget *gadget)
 	struct usb_composite_dev	*cdev = get_gadget_data(gadget);
 	struct usb_function		*f;
 
-	/* REVISIT:  should we have config level
+	/* REVISIT:  should we have config and device level
 	 * suspend/resume callbacks?
 	 */
 	DBG(cdev, "suspend\n");
@@ -1024,8 +1048,6 @@ composite_suspend(struct usb_gadget *gadget)
 				f->suspend(f);
 		}
 	}
-	if (composite->suspend)
-		composite->suspend(cdev);
 }
 
 static void
@@ -1034,12 +1056,10 @@ composite_resume(struct usb_gadget *gadget)
 	struct usb_composite_dev	*cdev = get_gadget_data(gadget);
 	struct usb_function		*f;
 
-	/* REVISIT:  should we have config level
+	/* REVISIT:  should we have config and device level
 	 * suspend/resume callbacks?
 	 */
 	DBG(cdev, "resume\n");
-	if (composite->resume)
-		composite->resume(cdev);
 	if (cdev->config) {
 		list_for_each_entry(f, &cdev->config->functions, list) {
 			if (f->resume)

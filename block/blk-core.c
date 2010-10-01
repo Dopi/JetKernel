@@ -2236,6 +2236,33 @@ bool __blk_end_request_cur(struct request *rq, int error)
 }
 EXPORT_SYMBOL(__blk_end_request_cur);
 
+/**
+ * end_request - end I/O on the current segment of the request
+ * @req:        the request being processed
+ * @uptodate:   error value or %0/%1 uptodate flag
+ *
+ * Description:
+ *     Ends I/O on the current segment of a request. If that is the only
+ *     remaining segment, the request is also completed and freed.
+ *
+ *     This is a remnant of how older block drivers handled I/O completions.
+ *     Modern drivers typically end I/O on the full request in one go, unless
+ *     they have a residual value to account for. For that case this function
+ *     isn't really useful, unless the residual just happens to be the
+ *     full current segment. In other words, don't use this function in new
+ *     code. Use blk_end_request() or __blk_end_request() to end a request.
+ **/
+void end_request(struct request *req, int uptodate)
+{
+        int error = 0;
+
+        if (uptodate <= 0)
+                error = uptodate ? uptodate : -EIO;
+
+        __blk_end_request(req, error, req->__sector << 9);
+}
+EXPORT_SYMBOL(end_request);
+
 void blk_rq_bio_prep(struct request_queue *q, struct request *rq,
 		     struct bio *bio)
 {

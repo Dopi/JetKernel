@@ -472,7 +472,7 @@ static int s3c_i2c_set_master(struct s3c_i2c *i2c)
 		msleep(1);
 	}
 
-#if defined(CONFIG_MACH_SMDK6410)
+#if defined(CONFIG_MACH_SPICA)
 	iicstat = readl(i2c->regs + S3C_IICSTAT);
     iicstat &= ~S3C_IICSTAT_BUSBUSY;
     writel(iicstat, i2c->regs + S3C_IICSTAT);
@@ -486,18 +486,17 @@ static int s3c_i2c_set_master(struct s3c_i2c *i2c)
  *
  * this starts an i2c transfer
 */
-//unsigned char*  pdata;       // pdata
 
 static int s3c_i2c_doxfer(struct s3c_i2c *i2c,
 			      struct i2c_msg *msgs, int num)
 {
-#if !(defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN)|| defined(CONFIG_MACH_SMDK6410))
+#if !(defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN))
 	struct s3c_platform_i2c *pdata = i2c->dev->platform_data;
 #endif
 	unsigned long timeout;
 	int ret;
 
-#if defined(CONFIG_MACH_SMDK6410)
+#if defined(CONFIG_MACH_SPICA)
 	int iicstat;
 #endif
 
@@ -522,7 +521,7 @@ static int s3c_i2c_doxfer(struct s3c_i2c *i2c,
 		/* force to write stop control bit */
 		s3c_i2c_stop(i2c, -ENXIO);
 
-#if defined(CONFIG_MACH_SMDK6410)
+#if defined(CONFIG_MACH_SPICA)
 		iicstat = readl(i2c->regs + S3C_IICSTAT);
         if ((iicstat & S3C_IICSTAT_BUSBUSY)) {
             iicstat &= ~(S3C_IICSTAT_TXRXEN | S3C_IICSTAT_BUSBUSY);
@@ -560,10 +559,10 @@ static int s3c_i2c_doxfer(struct s3c_i2c *i2c,
 		dev_dbg(i2c->dev, "incomplete xfer (%d)\n", ret);
 
 	/* ensure the stop has been through the bus */
-//#if !(defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN)|| defined(CONFIG_MACH_SMDK6410)) || defined(CONFIG_MACH_SMDK6410)
-//	if (pdata->bus_num == 0)
-	//	msleep(1);
-//#endif
+#if !(defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN))
+	if (pdata->bus_num == 0)
+		msleep(1);
+#endif
  out:
 	return ret;
 }
@@ -1064,4 +1063,3 @@ MODULE_DESCRIPTION("S3C I2C Bus driver");
 MODULE_AUTHOR("Ben Dooks, <ben@simtec.co.uk>");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:s3c-i2c");
-

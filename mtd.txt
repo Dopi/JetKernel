@@ -1,0 +1,7 @@
+mknod /dev/mtdblock0 b 31 0
+
+losetup /dev/block/loop0 /sd/Phone_I8000XXJA1.bin
+
+echo "/dev/block/loop0" > /sys/module/block2mtd/parameters/block2mtd
+
+mount -t jffs2 /dev/mtdblock0 /mnt

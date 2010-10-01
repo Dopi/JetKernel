@@ -116,7 +116,7 @@ static void s3c_serial_stop_tx(struct uart_port *port)
 	struct s3c_uart_port *ourport = to_ourport(port);
 
 	if (tx_enabled(port)) {
-		disable_irq(ourport->tx_irq);
+		disable_irq_nosync(ourport->tx_irq);
 		tx_enabled(port) = 0;
 		if (port->flags & UPF_CONS_FLOW)
 			s3c_serial_rx_enable(port);
@@ -143,7 +143,7 @@ static void s3c_serial_stop_rx(struct uart_port *port)
 
 	if (rx_enabled(port)) {
 		dbg("s3c_serial_stop_rx: port=%p\n", port);
-		disable_irq(ourport->rx_irq);
+		disable_irq_nosync(ourport->rx_irq);
 		rx_enabled(port) = 0;
 	}
 }
@@ -504,7 +504,7 @@ struct baud_calc {
 
 static unsigned int udivslot_table[16] = {
 	0x0000, 0x0080, 0x0808, 0x0888, 0x2222, 0x4924, 0x4A52, 0x54AA,
-	0x5555, 0xD555, 0XD5D5, 0xDDD5, 0xDDDD, 0xDFDD, 0xDFDF, 0xFFDF
+	0x5555, 0xD555, 0xD5D5, 0xDDD5, 0xDDDD, 0xDFDD, 0xDFDF, 0xFFDF
 };
 
 static int s3c_serial_calcbaud(struct baud_calc *calc,

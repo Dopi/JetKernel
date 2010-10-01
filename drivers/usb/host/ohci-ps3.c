@@ -75,12 +75,12 @@ static const struct hc_driver ps3_ohci_hc_driver = {
 #endif
 };
 
-static int __devinit ps3_ohci_probe(struct ps3_system_bus_device *dev)
+static int ps3_ohci_probe(struct ps3_system_bus_device *dev)
 {
 	int result;
 	struct usb_hcd *hcd;
 	unsigned int virq;
-	static u64 dummy_mask = DMA_BIT_MASK(32);
+	static u64 dummy_mask = DMA_32BIT_MASK;
 
 	if (usb_disabled()) {
 		result = -ENODEV;
@@ -162,7 +162,7 @@ static int __devinit ps3_ohci_probe(struct ps3_system_bus_device *dev)
 	dev_dbg(&dev->core, "%s:%d: virq            %lu\n", __func__, __LINE__,
 		(unsigned long)virq);
 
-	ps3_system_bus_set_drvdata(dev, hcd);
+	ps3_system_bus_set_driver_data(dev, hcd);
 
 	result = usb_add_hcd(hcd, virq, IRQF_DISABLED);
 
@@ -195,7 +195,8 @@ fail_start:
 static int ps3_ohci_remove(struct ps3_system_bus_device *dev)
 {
 	unsigned int tmp;
-	struct usb_hcd *hcd = ps3_system_bus_get_drvdata(dev);
+	struct usb_hcd *hcd =
+		(struct usb_hcd *)ps3_system_bus_get_driver_data(dev);
 
 	BUG_ON(!hcd);
 
@@ -207,7 +208,7 @@ static int ps3_ohci_remove(struct ps3_system_bus_device *dev)
 	ohci_shutdown(hcd);
 	usb_remove_hcd(hcd);
 
-	ps3_system_bus_set_drvdata(dev, NULL);
+	ps3_system_bus_set_driver_data(dev, NULL);
 
 	BUG_ON(!hcd->regs);
 	iounmap(hcd->regs);
@@ -224,7 +225,7 @@ static int ps3_ohci_remove(struct ps3_system_bus_device *dev)
 	return 0;
 }
 
-static int __init ps3_ohci_driver_register(struct ps3_system_bus_driver *drv)
+static int ps3_ohci_driver_register(struct ps3_system_bus_driver *drv)
 {
 	return firmware_has_feature(FW_FEATURE_PS3_LV1)
 		? ps3_system_bus_driver_register(drv)

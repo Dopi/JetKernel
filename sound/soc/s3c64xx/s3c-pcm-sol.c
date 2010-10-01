@@ -53,7 +53,7 @@
 #define USE_LLI_INTERFACE	
 #undef USE_LLI_INTERFACE	
 
-#define CONFIG_SND_DEBUG
+//#define CONFIG_SND_DEBUG
 #ifdef CONFIG_SND_DEBUG
 #define s3cdbg(x...) printk(x)
 #else

@@ -350,7 +350,6 @@ static int sendbytes(struct i2c_adapter *i2c_adap, struct i2c_msg *msg)
 	int wrcount = 0;
 
 	while (count > 0) {
-		udelay(30);		//temporary added for touchscreen i2c driver
 		retval = i2c_outb(i2c_adap, *temp);
 
 		/* OK/ACK; or ignored NAK */
@@ -408,7 +407,6 @@ static int readbytes(struct i2c_adapter *i2c_adap, struct i2c_msg *msg)
 	const unsigned flags = msg->flags;
 
 	while (count > 0) {
-		udelay(30); //temporary added for touchscreen i2c driver
 		inval = i2c_inb(i2c_adap);
 		if (inval >= 0) {
 			*temp = inval;

@@ -563,7 +563,7 @@ static int sh_mobile_i2c_probe(struct platform_device *dev)
 		goto err_irq;
 	}
 
-	size = resource_size(res);
+	size = (res->end - res->start) + 1;
 
 	pd->reg = ioremap(res->start, size);
 	if (pd->reg == NULL) {
@@ -637,7 +637,7 @@ static void __exit sh_mobile_i2c_adap_exit(void)
 	platform_driver_unregister(&sh_mobile_i2c_driver);
 }
 
-subsys_initcall(sh_mobile_i2c_adap_init);
+module_init(sh_mobile_i2c_adap_init);
 module_exit(sh_mobile_i2c_adap_exit);
 
 MODULE_DESCRIPTION("SuperH Mobile I2C Bus Controller driver");

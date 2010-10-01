@@ -127,7 +127,7 @@ static int pl031_remove(struct amba_device *adev)
 	return 0;
 }
 
-static int pl031_probe(struct amba_device *adev, struct amba_id *id)
+static int pl031_probe(struct amba_device *adev, void *id)
 {
 	int ret;
 	struct pl031_local *ldata;
@@ -142,7 +142,8 @@ static int pl031_probe(struct amba_device *adev, struct amba_id *id)
 		goto out;
 	}
 
-	ldata->base = ioremap(adev->res.start, resource_size(&adev->res));
+	ldata->base = ioremap(adev->res.start,
+			      adev->res.end - adev->res.start + 1);
 	if (!ldata->base) {
 		ret = -ENOMEM;
 		goto out_no_remap;

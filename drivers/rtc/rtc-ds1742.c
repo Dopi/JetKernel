@@ -57,7 +57,6 @@ struct rtc_plat_data {
 	size_t size;
 	resource_size_t baseaddr;
 	unsigned long last_jiffies;
-	struct bin_attribute nvram_attr;
 };
 
 static int ds1742_rtc_set_time(struct device *dev, struct rtc_time *tm)
@@ -158,6 +157,18 @@ static ssize_t ds1742_nvram_write(struct kobject *kobj,
 	return count;
 }
 
+static struct bin_attribute ds1742_nvram_attr = {
+	.attr = {
+		.name = "nvram",
+		.mode = S_IRUGO | S_IWUSR,
+	},
+	.read = ds1742_nvram_read,
+	.write = ds1742_nvram_write,
+	/* REVISIT: size in sysfs won't match actual size... if it's
+	 * not a constant, each RTC should have its own attribute.
+	 */
+};
+
 static int __devinit ds1742_rtc_probe(struct platform_device *pdev)
 {
 	struct rtc_device *rtc;
@@ -188,12 +199,6 @@ static int __devinit ds1742_rtc_probe(struct platform_device *pdev)
 	pdata->size_nvram = pdata->size - RTC_SIZE;
 	pdata->ioaddr_rtc = ioaddr + pdata->size_nvram;
 
-	pdata->nvram_attr.attr.name = "nvram";
-	pdata->nvram_attr.attr.mode = S_IRUGO | S_IWUSR;
-	pdata->nvram_attr.read = ds1742_nvram_read;
-	pdata->nvram_attr.write = ds1742_nvram_write;
-	pdata->nvram_attr.size = pdata->size_nvram;
-
 	/* turn RTC on if it was not on */
 	ioaddr = pdata->ioaddr_rtc;
 	sec = readb(ioaddr + RTC_SECONDS);
@@ -216,13 +221,11 @@ static int __devinit ds1742_rtc_probe(struct platform_device *pdev)
 	pdata->rtc = rtc;
 	pdata->last_jiffies = jiffies;
 	platform_set_drvdata(pdev, pdata);
-
-	ret = sysfs_create_bin_file(&pdev->dev.kobj, &pdata->nvram_attr);
-	if (ret) {
-		dev_err(&pdev->dev, "creating nvram file in sysfs failed\n");
+	ds1742_nvram_attr.size = max(ds1742_nvram_attr.size,
+				     pdata->size_nvram);
+	ret = sysfs_create_bin_file(&pdev->dev.kobj, &ds1742_nvram_attr);
+	if (ret)
 		goto out;
-	}
-
 	return 0;
  out:
 	if (pdata->rtc)
@@ -239,7 +242,7 @@ static int __devexit ds1742_rtc_remove(struct platform_device *pdev)
 {
 	struct rtc_plat_data *pdata = platform_get_drvdata(pdev);
 
-	sysfs_remove_bin_file(&pdev->dev.kobj, &pdata->nvram_attr);
+	sysfs_remove_bin_file(&pdev->dev.kobj, &ds1742_nvram_attr);
 	rtc_device_unregister(pdata->rtc);
 	iounmap(pdata->ioaddr_nvram);
 	release_mem_region(pdata->baseaddr, pdata->size);

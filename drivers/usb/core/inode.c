@@ -39,7 +39,6 @@
 #include <linux/parser.h>
 #include <linux/notifier.h>
 #include <linux/seq_file.h>
-#include <linux/smp_lock.h>
 #include <asm/byteorder.h>
 #include "usb.h"
 #include "hcd.h"
@@ -266,12 +265,8 @@ static int remount(struct super_block *sb, int *flags, char *data)
 		return -EINVAL;
 	}
 
-	lock_kernel();
-
 	if (usbfs_mount && usbfs_mount->mnt_sb)
 		update_sb(usbfs_mount->mnt_sb);
-
-	unlock_kernel();
 
 	return 0;
 }

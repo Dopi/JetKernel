@@ -85,11 +85,10 @@ static void dump_iic_regs(const char* header, struct ibm_iic_private* dev)
 {
 	volatile struct iic_regs __iomem *iic = dev->vaddr;
 	printk(KERN_DEBUG "ibm-iic%d: %s\n", dev->idx, header);
-	printk(KERN_DEBUG
-	       "  cntl     = 0x%02x, mdcntl = 0x%02x\n"
-	       "  sts      = 0x%02x, extsts = 0x%02x\n"
-	       "  clkdiv   = 0x%02x, xfrcnt = 0x%02x\n"
-	       "  xtcntlss = 0x%02x, directcntl = 0x%02x\n",
+	printk(KERN_DEBUG "  cntl     = 0x%02x, mdcntl = 0x%02x\n"
+	       KERN_DEBUG "  sts      = 0x%02x, extsts = 0x%02x\n"
+	       KERN_DEBUG "  clkdiv   = 0x%02x, xfrcnt = 0x%02x\n"
+	       KERN_DEBUG "  xtcntlss = 0x%02x, directcntl = 0x%02x\n",
 		in_8(&iic->cntl), in_8(&iic->mdcntl), in_8(&iic->sts),
 		in_8(&iic->extsts), in_8(&iic->clkdiv), in_8(&iic->xfrcnt),
 		in_8(&iic->xtcntlss), in_8(&iic->directcntl));
@@ -416,7 +415,7 @@ static int iic_wait_for_tc(struct ibm_iic_private* dev){
 	if (dev->irq >= 0){
 		/* Interrupt mode */
 		ret = wait_event_interruptible_timeout(dev->wq,
-			!(in_8(&iic->sts) & STS_PT), dev->adap.timeout);
+			!(in_8(&iic->sts) & STS_PT), dev->adap.timeout * HZ);
 
 		if (unlikely(ret < 0))
 			DBG("%d: wait interrupted\n", dev->idx);
@@ -427,7 +426,7 @@ static int iic_wait_for_tc(struct ibm_iic_private* dev){
 	}
 	else {
 		/* Polling mode */
-		unsigned long x = jiffies + dev->adap.timeout;
+		unsigned long x = jiffies + dev->adap.timeout * HZ;
 
 		while (in_8(&iic->sts) & STS_PT){
 			if (unlikely(time_after(jiffies, x))){
@@ -749,7 +748,7 @@ static int __devinit iic_probe(struct of_device *ofdev,
 	i2c_set_adapdata(adap, dev);
 	adap->class = I2C_CLASS_HWMON | I2C_CLASS_SPD;
 	adap->algo = &iic_algo;
-	adap->timeout = HZ;
+	adap->timeout = 1;
 
 	ret = i2c_add_adapter(adap);
 	if (ret  < 0) {
@@ -757,11 +756,11 @@ static int __devinit iic_probe(struct of_device *ofdev,
 		goto error_cleanup;
 	}
 
-	dev_info(&ofdev->dev, "using %s mode\n",
-		 dev->fast_mode ? "fast (400 kHz)" : "standard (100 kHz)");
-
 	/* Now register all the child nodes */
 	of_register_i2c_devices(adap, np);
+
+	dev_info(&ofdev->dev, "using %s mode\n",
+		 dev->fast_mode ? "fast (400 kHz)" : "standard (100 kHz)");
 
 	return 0;
 

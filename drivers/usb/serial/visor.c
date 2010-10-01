@@ -38,7 +38,8 @@
 /* function prototypes for a handspring visor */
 static int  visor_open(struct tty_struct *tty, struct usb_serial_port *port,
 					struct file *filp);
-static void visor_close(struct usb_serial_port *port);
+static void visor_close(struct tty_struct *tty, struct usb_serial_port *port,
+					struct file *filp);
 static int  visor_write(struct tty_struct *tty, struct usb_serial_port *port,
 					const unsigned char *buf, int count);
 static int  visor_write_room(struct tty_struct *tty);
@@ -47,7 +48,7 @@ static void visor_unthrottle(struct tty_struct *tty);
 static int  visor_probe(struct usb_serial *serial,
 					const struct usb_device_id *id);
 static int  visor_calc_num_ports(struct usb_serial *serial);
-static void visor_release(struct usb_serial *serial);
+static void visor_shutdown(struct usb_serial *serial);
 static void visor_write_bulk_callback(struct urb *urb);
 static void visor_read_bulk_callback(struct urb *urb);
 static void visor_read_int_callback(struct urb *urb);
@@ -202,7 +203,7 @@ static struct usb_serial_driver handspring_device = {
 	.attach =		treo_attach,
 	.probe =		visor_probe,
 	.calc_num_ports =	visor_calc_num_ports,
-	.release =		visor_release,
+	.shutdown =		visor_shutdown,
 	.write =		visor_write,
 	.write_room =		visor_write_room,
 	.write_bulk_callback =	visor_write_bulk_callback,
@@ -227,7 +228,7 @@ static struct usb_serial_driver clie_5_device = {
 	.attach =		clie_5_attach,
 	.probe =		visor_probe,
 	.calc_num_ports =	visor_calc_num_ports,
-	.release =		visor_release,
+	.shutdown =		visor_shutdown,
 	.write =		visor_write,
 	.write_room =		visor_write_room,
 	.write_bulk_callback =	visor_write_bulk_callback,
@@ -295,6 +296,14 @@ static int visor_open(struct tty_struct *tty, struct usb_serial_port *port,
 	priv->throttled = 0;
 	spin_unlock_irqrestore(&priv->lock, flags);
 
+	/*
+	 * Force low_latency on so that our tty_push actually forces the data
+	 * through, otherwise it is scheduled, and with high data rates (like
+	 * with OHCI) data can get lost.
+	 */
+	if (tty)
+		tty->low_latency = 1;
+
 	/* Start reading from the device */
 	usb_fill_bulk_urb(port->read_urb, serial->dev,
 			   usb_rcvbulkpipe(serial->dev,
@@ -323,7 +332,8 @@ exit:
 }
 
 
-static void visor_close(struct usb_serial_port *port)
+static void visor_close(struct tty_struct *tty,
+			struct usb_serial_port *port, struct file *filp)
 {
 	struct visor_private *priv = usb_get_serial_port_data(port);
 	unsigned char *transfer_buffer;
@@ -918,7 +928,7 @@ static int clie_5_attach(struct usb_serial *serial)
 	return generic_startup(serial);
 }
 
-static void visor_release(struct usb_serial *serial)
+static void visor_shutdown(struct usb_serial *serial)
 {
 	struct visor_private *priv;
 	int i;
@@ -927,7 +937,10 @@ static void visor_release(struct usb_serial *serial)
 
 	for (i = 0; i < serial->num_ports; i++) {
 		priv = usb_get_serial_port_data(serial->port[i]);
-		kfree(priv);
+		if (priv) {
+			usb_set_serial_port_data(serial->port[i], NULL);
+			kfree(priv);
+		}
 	}
 }
 

@@ -21,19 +21,16 @@
 
 #include <linux/platform_device.h>
 #include <linux/clk.h>
-#include <plat/usb-control.h>
+
+#include <mach/hardware.h>
+#include <mach/usb-control.h>
 
 #define valid_port(idx) ((idx) == 1 || (idx) == 2)
-
-extern void usb_host_clk_en(int);
 
 /* clock device associated with the hcd */
 
 static struct clk *clk;
-
-#if defined(CONFIG_ARCH_2410)
 static struct clk *usb_clk;
-#endif
 
 /* forward definitions */
 
@@ -52,10 +49,8 @@ static void s3c2410_start_hc(struct platform_device *dev, struct usb_hcd *hcd)
 
 	dev_dbg(&dev->dev, "s3c2410_start_hc:\n");
 
-#if defined(CONFIG_ARCH_2410)
 	clk_enable(usb_clk);
 	mdelay(2);			/* let the bus clock stabilise */
-#endif
 
 	clk_enable(clk);
 
@@ -85,9 +80,7 @@ static void s3c2410_stop_hc(struct platform_device *dev)
 	}
 
 	clk_disable(clk);
-#if defined(CONFIG_ARCH_2410)
 	clk_disable(usb_clk);
-#endif
 }
 
 /* ohci_s3c2410_hub_status_data
@@ -354,10 +347,6 @@ static int usb_hcd_s3c2410_probe (const struct hc_driver *driver,
 	struct usb_hcd *hcd = NULL;
 	int retval;
 
-#if !defined(CONFIG_ARCH_2410)
-        usb_host_clk_en(1);
-#endif
-
 	s3c2410_usb_set_power(dev->dev.platform_data, 1, 1);
 	s3c2410_usb_set_power(dev->dev.platform_data, 2, 1);
 
@@ -381,14 +370,12 @@ static int usb_hcd_s3c2410_probe (const struct hc_driver *driver,
 		goto err_mem;
 	}
 
-#if defined(CONFIG_ARCH_2410)
 	usb_clk = clk_get(&dev->dev, "usb-bus-host");
 	if (IS_ERR(usb_clk)) {
 		dev_err(&dev->dev, "cannot get usb-host clock\n");
 		retval = -ENOENT;
 		goto err_clk;
 	}
-#endif
 
 	s3c2410_start_hc(dev, hcd);
 
@@ -410,13 +397,10 @@ static int usb_hcd_s3c2410_probe (const struct hc_driver *driver,
  err_ioremap:
 	s3c2410_stop_hc(dev);
 	iounmap(hcd->regs);
-
-#if defined(CONFIG_ARCH_2410)
 	clk_put(usb_clk);
 
  err_clk:
 	clk_put(clk);
-#endif
 
  err_mem:
 	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
@@ -482,8 +466,8 @@ static const struct hc_driver ohci_s3c2410_hc_driver = {
 	 */
 	.hub_status_data =	ohci_s3c2410_hub_status_data,
 	.hub_control =		ohci_s3c2410_hub_control,
-#ifdef CONFIG_PM
-	.bus_suspend =	ohci_bus_suspend,
+#ifdef	CONFIG_PM
+	.bus_suspend =		ohci_bus_suspend,
 	.bus_resume =		ohci_bus_resume,
 #endif
 	.start_port_reset =	ohci_start_port_reset,
@@ -504,59 +488,12 @@ static int ohci_hcd_s3c2410_drv_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_PM
-static int ohci_hcd_s3c2410_drv_suspend(struct platform_device *pdev, pm_message_t state)
-{
-	struct usb_hcd *hcd = platform_get_drvdata(pdev);
-	struct ohci_hcd *ohci = hcd_to_ohci(hcd);
-
-	if (time_before(jiffies, ohci->next_statechange))
-		msleep(5);
-	ohci->next_statechange = jiffies;
-
-	s3c2410_stop_hc(pdev);
-	hcd->state = HC_STATE_SUSPENDED;
-	pdev->dev.power.power_state = PMSG_SUSPEND;
-
-	return 0;
-}
-
-static int ohci_hcd_s3c2410_drv_resume(struct platform_device *pdev)
-{
-	struct usb_hcd *hcd = platform_get_drvdata(pdev);
-	struct ohci_hcd *ohci = hcd_to_ohci(hcd);
-
-	if (time_before(jiffies, ohci->next_statechange))
-		msleep(5);
-	ohci->next_statechange = jiffies;
-
-#if !defined(CONFIG_ARCH_2410)
-	usb_host_clk_en(1);
-#endif
-
-	s3c2410_usb_set_power(pdev->dev.platform_data, 1, 1);
-	s3c2410_usb_set_power(pdev->dev.platform_data, 2, 1);
-
-	s3c2410_start_hc(pdev, hcd);
-
-	ohci_hcd_init(hcd_to_ohci(hcd));
-
-	pdev->dev.power.power_state = PMSG_ON;
-	usb_hcd_resume_root_hub(hcd);
-
-	return 0;
-}
-#else
-#define ohci_hcd_s3c2410_drv_suspend NULL
-#define ohci_hcd_s3c2410_drv_resume NULL
-#endif
-
 static struct platform_driver ohci_hcd_s3c2410_driver = {
 	.probe		= ohci_hcd_s3c2410_drv_probe,
 	.remove		= ohci_hcd_s3c2410_drv_remove,
 	.shutdown	= usb_hcd_platform_shutdown,
-	.suspend	= ohci_hcd_s3c2410_drv_suspend, 
-	.resume	= ohci_hcd_s3c2410_drv_resume,
+	/*.suspend	= ohci_hcd_s3c2410_drv_suspend, */
+	/*.resume	= ohci_hcd_s3c2410_drv_resume, */
 	.driver		= {
 		.owner	= THIS_MODULE,
 		.name	= "s3c2410-ohci",

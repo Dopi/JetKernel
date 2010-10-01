@@ -35,8 +35,7 @@
 #include <asm/irq.h>
 
 #ifdef CONFIG_ARCH_PXA
-#include <mach/regs-rtc.h>
-#include <mach/regs-ost.h>
+#include <mach/pxa-regs.h>
 #endif
 
 #define RTC_DEF_DIVIDER		32768 - 1

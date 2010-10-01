@@ -23,8 +23,6 @@
 #include <linux/input.h>
 #include <linux/workqueue.h>
 
-
-
 #include "gp2a.h"
 
 /*********** for debug **********************************************************/
@@ -35,7 +33,8 @@
 #endif
 /*******************************************************************************/
 
-
+#define GPIO_LUM_PWM GPIO_ALS_EN 
+#define GPIO_LUM_PWM_AF GPIO_ALS_EN_AF 
 
 
 
@@ -79,11 +78,9 @@ static struct miscdevice proximity_device = {
     .fops   = &proximity_fops,
 };
 
-static unsigned short opt_normal_i2c[] = {I2C_CLIENT_END};
-static unsigned short opt_ignore[] = {I2C_CLIENT_END};
-static unsigned short opt_probe[] = {3, GP2A_ADDR >> 1, I2C_CLIENT_END};
-
-
+static unsigned short opt_normal_i2c[] = {(GP2A_ADDR>>1),I2C_CLIENT_END};
+static unsigned short opt_ignore[] = {1,(GP2A_ADDR>>1),I2C_CLIENT_END};
+static unsigned short opt_probe[] = {I2C_CLIENT_END};
 
 
 static struct i2c_client_address_data opt_addr_data = {
@@ -816,6 +813,12 @@ static long proximity_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 				printk(KERN_INFO "[PROXIMITY] %s : case CLOSE\n", __FUNCTION__);
 				gp2a_off(gp2a,PROXIMITY);
 				proximity_enable=0;
+			}
+			break;
+
+		case BSS_PRINT_PROX_VALUE:
+			{
+				printk(KERN_INFO "[PROXIMITY] %s, value: %d \n", __FUNCTION__, proximity_value);
 			}
 			break;
 

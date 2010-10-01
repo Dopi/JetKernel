@@ -3,7 +3,7 @@
  * (c) 2003-2005 Simtec Electronics
  *	Ben Dooks <ben@simtec.co.uk>
  *
- * S3C6410 PWM core
+ * S3C64XX PWM core
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -32,15 +32,16 @@
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/uaccess.h>
-
 #include <mach/hardware.h>
-#include <mach/irqs.h>
 #include <mach/gpio.h>
-#include <mach/map.h>
-#include <plat/regs-timer.h>
 #include <plat/regs-gpio.h>
 #include <plat/gpio-cfg.h>
+
+#include <plat/regs-timer.h>
+#include <mach/regs-irq.h>
 #include "pwm-s3c6410.h"
+
+#define PRESCALER	4
 
 s3c6410_pwm_chan_t s3c_chans[S3C_PWM_CHANNELS];
 
@@ -76,10 +77,7 @@ static int s3c6410_pwm_start (int channel)
 		tcon |= S3C_TCON_T3START;
 		tcon &= ~S3C_TCON_T3MANUALUPD;
 	break;
-	case 4:
-		tcon |= S3C_TCON_T4START;
-		tcon &= ~S3C_TCON_T4MANUALUPD;
-	break;
+
 	}
 	__raw_writel(tcon, S3C_TCON);
 
@@ -97,7 +95,7 @@ int s3c6410_timer_setup (int channel, int usec, unsigned long g_tcnt, unsigned l
 	unsigned long pclk;
 	struct clk *clk;
 
-	printk("\nPWM channel %d set g_tcnt = %ld, g_tcmp = %ld \n", channel, g_tcnt, g_tcmp);
+	//printk("\nPWM channel %d set g_tcnt = %ld, g_tcmp = %ld \n", channel, g_tcnt, g_tcmp);
 
 	tcnt = 0xffffffff;  /* default value for tcnt */
 
@@ -120,7 +118,7 @@ int s3c6410_timer_setup (int channel, int usec, unsigned long g_tcnt, unsigned l
 		case 0:
 			/* set gpio as PWM TIMER0 to signal output*/
 			s3c_gpio_cfgpin(S3C64XX_GPF(14), S3C64XX_GPF14_PWM_TOUT0);
-
+			s3c_gpio_setpull(S3C64XX_GPF(14), S3C_GPIO_PULL_NONE);
 			tcfg1 &= ~S3C_TCFG1_MUX0_MASK;
 			tcfg1 |= S3C_TCFG1_MUX0_DIV2;
 
@@ -133,7 +131,7 @@ int s3c6410_timer_setup (int channel, int usec, unsigned long g_tcnt, unsigned l
 		case 1:
 			/* set gpio as PWM TIMER1 to signal output*/
 			s3c_gpio_cfgpin(S3C64XX_GPF(15), S3C64XX_GPF15_PWM_TOUT1);
-			
+			s3c_gpio_setpull(S3C64XX_GPF(15), S3C_GPIO_PULL_NONE);
 			tcfg1 &= ~S3C_TCFG1_MUX1_MASK;
 			tcfg1 |= S3C_TCFG1_MUX1_DIV2;
 
@@ -162,15 +160,6 @@ int s3c6410_timer_setup (int channel, int usec, unsigned long g_tcnt, unsigned l
 			tcon &= ~(7<<16);
 			tcon |= S3C_TCON_T3RELOAD;
 			break;
-		case 4:
-			tcfg1 &= ~S3C_TCFG1_MUX4_MASK;
-			tcfg1 |= S3C_TCFG1_MUX4_DIV2;
-
-			tcfg0 &= ~S3C_TCFG_PRESCALER1_MASK;
-			tcfg0 |= (PRESCALER) << S3C_TCFG_PRESCALER1_SHIFT;
-			tcon &= ~(7<<20);
-			tcon |= S3C_TCON_T3RELOAD;
-			break;
 	}
 
 	__raw_writel(tcfg1, S3C_TCFG1);
@@ -178,11 +167,10 @@ int s3c6410_timer_setup (int channel, int usec, unsigned long g_tcnt, unsigned l
 
 
 	__raw_writel(tcon, S3C_TCON);
-	
-	/*tcnt = 160;
+	tcnt = 160;
 	__raw_writel(tcnt, S3C_TCNTB(channel));
 	tcmp = 110;
-	__raw_writel(tcmp, S3C_TCMPB(channel));*/
+	__raw_writel(tcmp, S3C_TCMPB(channel));
 
 	switch(channel)
 	{
@@ -197,9 +185,6 @@ int s3c6410_timer_setup (int channel, int usec, unsigned long g_tcnt, unsigned l
 			break;
 		case 3:
 			tcon |= S3C_TCON_T3MANUALUPD;
-			break;
-		case 4:
-			tcon |= S3C_TCON_T4MANUALUPD;
 			break;
 	}
 	__raw_writel(tcon, S3C_TCON);

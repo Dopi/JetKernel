@@ -16,7 +16,6 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/slab.h>
-#include <linux/smp_lock.h>
 #include <linux/errno.h>
 #include <linux/mutex.h>
 #include <asm/uaccess.h>

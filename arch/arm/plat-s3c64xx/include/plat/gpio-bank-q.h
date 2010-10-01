@@ -12,6 +12,9 @@
  * published by the Free Software Foundation.
 */
 
+#ifndef __ASM_PLAT_S3C64XX_GPIO_BANK_Q_H
+#define __ASM_PLAT_S3C64XX_GPIO_BANK_Q_H __FILE__
+
 #define S3C64XX_GPQCON			(S3C64XX_GPQ_BASE + 0x00)
 #define S3C64XX_GPQDAT			(S3C64XX_GPQ_BASE + 0x04)
 #define S3C64XX_GPQPUD			(S3C64XX_GPQ_BASE + 0x08)
@@ -44,3 +47,4 @@
 #define S3C64XX_GPQ8_MEM0_ADDR16_APDMC	(0x02 << 16)
 #define S3C64XX_GPQ8_EINT_G9_8		(0x03 << 16)
 
+#endif	/* __ASM_PLAT_S3C64XX_GPIO_BANK_Q_H */

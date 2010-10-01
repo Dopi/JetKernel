@@ -128,8 +128,7 @@ static enum whc_update pzl_process_qset(struct whc *whc, struct whc_qset *qset)
 		process_inactive_qtd(whc, qset, td);
 	}
 
-	if (!qset->remove)
-		update |= qset_add_qtds(whc, qset);
+	update |= qset_add_qtds(whc, qset);
 
 done:
 	/*
@@ -283,29 +282,23 @@ int pzl_urb_enqueue(struct whc *whc, struct urb *urb, gfp_t mem_flags)
 
 	spin_lock_irqsave(&whc->lock, flags);
 
-	err = usb_hcd_link_urb_to_ep(&whc->wusbhc.usb_hcd, urb);
-	if (err < 0) {
-		spin_unlock_irqrestore(&whc->lock, flags);
-		return err;
-	}
-
 	qset = get_qset(whc, urb, GFP_ATOMIC);
 	if (qset == NULL)
 		err = -ENOMEM;
 	else
 		err = qset_add_urb(whc, qset, urb, GFP_ATOMIC);
 	if (!err) {
+		usb_hcd_link_urb_to_ep(&whc->wusbhc.usb_hcd, urb);
 		if (!qset->in_sw_list)
 			qset_insert_in_sw_list(whc, qset);
-	} else
-		usb_hcd_unlink_urb_from_ep(&whc->wusbhc.usb_hcd, urb);
+	}
 
 	spin_unlock_irqrestore(&whc->lock, flags);
 
 	if (!err)
 		queue_work(whc->workqueue, &whc->periodic_work);
 
-	return err;
+	return 0;
 }
 
 /**
@@ -359,6 +352,7 @@ void pzl_qset_delete(struct whc *whc, struct whc_qset *qset)
 	queue_work(whc->workqueue, &whc->periodic_work);
 	qset_delete(whc, qset);
 }
+
 
 /**
  * pzl_init - initialize the periodic zone list

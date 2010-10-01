@@ -108,7 +108,7 @@ static struct i2c_driver ak8973b_i2c_driver = {
 
 unsigned short ignore[] = { I2C_CLIENT_END };
 static unsigned short normal_addr[] = { I2C_CLIENT_END };
-static unsigned short probe_addr[] = { 3, E_COMPASS_ADDRESS, I2C_CLIENT_END };
+static unsigned short probe_addr[] = {  E_COMPASS_ADDRESS, I2C_CLIENT_END };
 
 
 static struct i2c_client_address_data addr_data = {

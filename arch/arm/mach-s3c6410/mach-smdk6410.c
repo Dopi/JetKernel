@@ -70,9 +70,9 @@
 #include <plat/regs-lcd.h>
 #include <plat/pm.h>
 #include <plat/media.h>
-#include <plat/regs-modem.h>
 #include <plat/regs-gpio.h>
 #include <plat/gpio-cfg.h>
+#include <plat/reserved_mem.h>
 #include <mach/param.h>
 #include <mach/volans_gpio_table.h>
 
@@ -114,6 +114,12 @@ EXPORT_SYMBOL(sec_get_param_value);
 #define ULCON S3C_LCON_CS8 | S3C_LCON_PNONE
 #define UFCON S3C_UFCON_RXTRIG8 | S3C_UFCON_FIFOMODE
 
+#ifndef CONFIG_HIGH_RES_TIMERS
+extern struct sys_timer s3c64xx_timer;
+#else
+extern struct sys_timer sec_timer;
+#endif /* CONFIG_HIGH_RES_TIMERS */
+
 struct class *sec_class;
 EXPORT_SYMBOL(sec_class);
 
@@ -147,6 +153,25 @@ static struct platform_device sec_device_headset = {
         .dev            = {
                 .platform_data  = &sec_headset_data,
         },
+};
+
+static struct s3c6410_pmem_setting pmem_setting = {
+        .pmem_start = RESERVED_PMEM_START,
+        .pmem_size = RESERVED_PMEM,
+        .pmem_gpu1_start = GPU1_RESERVED_PMEM_START,
+        .pmem_gpu1_size = RESERVED_PMEM_GPU1,
+        .pmem_render_start = RENDER_RESERVED_PMEM_START,
+        .pmem_render_size = RESERVED_PMEM_RENDER,
+        .pmem_stream_start = STREAM_RESERVED_PMEM_START,
+        .pmem_stream_size = RESERVED_PMEM_STREAM,
+        .pmem_preview_start = PREVIEW_RESERVED_PMEM_START,
+        .pmem_preview_size = RESERVED_PMEM_PREVIEW,
+        .pmem_picture_start = PICTURE_RESERVED_PMEM_START,
+        .pmem_picture_size = RESERVED_PMEM_PICTURE,
+        .pmem_jpeg_start = JPEG_RESERVED_PMEM_START,
+        .pmem_jpeg_size = RESERVED_PMEM_JPEG,
+        .pmem_skia_start = SKIA_RESERVED_PMEM_START,
+        .pmem_skia_size = RESERVED_PMEM_SKIA,
 };
 
 #ifdef CONFIG_S3C64XX_ADCTS
@@ -301,7 +326,7 @@ static struct platform_device sec_device_i2c_pmic = {
 	.id		= 2,
 	.dev.platform_data	= &i2c_pmic_platdata,
 };
-
+/*
 static struct i2c_gpio_platform_data i2c_touch_platdata = {
 	.sda_pin	= GPIO_TOUCH_SDA,
 	.scl_pin	= GPIO_TOUCH_SCL,
@@ -316,7 +341,7 @@ static struct platform_device sec_device_i2c_touch = {
 	.id		= 3,
 	.dev.platform_data	= &i2c_touch_platdata,
 };
-
+*/
 
 static struct i2c_gpio_platform_data i2c_common_platdata = {
 	.sda_pin	= GPIO_FM_SDA,
@@ -334,23 +359,11 @@ static struct platform_device sec_device_i2c_common = {
 };
 
 static struct i2c_board_info i2c_devs0[] __initdata = {
-//	{ I2C_BOARD_INFO("KXSD9", 0x18), },             /* accelerator */
-//        { I2C_BOARD_INFO("USBIC", 0x25), },             /* uUSB ic */
-//        { I2C_BOARD_INFO("max17040", 0x36), },  /* max17040 fuel gauge */
 };
 
 static struct i2c_board_info i2c_devs1[] __initdata = {
-//        { I2C_BOARD_INFO("24c128", 0x57), },    /* Samsung S524AD0XD1 */
 };
 
-
-static struct i2c_board_info i2c_devs2[] __initdata = {
-	{ I2C_BOARD_INFO("max8698", 0x66), },  	
-};
-
-static struct i2c_board_info i2c_devs3[] __initdata = {
-//	{ I2C_BOARD_INFO("Si4709", 0x10), },
-};
 
 struct platform_device sec_device_opt = {
         .name   = "gp2a-opt",
@@ -439,25 +452,6 @@ EXPORT_SYMBOL(s3c_reset_uart_cfg_gpio);
 
 #ifdef CONFIG_FB_S3C_ORG
 //TO DO: onderstaande dingen daadwerkelijk toevoegen!
-static struct s3c6410_pmem_setting pmem_setting = {
-        .pmem_start = RESERVED_PMEM_START,
-        .pmem_size = RESERVED_PMEM,
-        .pmem_gpu1_start = GPU1_RESERVED_PMEM_START,
-        .pmem_gpu1_size = RESERVED_PMEM_GPU1,
-        .pmem_render_start = RENDER_RESERVED_PMEM_START,
-        .pmem_render_size = RESERVED_PMEM_RENDER,
-        .pmem_stream_start = STREAM_RESERVED_PMEM_START,
-        .pmem_stream_size = RESERVED_PMEM_STREAM,
-        .pmem_preview_start = PREVIEW_RESERVED_PMEM_START,
-        .pmem_preview_size = RESERVED_PMEM_PREVIEW,
-        .pmem_picture_start = PICTURE_RESERVED_PMEM_START,
-        .pmem_picture_size = RESERVED_PMEM_PICTURE,
-        .pmem_jpeg_start = JPEG_RESERVED_PMEM_START,
-        .pmem_jpeg_size = RESERVED_PMEM_JPEG,
-        .pmem_skia_start = SKIA_RESERVED_PMEM_START,
-        .pmem_skia_size = RESERVED_PMEM_SKIA,
-};
-
 /* framebuffer and LCD setup. */
 
 /* GPF15 = LCD backlight control
@@ -646,7 +640,9 @@ static struct platform_device *smdk6410_devices[] __initdata = {
 //	&s3c_device_hsmmc2,
 #endif
 	&s3c_device_i2c0,
-//	&s3c_device_i2c1,
+#ifdef CONFIG_S3C_DEV_I2C1
+	&s3c_device_i2c1,
+#endif
 #ifdef CONFIG_FB_S3C_ORG
 	&smdk6410_lcd_powerdev,
 	&s3c_device_fb,
@@ -668,7 +664,7 @@ static struct platform_device *smdk6410_devices[] __initdata = {
 	&s3c_device_timer[0],
 	&s3c_device_timer[1],
 #endif
-	&s3c_device_wdt,
+//	&s3c_device_wdt,
 	&s3c_device_rtc,
 #ifdef CONFIG_SND_S3C64XX_SOC_I2S
 	&s3c64xx_device_iis0,
@@ -682,7 +678,7 @@ static struct platform_device *smdk6410_devices[] __initdata = {
 #endif
 	&android_usb_device,
 	&sec_device_i2c_pmic,			/* pmic(max8698) i2c. */
-	&sec_device_i2c_touch,
+//	&sec_device_i2c_touch,
 	&sec_device_i2c_common,			/* radio, sound, .. i2c. */
 	&sec_device_headset,
 	&sec_device_opt,
@@ -948,17 +944,15 @@ static void __init smdk6410_machine_init(void)
 
 	volans_init_gpio();
 	smdk6410_gpio_init();
-	writel(readl(S3C_PCLK_GATE)|S3C_CLKCON_PCLK_GPIO, S3C_PCLK_GATE);
+	//writel(readl(S3C_PCLK_GATE)|S3C_CLKCON_PCLK_GPIO, S3C_PCLK_GATE);
 
 	i2c_register_board_info(0, i2c_devs0, ARRAY_SIZE(i2c_devs0));
 	i2c_register_board_info(1, i2c_devs1, ARRAY_SIZE(i2c_devs1));
-	i2c_register_board_info(2, i2c_devs2, ARRAY_SIZE(i2c_devs2));
-	i2c_register_board_info(3, i2c_devs3, ARRAY_SIZE(i2c_devs3));
+	//s3c6410_add_mem_devices (&pmem_setting);
 
 	platform_add_devices(smdk6410_devices, ARRAY_SIZE(smdk6410_devices));
 	s3c6410_pm_init();
 	saturn_switch_init();
-	//s3c_pm_init();
 
 }
 
@@ -971,9 +965,82 @@ MACHINE_START(SMDK6410, "OMNIA II")
 	.init_irq	= s3c6410_init_irq,
 	.map_io		= smdk6410_map_io,
 	.init_machine	= smdk6410_machine_init,
-	.timer		= &s3c64xx_timer,
+#ifndef CONFIG_HIGH_RES_TIMERS
+        .timer                  = &s3c64xx_timer,
+#else
+        .timer                  = &sec_timer,
+#endif
 MACHINE_END
 
+#if defined(CONFIG_RTC_DRV_S3C)
+/* RTC common Function for samsung APs*/
+unsigned int s3c_rtc_set_bit_byte(void __iomem *base, uint offset, uint val)
+{
+	writeb(val, base + offset);
+
+	return 0;
+}
+
+unsigned int s3c_rtc_read_alarm_status(void __iomem *base)
+{
+	return 1;
+}
+
+void s3c_rtc_set_pie(void __iomem *base, uint to)
+{
+	unsigned int tmp;
+
+	tmp = readw(base + S3C_RTCCON) & ~S3C_RTCCON_TICEN;
+
+        if (to)
+                tmp |= S3C_RTCCON_TICEN;
+
+        writew(tmp, base + S3C_RTCCON);
+}
+
+void s3c_rtc_set_freq_regs(void __iomem *base, uint freq, uint s3c_freq)
+{
+	unsigned int tmp;
+
+        tmp = readw(base + S3C_RTCCON) & (S3C_RTCCON_TICEN | S3C_RTCCON_RTCEN );
+        writew(tmp, base + S3C_RTCCON);
+        s3c_freq = freq;
+        tmp = (32768 / freq)-1;
+        writel(tmp, base + S3C_TICNT);
+}
+
+void s3c_rtc_enable_set(struct platform_device *pdev,void __iomem *base, int en)
+{
+	unsigned int tmp;
+
+	if (!en) {
+		tmp = readw(base + S3C_RTCCON);
+		writew(tmp & ~ (S3C_RTCCON_RTCEN | S3C_RTCCON_TICEN), base + S3C_RTCCON);
+	} else {
+		/* re-enable the device, and check it is ok */
+		if ((readw(base+S3C_RTCCON) & S3C_RTCCON_RTCEN) == 0){
+			dev_info(&pdev->dev, "rtc disabled, re-enabling\n");
+
+			tmp = readw(base + S3C_RTCCON);
+			writew(tmp|S3C_RTCCON_RTCEN, base+S3C_RTCCON);
+		}
+
+		if ((readw(base + S3C_RTCCON) & S3C_RTCCON_CNTSEL)){
+			dev_info(&pdev->dev, "removing RTCCON_CNTSEL\n");
+
+			tmp = readw(base + S3C_RTCCON);
+			writew(tmp& ~S3C_RTCCON_CNTSEL, base+S3C_RTCCON);
+		}
+
+		if ((readw(base + S3C_RTCCON) & S3C_RTCCON_CLKRST)){
+			dev_info(&pdev->dev, "removing RTCCON_CLKRST\n");
+
+			tmp = readw(base + S3C_RTCCON);
+			writew(tmp & ~S3C_RTCCON_CLKRST, base+S3C_RTCCON);
+		}
+	}
+}
+#endif
 
 void s3c_setup_keypad_cfg_gpio(int rows, int columns)
 {
@@ -998,78 +1065,6 @@ void s3c_setup_keypad_cfg_gpio(int rows, int columns)
 }
 
 EXPORT_SYMBOL(s3c_setup_keypad_cfg_gpio);
-
-
-#if defined(CONFIG_RTC_DRV_S3C)
-/* RTC common Function for samsung APs*/
-unsigned int s3c_rtc_set_bit_byte(void __iomem *base, uint offset, uint val)
-{
-	writeb(val, base + offset);
-
-	return 0;
-}
-
-unsigned int s3c_rtc_read_alarm_status(void __iomem *base)
-{
-	return 1;
-}
-
-void s3c_rtc_set_pie(void __iomem *base, uint to)
-{
-	unsigned int tmp;
-
-	tmp = readw(base + S3C2410_RTCCON) & ~S3C_RTCCON_TICEN;
-
-        if (to)
-                tmp |= S3C_RTCCON_TICEN;
-
-        writew(tmp, base + S3C2410_RTCCON);
-}
-
-void s3c_rtc_set_freq_regs(void __iomem *base, uint freq, uint s3c_freq)
-{
-	unsigned int tmp;
-
-        tmp = readw(base + S3C2410_RTCCON) & (S3C_RTCCON_TICEN | S3C2410_RTCCON_RTCEN );
-        writew(tmp, base + S3C2410_RTCCON);
-        s3c_freq = freq;
-        tmp = (32768 / freq)-1;
-        writel(tmp, base + S3C2410_TICNT);
-}
-
-void s3c_rtc_enable_set(struct platform_device *pdev,void __iomem *base, int en)
-{
-	unsigned int tmp;
-
-	if (!en) {
-		tmp = readw(base + S3C2410_RTCCON);
-		writew(tmp & ~ (S3C2410_RTCCON_RTCEN | S3C_RTCCON_TICEN), base + S3C2410_RTCCON);
-	} else {
-		/* re-enable the device, and check it is ok */
-		if ((readw(base+S3C2410_RTCCON) & S3C2410_RTCCON_RTCEN) == 0){
-			dev_info(&pdev->dev, "rtc disabled, re-enabling\n");
-
-			tmp = readw(base + S3C2410_RTCCON);
-			writew(tmp|S3C2410_RTCCON_RTCEN, base+S3C2410_RTCCON);
-		}
-
-		if ((readw(base + S3C2410_RTCCON) & S3C2410_RTCCON_CNTSEL)){
-			dev_info(&pdev->dev, "removing RTCCON_CNTSEL\n");
-
-			tmp = readw(base + S3C2410_RTCCON);
-			writew(tmp& ~S3C2410_RTCCON_CNTSEL, base+S3C2410_RTCCON);
-		}
-
-		if ((readw(base + S3C2410_RTCCON) & S3C2410_RTCCON_CLKRST)){
-			dev_info(&pdev->dev, "removing RTCCON_CLKRST\n");
-
-			tmp = readw(base + S3C2410_RTCCON);
-			writew(tmp & ~S3C2410_RTCCON_CLKRST, base+S3C2410_RTCCON);
-		}
-	}
-}
-#endif
-
 
 /* Initializes OTG Phy. */
 void otg_phy_init(int phy_clk_val) {

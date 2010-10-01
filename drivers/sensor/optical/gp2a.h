@@ -33,6 +33,7 @@
 #define SHARP_GP2AP_IOC_MAGIC   'C'                                 
 #define SHARP_GP2AP_OPEN    _IO(SHARP_GP2AP_IOC_MAGIC,1)            
 #define SHARP_GP2AP_CLOSE   _IO(SHARP_GP2AP_IOC_MAGIC,2)      
+#define BSS_PRINT_PROX_VALUE   _IO(SHARP_GP2AP_IOC_MAGIC,3)      
 
 /* input device for proximity sensor */
 #define USE_INPUT_DEVICE 	1

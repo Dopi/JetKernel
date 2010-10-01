@@ -394,7 +394,7 @@ boolean get_pmic(pmic_pm_type pm_type, int *value)
 
 #include <linux/i2c.h>
 
-#define I2C_GPIO3_DEVICE_ID	3 /* mach-($DEVICE_NAME).c */
+#define I2C_GPIO3_DEVICE_ID	2 /* mach-($DEVICE_NAME).c */
 
 static struct i2c_driver max8698_driver;
 static struct i2c_client *max8698_i2c_client = NULL;

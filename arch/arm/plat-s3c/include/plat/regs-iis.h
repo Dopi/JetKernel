@@ -1,4 +1,4 @@
-/* linux/include/asm-arm/arch-s3c64XX/regs-iis.h
+/* linux/arch/arm/plat-s3c/include/plat/regs-iis.h
  *
  * Copyright (c) 2003 Simtec Electronics <linux@simtec.co.uk>
  *		      http://www.simtec.co.uk/products/SWLINUX/
@@ -29,6 +29,13 @@
 #define S3C64XX_IIS0TXD		(0x10)
 #define S3C64XX_IIS0RXD		(0x14)
 
+#define S3C64XX_IISCON      (0x00)
+#define S3C64XX_IISMOD      (0x04)
+#define S3C64XX_IISFIC      (0x08)
+#define S3C64XX_IISPSR      (0x0C)
+#define S3C64XX_IISTXD      (0x10)
+#define S3C64XX_IISRXD      (0x14)
+
 #define S3C64XX_IISCON_LRINDEX		(1<<8)
 #define S3C64XX_IISCON_TXFIFORDY	(1<<7)
 #define S3C64XX_IISCON_RXFIFORDY	(1<<6)
@@ -39,6 +46,35 @@
 #define S3C64XX_IISCON_PSCEN		(1<<1)
 #define S3C64XX_IISCON_IISEN		(1<<0)
 
+#define S3C64XX_IISCON_I2SACTIVE    (0x1<<0)
+#define S3C64XX_IISCON_RXDMACTIVE   (0x1<<1)
+#define S3C64XX_IISCON_TXDMACTIVE   (0x1<<2)
+#define S3C64XX_IISCON_RXCHPAUSE    (0x1<<3)
+#define S3C64XX_IISCON_TXCHPAUSE    (0x1<<4)
+#define S3C64XX_IISCON_RXDMAPAUSE   (0x1<<5)
+#define S3C64XX_IISCON_TXDMAPAUSE   (0x1<<6)
+#define S3C64XX_IISCON_FRXFULL      (0x1<<7)
+#ifdef IIS_V40
+#define S3C64XX_IISCON_FTX0FULL     (0x1<<8)
+#else
+#define S3C64XX_IISCON_FTXFULL      (0x1<<8)
+#endif
+#define S3C64XX_IISCON_FRXEMPT      (0x1<<9)
+#define S3C64XX_IISCON_FTX0EMPT     (0x1<<10)
+#define S3C64XX_IISCON_LRI      (0x1<<11)
+#ifdef IIS_V40
+#define S3C64XX_IISCON_FTX1FULL     (0x1<<12)
+#define S3C64XX_IISCON_FTX2FULL     (0x1<<13)
+#define S3C64XX_IISCON_FTX1EMPT     (0x1<<14)
+#define S3C64XX_IISCON_FTX2EMPT     (0x1<<15)
+#endif
+#define S3C64XX_IISCON_FTXURINTEN   (0x1<<16)
+#define S3C64XX_IISCON_FTXURSTATUS  (0x1<<17)
+#ifndef IIS_V40
+#define S3C6410_IISCON_FRXORINTEN   (0x1<<18)
+#define S3C6410_IISCON_FRXORSTATUS  (0x1<<19)
+#endif
+
 //#define S3C64XX_IISMOD_MPLL	  (1<<9)
 #define S3C64XX_IISMOD_MPLL		(0x01<<10)
 #define S3C64XX_IISMOD_SLAVE		(1<<8)
@@ -48,17 +84,30 @@
 #define S3C64XX_IISMOD_TXRXMODE		(3<<6)
 #define S3C64XX_IISMOD_LR_LLOW		(0<<5)
 #define S3C64XX_IISMOD_LR_RLOW		(1<<5)
-#define S3C64XX_IISMOD_IIS		(0<<4)
-#define S3C64XX_IISMOD_MSB		(1<<4)
-#define S3C64XX_IISMOD_8BIT		(0<<3)
-#define S3C64XX_IISMOD_16BIT		(1<<3)
+//#define S3C64XX_IISMOD_IIS		(0<<4)
+//#define S3C64XX_IISMOD_MSB		(1<<4)
+//#define S3C64XX_IISMOD_8BIT		(0<<3)
+//#define S3C64XX_IISMOD_16BIT		(1<<3)
 #define S3C64XX_IISMOD_BITMASK		(1<<3)
-#define S3C64XX_IISMOD_256FS		(0<<2)
-#define S3C64XX_IISMOD_384FS		(1<<2)
-#define S3C64XX_IISMOD_16FS		(0<<0)
-#define S3C64XX_IISMOD_32FS		(1<<0)
-#define S3C64XX_IISMOD_48FS		(2<<0)
+//#define S3C64XX_IISMOD_256FS		(0<<2)
+//#define S3C64XX_IISMOD_384FS		(1<<2)
+//#define S3C64XX_IISMOD_16FS		(0<<0)
+//#define S3C64XX_IISMOD_32FS		(1<<0)
+//#define S3C64XX_IISMOD_48FS		(2<<0)
 #define S3C64XX_IISMOD_FS_MASK		(3<<0)
+
+#define S3C64XX_IISMOD_TXRMASK      (3<<8)
+#define S3C64XX_IISMOD_TX       (0<<8)
+#define S3C64XX_IISMOD_RX       (1<<8)
+#define S3C64XX_IISMOD_TXRX     (2<<8)
+
+#define S3C64XX_IISMOD_IMSMASK      (3<<10)
+#define S3C64XX_IISMOD_MSTPCLK      (0<<10)
+#define S3C64XX_IISMOD_MSTCLKAUDIO  (1<<10)
+#define S3C64XX_IISMOD_SLVPCLK      (2<<10)
+#define S3C64XX_IISMOD_SLVI2SCLK    (3<<10)
+
+#define S3C64XX_IISMOD_CDCLKCON     (1<<12)
 
 #define S3C64XX_IIS0MOD_DCE_MASK	(0x3<<16)
 #define S3C64XX_IIS0MOD_DCE_SD2		(0x1<<17)
@@ -72,7 +121,8 @@
 #define S3C64XX_IIS0MOD_EXTERNAL_CLK	(0x1<<12)
 #define S3C64XX_IIS0MOD_IMS_INTERNAL_MASTER	(0x0<<10)
 #define S3C64XX_IIS0MOD_IMS_EXTERNAL_MASTER	(0x1<<10)
-#define S3C64XX_IIS0MOD_IMS_SLAVE	(0x2<<10)
+#define S3C64XX_IIS0MOD_IMS_PCLK_SLAVE	(0x2<<10)
+#define S3C64XX_IIS0MOD_IMS_I2SCLK_SLAVE	(0x3<<10)
 #define S3C64XX_IIS0MOD_MODE_MASK	(0x3<<8)
 #define S3C64XX_IIS0MOD_TXMODE		(0x0<<8)
 #define S3C64XX_IIS0MOD_RXMODE		(0x1<<8)
@@ -90,11 +140,39 @@
 #define S3C64XX_IIS0MOD_48FS		(0x1<<1)
 #define S3C64XX_IIS0MOD_32FS		(0x0<<1)
 
-#define S3C64XX_IISPSR			(0x08)
+
+#define S3C64XX_IISMOD_BFSMASK      (3<<1)
+#define S3C64XX_IISMOD_32FS     (0<<1)
+#define S3C64XX_IISMOD_48FS     (1<<1)
+#define S3C64XX_IISMOD_16FS     (2<<1)
+#define S3C64XX_IISMOD_24FS     (3<<1)
+
+#define S3C64XX_IISMOD_RFSMASK      (3<<3)
+#define S3C64XX_IISMOD_256FS        (0<<3)
+#define S3C64XX_IISMOD_512FS        (1<<3)
+#define S3C64XX_IISMOD_384FS        (2<<3)
+#define S3C64XX_IISMOD_768FS        (3<<3)
+
+#define S3C64XX_IISMOD_SDFMASK      (3<<5)
+#define S3C64XX_IISMOD_IIS      (0<<5)
+#define S3C64XX_IISMOD_MSB      (1<<5)
+#define S3C64XX_IISMOD_LSB      (2<<5)
+#define S3C64XX_IISMOD_LRP      (1<<7)
+
+#define S3C64XX_IISMOD_BLCMASK      (3<<13)
+#define S3C64XX_IISMOD_16BIT        (0<<13)
+#define S3C64XX_IISMOD_8BIT     (1<<13)
+#define S3C64XX_IISMOD_24BIT        (2<<13)
+
+//#define S3C64XX_IISPSR			(0x08)
 #define S3C64XX_IISPSR_INTMASK		(31<<5)
 #define S3C64XX_IISPSR_INTSHIFT		(5)
 #define S3C64XX_IISPSR_EXTMASK		(31<<0)
 #define S3C64XX_IISPSR_EXTSHFIT		(0)
+
+
+#define S3C64XX_IISPSR_PSVALA       (0x3f<<8)
+#define S3C64XX_IISPSR_PSRAEN       (1<<15)
 
 #define S3C64XX_IISFCON		(0x0c)
 
@@ -123,4 +201,10 @@
 #define S3C64XX_IIS0MOD_24BIT		(0x2<<13)
 #define S3C64XX_IIS0MOD_8BIT		(0x1<<13)
 #define S3C64XX_IIS0MOD_16BIT		(0x0<<13)
+
+#define S3C64XX_IISFIC_FRXCNTMSK    (0xf<<0)
+#define S3C64XX_IISFIC_RFLUSH       (1<<7)
+#define S3C64XX_IISFIC_FTX0CNTMSK   (0xf<<8)
+#define S3C64XX_IISFIC_TFLUSH       (1<<15)
+
 #endif /* __ASM_ARCH_REGS_IIS_H */

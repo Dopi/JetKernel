@@ -148,7 +148,7 @@ ep_matches (
 			return 0;
 
 		/* BOTH:  "high bandwidth" works only at high speed */
-		if ((desc->wMaxPacketSize & cpu_to_le16(3<<11))) {
+		if ((desc->wMaxPacketSize & __constant_cpu_to_le16(3<<11))) {
 			if (!gadget->is_dualspeed)
 				return 0;
 			/* configure your hardware with enough buffering!! */
@@ -265,17 +265,6 @@ struct usb_ep * __init usb_ep_autoconfig (
 				return ep;
 		}
 
-	} else if (gadget_is_sh (gadget) && USB_ENDPOINT_XFER_INT == type) {
-		/* single buffering is enough; maybe 8 byte fifo is too */
-		ep = find_ep (gadget, "ep3in-bulk");
-		if (ep && ep_matches (gadget, ep, desc))
-			return ep;
-
-	} else if (gadget_is_mq11xx (gadget) && USB_ENDPOINT_XFER_INT == type) {
-		ep = find_ep (gadget, "ep1-bulk");
-		if (ep && ep_matches (gadget, ep, desc))
-			return ep;
-
 	} else if (gadget_is_s3c(gadget)) {
 		if (USB_ENDPOINT_XFER_INT == type) {
 			/* single buffering is enough */
@@ -292,18 +281,19 @@ struct usb_ep * __init usb_ep_autoconfig (
 				&& (USB_DIR_IN & desc->bEndpointAddress)) {
 			ep = find_ep (gadget, "ep2-bulk");
 			if (ep && ep_matches (gadget, ep, desc))
-				return ep;
+				return ep;		
 			ep = find_ep (gadget, "ep5-bulk");
 			if (ep && ep_matches (gadget, ep, desc))
 				return ep;
 			ep = find_ep (gadget, "ep8-bulk");
 			if (ep && ep_matches (gadget, ep, desc))
 				return ep;
-		} else if (USB_ENDPOINT_XFER_BULK == type
+		}
+		else if (USB_ENDPOINT_XFER_BULK == type
 				&& !(USB_DIR_IN & desc->bEndpointAddress)) {
 			ep = find_ep (gadget, "ep1-bulk");
 			if (ep && ep_matches (gadget, ep, desc))
-				return ep;
+				return ep;	
 			ep = find_ep (gadget, "ep4-bulk");
 			if (ep && ep_matches (gadget, ep, desc))
 				return ep;
@@ -311,7 +301,18 @@ struct usb_ep * __init usb_ep_autoconfig (
 			if (ep && ep_matches (gadget, ep, desc))
 				return ep;
 		}
+	} else if (gadget_is_sh (gadget) && USB_ENDPOINT_XFER_INT == type) {
+		/* single buffering is enough; maybe 8 byte fifo is too */
+		ep = find_ep (gadget, "ep3in-bulk");
+		if (ep && ep_matches (gadget, ep, desc))
+			return ep;
+
+	} else if (gadget_is_mq11xx (gadget) && USB_ENDPOINT_XFER_INT == type) {
+		ep = find_ep (gadget, "ep1-bulk");
+		if (ep && ep_matches (gadget, ep, desc))
+			return ep;
 	}
+
 	/* Second, look at endpoints until an unclaimed one looks usable */
 	list_for_each_entry (ep, &gadget->ep_list, ep_list) {
 		if (ep_matches (gadget, ep, desc))

@@ -573,6 +573,7 @@ config ARCH_S3C64XX
 	bool "Samsung S3C64XX"
 	select GENERIC_GPIO
 	select HAVE_CLK
+	select ZONE_DMA
 	help
 	  Samsung S3C64XX series based systems
 

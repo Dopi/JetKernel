@@ -431,7 +431,7 @@ static struct dentry *ohci_debug_root;
 
 struct debug_buffer {
 	ssize_t (*fill_func)(struct debug_buffer *);	/* fill method */
-	struct ohci_hcd *ohci;
+	struct device *dev;
 	struct mutex mutex;	/* protect filling of buffer */
 	size_t count;		/* number of characters filled into buffer */
 	char *page;
@@ -505,11 +505,15 @@ show_list (struct ohci_hcd *ohci, char *buf, size_t count, struct ed *ed)
 
 static ssize_t fill_async_buffer(struct debug_buffer *buf)
 {
+	struct usb_bus		*bus;
+	struct usb_hcd		*hcd;
 	struct ohci_hcd		*ohci;
 	size_t			temp;
 	unsigned long		flags;
 
-	ohci = buf->ohci;
+	bus = dev_get_drvdata(buf->dev);
+	hcd = bus_to_hcd(bus);
+	ohci = hcd_to_ohci(hcd);
 
 	/* display control and bulk lists together, for simplicity */
 	spin_lock_irqsave (&ohci->lock, flags);
@@ -525,6 +529,8 @@ static ssize_t fill_async_buffer(struct debug_buffer *buf)
 
 static ssize_t fill_periodic_buffer(struct debug_buffer *buf)
 {
+	struct usb_bus		*bus;
+	struct usb_hcd		*hcd;
 	struct ohci_hcd		*ohci;
 	struct ed		**seen, *ed;
 	unsigned long		flags;
@@ -536,7 +542,9 @@ static ssize_t fill_periodic_buffer(struct debug_buffer *buf)
 		return 0;
 	seen_count = 0;
 
-	ohci = buf->ohci;
+	bus = (struct usb_bus *)dev_get_drvdata(buf->dev);
+	hcd = bus_to_hcd(bus);
+	ohci = hcd_to_ohci(hcd);
 	next = buf->page;
 	size = PAGE_SIZE;
 
@@ -618,6 +626,7 @@ static ssize_t fill_periodic_buffer(struct debug_buffer *buf)
 
 static ssize_t fill_registers_buffer(struct debug_buffer *buf)
 {
+	struct usb_bus		*bus;
 	struct usb_hcd		*hcd;
 	struct ohci_hcd		*ohci;
 	struct ohci_regs __iomem *regs;
@@ -626,8 +635,9 @@ static ssize_t fill_registers_buffer(struct debug_buffer *buf)
 	char			*next;
 	u32			rdata;
 
-	ohci = buf->ohci;
-	hcd = ohci_to_hcd(ohci);
+	bus = (struct usb_bus *)dev_get_drvdata(buf->dev);
+	hcd = bus_to_hcd(bus);
+	ohci = hcd_to_ohci(hcd);
 	regs = ohci->regs;
 	next = buf->page;
 	size = PAGE_SIZE;
@@ -700,7 +710,7 @@ done:
 	return PAGE_SIZE - size;
 }
 
-static struct debug_buffer *alloc_buffer(struct ohci_hcd *ohci,
+static struct debug_buffer *alloc_buffer(struct device *dev,
 				ssize_t (*fill_func)(struct debug_buffer *))
 {
 	struct debug_buffer *buf;
@@ -708,7 +718,7 @@ static struct debug_buffer *alloc_buffer(struct ohci_hcd *ohci,
 	buf = kzalloc(sizeof(struct debug_buffer), GFP_KERNEL);
 
 	if (buf) {
-		buf->ohci = ohci;
+		buf->dev = dev;
 		buf->fill_func = fill_func;
 		mutex_init(&buf->mutex);
 	}
@@ -800,25 +810,26 @@ static int debug_registers_open(struct inode *inode, struct file *file)
 static inline void create_debug_files (struct ohci_hcd *ohci)
 {
 	struct usb_bus *bus = &ohci_to_hcd(ohci)->self;
+	struct device *dev = bus->dev;
 
 	ohci->debug_dir = debugfs_create_dir(bus->bus_name, ohci_debug_root);
 	if (!ohci->debug_dir)
 		goto dir_error;
 
 	ohci->debug_async = debugfs_create_file("async", S_IRUGO,
-						ohci->debug_dir, ohci,
+						ohci->debug_dir, dev,
 						&debug_async_fops);
 	if (!ohci->debug_async)
 		goto async_error;
 
 	ohci->debug_periodic = debugfs_create_file("periodic", S_IRUGO,
-						   ohci->debug_dir, ohci,
+						   ohci->debug_dir, dev,
 						   &debug_periodic_fops);
 	if (!ohci->debug_periodic)
 		goto periodic_error;
 
 	ohci->debug_registers = debugfs_create_file("registers", S_IRUGO,
-						    ohci->debug_dir, ohci,
+						    ohci->debug_dir, dev,
 						    &debug_registers_fops);
 	if (!ohci->debug_registers)
 		goto registers_error;
