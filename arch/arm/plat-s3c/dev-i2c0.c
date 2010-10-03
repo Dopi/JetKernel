@@ -38,7 +38,7 @@ static struct resource s3c_i2c_resource[] = {
 
 struct platform_device s3c_device_i2c0 = {
 	.name		  = "s3c-i2c",
-#if defined(CONFIG_S3C_DEV_I2C1) || defined(CONFIG_MACH_JET)
+#if defined(CONFIG_S3C_DEV_I2C1) || defined(CONFIG_JET_OPTION)
 	.id		  = 0,
 #else
 	.id		  = -1,
@@ -51,7 +51,7 @@ static struct s3c_platform_i2c default_i2c_data0 __initdata = {
 	.flags		= 0,
 	.slave_addr	= 0x10,
 	.bus_freq	= 100*1000,
-#if defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN)
+#if defined(CONFIG_MACH_CYGNUS) || defined(CONFIG_MACH_SATURN) || defined(CONFIG_JET_OPTION)
 	.max_freq	= 150*1000,
 #else
 	.max_freq	= 400*1000,
