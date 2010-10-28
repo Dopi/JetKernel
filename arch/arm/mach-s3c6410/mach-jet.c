@@ -1045,6 +1045,8 @@ static void check_pmic(void)
 {
 /*	unsigned char reg_buff = 0;
 
+	//mdelay(1000);
+
 	if (Get_MAX8906_PM_REG(REG_CARD1TV, &reg_buff)) {
 		pr_info("%s: CARD1TV (%d)\n", __func__, reg_buff);
 	}
