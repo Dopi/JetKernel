@@ -15,7 +15,7 @@
 
 #define MSG_HIGH(a,b,c,d)		{}
 
-#define pmic_extra_debug
+//#define pmic_extra_debug
 
 max8906_register_type  max8906reg[ENDOFREG] =
 {
