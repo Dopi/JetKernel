@@ -560,10 +560,10 @@ void pm_check(void)
 {
     DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
 	if (available_PM_Set()) {
-		set_irq_type(IRQ_EINT(9), IRQ_TYPE_EDGE_FALLING);
-		if (request_irq(IRQ_EINT(9), fsa9480_interrupt, IRQF_DISABLED, "FSA9480 Detected", NULL)) 
+		set_irq_type(IRQ_EINT(12), IRQ_TYPE_EDGE_FALLING);	// FIXME: was EINT(9)
+		if (request_irq(IRQ_EINT(12), fsa9480_interrupt, IRQF_DISABLED, "FSA9480 Detected", NULL)) 	// FIXME: was EINT(9)
 		{
-			DEBUG_FSA9480("[FSA9480]fail to register IRQ[%d] for FSA9480 USB Switch \n", IRQ_EINT(9));
+			DEBUG_FSA9480("[FSA9480]fail to register IRQ[%d] for FSA9480 USB Switch \n", IRQ_EINT(12));	// FIXME: was EINT(9)
 		}
 		queue_work(fsa9480_workqueue, &fsa9480_work);
 	} else {
