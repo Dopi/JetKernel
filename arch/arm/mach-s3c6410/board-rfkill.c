@@ -34,7 +34,11 @@
 
 #define BT_SLEEP_ENABLER
 
+#ifdef CONFIG_JET_OPTION
+#define IRQ_BT_HOST_WAKE      GPIO_BT_HOST_WAKE
+#else
 #define IRQ_BT_HOST_WAKE      IRQ_EINT(22)
+#endif /* CONFIG_JET_OPTION */
 
 #ifdef CONFIG_JET_OPTION
 #define GPIO_BT_WLAN_REG_ON 	GPIO_WLAN_BT_SHUTDOWN
@@ -169,14 +173,14 @@ static void bt_host_wake_work_func(struct work_struct *ignored)
 		wake_lock_timeout(&rfkill_wake_lock, 5*HZ);
 	}
 
-	enable_irq(IRQ_EINT(22));
+	enable_irq(IRQ_BT_HOST_WAKE);
 }
 static DECLARE_WORK(bt_host_wake_work, bt_host_wake_work_func);
 
 
 irqreturn_t bt_host_wake_irq_handler(int irq, void *dev_id)
 {
-	disable_irq(IRQ_EINT(22));
+	disable_irq(IRQ_BT_HOST_WAKE);
 	schedule_work(&bt_host_wake_work);
 		
 	return IRQ_HANDLED;
@@ -200,7 +204,7 @@ static int __init instinctq_rfkill_probe(struct platform_device *pdev)
 		printk("[BT] Request_irq failed \n");
 
 	set_irq_type(irq, IRQ_TYPE_EDGE_BOTH);
-	enable_irq(IRQ_EINT(22));
+	enable_irq(IRQ_BT_HOST_WAKE);
 
 	//RFKILL init - default to bluetooth off */
 	rfkill_switch_all(RFKILL_TYPE_BLUETOOTH, RFKILL_STATE_SOFT_BLOCKED);
@@ -248,12 +252,14 @@ static int __init jet_rfkill_probe(struct platform_device *pdev)
 	//BT Host Wake IRQ
 	irq = IRQ_BT_HOST_WAKE;
 
-	ret = request_irq(irq, bt_host_wake_irq_handler, 0, "bt_host_wake_irq_handler", NULL);
-	if(ret < 0)
-		printk("[BT] Request_irq failed \n");
-
 	set_irq_type(irq, IRQ_TYPE_EDGE_BOTH);
-	enable_irq(IRQ_EINT(22));
+	ret = request_irq(irq, bt_host_wake_irq_handler, 0, "bt_host_wake_irq_handler", NULL);
+	if(ret < 0) {
+	  printk("[BT] Request_irq failed - IRQ %d \n", irq);
+	} else {
+	  printk("[BT] Request_irq passed - IRQ %d \n", irq);
+	}
+	enable_irq(IRQ_BT_HOST_WAKE);
 
 	//RFKILL init - default to bluetooth off */
 	rfkill_switch_all(RFKILL_TYPE_BLUETOOTH, RFKILL_STATE_SOFT_BLOCKED);

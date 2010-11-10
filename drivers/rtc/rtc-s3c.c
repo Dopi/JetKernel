@@ -324,6 +324,10 @@ static int s3c_rtc_gettime(struct device *dev, struct rtc_time *rtc_tm)
 	rtc_tm->tm_year += 100;
 	rtc_tm->tm_mon -= 1;
 
+	pr_debug("read time %02d/%02d/%02d %02d.%02d.%02d\n",
+		 rtc_tm->tm_year, rtc_tm->tm_mon, rtc_tm->tm_mday,
+		 rtc_tm->tm_hour, rtc_tm->tm_min, rtc_tm->tm_sec);
+
 	//factory sequence
 	if((rtc_tm->tm_year < (DEFAULT_RESET_TIME_YEAR - 1900)) || (rtc_tm->tm_year > (DEFAULT_RESET_TIME_YEAR_MAX - 1900)))
 	{
@@ -335,7 +339,7 @@ static int s3c_rtc_gettime(struct device *dev, struct rtc_time *rtc_tm)
 		rtc_tm->tm_year = DEFAULT_RESET_TIME_YEAR - 1900;
 	}
 
-	pr_debug("read time %02d/%02d/%02d %02d.%02d.%02d\n",
+	pr_debug("corrected read time %02d/%02d/%02d %02d.%02d.%02d\n",
 		 rtc_tm->tm_year, rtc_tm->tm_mon, rtc_tm->tm_mday,
 		 rtc_tm->tm_hour, rtc_tm->tm_min, rtc_tm->tm_sec);
   

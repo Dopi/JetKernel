@@ -151,7 +151,7 @@ static struct platform_device s3c_device_i2c2 = {
 static struct i2c_gpio_platform_data i2c3_platdata = {
 	.sda_pin		= GPIO_PWR_I2C_SDA,
 	.scl_pin		= GPIO_PWR_I2C_SCL,
-	.udelay			= 2, // 2,	/* 250KHz */		
+	.udelay			= 5, // 2,	/* 250KHz */		
 	.sda_is_open_drain	= 0,
 	.scl_is_open_drain	= 0,
 	.scl_is_output_only	= 1,
@@ -181,7 +181,7 @@ static struct platform_device s3c_device_i2c4 = {
 static struct i2c_gpio_platform_data i2c5_platdata = {
 	.sda_pin		= GPIO_AP_SDA_1V8,
 	.scl_pin		= GPIO_AP_SCL_1V8,
-	.udelay			= 2, //2,	/* 250kHz */ 	//3,	/* 166KHz */		
+	.udelay			= 5, //2,	/* 250kHz */ 	//3,	/* 166KHz */		
 	.sda_is_open_drain	= 0,
 	.scl_is_open_drain	= 0,
 	.scl_is_output_only	= 1,
@@ -1140,7 +1140,7 @@ extern int s3c_ts_init(void);
 
 static void __init instinctq_machine_init(void)
 {
-	printk("INSTINCTQ Machine INIT : Board REV 0x%x\n", CONFIG_INSTINCTQ_REV);
+	printk("JET Machine INIT : Board REV 0x%x\n", CONFIG_INSTINCTQ_REV);
 	
 	instinctq_init_gpio();
 
@@ -1162,13 +1162,11 @@ static void __init instinctq_machine_init(void)
 
 	i2c_register_board_info(0, i2c_devs0, ARRAY_SIZE(i2c_devs0));
 //	i2c_register_board_info(1, i2c_devs1, ARRAY_SIZE(i2c_devs1));
-#if 0
 #ifdef CONFIG_I2C_GPIO
 	i2c_register_board_info(2, i2c_devs2, ARRAY_SIZE(i2c_devs2));
 	i2c_register_board_info(3, i2c_devs3, ARRAY_SIZE(i2c_devs3));
 	i2c_register_board_info(4, i2c_devs4, ARRAY_SIZE(i2c_devs4));
 	i2c_register_board_info(5, i2c_devs5, ARRAY_SIZE(i2c_devs5));
-#endif
 #endif
 
 	platform_add_devices(instinctq_devices, ARRAY_SIZE(instinctq_devices));
@@ -1193,10 +1191,10 @@ static void __init instinctq_machine_init(void)
 
 	check_pmic();
 
-	printk("INSTINCTQ Machine INIT END\n");
+	printk("JET Machine INIT END\n");
 }
 
-MACHINE_START(INSTINCTQ, "SPH-M900")
+MACHINE_START(INSTINCTQ, "GT-S8000")
 
 	/* Maintainer: Ben Dooks <ben@fluff.org> */
 	.phys_io		= S3C_PA_UART & 0xfff00000,

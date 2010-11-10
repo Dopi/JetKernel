@@ -496,9 +496,10 @@ static int s3c_i2c_doxfer(struct s3c_i2c *i2c,
 	unsigned long timeout;
 	int ret;
 
-#if defined(CONFIG_MACH_SPICA)
+#if defined(CONFIG_MACH_SPICA) || defined(CONFIG_JET_OPTION)
 	int iicstat;
 #endif
+	//printk("%s addr 0x%02X\n",__FUNCTION__,msgs->addr);
 
 	if (i2c->suspended) {
 		dev_err(i2c->dev, "i2c master is suspeded\n");
@@ -521,7 +522,7 @@ static int s3c_i2c_doxfer(struct s3c_i2c *i2c,
 		/* force to write stop control bit */
 		s3c_i2c_stop(i2c, -ENXIO);
 
-#if defined(CONFIG_MACH_SPICA)
+#if defined(CONFIG_MACH_SPICA) || defined(CONFIG_JET_OPTION)
 		iicstat = readl(i2c->regs + S3C_IICSTAT);
         if ((iicstat & S3C_IICSTAT_BUSBUSY)) {
             iicstat &= ~(S3C_IICSTAT_TXRXEN | S3C_IICSTAT_BUSBUSY);

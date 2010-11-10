@@ -43,7 +43,12 @@ static int kxsd9_timer_oper = TIMER_OFF;
 
 static unsigned short ignore[] = { I2C_CLIENT_END };
 static unsigned short normal_addr[] = { I2C_CLIENT_END };
+
+#ifdef CONFIG_JET_OPTION
+static unsigned short probe_addr[] = { 0, KXSD9_SADDR, I2C_CLIENT_END };
+#else
 static unsigned short probe_addr[] = { 5/*0*/, KXSD9_SADDR, I2C_CLIENT_END };
+#endif
 
 static struct i2c_client_address_data addr_data = {
 	.normal_i2c     = normal_addr,
@@ -240,8 +245,9 @@ static int kxsd9_init_device(void)
 {
 	int ret = 0;
 	char buf_write[2];
-	
-	gprintk("start!\n");
+
+	printk("KXSD9: %s \n",__FUNCTION__);
+//	gprintk("start!\n");
 	
 	/*
 	 * CLKhld = 1 //held low during A/D conversions
@@ -310,7 +316,8 @@ static int kxsd9_i2c_probe_found(struct i2c_adapter *adapter, int address, int k
 
 	int ret = 0;
 
-	gprintk("start\n");
+	printk("KXSD9: %s \n",__FUNCTION__);
+//	gprintk("start\n");
 	
 	kxsd9 = kzalloc(sizeof(struct kxsd9_data), GFP_KERNEL);
 	if (!kxsd9) {
@@ -419,6 +426,7 @@ exit:
 
 static int kxsd9_i2c_attach_adapter(struct i2c_adapter *adapter)
 {	
+	printk("KXSD9: %s \n",__FUNCTION__);
 	return i2c_probe(adapter, &addr_data, &kxsd9_i2c_probe_found);
 }
 
@@ -427,9 +435,11 @@ static int kxsd9_i2c_detach_adapter(struct i2c_client *client)
 	struct kxsd9_data *kxsd9 = i2c_get_clientdata(client);
 	int ret;
 
+	printk("KXSD9: %s \n",__FUNCTION__);
+
 	//free_irq(client->irq, kxsd9);  //TODO: interrupt
 #ifdef KXSD9_TESTMODE
-	gprintk("timer_cansel\n");
+	gprintk("timer_cancel\n");
 	hrtimer_cancel(&kxsd9->timer);
 #endif
 	input_unregister_device(kxsd9->input_dev);
@@ -450,7 +460,8 @@ static int kxsd9_i2c_detach_adapter(struct i2c_client *client)
 
 static int __init kxsd9_2042_init(void)
 {
-	gprintk("init\n");
+	printk("KXSD9: %s \n",__FUNCTION__);
+//	gprintk("init\n");
 
 	// for Interrupt GPIO setting
 #if 0

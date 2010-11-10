@@ -18,7 +18,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-/* #define VERBOSE_DEBUG */
+#define VERBOSE_DEBUG 1
 
 #include <linux/kallsyms.h>
 #include <linux/kernel.h>
@@ -466,6 +466,8 @@ int __init usb_add_config(struct usb_composite_dev *cdev,
 {
 	int				status = -EINVAL;
 	struct usb_configuration	*c;
+	
+	//	printk("%s \n", __FUNCTION__);
 
 	DBG(cdev, "adding config #%u '%s'/%p\n",
 			config->bConfigurationValue,
@@ -520,6 +522,8 @@ int __init usb_add_config(struct usb_composite_dev *cdev,
 	usb_ep_autoconfig_reset(cdev->gadget);
 
 done:
+	printk("%s finished\n", __FUNCTION__);
+
 	if (status)
 		DBG(cdev, "added config '%s'/%u --> %d\n", config->label,
 				config->bConfigurationValue, status);

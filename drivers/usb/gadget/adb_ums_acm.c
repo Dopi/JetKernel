@@ -164,6 +164,7 @@ static int __init android_bind_config(struct usb_configuration *c)
 	struct android_dev *dev = _android_dev;
 	int ret;
 
+	printk("%s\n", __FUNCTION__);
 	//ret = acm_bind_config(c, 0);
 	ret = acm_function_add(dev->cdev, c);
 	if (ret) {
@@ -209,7 +210,7 @@ static int __init android_bind(struct usb_composite_dev *cdev)
 	int			ret;
 	char usb_serial_number[13] = {0,};
 
-//	printk(KERN_INFO "android_bind\n");
+	printk(KERN_INFO "android_bind\n");
 
 	/* Allocate string descriptor numbers ... note that string
 	 * contents can be overridden by the composite_dev glue.

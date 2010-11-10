@@ -37,7 +37,12 @@ extern ftm_sleep;
 #define FSA9480UCX		0x4A
 static unsigned short fsa9480_normal_i2c[] = {I2C_CLIENT_END };
 static unsigned short fsa9480_ignore[] = { I2C_CLIENT_END };
+
+#ifdef CONFIG_JET_OPTION
+static unsigned short fsa9480_i2c_probe[] = { 4, FSA9480UCX >> 1, I2C_CLIENT_END };
+#else
 static unsigned short fsa9480_i2c_probe[] = { 5, FSA9480UCX >> 1, I2C_CLIENT_END };
+#endif
 
 static struct i2c_client fsa9480_i2c_client;
 static struct i2c_driver fsa9480_i2c_driver;
@@ -87,9 +92,11 @@ void get_usb_serial(char *usb_serial_number)
 #elif defined(CONFIG_MACH_QUATTRO)
   sprintf(temp_serial_number,"M9X0%08x",serial_number); //not defined
 #elif defined(CONFIG_MACH_INSTINCTQ)
+#ifdef CONFIG_JET_OPTION
+	sprintf(temp_serial_number,"Jet8%08x",serial_number);
+#else
 	sprintf(temp_serial_number,"M900%08x",serial_number);
-#else // CONFIG_MACH_JET
-	sprintf(temp_serial_number,"Jet%08x",serial_number);
+#endif /* CONFIG_JET_OPTION */
 #endif
 	strcpy(usb_serial_number,temp_serial_number);
 }
@@ -108,6 +115,7 @@ int available_PM_Set(void)
 #endif
 		return 1;
 	}
+	printk("[FSA9480] PMIC is not initialized!!!\n");
 	return 0;
 }
 
@@ -159,8 +167,11 @@ void fsa9480_s3c_udc_on(void)
 	if(!Set_MAX8698_PM_REG(ELDO3, 1) || !Set_MAX8698_PM_REG(ELDO8, 1))
 		printk("[FSA9480]%s : Fail to LDO ON\n ", __func__);
 #elif defined(CONFIG_PMIC_MAX8906)
-//	if(!Set_MAX8906_PM_REG(ELDO3, 1) || !Set_MAX8906_PM_REG(ELDO8, 1))
+//	if(!Set_MAX8906_PM_REG(ELDO3, 1) || !Set_MAX8906_PM_REG(ELDO8, 1)) {
 		printk("[FSA9480]%s : Fail to LDO ON\n ", __func__);
+	/* } else { */
+	/* 	printk("[FSA9480]%s : Switched LDO ON\n ", __func__); */
+	/* } */
 #else
 		printk("[FSA9480]%s : Fail to LDO ON\n ", __func__);
 #endif
@@ -178,8 +189,11 @@ void fsa9480_s3c_udc_off(void)
 	if(!Set_MAX8698_PM_REG(ELDO3, 0) || !Set_MAX8698_PM_REG(ELDO8, 0))
 		printk("[FSA9480]%s : Fail to LDO OFF\n ", __func__);
 #elif defined(CONFIG_PMIC_MAX8906)
-//	if(!Set_MAX8906_PM_REG(ELDO3, 0) || !Set_MAX8906_PM_REG(ELDO8, 0))
+	/* if(!Set_MAX8906_PM_REG(ELDO3, 0) || !Set_MAX8906_PM_REG(ELDO8, 0)) { */
 		printk("[FSA9480]%s : Fail to LDO OFF\n ", __func__);
+	/* } else { */
+	/* 	printk("[FSA9480]%s : Switched LDO OFF\n ", __func__); */
+	/* } */
 #else
 		printk("[FSA9480]%s : Fail to LDO OFF\n ", __func__);
 #endif
@@ -267,7 +281,7 @@ static int fsa9480_modify(struct i2c_client *client, u8 reg, u8 data, u8 mask)
 /* UART <-> USB switch (for UART/USB JIG) */
 void fsa9480_check_usb_connection(void)
 {
-    //DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
+    DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
 	u8 control, int1, deviceType1, deviceType2, manual1, manual2,pData,adc, carkitint1;
 	bool bInitConnect = false;
 
@@ -303,7 +317,7 @@ void fsa9480_check_usb_connection(void)
 	DEBUG_FSA9480("[FSA9480] DEVICETYPE1 is 0x%02x\n ",deviceType1);
 	//DEBUG_FSA9480("[FSA9480] DEVICETYPE2 is 0x%02x\n ",deviceType2);
 	DEBUG_FSA9480("[FSA9480] MANUALSW1 is 0x%02x\n ",manual1);
-	//DEBUG_FSA9480("[FSA9480] MANUALSW2 is 0x%02x\n ",manual2);
+	DEBUG_FSA9480("[FSA9480] MANUALSW2 is 0x%02x\n ",manual2);
 
 	/* TA Connection */
 	if(deviceType1 ==0x40)
@@ -313,7 +327,7 @@ void fsa9480_check_usb_connection(void)
 		ta_connection = true;
 		wake_up_interruptible(&usb_detect_waitq);
 
-		//printk("[FSA9480] TA is connected \n");
+		printk("[FSA9480] TA is connected \n");
 	}
 
 	
@@ -322,7 +336,7 @@ void fsa9480_check_usb_connection(void)
 	/* Disconnect cable */
 	if (deviceType1 == DEVICE_TYPE_NC && deviceType2 == DEVICE_TYPE_NC) {
 		ta_connection = false;
-		//DEBUG_FSA9480("[FSA9480] Cable is not connected\n ");
+		DEBUG_FSA9480("[FSA9480] Cable is not connected\n ");
 		if (usb_power == 1) 
 		{
 			/* reset manual2 s/w register */
@@ -344,7 +358,7 @@ void fsa9480_check_usb_connection(void)
 	{ 
 
 		/* Manual Mode for USB */
-		//DEBUG_FSA9480("[FSA9480] MANUAL MODE.. d1:0x%02x, d2:0x%02x\n", deviceType1, deviceType2);
+		DEBUG_FSA9480("[FSA9480] MANUAL MODE.. d1:0x%02x, d2:0x%02x\n", deviceType1, deviceType2);
 		if (control != 0x1A) 
 		{ 	
 			
@@ -358,6 +372,7 @@ void fsa9480_check_usb_connection(void)
 		if(deviceType1 == CRA_USB)
 		{
 			/* ID Switching : ID connected to bypass port */
+			manual1 = 0x24;
 			manual2 |= 0x2;
 		}
 		else if(deviceType2 & CRB_JIG_USB_ON)
@@ -374,6 +389,7 @@ void fsa9480_check_usb_connection(void)
 			
 		}
 
+		fsa9480_write(&fsa9480_i2c_client, REGISTER_MANUALSW1, manual1);
 		fsa9480_write(&fsa9480_i2c_client, REGISTER_MANUALSW2, manual2);
 
 
@@ -384,10 +400,8 @@ void fsa9480_check_usb_connection(void)
 		{
 			bInitConnect = true;
 			s3c_udc_power_up();
+			usb_power = 1;
 		}
-
-
-
 			
 	}
 	/* Auto mode settings */
@@ -395,7 +409,7 @@ void fsa9480_check_usb_connection(void)
 	{
 
 		/* Auto Mode except usb */
-		//DEBUG_FSA9480("[FSA9480] AUTO MODE.. d1:0x%02x, d2:0x%02x\n", deviceType1, deviceType2);
+		DEBUG_FSA9480("[FSA9480] AUTO MODE.. d1:0x%02x, d2:0x%02x\n", deviceType1, deviceType2);
 		if (control != 0x1E) 
 		{ 
 			fsa9480_write(&fsa9480_i2c_client, REGISTER_CONTROL, 0x1E);
@@ -421,6 +435,7 @@ void fsa9480_check_usb_connection(void)
 #define SWITCH_MODEM		2
 static void usb_sel(int sel)
 {
+	DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
 	usb_path = sel;
 }
 
@@ -545,7 +560,7 @@ static void mode_switch(struct work_struct *ignored)
 
 static irqreturn_t fsa9480_interrupt(int irq, void *ptr)
 {
-    //DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
+    DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
 #if 0
 	DEBUG_FSA9480("### FSA9480 interrupt(%d) happened! ###\n", irq);
 	DEBUG_FSA9480("GPIO_JACK_INT_N value : %d\n", gpio_get_value(GPIO_JACK_INT_N));
@@ -560,11 +575,19 @@ void pm_check(void)
 {
     DEBUG_FSA9480("[FSA9480]%s\n ", __func__);
 	if (available_PM_Set()) {
-		set_irq_type(IRQ_EINT(12), IRQ_TYPE_EDGE_FALLING);	// FIXME: was EINT(9)
-		if (request_irq(IRQ_EINT(12), fsa9480_interrupt, IRQF_DISABLED, "FSA9480 Detected", NULL)) 	// FIXME: was EINT(9)
+#ifdef CONFIG_JET_OPTION
+		set_irq_type(IRQ_EINT(12), IRQ_TYPE_EDGE_FALLING);
+		if (request_irq(IRQ_EINT(12), fsa9480_interrupt, IRQF_DISABLED, "FSA9480 Detected", NULL))
 		{
-			DEBUG_FSA9480("[FSA9480]fail to register IRQ[%d] for FSA9480 USB Switch \n", IRQ_EINT(12));	// FIXME: was EINT(9)
+			DEBUG_FSA9480("[FSA9480]fail to register IRQ[%d] for FSA9480 USB Switch \n", IRQ_EINT(12));
 		}
+#else
+		set_irq_type(IRQ_EINT(9), IRQ_TYPE_EDGE_FALLING);
+		if (request_irq(IRQ_EINT(9), fsa9480_interrupt, IRQF_DISABLED, "FSA9480 Detected", NULL)) 
+		{
+			DEBUG_FSA9480("[FSA9480]fail to register IRQ[%d] for FSA9480 USB Switch \n", IRQ_EINT(9));
+		}
+#endif
 		queue_work(fsa9480_workqueue, &fsa9480_work);
 	} else {
 		fsa9480_init_timer.expires = get_jiffies_64()+10;
@@ -647,7 +670,7 @@ static int fsa9480_i2c_resume(void)
    	/*set auto mode in case of ftm_sleep and wake lock*/
    	wake_lock(&fsa9480_wake_lock);
 	
-   	//DEBUG_FSA9480("[FSA9480]%s ftm sleep is on fsa9480_SetAutoSWMode is called \n ", __func__);
+   	DEBUG_FSA9480("[FSA9480]%s ftm sleep is on fsa9480_SetAutoSWMode is called \n ", __func__);
    	fsa9480_SetAutoSWMode();
 
 	//wait 15 seconds

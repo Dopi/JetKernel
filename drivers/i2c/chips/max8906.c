@@ -829,6 +829,8 @@ max8906_function_type  max8906pm[ENDOFPM] =
     /* slave addr  addr        mask        clear       shift */
     {  0x78,       0x68,       0x38,       0xC7,       0x03 }, // SEQ5T
     {  0x78,       0x68,       0x06,       0xF9,       0x01 }, // SEQ5SRC
+
+
     {  0x78,       0x68,       0x01,       0xFE,       0x00 }, // SEQ5EN
 
     // SEQ6CNFG register
@@ -2390,7 +2392,8 @@ boolean Set_MAX8906_RTC(max8906_rtc_cmd_type rtc_cmd,byte *max8906_rtc_ptr)
         return FALSE;
     }
 #endif    
-	return TRUE;
+	pr_info(PREFIX "%s:I: Failed! - dummy function!!!\n", __func__);
+ 	return TRUE;
 }
 
 /*===========================================================================
@@ -2422,13 +2425,15 @@ boolean Get_MAX8906_RTC(max8906_rtc_cmd_type rtc_cmd, byte *max8906_rtc_ptr)
     byte reg;
 
     reg = (byte)rtc_cmd * 8;
-#if 0  
-	if(pmic_rtc_read(reg, max8906_rtc_ptr, (byte)8) != PMIC_PASS)
+#if 1  
+    if(pmic_read(0xd0, reg, max8906_rtc_ptr, (byte)8) != PMIC_PASS)
     {
         // Read RTC failed
-        return FALSE;
+	pr_info(PREFIX "%s:I: Failed!\n", __func__);
+         return FALSE;
     }
 #endif    
+	pr_info(PREFIX "%s:I: Succeeded!\n", __func__);
 	return TRUE;
 }
 
@@ -2621,6 +2626,7 @@ void MAX8906_PM_TIRQ_isr(void)
 
     if(pmic_read(max8906reg[REG_TSC_STA_INT].slave_addr, max8906reg[REG_TSC_STA_INT].addr, &pm_irq_reg[0], (byte)1) != PMIC_PASS)
     {
+
         MSG_HIGH("IRQ register isn't read", 0, 0, 0);
 	 	return; // return error
     }
@@ -2763,6 +2769,9 @@ static int max8906_write(struct i2c_client *client, u8 reg, u8 data)
 	if (ret != 1) 
 		return -EIO;
 
+	if ((client->addr == MAX8906_GPM_ID) && (reg>0x83)&&(reg < 0x8f)) {
+	  pr_info(PREFIX "%s:I: addr 0x%02X reg 0x%02X Succeeded!\n", __func__, client->addr, reg);
+	}
 	return 0;
 }
 
@@ -2776,12 +2785,16 @@ unsigned int pmic_read(u8 slaveaddr, u8 reg, u8 *data, u8 length)
 		client = max8906_gpm_i2c_client;
 	else if (slaveaddr == MAX8906_APM_ID)
 		client = max8906_apm_i2c_client;
+	else if (slaveaddr == MAX8906_RTC_ID)
+		client = max8906_rtc_i2c_client;
 	else 
 		return PMIC_FAIL;
 
 	if (max8906_read(client, reg, data) < 0) { 
+#ifdef pmic_extra_debug	
 		printk(KERN_ERR "%s -> Failed! (slaveaddr 0x%02x, reg 0x%02x, data 0x%02x)\n",
 					__FUNCTION__, slaveaddr, reg, *data);
+#endif
 		return PMIC_FAIL;
 	}	
 
@@ -2837,7 +2850,7 @@ static int max8906_attach(struct i2c_adapter *adap, int addr, int kind)
 	c->driver = &max8906_driver;
 
 #ifdef pmic_extra_debug	
-	printk("%s -> adapter: %s  slaveaddr: 0x%02x\n",	__FUNCTION__, c->name, addr);
+	printk("MAX8906: %s -> adapter: %s  slaveaddr: 0x%02x\n",	__FUNCTION__, c->name, addr);
 #endif	
 
 	if ((ret = i2c_attach_client(c)))
@@ -2894,6 +2907,7 @@ static int __init max8906_init(void)
 {
 	int ret;
 	ret = i2c_add_driver(&max8906_driver);
+	printk("MAX8906: %s retval = %d\n",__FUNCTION__,ret);
 	pmic_init_status = 1;
 	return ret;
 }
