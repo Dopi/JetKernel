@@ -245,9 +245,9 @@ static int kxsd9_init_device(void)
 {
 	int ret = 0;
 	char buf_write[2];
+	char buf_read[8];
 
 	printk("KXSD9: %s \n",__FUNCTION__);
-//	gprintk("start!\n");
 	
 	/*
 	 * CLKhld = 1 //held low during A/D conversions
@@ -292,6 +292,21 @@ static int kxsd9_init_device(void)
 	mdelay(16);  // 16msec delay
 	
 	gprintk("kxsd9 module RESET!\n");
+
+	// try to read some values
+	
+	gprintk("has been activated by kxsd9_timer_func()\n");
+
+	memset(buf_read, 0, 8);
+	buf_read[0] = KXSD9_REG_XOUT_H;
+
+	ret = kxsd9_i2c_read(buf_read, 6);
+	if (ret<0)
+		printk(KERN_ERR "kxsd9_workqueue_func: I2C read failed! \n");
+
+	gprintk("[KXSD9 DBG] buf_read[0]=%d, buf_read[1]=%d\n", buf_read[0], buf_read[1]);
+	gprintk("[KXSD9 DBG] buf_read[2]=%d, buf_read[3]=%d\n", buf_read[2], buf_read[3]);
+	gprintk("[KXSD9 DBG] buf_read[4]=%d, buf_read[5]=%d\n\n", buf_read[4], buf_read[5]);
 
 	return ret;
 }

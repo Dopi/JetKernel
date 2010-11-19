@@ -1483,9 +1483,9 @@ boolean Set_MAX8906_TSC_CONV_REG(max8906_pm_function_type reg_num, byte cmd)
         return FALSE;
     }
 
-	tsc_buff = (max8906pm[reg_num].addr | (max8906pm[reg_num].mask & (byte)(cmd)));
+    tsc_buff =  (max8906pm[reg_num].mask & (byte)(cmd));
 
-    if(pmic_tsc_write(max8906pm[reg_num].slave_addr, &tsc_buff) != PMIC_PASS)
+    if(pmic_write(max8906pm[reg_num].slave_addr, max8906pm[reg_num].addr, &tsc_buff, 1) != PMIC_PASS)
     {
         // Register Write command failed
         return FALSE;
@@ -2785,6 +2785,8 @@ unsigned int pmic_read(u8 slaveaddr, u8 reg, u8 *data, u8 length)
 		client = max8906_gpm_i2c_client;
 	else if (slaveaddr == MAX8906_APM_ID)
 		client = max8906_apm_i2c_client;
+	else if (slaveaddr == MAX8906_ADC_ID)
+		client = max8906_adc_i2c_client;
 	else if (slaveaddr == MAX8906_RTC_ID)
 		client = max8906_rtc_i2c_client;
 	else 
@@ -2811,6 +2813,10 @@ unsigned int pmic_write(u8 slaveaddr, u8 reg, u8 *data, u8 length)
 		client = max8906_gpm_i2c_client;
 	else if (slaveaddr == MAX8906_APM_ID)
 		client = max8906_apm_i2c_client;
+	else if (slaveaddr == MAX8906_ADC_ID)
+		client = max8906_adc_i2c_client;
+	else if (slaveaddr == MAX8906_RTC_ID)
+		client = max8906_rtc_i2c_client;
 	else 
 		return PMIC_FAIL;
 
@@ -2831,6 +2837,118 @@ unsigned int pmic_tsc_write(u8 slaveaddr, u8 *cmd)
 unsigned int pmic_tsc_read(u8 slaveaddr, u8 *cmd)
 {
 	return 0;
+}
+
+void max8906_debug_print( void)
+{
+  u8 sec,min,hour,day,month,yearm,yearl;
+    boolean status;
+    byte tscbuff;
+    byte result[2];
+    int voltage;
+
+  pmic_read( MAX8906_RTC_ID, 0x00, &sec, 1);
+  pmic_read( MAX8906_RTC_ID, 0x01, &min, 1);
+  pmic_read( MAX8906_RTC_ID, 0x02, &hour, 1);
+  pmic_read( MAX8906_RTC_ID, 0x04, &day, 1);
+  pmic_read( MAX8906_RTC_ID, 0x05, &month, 1);
+  pmic_read( MAX8906_RTC_ID, 0x06, &yearl, 1);
+  pmic_read( MAX8906_RTC_ID, 0x07, &yearm, 1);
+  printk("[MAX8906]: DATE,TIME: %X.%X.%X%X, %X:%02X:%02X\n", day,month,yearm,yearl,hour,min,sec);
+
+  // here we read some couple of registers
+  /* pmic_read( MAX8906_ADC_ID, 0x0, &tscbuff, 1); printk("[MAX8906 dbg]: TSC_STA_INT=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x1, &tscbuff, 1); printk("[MAX8906 dbg]: TSC_INT_MSK=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x2, &tscbuff, 1); printk("[MAX8906 dbg]: TSC_CNFG1  =0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x3, &tscbuff, 1); printk("[MAX8906 dbg]: TSC_CNFG2  =0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x4, &tscbuff, 1); printk("[MAX8906 dbg]: TSC_CNFG3  =0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x5, &tscbuff, 1); printk("[MAX8906 dbg]: TSC_CNFG4  =0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x6, &tscbuff, 1); printk("[MAX8906 dbg]: TSC_RES_CF1=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x7, &tscbuff, 1); printk("[MAX8906 dbg]: TSC_AVG_CF1=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x8, &tscbuff, 1); printk("[MAX8906 dbg]: TSC_ACQ_CF1=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x9, &tscbuff, 1); printk("[MAX8906 dbg]: TSC_ACQ_CF2=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0xA, &tscbuff, 1); printk("[MAX8906 dbg]: TSC_ACQ_CF3=0x%02X\n",tscbuff); */
+
+  /* // set MBATT measurement */
+  /* if (FALSE == Set_MAX8906_TSC_CONV_REG(MBATT_Measurement, CONT)) { */
+  /*   printk("[MAX8906] failed to start MBATT Measurement\n"); */
+  /*   return; */
+  /* } */
+  /* tscbuff = 0x5; // Vref & CONT */
+  /* pmic_write( MAX8906_ADC_ID, 0xD8, &tscbuff, 1); printk("[MAX8906 dbg]: wrtite 0xD8=0x%02X\n",tscbuff); */
+
+
+  /* pmic_read( MAX8906_ADC_ID, 0x60, &tscbuff, 1); printk("[MAX8906 dbg]: 0x60=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x61, &tscbuff, 1); printk("[MAX8906 dbg]: 0x61=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x62, &tscbuff, 1); printk("[MAX8906 dbg]: 0x62=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x63, &tscbuff, 1); printk("[MAX8906 dbg]: 0x63=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x64, &tscbuff, 1); printk("[MAX8906 dbg]: 0x64=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x65, &tscbuff, 1); printk("[MAX8906 dbg]: 0x65=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x66, &tscbuff, 1); printk("[MAX8906 dbg]: 0x66=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x67, &tscbuff, 1); printk("[MAX8906 dbg]: 0x67=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x68, &tscbuff, 1); printk("[MAX8906 dbg]: 0x68=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x69, &tscbuff, 1); printk("[MAX8906 dbg]: 0x69=0x%02X\n",tscbuff); */
+  /* pmic_read( MAX8906_ADC_ID, 0x6A, &tscbuff, 1); printk("[MAX8906 dbg]: 0x6a=0x%02X\n",tscbuff); */
+
+    //  Measurement done?
+  /* do { */
+  /*   status = Get_MAX8906_PM_REG(nCONV_NS, &tsc_buff); */
+  /* } while ( !(status && (tsc_buff & nCONV_NS_M)) ); */
+
+  /*   // set BBATT measurement */
+  /* Set_MAX8906_TSC_CONV_REG(BBATT_Measurement, CONT); */
+
+  /*   //  Measurement done? */
+  /* do { */
+  /*   status = Get_MAX8906_PM_REG(nCONV_NS, &tsc_buff); */
+  /* } while ( !(status && (tsc_buff & nCONV_NS_M)) ); */
+
+  /*   // set VBUS measurement */
+  /* Set_MAX8906_TSC_CONV_REG(VBUS_Measurement, CONT); */
+
+  /*   //  Measurement done? */
+  /* do { */
+  /*   status = Get_MAX8906_PM_REG(nCONV_NS, &tsc_buff); */
+  /* } while ( !(status && (tsc_buff & nCONV_NS_M)) ); */
+
+  /* // GET THE RESULTS */
+  /*   if(Get_MAX8906_PM_ADDR(REG_ADC_MBATT_MSB, result, 2) != TRUE) */
+  /*   { */
+  /*       if(Get_MAX8906_PM_ADDR(REG_ADC_MBATT_MSB, result, 2) != TRUE) */
+  /*       { */
+  /*           // X can't be read */
+  /*           return; */
+  /*       } */
+  /*   } */
+  /*   voltage = (word)(result[0]<<4) | (word)(result[1]>>4); */
+  /*   printk("[MAX8906]: MBATT = 0x%04X\n", voltage); */
+
+  /*   if(Get_MAX8906_PM_ADDR(REG_ADC_BBATT_MSB, result, 2) != TRUE) */
+  /*   { */
+  /*       if(Get_MAX8906_PM_ADDR(REG_ADC_BBATT_MSB, result, 2) != TRUE) */
+  /*       { */
+  /*           // X can't be read */
+  /*           return; */
+  /*       } */
+  /*   } */
+  /*   voltage = (word)(result[0]<<4) | (word)(result[1]>>4); */
+  /*   printk("[MAX8906]: BBATT = 0x%04X\n", voltage); */
+
+  /*   if(Get_MAX8906_PM_ADDR(REG_ADC_VBUS_MSB, result, 2) != TRUE) */
+  /*   { */
+  /*       if(Get_MAX8906_PM_ADDR(REG_ADC_VBUS_MSB, result, 2) != TRUE) */
+  /*       { */
+  /*           // X can't be read */
+  /*           return; */
+  /*       } */
+  /*   } */
+  /*   voltage = (word)(result[0]<<4) | (word)(result[1]>>4); */
+  /*   printk("[MAX8906]: VCC_USB = 0x%04X\n", voltage); */
+
+    // switch measurement off
+  /* Set_MAX8906_TSC_CONV_REG(MBATT_Measurement, NON_EN_REF_CONT); */
+  /* Set_MAX8906_TSC_CONV_REG(BBATT_Measurement, NON_EN_REF_CONT); */
+  /* Set_MAX8906_TSC_CONV_REG(VBUS_Measurement, NON_EN_REF_CONT); */
 }
 
 static int max8906_attach(struct i2c_adapter *adap, int addr, int kind)
@@ -2909,6 +3027,8 @@ static int __init max8906_init(void)
 	ret = i2c_add_driver(&max8906_driver);
 	printk("MAX8906: %s retval = %d\n",__FUNCTION__,ret);
 	pmic_init_status = 1;
+
+	max8906_debug_print();
 	return ret;
 }
 

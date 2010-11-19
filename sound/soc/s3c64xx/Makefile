@@ -24,6 +24,7 @@ obj-$(CONFIG_SND_S3C_I2S_V50)  += s3c-i2s.o
 obj-$(CONFIG_SND_S3C_AC97)     += s3c-ac97.o
 
 snd-soc-ak4671-objs := s3c6410-ak4671.o
+snd-soc-s3c6410-max9880-objs := s3c6410-max9880.o
 
 # S3C6410 has AC97 and I2S(v-3.2 and 4.0) controller.
 # SMDK6410 has WM8580 and WM9713 onboard and S5M8751 as a module.
@@ -44,3 +45,5 @@ obj-$(CONFIG_SND_SMDKC100_WM9713)  += snd-soc-smdkc100-wm9713.o
 
 # S3C6410 has AK4671 and I2S(v-3.2 and 4.0) controller.
 obj-$(CONFIG_SND_S3C64XX_SOC_AK4671) += snd-soc-ak4671.o
+
+obj-$(CONFIG_SND_S3C64XX_SOC_MAX9880) += snd-soc-s3c6410-max9880.o

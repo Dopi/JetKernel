@@ -6,6 +6,10 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ *  Revision history
+ *    2010/11/11   vaclavpe@gmail.com - Support of 2.6.29 kernel for Samsung Jet - version 0.12
+ *
  */
 
 #include <linux/module.h>
@@ -15,7 +19,7 @@
 #include <linux/pm.h>
 #include <linux/i2c.h>
 #include <linux/platform_device.h>
-#include <sound/driver.h>
+//#include <sound/driver.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
@@ -26,9 +30,9 @@
 #include "max9880.h"
 
 #define AUDIO_NAME "max9880"
-#define MAX9880_VERSION "0.11" 
+#define MAX9880_VERSION "0.12" 
 
-#undef MAX9880_DEBUG
+#define MAX9880_DEBUG
 
 #ifdef MAX9880_DEBUG
 	#define dbg(format, arg...) \
@@ -46,7 +50,7 @@
 #define warn(format, arg...) \
 	printk(KERN_WARNING AUDIO_NAME ": " format "\n" , ## arg)
 
-#undef MAX9880_TRACE
+#define MAX9880_TRACE
 
 #ifdef MAX9880_TRACE
 #define trace(format, arg...) \
@@ -119,7 +123,7 @@ static int max9880_write(struct snd_soc_codec *codec, unsigned int reg,	unsigned
  ******************************************************************************/
 static int max9880_dapm_event(struct snd_soc_codec *codec, int event)
 {
-	trace("%s %d", __FUNCTION__, event);
+	trace("%s %d\n", __FUNCTION__, event);
 
 	switch (event) {
 	case SNDRV_CTL_POWER_D0: /* full On */
@@ -166,7 +170,7 @@ static int max9880_input_mixer_get(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 
-	trace("%s", __FUNCTION__);
+	trace("%s\n", __FUNCTION__);
 
 	ucontrol->value.integer.value[0] = max9880_read(codec, MAX9880_INPUT_CONFIG) >> 6;
 
@@ -195,7 +199,7 @@ static int max9880_input_mixer_set(struct snd_kcontrol *kcontrol,
 	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
 	u8 reg = max9880_read(codec, MAX9880_INPUT_CONFIG);
 
-	trace("%s", __FUNCTION__);
+	trace("%s\n", __FUNCTION__);
 
 	if ((reg >> 6) == ucontrol->value.integer.value[0])
 	{
@@ -290,7 +294,7 @@ static int max9880_add_controls(struct snd_soc_codec *codec)
 {
 	int err, i;
 
-	trace("%s", __FUNCTION__);
+	trace("%s\n", __FUNCTION__);
 
 	for (i = 0; i < ARRAY_SIZE(max9880_snd_controls); i++) {
 		if ((err = snd_ctl_add(codec->card,
@@ -322,7 +326,7 @@ static const struct snd_soc_dapm_widget max9880_dapm_widgets[] = {
 	SND_SOC_DAPM_DAC("RDAC", "HiFi Playback", SND_SOC_NOPM, 0, 0),
 };
 
-static const char* intercon[][3] = {
+static const struct snd_soc_dapm_route intercon[] = {
 	/* Inputs */
 	{"Mic Input", NULL, "LMICIN"},
 	{"Mic Input", NULL, "RMICIN"},
@@ -360,17 +364,14 @@ static int max9880_add_widgets(struct snd_soc_codec *codec)
 {
 	int i;
 
-	trace("%s", __FUNCTION__);
+	trace("%s\n", __FUNCTION__);
 
 	for(i = 0; i < ARRAY_SIZE(max9880_dapm_widgets); i++) {
 		snd_soc_dapm_new_control(codec, &max9880_dapm_widgets[i]);
 	}
 
 	/* Setup audio path interconnects */
-	for(i = 0; intercon[i][0] != NULL; i++) {
-		snd_soc_dapm_connect_input(codec, intercon[i][0],
-			intercon[i][1], intercon[i][2]);
-	}
+	snd_soc_dapm_add_routes(codec, intercon, ARRAY_SIZE(intercon));
 
 	snd_soc_dapm_new_widgets(codec);
 	return 0;
@@ -383,7 +384,7 @@ static int max9880_add_widgets(struct snd_soc_codec *codec)
  ******************************************************************************/
 static int max9880_pcm_prepare(struct snd_pcm_substream *substream)
 {
-	trace("%s %d", __FUNCTION__, substream->stream);
+	trace("%s %d\n", __FUNCTION__, substream->stream);
 
 	return 0;
 }
@@ -402,14 +403,14 @@ static void max9880_shutdown(struct snd_pcm_substream *substream)
 /*******************************************************************************
  * Volume control mute
  ******************************************************************************/
-static int max9880_mute(struct snd_soc_codec_dai *dai, int mute)
+static int max9880_mute(struct snd_soc_dai *dai, int mute)
 {
 	struct snd_soc_codec *codec = dai->codec;
 
 	u8 muteL = max9880_read(codec, MAX9880_LEFT_VOL_LVL) & 0x3f;
 	u8 muteR = max9880_read(codec, MAX9880_RIGHT_VOL_LVL) & 0x3f;
 
-	trace("%s %s", __FUNCTION__, (mute) ? "muted" : "unmuted");
+	trace("%s %s\n", __FUNCTION__, (mute) ? "muted" : "unmuted");
 
 	if (mute)
 	{
@@ -432,7 +433,7 @@ static int max9880_mute(struct snd_soc_codec_dai *dai, int mute)
 
 #define MAX9880_FORMATS (SNDRV_PCM_FMTBIT_S16_LE)
 
-struct snd_soc_codec_dai max9880_dai = {
+struct snd_soc_dai max9880_dai = {
 	.name = "MAX9880",
 	.playback = {
 		.stream_name = "Playback",
@@ -446,13 +447,11 @@ struct snd_soc_codec_dai max9880_dai = {
 		.channels_max = 2,
 		.rates = MAX9880_RATES,
 		.formats = MAX9880_FORMATS,},
-#if 0
 	.ops = {
+#if 0
 		.prepare = max9880_pcm_prepare,
 		.shutdown = max9880_shutdown,
-	},
 #endif
-	.dai_ops = {
 		.digital_mute = max9880_mute,
 	}
 };
@@ -475,7 +474,7 @@ static int max9880_init(struct snd_soc_device *socdev)
 	codec->owner = THIS_MODULE;
 	codec->read = max9880_read;
 	codec->write = max9880_write;
-	codec->dapm_event = max9880_dapm_event;
+	//codec->dapm_event = max9880_dapm_event;
 	codec->dai = &max9880_dai;
 	codec->num_dai = 1;
 
@@ -607,10 +606,10 @@ static int max9880_init(struct snd_soc_device *socdev)
 	// enable chip using DAPM event
 	max9880_dapm_event(codec, SNDRV_CTL_POWER_D0);
 
-  max9880_add_widgets(codec);
+	max9880_add_widgets(codec);
 	max9880_add_controls(codec);
 
-	ret = snd_soc_register_card(socdev);
+	ret = snd_soc_init_card(socdev);
 	if (ret < 0) {
 		printk(KERN_ERR "max9880: failed to register card\n");
 		goto card_err;
@@ -632,10 +631,18 @@ static struct snd_soc_device *max9880_socdev;
 
 #if defined (CONFIG_I2C) || defined (CONFIG_I2C_MODULE)
 
-static unsigned short normal_i2c[] = {0, I2C_CLIENT_END};
+static unsigned short ignore_i2c_addr[] = { I2C_CLIENT_END };
+static unsigned short normal_i2c_addr[] = {5, I2C_CLIENT_END};
+static unsigned short probe_i2c_addr[] = { I2C_CLIENT_END };
+
+static struct i2c_client_address_data max9880_addr_data = {
+   .normal_i2c     = normal_i2c_addr,
+   .probe          = probe_i2c_addr,
+   .ignore         = ignore_i2c_addr,
+};
 
 /* Required I2C client boiler plate */
-I2C_CLIENT_INSMOD;
+/* I2C_CLIENT_INSMOD; */
 
 static struct i2c_driver max9880_i2c_driver;
 static struct i2c_client client_template;
@@ -654,7 +661,7 @@ static int max9880_codec_probe(struct i2c_adapter *adap, int addr, int kind)
 	struct i2c_client *i2c;
 	int ret;
 
-	trace("%s", __FUNCTION__);
+	printk("%s - max9880 found\n", __FUNCTION__);
 
 	if (addr != setup->i2c_address)
 		return -ENODEV;
@@ -672,13 +679,13 @@ static int max9880_codec_probe(struct i2c_adapter *adap, int addr, int kind)
 
 	ret = i2c_attach_client(i2c);
 	if (ret < 0) {
-		err("failed to attach codec at addr %x\n", addr);
+		err("%s: failed to attach codec at addr %x\n", __FUNCTION__, addr);
 		goto err;
 	}
 
 	ret = max9880_init(socdev);
 	if (ret < 0) {
-		err("failed to initialise MAX9880\n");
+		err("%s: failed to initialise MAX9880\n", __FUNCTION__);
 		goto err;
 	}
 	return ret;
@@ -697,8 +704,6 @@ static int max9880_i2c_detach(struct i2c_client *client)
 {
 	struct snd_soc_codec* codec = i2c_get_clientdata(client);
 
-	trace("%s", __FUNCTION__);
-
 	i2c_detach_client(client);
 	kfree(codec->reg_cache);
 	kfree(client);
@@ -711,9 +716,7 @@ static int max9880_i2c_detach(struct i2c_client *client)
  ******************************************************************************/
 static int max9880_i2c_attach(struct i2c_adapter *adap)
 {
-	trace("%s", __FUNCTION__);
-
-	return i2c_probe(adap, &addr_data, max9880_codec_probe);
+	return i2c_probe(adap, &max9880_addr_data, max9880_codec_probe);
 }
 
 
@@ -746,7 +749,7 @@ static int max9880_suspend(struct platform_device *pdev, pm_message_t state)
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
 	struct snd_soc_codec *codec = socdev->codec;
 
-	trace("%s", __FUNCTION__);
+	trace("%s\n", __FUNCTION__);
 
 	/* power codec down */
 	max9880_dapm_event(codec, SNDRV_CTL_POWER_D3cold);
@@ -766,7 +769,7 @@ static int max9880_resume(struct platform_device *pdev)
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);
 	struct snd_soc_codec *codec = socdev->codec;
 
-	trace("%s", __FUNCTION__);
+	trace("%s\n", __FUNCTION__);
 
 	max9880_dapm_event(codec, SNDRV_CTL_POWER_D3hot);
 	max9880_dapm_event(codec, codec->suspend_dapm_state);
@@ -784,8 +787,6 @@ static int max9880_probe(struct platform_device *pdev)
 	struct snd_soc_codec *codec;
 	int ret = 0;
 
-	trace("%s", __FUNCTION__);
-
 	printk("Maxim MAX9880 Audio CODEC %s\n", MAX9880_VERSION);
 
 	setup = socdev->codec_data;
@@ -802,7 +803,8 @@ static int max9880_probe(struct platform_device *pdev)
 	max9880_socdev = socdev;
 #if defined (CONFIG_I2C) || defined (CONFIG_I2C_MODULE)
 	if (setup->i2c_address) {
-		normal_i2c[0] = setup->i2c_address;
+	  printk("%s assign i2c address 0x%02X", __FUNCTION__, setup->i2c_address);
+		normal_i2c_addr[0] = setup->i2c_address;
 		codec->hw_write = (hw_write_t)i2c_master_send;
 		codec->hw_read = (hw_read_t)i2c_master_recv;
 		ret = i2c_add_driver(&max9880_i2c_driver);
@@ -811,6 +813,7 @@ static int max9880_probe(struct platform_device *pdev)
 	}
 #else
 	/* Add other interfaces here */
+	  printk("%s NO I2C ??? Something goes bad...\n", __FUNCTION__);
 #endif
 
 	return ret;
@@ -851,6 +854,18 @@ struct snd_soc_codec_device soc_codec_dev_max9880 = {
 };
 
 EXPORT_SYMBOL_GPL(soc_codec_dev_max9880);
+
+static int __init max9880_codec_init(void)
+{
+	return snd_soc_register_dai(&max9880_dai);	
+}
+module_init(max9880_codec_init);
+
+static void __exit max9880_codec_exit(void)
+{
+	snd_soc_unregister_dai(&max9880_dai);
+}
+module_exit(max9880_codec_exit);
 
 MODULE_DESCRIPTION("ASoC MAX9880 driver");
 MODULE_AUTHOR("Maxim Integrated Products");

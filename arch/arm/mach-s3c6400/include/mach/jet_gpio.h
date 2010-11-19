@@ -432,8 +432,8 @@
 #define GPIO_BT_WAKE				S3C64XX_GPM(4)
 #define GPIO_BT_WAKE_AF				1  // output
 
-#define GPIO_MSENSE_RST_N			S3C64XX_GPM(5)
-#define GPIO_MSENSE_RST_N_AF			1
+#define GPIO_ALPS_ON			S3C64XX_GPM(5)
+#define GPIO_ALPS_ON_AF			1
 
 /* S3C64XX_GPN(0) ~ S3C64XX_GPN(15) */
 

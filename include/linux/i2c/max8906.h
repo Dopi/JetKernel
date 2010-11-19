@@ -1955,5 +1955,8 @@ EXAMPLE
 ===========================================================================*/
 extern void MAX8906_PM_init(void);
 
+
+extern void max8906_debug_print( void);
+
 #endif
 

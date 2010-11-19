@@ -287,7 +287,7 @@ static int s3c_i2s_hw_params(struct snd_pcm_substream *substream,
 	writel(iismod, s3c_i2s.regs + S3C_IISMOD);
 
 
-	debug_msg("s3c iis mode: 0x%08x\n", readl(s3c6410_i2s.regs + S3C64XX_IIS0MOD));
+	debug_msg("s3c iis mode: 0x%08x\n", readl(s3c_i2s.regs + S3C_IISMOD));
 	debug_msg("s3c: params_channels %d\n", params_channels(params));
 	debug_msg("s3c: params_format %d\n", params_format(params));
 	debug_msg("s3c: params_subformat %d\n", params_subformat(params));

@@ -29,7 +29,7 @@
 #define ACCS_IOCTL_CLOSE 	102
 
 /*********** for debug **********************************************************/
-#if 1
+#if 0
 #define gprintk(fmt, x... ) printk( "%s(%d): " fmt, __FUNCTION__ ,__LINE__, ## x)
 #else
 #define gprintk(x...) do { } while (0)

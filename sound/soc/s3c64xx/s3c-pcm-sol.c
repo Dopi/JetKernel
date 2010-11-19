@@ -259,7 +259,8 @@ static int s3c24xx_pcm_hw_params(struct snd_pcm_substream *substream, struct snd
 	struct dma_data		   		*dma_data = prtd->dma_param;
 	struct dmac_conn_info 		*dinfo	  = rtd->dai->cpu_dai->dma_data;
 
-	s3cdbg("Entered %s, params = %p \n", __FUNCTION__, prtd->params);
+	//	s3cdbg("Entered %s, params = %p \n", __FUNCTION__, prtd->params);
+	s3cdbg("Entered %s \n", __FUNCTION__);
 
 	if(substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		prtd->dma_totsize = params_buffer_bytes(params) * ANDROID_BUF_NUM;

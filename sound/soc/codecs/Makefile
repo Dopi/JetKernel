@@ -2,6 +2,7 @@ snd-soc-ac97-objs := ac97.o
 snd-soc-ad1980-objs := ad1980.o
 snd-soc-ad73311-objs := ad73311.o
 snd-soc-ak4535-objs := ak4535.o
+snd-soc-max9880-objs := max9880.o
 
 snd-soc-ak4671-instinctq-objs := ak4671.o ak4671_instinctq.o 
 
@@ -33,6 +34,7 @@ obj-$(CONFIG_SND_SOC_AC97_CODEC)	+= snd-soc-ac97.o
 obj-$(CONFIG_SND_SOC_AD1980)	+= snd-soc-ad1980.o
 obj-$(CONFIG_SND_SOC_AD73311) += snd-soc-ad73311.o
 obj-$(CONFIG_SND_SOC_AK4535)	+= snd-soc-ak4535.o
+obj-$(CONFIG_SND_SOC_MAX9880)	+= snd-soc-max9880.o
 obj-$(CONFIG_SND_SOC_AK4671)	+= snd-soc-ak4671-instinctq.o
 obj-$(CONFIG_SND_SOC_CS4270)	+= snd-soc-cs4270.o
 obj-$(CONFIG_SND_SOC_L3)	+= snd-soc-l3.o
