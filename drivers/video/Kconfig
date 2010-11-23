@@ -275,7 +275,14 @@ config FB_S3C_AMS320FS01
 	bool "AMS320FS01"
 	---help---
 	TBA
-
+config FB_S3C_AMS369FG01
+	bool "AMS369FG01"
+	---help---
+	Display driver for AMS369FG01 AMOLED display in OmniaII (GT-I8000)
+config FB_S3C_AMS310FN07
+	bool "AMS310FN07"
+	---help---
+	Display driver for AMS310FN07 AMOLED display in Jet (GT-S8000)	
 endchoice
 
 config FB_S3C_BPP

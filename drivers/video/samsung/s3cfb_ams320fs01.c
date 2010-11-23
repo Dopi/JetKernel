@@ -1860,10 +1860,11 @@ void lcd_power_ctrl(s32 value)
 			gpio_set_value(GPIO_LCD_RST_N, GPIO_LEVEL_LOW);
 	
 			/* Power Enable */
+/* FIXME
 			pmic_read(MAX8698_ID, ONOFF2, &data, 1); 
 			data |= (ONOFF2_ELDO6 | ONOFF2_ELDO7);
 			pmic_write(MAX8698_ID, ONOFF2, &data, 1); 
-	
+*/	
 			msleep(20); 
 	
 			/* Reset Deasseert */
@@ -1912,10 +1913,12 @@ void lcd_power_ctrl(s32 value)
 			gpio_set_value(GPIO_LCD_RST_N, GPIO_LEVEL_LOW);
 			
 			/* Power Disable */
+/* FIXME
 			pmic_read(MAX8698_ID, ONOFF2, &data, 1); 
 			data &= ~(ONOFF2_ELDO6 | ONOFF2_ELDO7);
 			pmic_write(MAX8698_ID, ONOFF2, &data, 1); 
 			printk("Lcd power off sequence end\n");	
+*/
 		}
 	
 		lcd_power = value;

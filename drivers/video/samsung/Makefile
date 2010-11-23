@@ -10,3 +10,5 @@ obj-$(CONFIG_FB_S3C_LTV350QV)	+= s3cfb_ltv350qv.o
 obj-$(CONFIG_FB_S3C_LTS222QV)	+= s3cfb_lts222qv.o
 obj-$(CONFIG_FB_S3C_S6D05A0)	+= s3cfb_s6d05a0.o
 obj-$(CONFIG_FB_S3C_AMS320FS01)	+= s3cfb_ams320fs01.o
+obj-$(CONFIG_FB_S3C_AMS369FG01)	+= s3cfb_ams369fg.o
+obj-$(CONFIG_FB_S3C_AMS310FN07)	+= s3cfb_ams310fn07.o
