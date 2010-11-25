@@ -40,6 +40,13 @@
 #include "s3c6410-i2s.h"
 #include "../codecs/max9880.h"
 
+extern int is_pmic_initialized(void);
+extern unsigned int pmic_read(u8 slaveaddr, u8 reg, u8 *data, u8 length);
+extern unsigned int pmic_write(u8 slaveaddr, u8 reg, u8 *data, u8 length);
+#define MAX8906_RTC_ID (0xD0)
+#define MAX8906_ADC_ID (0x8E)
+#define MAX8906_GPM_ID (0x78)
+
 #define SUBJECT "Jet_max9880"
 
 static struct max9880_setup_data max9880_setup = {
@@ -92,6 +99,32 @@ static int __init s3c6410_max9880_init(void)
    if (ret) {
       platform_device_put( s3c6410_max9880_snd_device);
       printk("[s3c6410_max9880] platform_device_add fail \n");
+   } else {
+     unsigned char tscbuff;
+
+     pmic_read( MAX8906_ADC_ID, 0x60, &tscbuff, 1); printk("[MAX8906 dbg]: ADC 0x60=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_ADC_ID, 0x61, &tscbuff, 1); printk("[MAX8906 dbg]: ADC 0x61=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_ADC_ID, 0x62, &tscbuff, 1); printk("[MAX8906 dbg]: ADC 0x62=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_ADC_ID, 0x63, &tscbuff, 1); printk("[MAX8906 dbg]: ADC 0x63=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_ADC_ID, 0x64, &tscbuff, 1); printk("[MAX8906 dbg]: ADC 0x64=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_ADC_ID, 0x65, &tscbuff, 1); printk("[MAX8906 dbg]: ADC 0x65=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_ADC_ID, 0x66, &tscbuff, 1); printk("[MAX8906 dbg]: ADC 0x66=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_ADC_ID, 0x67, &tscbuff, 1); printk("[MAX8906 dbg]: ADC 0x67=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_ADC_ID, 0x68, &tscbuff, 1); printk("[MAX8906 dbg]: ADC 0x68=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_ADC_ID, 0x69, &tscbuff, 1); printk("[MAX8906 dbg]: ADC 0x69=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_ADC_ID, 0x6A, &tscbuff, 1); printk("[MAX8906 dbg]: ADC 0x6a=0x%02X\n",tscbuff);
+     /* audio subsystem*/
+     pmic_read( MAX8906_GPM_ID, 0x84, &tscbuff, 1); printk("[MAX8906 dbg]: AUD 0x84=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_GPM_ID, 0x85, &tscbuff, 1); printk("[MAX8906 dbg]: AUD 0x85=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_GPM_ID, 0x86, &tscbuff, 1); printk("[MAX8906 dbg]: AUD 0x86=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_GPM_ID, 0x87, &tscbuff, 1); printk("[MAX8906 dbg]: AUD 0x87=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_GPM_ID, 0x88, &tscbuff, 1); printk("[MAX8906 dbg]: AUD 0x88=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_GPM_ID, 0x89, &tscbuff, 1); printk("[MAX8906 dbg]: AUD 0x89=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_GPM_ID, 0x8a, &tscbuff, 1); printk("[MAX8906 dbg]: AUD 0x8a=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_GPM_ID, 0x8b, &tscbuff, 1); printk("[MAX8906 dbg]: AUD 0x8B=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_GPM_ID, 0x8c, &tscbuff, 1); printk("[MAX8906 dbg]: AUD 0x8C=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_GPM_ID, 0x8d, &tscbuff, 1); printk("[MAX8906 dbg]: AUD 0x8D=0x%02X\n",tscbuff);
+     pmic_read( MAX8906_GPM_ID, 0x8e, &tscbuff, 1); printk("[MAX8906 dbg]: AUD 0x8E=0x%02X\n",tscbuff);
    }
 
    return ret;
