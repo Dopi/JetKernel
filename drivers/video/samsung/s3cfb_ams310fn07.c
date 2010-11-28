@@ -1,14 +1,15 @@
 /*
- * drivers/video/samsung/s3cfb_mdj2024wv.c
+ * drivers/video/samsung/s3cfb_ams310fn07.c
  *
  * Copyright (C) 2008 Jinsung Yang <jsgood.yang@samsung.com>
+ * Copyright (C) 2010 JetDroid Project <dopi711@googlemail.com>
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file COPYING in the main directory of this archive for
  * more details.
  *
  *	S3C Frame Buffer Driver
- *	based on skeletonfb.c, sa1100fb.h, s3c2410fb.c
+ *	based on skeletonfb.c, sa1100fb.h, s3c2410fb.c, s3cfb_ams320fs01.c
  */
 
 #include <linux/wait.h>
@@ -1865,11 +1866,18 @@ void lcd_power_ctrl(s32 value)
 			data |= (ONOFF2_ELDO6 | ONOFF2_ELDO7);
 			pmic_write(MAX8698_ID, ONOFF2, &data, 1); 
 */	
+//			pmic_read(max8906reg[LDOAEN].slave_addr, max8906reg[LDOAEN].addr
+//			Set_MAX8906_PM_Regulator_SW_Enable(LDO_ON, LDOAEN);
+//			Set_MAX8906_PM_REG(LDOAEN, LDO_ON);
+//			Set_MAX8906_PM_REG(LDOAEN, LDO_OFF);
+
+			msleep(200); 
 			msleep(20); 
 	
 			/* Reset Deasseert */
 			gpio_set_value(GPIO_LCD_RST_N, GPIO_LEVEL_HIGH);
 	
+			msleep(20); 
 			msleep(20); 
 	
 			for (i = 0; i < POWER_ON_SETTINGS; i++)
@@ -1917,8 +1925,14 @@ void lcd_power_ctrl(s32 value)
 			pmic_read(MAX8698_ID, ONOFF2, &data, 1); 
 			data &= ~(ONOFF2_ELDO6 | ONOFF2_ELDO7);
 			pmic_write(MAX8698_ID, ONOFF2, &data, 1); 
-			printk("Lcd power off sequence end\n");	
 */
+//			Set_MAX8906_PM_Regulator_SW_Enable(LDO_OFF, LDOAEN);
+//			Set_MAX8906_PM_REG(LDOA );
+//			Set_MAX8906_PM_REG(LDOAEN, LDO_OFF);
+//			Set_MAX8906_PM_REG(LDOAEN, LDO_ON);
+
+			printk("Lcd power off sequence end\n");	
+
 		}
 	
 		lcd_power = value;

@@ -8,6 +8,8 @@
 
 #define TRUE   1   /* Boolean true value. */
 #define FALSE  0   /* Boolean false value. */
+#define LDO_ON 0
+#define LDO_OFF 1
 #ifndef NULL
 #define NULL   0
 #endif
@@ -691,6 +693,7 @@ typedef enum {
     LDOCTV,
     
     // LDODEN register
+
     nLDODADE,
     LDODENSRC,
     LDODEN,

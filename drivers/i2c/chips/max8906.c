@@ -831,6 +831,7 @@ max8906_function_type  max8906pm[ENDOFPM] =
     {  0x78,       0x68,       0x06,       0xF9,       0x01 }, // SEQ5SRC
 
 
+
     {  0x78,       0x68,       0x01,       0xFE,       0x00 }, // SEQ5EN
 
     // SEQ6CNFG register
@@ -1329,15 +1330,27 @@ boolean Set_MAX8906_PM_REG(max8906_pm_function_type reg_num, byte value)
     if(pmic_read(max8906pm[reg_num].slave_addr, max8906pm[reg_num].addr, &reg_buff, (byte)1) != PMIC_PASS)
     {
         // Register Read command failed
+#ifdef CONFIG_MAX8906_VERBOSE_LOGGING
+	pr_info(PREFIX "read from slave_add 0x%x, reg 0x%x failed = 0x%x \n", __func__, max8906pm[reg_num].slave_addr, max8906pm[reg_num].addr, reg_buff);
+#endif
         return FALSE;
     }
+#ifdef CONFIG_MAX8906_VERBOSE_LOGGING
+	pr_info(PREFIX "read from slave_add 0x%x, reg 0x%x succeeded = 0x%x \n", __func__, max8906pm[reg_num].slave_addr, max8906pm[reg_num].addr, reg_buff);
+#endif
 
     reg_buff = (reg_buff & max8906pm[reg_num].clear) | (value << max8906pm[reg_num].shift);
     if(pmic_write(max8906pm[reg_num].slave_addr, max8906pm[reg_num].addr, &reg_buff, (byte)1) != PMIC_PASS)
     {
         // Register Write command failed
+#ifdef CONFIG_MAX8906_VERBOSE_LOGGING
+	pr_info(PREFIX "write (0x%x) to slave_add 0x%x, reg 0x%x failed \n", __func__, reg:buff, max8906pm[reg_num].slave_addr, max8906pm[reg_num].addr);
+#endif
         return FALSE;
     }
+#ifdef CONFIG_MAX8906_VERBOSE_LOGGING
+	pr_info(PREFIX "write (0x%x) to slave_add 0x%x, reg 0x%x succeeded \n", __func__, reg:buff, max8906pm[reg_num].slave_addr, max8906pm[reg_num].addr);
+#endif
     return TRUE;
 }
 
