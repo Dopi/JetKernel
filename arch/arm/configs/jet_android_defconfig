@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
 # Linux kernel version: 2.6.29
-# Mon Dec 27 13:36:38 2010
+# Mon Dec 27 19:23:24 2010
 #
 CONFIG_ARM=y
 CONFIG_SYS_SUPPORTS_APM_EMULATION=y
@@ -1122,8 +1122,8 @@ CONFIG_FB_S3C=y
 # CONFIG_FB_S3C_LTS222QV is not set
 # CONFIG_FB_S3C_S6D05A0 is not set
 # CONFIG_FB_S3C_AMS320FS01 is not set
-CONFIG_FB_S3C_AMS369FG01=y
-# CONFIG_FB_S3C_AMS310FN07 is not set
+# CONFIG_FB_S3C_AMS369FG01 is not set
+CONFIG_FB_S3C_AMS310FN07=y
 CONFIG_FB_S3C_BPP=y
 # CONFIG_FB_S3C_BPP_8 is not set
 CONFIG_FB_S3C_BPP_16=y
