@@ -231,7 +231,7 @@ static int s3cfb_set_par(struct fb_info *info)
 	else
 		fbi->fb.fix.visual = FB_VISUAL_PSEUDOCOLOR;
 
-	fbi->fb.fix.line_length = var->xres * s3c_fimd.bytes_per_pixel;
+	fbi->fb.fix.line_length = var->width * s3c_fimd.bytes_per_pixel;
 
 	/* activate this new configuration */
 	s3cfb_activate_var(fbi, var);
@@ -295,6 +295,7 @@ static int s3cfb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info
  */
 static int s3cfb_blank(int blank_mode, struct fb_info *info)
 {
+	printk("s3cfb_blank \n");
 	DPRINTK("blank(mode=%d, info=%p)\n", blank_mode, info);
 
 	switch (blank_mode) {
@@ -1041,3 +1042,4 @@ module_exit(s3cfb_cleanup);
 MODULE_AUTHOR("Jinsung Yang");
 MODULE_DESCRIPTION("S3C Framebuffer Driver");
 MODULE_LICENSE("GPL");
+
