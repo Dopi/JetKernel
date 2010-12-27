@@ -1,15 +1,14 @@
 /*
- * drivers/video/samsung/s3cfb_ams310fn07.c
+ * drivers/video/samsung/s3cfb_mdj2024wv.c
  *
  * Copyright (C) 2008 Jinsung Yang <jsgood.yang@samsung.com>
- * Copyright (C) 2010 JetDroid Project <dopi711@googlemail.com>
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file COPYING in the main directory of this archive for
  * more details.
  *
  *	S3C Frame Buffer Driver
- *	based on skeletonfb.c, sa1100fb.h, s3c2410fb.c, s3cfb_ams320fs01.c
+ *	based on skeletonfb.c, sa1100fb.h, s3c2410fb.c
  */
 
 #include <linux/wait.h>
@@ -62,6 +61,9 @@ EXPORT_SYMBOL(lcd_power);
 void lcd_power_ctrl(s32 value);
 EXPORT_SYMBOL(lcd_power_ctrl);
 
+
+
+
 int backlight_power = OFF;
 EXPORT_SYMBOL(backlight_power);
 
@@ -74,27 +76,23 @@ EXPORT_SYMBOL(backlight_level);
 void backlight_level_ctrl(s32 value);
 EXPORT_SYMBOL(backlight_level_ctrl);
 
-#define S3C_FB_HFP			64 // 8 DIFF ams369fg	/* Front Porch */
-#define S3C_FB_HSW			2 // 1 DIFF ams369fg	/* Hsync Width */
-#define S3C_FB_HBP			62 // 7	DIFF ams369fg	/* Back Porch */
+#define S3C_FB_HFP			8 		/* Front Porch */
+#define S3C_FB_HSW			1 		/* Hsync Width */
+#define S3C_FB_HBP			7 		/* Back Porch */
 
 #define S3C_FB_VFP			8 		/* Front Porch */
-#define S3C_FB_VSW			2 // 1 DIFF ams369fg	/* Vsync Width */
-#define S3C_FB_VBP			6 // 7 DIFF ams369fg	/* Back Porch */
+#define S3C_FB_VSW			1 		/* Vsync Width */
+#define S3C_FB_VBP			7 		/* Back Porch */
 
-#define S3C_FB_HRES             480     /* Horizontal pixel Resolition */
+#define S3C_FB_HRES             480     /* Horizon pixel Resolition */
 #define S3C_FB_VRES             800     /* Vertical pixel Resolution */
 #define S3C_FB_HRES_VIRTUAL     S3C_FB_HRES     /* Horizon pixel Resolition */
 #define S3C_FB_VRES_VIRTUAL     S3C_FB_VRES * 2 /* Vertial pixel Resolution */
-#define S3C_FB_WIDTH             40      /* Horizontal screen size in mm */
-#define S3C_FB_HEIGHT            67      /* Vertical screen size in mm */
 
-#define S3C_FB_HRES_OSD         480     /* Horizontal pixel Resolition */
+#define S3C_FB_HRES_OSD         480     /* Horizon pixel Resolition */
 #define S3C_FB_VRES_OSD         800     /* Vertial pixel Resolution */
 #define S3C_FB_HRES_OSD_VIRTUAL S3C_FB_HRES_OSD     /* Horizon pixel Resolition */
 #define S3C_FB_VRES_OSD_VIRTUAL S3C_FB_VRES_OSD * 2 /* Vertial pixel Resolution */
-#define S3C_FB_WIDTH_OSD             40      /* Horizontal screen size in mm */
-#define S3C_FB_HEIGHT_OSD            67      /* Vertical screen size in mm */
 
 #define S3C_FB_VFRAME_FREQ  	60		/* Frame Rate Frequency */
 
@@ -127,8 +125,8 @@ static void s3cfb_set_fimd_info(void)
 	s3c_fimd.vidosd1b 	= S3C_VIDOSDxB_OSD_RBX_F(S3C_FB_HRES_OSD - 1) |
 							S3C_VIDOSDxB_OSD_RBY_F(S3C_FB_VRES_OSD - 1);
 
-	s3c_fimd.width		= S3C_FB_WIDTH;	// S3C_FB_HRES;
-	s3c_fimd.height 	= S3C_FB_HEIGHT;// S3C_FB_VRES;
+	s3c_fimd.width		= S3C_FB_HRES;
+	s3c_fimd.height 	= S3C_FB_VRES;
 	s3c_fimd.xres 		= S3C_FB_HRES;
 	s3c_fimd.yres 		= S3C_FB_VRES;
 
@@ -140,8 +138,8 @@ static void s3cfb_set_fimd_info(void)
 	s3c_fimd.yres_virtual = S3C_FB_VRES;
 #endif
 
-	s3c_fimd.osd_width 	= S3C_FB_WIDTH_OSD;	// S3C_FB_HRES_OSD; 
-	s3c_fimd.osd_height 	= S3C_FB_HEIGHT_OSD;	// S3C_FB_VRES_OSD;
+	s3c_fimd.osd_width 	= S3C_FB_HRES_OSD;
+	s3c_fimd.osd_height = S3C_FB_VRES_OSD;
 	s3c_fimd.osd_xres 	= S3C_FB_HRES_OSD;
 	s3c_fimd.osd_yres 	= S3C_FB_VRES_OSD;
 
@@ -162,9 +160,9 @@ static void s3cfb_set_fimd_info(void)
 	s3c_fimd.right_margin 	= S3C_FB_HBP;
 	s3c_fimd.lower_margin 	= S3C_FB_VBP;
 
-	s3c_fimd.set_lcd_power		= lcd_power_ctrl;
-	s3c_fimd.set_backlight_power 	= backlight_power_ctrl;
-	s3c_fimd.set_brightness 	= backlight_level_ctrl;
+	s3c_fimd.set_lcd_power		 = lcd_power_ctrl;
+	s3c_fimd.set_backlight_power = backlight_power_ctrl;
+	s3c_fimd.set_brightness 	 = backlight_level_ctrl;
 
 	s3c_fimd.backlight_min = BACKLIGHT_LEVEL_MIN;
 	s3c_fimd.backlight_max = BACKLIGHT_LEVEL_MAX;
@@ -236,14 +234,14 @@ static void lcd_gpio_init(void)
 		gpio_direction_output(GPIO_LCD_CS_N, GPIO_LEVEL_HIGH);
 	}
 	s3c_gpio_setpull(GPIO_LCD_CS_N, S3C_GPIO_PULL_NONE);
-	/* LCD_SDO */
+	/* LCD_SDO */ //????? 
 	if (gpio_is_valid(GPIO_LCD_SDO)) {
 		if (gpio_request(GPIO_LCD_SDO, S3C_GPIO_LAVEL(GPIO_LCD_SDO))) 
 			printk(KERN_ERR "Failed to request GPIO_LCD_SDO!\n");
 		gpio_direction_output(GPIO_LCD_SDO, GPIO_LEVEL_HIGH);
 	}
 	s3c_gpio_setpull(GPIO_LCD_SDO, S3C_GPIO_PULL_NONE);
-	/* LCD_SDI */
+	// LCD_SDI /
 	if (gpio_is_valid(GPIO_LCD_SDI)) {
 		if (gpio_request(GPIO_LCD_SDI, S3C_GPIO_LAVEL(GPIO_LCD_SDI))) 
 			printk(KERN_ERR "Failed to request GPIO_LCD_SDI!\n");
@@ -260,16 +258,19 @@ static void backlight_gpio_init(void)
  * Serial Interface
  */
 
-#define LCD_CS_N_HIGH	gpio_set_value(GPIO_LCD_CS_N, GPIO_LEVEL_HIGH);
+#define LCD_CS_N_HIGH	gpio_set_value(GPIO_LCD_CS_N, GPIO_LEVEL_HIGH); //CSB
 #define LCD_CS_N_LOW	gpio_set_value(GPIO_LCD_CS_N, GPIO_LEVEL_LOW);
 
-#define LCD_SCLK_HIGH	gpio_set_value(GPIO_LCD_SCLK, GPIO_LEVEL_HIGH);
+#define LCD_SCLK_HIGH	gpio_set_value(GPIO_LCD_SCLK, GPIO_LEVEL_HIGH); //SCL
 #define LCD_SCLK_LOW	gpio_set_value(GPIO_LCD_SCLK, GPIO_LEVEL_LOW);
 
-#define LCD_SDI_HIGH	gpio_set_value(GPIO_LCD_SDI, GPIO_LEVEL_HIGH);
+#define LCD_SDI_HIGH	gpio_set_value(GPIO_LCD_SDI, GPIO_LEVEL_HIGH); //SDI
 #define LCD_SDI_LOW	    gpio_set_value(GPIO_LCD_SDI, GPIO_LEVEL_LOW);
 
 #define DEFAULT_UDELAY	5	
+
+
+
 
 static void spi_write(u16 reg_data)
 {	
@@ -279,18 +280,17 @@ static void spi_write(u16 reg_data)
 	reg_data2 = reg_data; //firt byte
 	ID=0x70;
 	ID2=0x72;
-
 /*	LCD_SCLK_HIGH
 	udelay(DEFAULT_UDELAY);
 
-	LCD_CS_N_HIGH
-	udelay(DEFAULT_UDELAY);
+	 LCD_CS_N_HIGH
+	 udelay(DEFAULT_UDELAY);
 	
 	LCD_CS_N_LOW
 	udelay(DEFAULT_UDELAY);
 
-	LCD_SCLK_HIGH
-	udelay(DEFAULT_UDELAY);
+	 LCD_SCLK_HIGH
+	 udelay(DEFAULT_UDELAY);
 	
 */
 	
@@ -300,8 +300,8 @@ static void spi_write(u16 reg_data)
 	udelay(DEFAULT_UDELAY);
 	LCD_CS_N_LOW
 	udelay(DEFAULT_UDELAY);
-	LCD_SCLK_HIGH
-	udelay(DEFAULT_UDELAY);
+	 LCD_SCLK_HIGH
+	 udelay(DEFAULT_UDELAY);
 
 	for (i = 7; i >= 0; i--) { 
 		LCD_SCLK_LOW
@@ -369,6 +369,7 @@ static void spi_write(u16 reg_data)
 		udelay(DEFAULT_UDELAY);	
 	}
 	
+
 /*	for (i = 15; i >= 0; i--) { 
 		LCD_SCLK_LOW
 		udelay(DEFAULT_UDELAY);
@@ -384,11 +385,11 @@ static void spi_write(u16 reg_data)
 	}
 */
 	
-/*	LCD_SCLK_HIGH
-	udelay(DEFAULT_UDELAY);
+/*	 LCD_SCLK_HIGH
+	 udelay(DEFAULT_UDELAY);
 	
-	LCD_SDI_HIGH
-	udelay(DEFAULT_UDELAY); 
+	 LCD_SDI_HIGH
+	 udelay(DEFAULT_UDELAY); 
 	
 	LCD_CS_N_HIGH
 	udelay(DEFAULT_UDELAY);
@@ -453,6 +454,7 @@ static void spi_write2(u8 reg_data)
 
 }
 
+
 struct setting_table {
 	u16 reg_data;	
 	s32 wait;
@@ -481,6 +483,7 @@ static struct setting_table power_on_setting_table[] = {
     //{ 0x72E8 ,   0 }, //isnt right yet!
     //{ 0x3944 ,   0 }, //gamma set select
 };
+
 
 #define POWER_ON_SETTINGS	(int)(sizeof(power_on_setting_table)/sizeof(struct setting_table))
 
@@ -1261,6 +1264,7 @@ static struct setting_table gamma_setting_table_video[CAMMA_LEVELS][GAMMA_SETTIN
 	},
 };
 
+
 static struct setting_table gamma_setting_table_cam[CAMMA_LEVELS][GAMMA_SETTINGS] = {
 	{	// set 3.1
 		{ 0x4000,	0 },
@@ -1633,6 +1637,7 @@ static struct setting_table gamma_setting_table_cam[CAMMA_LEVELS][GAMMA_SETTINGS
 };
 
 
+
 static void setting_table_write(struct setting_table *table)
 {
 //	printk("setting table write! \n");
@@ -1699,7 +1704,6 @@ void lcd_power_ctrl(s32 value)
 {
 		s32 i;	
 		u8 data;
-		
 //		printk(" LCD power ctrl called \n" );
 		if (value) {
 			//printk("Lcd power on sequence start\n");
@@ -1709,29 +1713,22 @@ void lcd_power_ctrl(s32 value)
 			gpio_set_value(GPIO_LCD_RST_N, GPIO_LEVEL_LOW);
 	
 			/* Power Enable */
-/* FIXME
 			pmic_read(MAX8698_ID, ONOFF2, &data, 1); 
 			data |= (ONOFF2_ELDO6 | ONOFF2_ELDO7);
 			//printk("Lcd power on writing data: %x\n", data);	
 			pmic_write(MAX8698_ID, ONOFF2, &data, 1); 
-*/	
-//			pmic_read(max8906reg[LDOAEN].slave_addr, max8906reg[LDOAEN].addr
-//			Set_MAX8906_PM_Regulator_SW_Enable(LDO_ON, LDOAEN);
-//			Set_MAX8906_PM_REG(LDOAEN, LDO_ON);
-//			Set_MAX8906_PM_REG(LDOAEN, LDO_OFF);
-
-			//msleep(200); 
+	
 			msleep(20); 
 	
 			/* Reset Deasseert */
 			gpio_set_value(GPIO_LCD_RST_N, GPIO_LEVEL_HIGH);
 	
-			//msleep(20); 
 			msleep(20); 
 	
 			for (i = 0; i < POWER_ON_SETTINGS; i++)
 				setting_table_write(&power_on_setting_table[i]);
 			spi_write2(0xE8); // 3rd value
+
 
 			switch(lcd_gamma_present)
 			{
@@ -1767,22 +1764,14 @@ void lcd_power_ctrl(s32 value)
 			
 			//for (i = 0; i < POWER_OFF_SETTINGS; i++)
 			//	setting_table_write(&power_off_setting_table[i]);	
-	
+		
 			/* Reset Assert */
 			gpio_set_value(GPIO_LCD_RST_N, GPIO_LEVEL_LOW);
-			
-			/* Power Disable */
-/* FIXME
-			pmic_read(MAX8698_ID, ONOFF2, &data, 1); 
-			data &= ~(ONOFF2_ELDO6 | ONOFF2_ELDO7);
-			pmic_write(MAX8698_ID, ONOFF2, &data, 1); 
-*/
-//			Set_MAX8906_PM_Regulator_SW_Enable(LDO_OFF, LDOAEN);
-//			Set_MAX8906_PM_REG(LDOA );
-//			Set_MAX8906_PM_REG(LDOAEN, LDO_OFF);
-//			Set_MAX8906_PM_REG(LDOAEN, LDO_ON);
 
-			printk("Lcd power off sequence end\n");	
+			/* Power Disable */
+			pmic_read(MAX8698_ID, ONOFF2, &data, 1); 
+			data &= ~(ONOFF2_ELDO6 | ONOFF2_ELDO7);	
+			pmic_write(MAX8698_ID, ONOFF2, &data, 1); 
 
 		}
 	
@@ -1791,13 +1780,14 @@ void lcd_power_ctrl(s32 value)
 
 
 
+
+
 void backlight_ctrl(s32 value)
 {
+//	printk("backlight _ctrl is called !! \n");
 	s32 i, level;
 	u8 data;
 	int param_lcd_level = value;
-
-//	printk("backlight _ctrl is called !! \n");
 
 	value &= BACKLIGHT_LEVEL_VALUE;
 
@@ -1807,7 +1797,6 @@ void backlight_ctrl(s32 value)
 			level = 1;
 		else	
 			level = (((value - 15) / 15)); 
-
 	if (level) {	
 //	printk(" backlight_ctrl : level:%x, old_level: %x \n", level, old_level);		
 		if (level != old_level) {
@@ -1853,7 +1842,6 @@ void backlight_ctrl(s32 value)
 	}
 }
 
-
 void backlight_level_ctrl(s32 value)
 {
 //	printk("backlight level ctrl called ! \n");
@@ -1882,6 +1870,8 @@ void backlight_power_ctrl(s32 value)
 }
 
 #define AMS320FS01_DEFAULT_BACKLIGHT_BRIGHTNESS		255
+
+
 
 static s32 ams320fs01_backlight_off;
 static s32 ams320fs01_backlight_brightness = AMS320FS01_DEFAULT_BACKLIGHT_BRIGHTNESS;
@@ -2037,20 +2027,19 @@ module_exit(ams320fs01_backlight_exit);
 void s3cfb_init_hw(void)
 {
 	printk("s3cfb_init_hw!! \n");
-
 	s3cfb_set_fimd_info();
-/*
-	s3cfb_set_gpio();
+
+/*	s3cfb_set_gpio();
 #ifdef CONFIG_FB_S3C_LCD_INIT	
 	lcd_gpio_init();
 	
 	backlight_gpio_init();
 
-	lcd_power_ctrl(ON);	//-locks up
+	lcd_power_ctrl(ON); //-locks up
 
 	backlight_level_ctrl(BACKLIGHT_LEVEL_DEFAULT);
 
-	backlight_power_ctrl(ON); 
+//	backlight_power_ctrl(ON); 
 #else */
 	//lcd_gpio_init();
 	
@@ -2062,10 +2051,10 @@ void s3cfb_init_hw(void)
 	backlight_level_ctrl(BACKLIGHT_LEVEL_DEFAULT);
 
 	backlight_power = ON;
-//#endif
+//#endif 
 }
 
-#define LOGO_MEM_BASE		(0x50000000 + 0x0D000000 - 0x100000)	/* SDRAM_BASE + SRAM_SIZE(208MB) - 1MB */
+#define LOGO_MEM_BASE		(0x50000000 + 0x05f00000 - 0x100000)	/* SDRAM_BASE + SRAM_SIZE(208MB) - 1MB */
 #define LOGO_MEM_SIZE		(S3C_FB_HRES * S3C_FB_VRES * 2)
 
 void s3cfb_display_logo(int win_num)
