@@ -231,7 +231,7 @@ static int s3cfb_set_par(struct fb_info *info)
 	else
 		fbi->fb.fix.visual = FB_VISUAL_PSEUDOCOLOR;
 
-	fbi->fb.fix.line_length = var->width * s3c_fimd.bytes_per_pixel;
+	fbi->fb.fix.line_length = var->xres * s3c_fimd.bytes_per_pixel;
 
 	/* activate this new configuration */
 	s3cfb_activate_var(fbi, var);
@@ -326,7 +326,7 @@ static int s3cfb_blank(int blank_mode, struct fb_info *info)
 int s3cfb_set_vs_info(s3c_vs_info_t vs_info)
 {
 	/* check invalid value */
-	if (vs_info.width != s3c_fimd.xres || vs_info.height != s3c_fimd.yres)
+	if (vs_info.width != s3c_fimd.xres || vs_info.height != s3c_fimd.yres)	// FIXME: this should fail for correctly set physical width + height
 		return 1;
 
 	if (!(vs_info.bpp == 8 || vs_info.bpp == 16 || vs_info.bpp == 24 || vs_info.bpp == 32))
@@ -335,7 +335,7 @@ int s3cfb_set_vs_info(s3c_vs_info_t vs_info)
 	if (vs_info.offset < 0)
 		return 1;
 
-	if (vs_info.v_width != s3c_fimd.xres_virtual || vs_info.v_height != s3c_fimd.yres_virtual)
+	if (vs_info.v_width != s3c_fimd.xres_virtual || vs_info.v_height != s3c_fimd.yres_virtual) // FIXME: this should fail for correctly set physical width + height
 		return 1;
 
 	/* save virtual screen information */

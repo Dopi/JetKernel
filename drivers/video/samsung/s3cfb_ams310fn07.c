@@ -1,14 +1,15 @@
 /*
- * drivers/video/samsung/s3cfb_mdj2024wv.c
+ * drivers/video/samsung/s3cfb_ams310fn07.c
  *
  * Copyright (C) 2008 Jinsung Yang <jsgood.yang@samsung.com>
+ * Copyright (C) 2010 JetDroid Project <dopi711@googlemail.com>
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file COPYING in the main directory of this archive for
  * more details.
  *
  *	S3C Frame Buffer Driver
- *	based on skeletonfb.c, sa1100fb.h, s3c2410fb.c
+ *	based on skeletonfb.c, sa1100fb.h, s3c2410fb.c, s3cfb_ams320fs01.c
  */
 
 #include <linux/wait.h>
@@ -76,23 +77,27 @@ EXPORT_SYMBOL(backlight_level);
 void backlight_level_ctrl(s32 value);
 EXPORT_SYMBOL(backlight_level_ctrl);
 
-#define S3C_FB_HFP			8 		/* Front Porch */
-#define S3C_FB_HSW			1 		/* Hsync Width */
-#define S3C_FB_HBP			7 		/* Back Porch */
+#define S3C_FB_HFP			64 // 8 DIFF ams369fg	/* Front Porch */
+#define S3C_FB_HSW			2 // 1 DIFF ams369fg	/* Hsync Width */
+#define S3C_FB_HBP			62 // 7	DIFF ams369fg	/* Back Porch */
 
 #define S3C_FB_VFP			8 		/* Front Porch */
-#define S3C_FB_VSW			1 		/* Vsync Width */
-#define S3C_FB_VBP			7 		/* Back Porch */
+#define S3C_FB_VSW			2 // 1 DIFF ams369fg	/* Vsync Width */
+#define S3C_FB_VBP			6 // 7 DIFF ams369fg	/* Back Porch */
 
 #define S3C_FB_HRES             480     /* Horizon pixel Resolition */
 #define S3C_FB_VRES             800     /* Vertical pixel Resolution */
 #define S3C_FB_HRES_VIRTUAL     S3C_FB_HRES     /* Horizon pixel Resolition */
 #define S3C_FB_VRES_VIRTUAL     S3C_FB_VRES * 2 /* Vertial pixel Resolution */
+#define S3C_FB_WIDTH 		40 	/* Horizontal screen size in mm */
+#define S3C_FB_HEIGHT 		67 	/* Vertical screen size in mm */
 
-#define S3C_FB_HRES_OSD         480     /* Horizon pixel Resolition */
+#define S3C_FB_HRES_OSD         480     /* Horizontal pixel Resolition */
 #define S3C_FB_VRES_OSD         800     /* Vertial pixel Resolution */
-#define S3C_FB_HRES_OSD_VIRTUAL S3C_FB_HRES_OSD     /* Horizon pixel Resolition */
+#define S3C_FB_HRES_OSD_VIRTUAL S3C_FB_HRES_OSD     /* Horizontal pixel Resolution */
 #define S3C_FB_VRES_OSD_VIRTUAL S3C_FB_VRES_OSD * 2 /* Vertial pixel Resolution */
+#define S3C_FB_WIDTH_OSD 	40 	/* Horizontal screen size in mm */
+#define S3C_FB_HEIGHT_OSD	67 	/* Vertical screen size in mm */
 
 #define S3C_FB_VFRAME_FREQ  	60		/* Frame Rate Frequency */
 
@@ -125,8 +130,8 @@ static void s3cfb_set_fimd_info(void)
 	s3c_fimd.vidosd1b 	= S3C_VIDOSDxB_OSD_RBX_F(S3C_FB_HRES_OSD - 1) |
 							S3C_VIDOSDxB_OSD_RBY_F(S3C_FB_VRES_OSD - 1);
 
-	s3c_fimd.width		= S3C_FB_HRES;
-	s3c_fimd.height 	= S3C_FB_VRES;
+	s3c_fimd.width 		= S3C_FB_WIDTH; // S3C_FB_HRES;
+	s3c_fimd.height 	= S3C_FB_HEIGHT;// S3C_FB_VRES;
 	s3c_fimd.xres 		= S3C_FB_HRES;
 	s3c_fimd.yres 		= S3C_FB_VRES;
 
@@ -138,8 +143,8 @@ static void s3cfb_set_fimd_info(void)
 	s3c_fimd.yres_virtual = S3C_FB_VRES;
 #endif
 
-	s3c_fimd.osd_width 	= S3C_FB_HRES_OSD;
-	s3c_fimd.osd_height = S3C_FB_VRES_OSD;
+	s3c_fimd.osd_width 	= S3C_FB_WIDTH_OSD; // S3C_FB_HRES_OSD;
+	s3c_fimd.osd_height 	= S3C_FB_HEIGHT_OSD; // S3C_FB_VRES_OSD;
 	s3c_fimd.osd_xres 	= S3C_FB_HRES_OSD;
 	s3c_fimd.osd_yres 	= S3C_FB_VRES_OSD;
 
@@ -151,10 +156,10 @@ static void s3cfb_set_fimd_info(void)
 	s3c_fimd.osd_yres_virtual = S3C_FB_VRES_OSD;
 #endif
 
-    s3c_fimd.pixclock		= S3C_FB_PIXEL_CLOCK;
+	s3c_fimd.pixclock	= S3C_FB_PIXEL_CLOCK;
 
-	s3c_fimd.hsync_len 		= S3C_FB_HSW;
-	s3c_fimd.vsync_len 		= S3C_FB_VSW;
+	s3c_fimd.hsync_len 	= S3C_FB_HSW;
+	s3c_fimd.vsync_len 	= S3C_FB_VSW;
 	s3c_fimd.left_margin 	= S3C_FB_HFP;
 	s3c_fimd.upper_margin 	= S3C_FB_VFP;
 	s3c_fimd.right_margin 	= S3C_FB_HBP;
@@ -1713,10 +1718,16 @@ void lcd_power_ctrl(s32 value)
 			gpio_set_value(GPIO_LCD_RST_N, GPIO_LEVEL_LOW);
 	
 			/* Power Enable */
-			pmic_read(MAX8698_ID, ONOFF2, &data, 1); 
-			data |= (ONOFF2_ELDO6 | ONOFF2_ELDO7);
-			//printk("Lcd power on writing data: %x\n", data);	
-			pmic_write(MAX8698_ID, ONOFF2, &data, 1); 
+/* FIXME
+ 			pmic_read(MAX8698_ID, ONOFF2, &data, 1); 
+ 			data |= (ONOFF2_ELDO6 | ONOFF2_ELDO7);
+ 			//printk("Lcd power on writing data: %x\n", data);	
+ 			pmic_write(MAX8698_ID, ONOFF2, &data, 1); 
+*/	
+//			pmic_read(max8906reg[LDOAEN].slave_addr, max8906reg[LDOAEN].addr
+//			Set_MAX8906_PM_Regulator_SW_Enable(LDO_ON, LDOAEN);
+//			Set_MAX8906_PM_REG(LDOAEN, LDO_ON);
+//			Set_MAX8906_PM_REG(LDOAEN, LDO_OFF);
 	
 			msleep(20); 
 	
@@ -1769,9 +1780,18 @@ void lcd_power_ctrl(s32 value)
 			gpio_set_value(GPIO_LCD_RST_N, GPIO_LEVEL_LOW);
 
 			/* Power Disable */
-			pmic_read(MAX8698_ID, ONOFF2, &data, 1); 
-			data &= ~(ONOFF2_ELDO6 | ONOFF2_ELDO7);	
-			pmic_write(MAX8698_ID, ONOFF2, &data, 1); 
+/* FIXME
+ 			pmic_read(MAX8698_ID, ONOFF2, &data, 1); 
+			data &= ~(ONOFF2_ELDO6 | ONOFF2_ELDO7);
+ 			pmic_write(MAX8698_ID, ONOFF2, &data, 1); 
+*/
+//			Set_MAX8906_PM_Regulator_SW_Enable(LDO_OFF, LDOAEN);
+//			Set_MAX8906_PM_REG(LDOA );
+//			Set_MAX8906_PM_REG(LDOAEN, LDO_OFF);
+//			Set_MAX8906_PM_REG(LDOAEN, LDO_ON);
+
+			printk("Lcd power off sequence end\n");	
+			printk("XXXXXXXXXXXXXXXXXXXXXXXXXXX\n");	
 
 		}
 	
@@ -1784,10 +1804,11 @@ void lcd_power_ctrl(s32 value)
 
 void backlight_ctrl(s32 value)
 {
-//	printk("backlight _ctrl is called !! \n");
 	s32 i, level;
 	u8 data;
 	int param_lcd_level = value;
+
+//	printk("backlight _ctrl is called !! \n");
 
 	value &= BACKLIGHT_LEVEL_VALUE;
 
@@ -2028,8 +2049,8 @@ void s3cfb_init_hw(void)
 {
 	printk("s3cfb_init_hw!! \n");
 	s3cfb_set_fimd_info();
-
-/*	s3cfb_set_gpio();
+/*
+	s3cfb_set_gpio();
 #ifdef CONFIG_FB_S3C_LCD_INIT	
 	lcd_gpio_init();
 	

@@ -94,10 +94,14 @@
 #endif // TOUCHSCREEN_S3C_GET_CALIBRATION
 
 #ifdef CONFIG_S3C_TS_CALIBRATION
-	int xmin = 0;
-	int xmax = S3C_ADCDAT0_XPDATA_MASK_12BIT;	// FIXME: only valid for 12bit 
-	int ymin = 0;
-	int ymax = S3C_ADCDAT1_YPDATA_MASK_12BIT;	// FIXME: only valid for 12bit 
+	int xmin = 1090;
+	int xmax = 2854; 
+//	int xmin = 0;
+//	int xmax = S3C_ADCDAT0_XPDATA_MASK_12BIT;	// FIXME: only valid for 12bit 
+	int ymin = 1100;
+	int ymax = 3040;	
+//	int ymin = 0;
+//	int ymax = S3C_ADCDAT1_YPDATA_MASK_12BIT;	// FIXME: only valid for 12bit 
 
 module_param(xmin, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(xmin, "S3C-TS calibration x minimum value");
