@@ -365,8 +365,8 @@
 //#define GPIO_KEYSENSE_6				S3C64XX_GPK(14)
 //#define GPIO_KEYSENSE_6_AF			3
 
-#define GPIO_VMSMP_26V				S3C64XX_GPK(15)
-#define GPIO_VMSMP_26V_AF			0
+#define GPIO_USIM_BOOT				S3C64XX_GPK(15)
+#define GPIO_USIM_BOOT_AF			1 		// 1 = Output
 
 /* S3C64XX_GPL(0) ~ S3C64XX_GPL(14) */
 
