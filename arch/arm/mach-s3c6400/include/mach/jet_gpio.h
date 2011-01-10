@@ -167,11 +167,9 @@
 #define GPIO_CAM_D_7				S3C64XX_GPF(12)
 #define GPIO_CAM_D_7_AF				2		// CAMIF YDATA[7]
 
-//#define GPIO_MIC_SEL_EN_gpqREV04			S3C64XX_GPF(13)
-//#define GPIO_MIC_SEL_EN_REV04_AF		1
+// S3C64XX_GPD(13)	N.C.
 
-//#define GPIO_LUM_PWM				S3C64XX_GPF(14)
-//#define GPIO_LUM_PWM_AF				1
+// S3C64XX_GPD(14)	N.C.
 
 #define GPIO_VIBTONE_PWM			S3C64XX_GPF(15)  // VIBTONE_PWM
 #define GPIO_VIBTONE_PWM_AF			2
@@ -333,7 +331,8 @@
 #define GPIO_EAR_CP_CODEC_SW 			S3C64XX_GPK(3)
 #define GPIO_EAR_CP_CODEC_SW_AF			1
 
-// S3C64XX_GPK(4)
+#define GPIO_MAIN_CP_CODEC_SW 			S3C64XX_GPK(4)
+#define GPIO_MAIN_CP_CODEC_SW_AF		1
 
 #define GPIO_FM_RST				S3C64XX_GPK(5)
 #define GPIO_FM_RST_AF				1
@@ -362,8 +361,8 @@
 //#define GPIO_KEYSENSE_5				S3C64XX_GPK(13)
 //#define GPIO_KEYSENSE_5_AF			3
 
-//#define GPIO_KEYSENSE_6				S3C64XX_GPK(14)
-//#define GPIO_KEYSENSE_6_AF			3
+#define GPIO_MSENSE_RST_N			S3C64XX_GPK(14)
+#define GPIO_MSENSE_RST_N_AF			1
 
 #define GPIO_USIM_BOOT				S3C64XX_GPK(15)
 #define GPIO_USIM_BOOT_AF			1 		// 1 = Output
@@ -412,8 +411,8 @@
 #define GPIO_BOOT_MODE				S3C64XX_GPL(13)
 #define GPIO_BOOT_MODE_AF			0	
 
-//#define GPIO_BT_HOST_WAKE			S3C64XX_GPL(14)
-//#define GPIO_BT_HOST_WAKE_AF			3
+#define GPIO_ACC_INT				S3C64XX_GPL(14)
+#define GPIO_ACC_INT_AF				0
 
 /* S3C64XX_GPM(0) ~ S3C64XX_GPM(5) */
 
@@ -432,8 +431,8 @@
 #define GPIO_BT_WAKE				S3C64XX_GPM(4)
 #define GPIO_BT_WAKE_AF				1  // output
 
-#define GPIO_MSENSE_RST_N			S3C64XX_GPM(5)
-#define GPIO_MSENSE_RST_N_AF			1
+//#define GPIO_MSENSE_RST_N			S3C64XX_GPM(5)
+//#define GPIO_MSENSE_RST_N_AF			1
 
 /* S3C64XX_GPN(0) ~ S3C64XX_GPN(15) */
 
@@ -446,8 +445,8 @@
 #define GPIO_MSENSE_INT				S3C64XX_GPN(2)
 #define GPIO_MSENSE_INT_AF			2
 
-#define GPIO_ACC_INT				S3C64XX_GPN(3)
-#define GPIO_ACC_INT_AF				2
+//#define GPIO_ACC_INT				S3C64XX_GPN(3)
+//#define GPIO_ACC_INT_AF				2
 
 #define GPIO_HALL_SW				S3C64XX_GPN(4)  // dgahn.smd: TOCHK
 #define GPIO_HALL_SW_AF				2
