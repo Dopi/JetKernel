@@ -513,13 +513,13 @@
 #define GPIO_LCD_RST_N				S3C64XX_GPO(10)
 #define GPIO_LCD_RST_N_AF			1
 
-// #define GPIO_LCD_DET				S3C64XX_GPO(11)	
-// #define GPIO_LCD_DET_AF			1	
+#define GPIO_LCD_DET				S3C64XX_GPO(11)	
+#define GPIO_LCD_DET_AF				1	
 
-#define GPIO_LCD_SDO			    	S3C64XX_GPO(12)
-#define GPIO_LCD_SDO_AF				1
+//#define GPIO_LCD_SDO			    	S3C64XX_GPO(12)
+//#define GPIO_LCD_SDO_AF				1
 
-#define GPIO_LCD_SCLK				S3C64XX_GPO(13)
+#define GPIO_LCD_SCLK				S3C64XX_GPO(12)
 #define GPIO_LCD_SCLK_AF			1
 
 // S3C64XX_GPO(14)
