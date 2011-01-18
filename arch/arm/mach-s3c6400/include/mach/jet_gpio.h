@@ -516,11 +516,11 @@
 #define GPIO_LCD_DET				S3C64XX_GPO(11)	
 #define GPIO_LCD_DET_AF				1	
 
-//#define GPIO_LCD_SDO			    	S3C64XX_GPO(12)
-//#define GPIO_LCD_SDO_AF				1
-
 #define GPIO_LCD_SCLK				S3C64XX_GPO(12)
 #define GPIO_LCD_SCLK_AF			1
+
+#define GPIO_LCD_SDO			    	S3C64XX_GPO(13)	// this is actually an NC pin
+#define GPIO_LCD_SDO_AF				1
 
 // S3C64XX_GPO(13)
 
