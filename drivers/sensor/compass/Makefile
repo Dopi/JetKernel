@@ -7,6 +7,7 @@
 
 
 obj-$(CONFIG_COMPASS_AK8973B)	+= ak8973b.o
+obj-$(CONFIG_COMPASS_AK8973)	+= akm8973.o
 
 
 

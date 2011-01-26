@@ -6,7 +6,8 @@
 ##############################################################################
 
 
-obj-$(CONFIG_ACCEL_KXSD9)	+= kxsd9_2042.o
+#obj-$(CONFIG_ACCEL_KXSD9)	+= kxsd9_2042.o
+obj-$(CONFIG_ACCEL_KXSD9)	+= kionix-kxsd9.o
 
 
 obj-$(CONFIG_ACCEL_BMA020)	+= bma020_i2c.o \

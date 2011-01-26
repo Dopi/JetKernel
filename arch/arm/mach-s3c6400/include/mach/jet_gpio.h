@@ -412,7 +412,7 @@
 #define GPIO_BOOT_MODE_AF			0	
 
 #define GPIO_ACC_INT				S3C64XX_GPL(14)
-#define GPIO_ACC_INT_AF				0
+#define GPIO_ACC_INT_AF				2
 
 /* S3C64XX_GPM(0) ~ S3C64XX_GPM(5) */
 
@@ -445,8 +445,8 @@
 #define GPIO_MSENSE_INT				S3C64XX_GPN(2)
 #define GPIO_MSENSE_INT_AF			2
 
-//#define GPIO_ACC_INT				S3C64XX_GPN(3)
-//#define GPIO_ACC_INT_AF				2
+#define GPIO_PDA_ACTIVE				S3C64XX_GPN(3)
+#define GPIO_PDA_ACTIVE_AF			1
 
 #define GPIO_HALL_SW				S3C64XX_GPN(4)  // dgahn.smd: TOCHK
 #define GPIO_HALL_SW_AF				2
@@ -458,7 +458,7 @@
 #define GPIO_PHONE_ON_AF			1		// 1 = Output
 
 #define GPIO_PHONE_ACTIVE			S3C64XX_GPN(7)
-#define GPIO_PHONE_ACTIVE_AF			0		// 0 = Input
+#define GPIO_PHONE_ACTIVE_AF			2		// 0 = Input
 
 //#define GPIO_TOUCH_INT				S3C64XX_GPN(8)
 //#define GPIO_TOUCH_INT_AF			2
