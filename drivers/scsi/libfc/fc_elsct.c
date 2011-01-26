@@ -32,7 +32,7 @@
  * fc_elsct_send - sends ELS/CT frame
  */
 static struct fc_seq *fc_elsct_send(struct fc_lport *lport,
-				    struct fc_rport *rport,
+				    u32 did,
 				    struct fc_frame *fp,
 				    unsigned int op,
 				    void (*resp)(struct fc_seq *,
@@ -41,19 +41,22 @@ static struct fc_seq *fc_elsct_send(struct fc_lport *lport,
 				    void *arg, u32 timer_msec)
 {
 	enum fc_rctl r_ctl;
-	u32 did = FC_FID_NONE;
 	enum fc_fh_type fh_type;
 	int rc;
 
 	/* ELS requests */
 	if ((op >= ELS_LS_RJT) && (op <= ELS_AUTH_ELS))
-		rc = fc_els_fill(lport, rport, fp, op, &r_ctl, &did, &fh_type);
-	else
+		rc = fc_els_fill(lport, did, fp, op, &r_ctl, &fh_type);
+	else {
 		/* CT requests */
-		rc = fc_ct_fill(lport, fp, op, &r_ctl, &did, &fh_type);
+		rc = fc_ct_fill(lport, did, fp, op, &r_ctl, &fh_type);
+		did = FC_FID_DIR_SERV;
+	}
 
-	if (rc)
+	if (rc) {
+		fc_frame_free(fp);
 		return NULL;
+	}
 
 	fc_fill_fc_hdr(fp, r_ctl, did, fc_host_port_id(lport->host), fh_type,
 		       FC_FC_FIRST_SEQ | FC_FC_END_SEQ | FC_FC_SEQ_INIT, 0);
@@ -69,3 +72,41 @@ int fc_elsct_init(struct fc_lport *lport)
 	return 0;
 }
 EXPORT_SYMBOL(fc_elsct_init);
+
+/**
+ * fc_els_resp_type() - return string describing ELS response for debug.
+ * @fp: frame pointer with possible error code.
+ */
+const char *fc_els_resp_type(struct fc_frame *fp)
+{
+	const char *msg;
+	if (IS_ERR(fp)) {
+		switch (-PTR_ERR(fp)) {
+		case FC_NO_ERR:
+			msg = "response no error";
+			break;
+		case FC_EX_TIMEOUT:
+			msg = "response timeout";
+			break;
+		case FC_EX_CLOSED:
+			msg = "response closed";
+			break;
+		default:
+			msg = "response unknown error";
+			break;
+		}
+	} else {
+		switch (fc_frame_payload_op(fp)) {
+		case ELS_LS_ACC:
+			msg = "accept";
+			break;
+		case ELS_LS_RJT:
+			msg = "reject";
+			break;
+		default:
+			msg = "response unknown ELS";
+			break;
+		}
+	}
+	return msg;
+}

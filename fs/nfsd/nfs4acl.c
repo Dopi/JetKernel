@@ -321,7 +321,7 @@ _posix_to_nfsv4_one(struct posix_acl *pacl, struct nfs4_acl *acl,
 	deny = ~pas.group & pas.other;
 	if (deny) {
 		ace->type = NFS4_ACE_ACCESS_DENIED_ACE_TYPE;
-		ace->flag = eflag | NFS4_ACE_IDENTIFIER_GROUP;
+		ace->flag = eflag;
 		ace->access_mask = deny_mask_from_posix(deny, flags);
 		ace->whotype = NFS4_ACL_WHO_GROUP;
 		ace++;
@@ -335,7 +335,7 @@ _posix_to_nfsv4_one(struct posix_acl *pacl, struct nfs4_acl *acl,
 		if (deny) {
 			ace->type = NFS4_ACE_ACCESS_DENIED_ACE_TYPE;
 			ace->flag = eflag | NFS4_ACE_IDENTIFIER_GROUP;
-			ace->access_mask = mask_from_posix(deny, flags);
+			ace->access_mask = deny_mask_from_posix(deny, flags);
 			ace->whotype = NFS4_ACL_WHO_NAMED;
 			ace->who = pa->e_id;
 			ace++;
@@ -389,7 +389,7 @@ sort_pacl(struct posix_acl *pacl)
 	sort_pacl_range(pacl, 1, i-1);
 
 	BUG_ON(pacl->a_entries[i].e_tag != ACL_GROUP_OBJ);
-	j = i++;
+	j = ++i;
 	while (pacl->a_entries[j].e_tag == ACL_GROUP)
 		j++;
 	sort_pacl_range(pacl, i, j-1);

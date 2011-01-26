@@ -65,31 +65,37 @@ typedef __u32 ext4_lblk_t;
 /* data type for block group number */
 typedef unsigned int ext4_group_t;
 
+/*
+ * Flags used in mballoc's allocation_context flags field.  
+ *
+ * Also used to show what's going on for debugging purposes when the
+ * flag field is exported via the traceport interface
+ */
 
 /* prefer goal again. length */
-#define EXT4_MB_HINT_MERGE		1
+#define EXT4_MB_HINT_MERGE		0x0001
 /* blocks already reserved */
-#define EXT4_MB_HINT_RESERVED		2
+#define EXT4_MB_HINT_RESERVED		0x0002
 /* metadata is being allocated */
-#define EXT4_MB_HINT_METADATA		4
+#define EXT4_MB_HINT_METADATA		0x0004
 /* first blocks in the file */
-#define EXT4_MB_HINT_FIRST		8
+#define EXT4_MB_HINT_FIRST		0x0008
 /* search for the best chunk */
-#define EXT4_MB_HINT_BEST		16
+#define EXT4_MB_HINT_BEST		0x0010
 /* data is being allocated */
-#define EXT4_MB_HINT_DATA		32
+#define EXT4_MB_HINT_DATA		0x0020
 /* don't preallocate (for tails) */
-#define EXT4_MB_HINT_NOPREALLOC		64
+#define EXT4_MB_HINT_NOPREALLOC		0x0040
 /* allocate for locality group */
-#define EXT4_MB_HINT_GROUP_ALLOC	128
+#define EXT4_MB_HINT_GROUP_ALLOC	0x0080
 /* allocate goal blocks or none */
-#define EXT4_MB_HINT_GOAL_ONLY		256
+#define EXT4_MB_HINT_GOAL_ONLY		0x0100
 /* goal is meaningful */
-#define EXT4_MB_HINT_TRY_GOAL		512
+#define EXT4_MB_HINT_TRY_GOAL		0x0200
 /* blocks already pre-reserved by delayed allocation */
-#define EXT4_MB_DELALLOC_RESERVED      1024
+#define EXT4_MB_DELALLOC_RESERVED	0x0400
 /* We are doing stream allocation */
-#define EXT4_MB_STREAM_ALLOC		2048
+#define EXT4_MB_STREAM_ALLOC		0x0800
 
 
 struct ext4_allocation_request {
@@ -113,21 +119,9 @@ struct ext4_allocation_request {
 	unsigned int flags;
 };
 
-#define	DIO_AIO_UNWRITTEN	0x1
-typedef struct ext4_io_end {
-	struct list_head	list;		/* per-file finished AIO list */
-	struct inode		*inode;		/* file being written to */
-	unsigned int		flag;		/* sync IO or AIO */
-	int			error;		/* I/O error code */
-	ext4_lblk_t		offset;		/* offset in the file */
-	size_t			size;		/* size of the extent */
-	struct work_struct	work;		/* data work queue */
-} ext4_io_end_t;
-
 /*
- * Delayed allocation stuff
+ * For delayed allocation tracking
  */
-
 struct mpage_da_data {
 	struct inode *inode;
 	sector_t b_blocknr;		/* start block number of extent */
@@ -139,6 +133,16 @@ struct mpage_da_data {
 	int pages_written;
 	int retval;
 };
+#define	DIO_AIO_UNWRITTEN	0x1
+typedef struct ext4_io_end {
+	struct list_head	list;		/* per-file finished AIO list */
+	struct inode		*inode;		/* file being written to */
+	unsigned int		flag;		/* unwritten or not */
+	int			error;		/* I/O error code */
+	ext4_lblk_t		offset;		/* offset in the file */
+	size_t			size;		/* size of the extent */
+	struct work_struct	work;		/* data work queue */
+} ext4_io_end_t;
 
 /*
  * Special inodes numbers
@@ -498,7 +502,6 @@ struct move_extent {
 	__u64 len;		/* block length to be moved */
 	__u64 moved_len;	/* moved block length */
 };
-#define MAX_DEFRAG_SIZE         ((1UL<<31) - 1)
 
 #define EXT4_EPOCH_BITS 2
 #define EXT4_EPOCH_MASK ((1 << EXT4_EPOCH_BITS) - 1)
@@ -988,14 +991,6 @@ struct ext4_sb_info {
 	unsigned long s_mb_last_group;
 	unsigned long s_mb_last_start;
 
-	/* history to debug policy */
-	struct ext4_mb_history *s_mb_history;
-	int s_mb_history_cur;
-	int s_mb_history_max;
-	int s_mb_history_num;
-	spinlock_t s_mb_history_lock;
-	int s_mb_history_filter;
-
 	/* stats for buddy allocator */
 	spinlock_t s_mb_pa_lock;
 	atomic_t s_bal_reqs;	/* number of reqs with len > 1 */
@@ -1405,8 +1400,6 @@ extern void ext4_mb_free_blocks(handle_t *, struct inode *,
 		ext4_fsblk_t, unsigned long, int, unsigned long *);
 extern int ext4_mb_add_groupinfo(struct super_block *sb,
 		ext4_group_t i, struct ext4_group_desc *desc);
-extern void ext4_mb_update_group_info(struct ext4_group_info *grp,
-		ext4_grpblk_t add);
 extern int ext4_mb_get_buddy_cache_lock(struct super_block *, ext4_group_t);
 extern void ext4_mb_put_buddy_cache_lock(struct super_block *,
 						ext4_group_t, int);
@@ -1641,15 +1634,18 @@ static inline void ext4_update_i_disksize(struct inode *inode, loff_t newsize)
 struct ext4_group_info {
 	unsigned long   bb_state;
 	struct rb_root  bb_free_root;
-	unsigned short  bb_first_free;
-	unsigned short  bb_free;
-	unsigned short  bb_fragments;
+	ext4_grpblk_t	bb_first_free;	/* first free block */
+	ext4_grpblk_t	bb_free;	/* total free blocks */
+	ext4_grpblk_t	bb_fragments;	/* nr of freespace fragments */
 	struct          list_head bb_prealloc_list;
 #ifdef DOUBLE_CHECK
 	void            *bb_bitmap;
 #endif
 	struct rw_semaphore alloc_sem;
-	unsigned short  bb_counters[];
+	ext4_grpblk_t	bb_counters[];	/* Nr of free power-of-two-block
+					 * regions, index is order.
+					 * bb_counters[3] = 5 means
+					 * 5 free 8-block regions. */
 };
 
 #define EXT4_GROUP_INFO_NEED_INIT_BIT	0

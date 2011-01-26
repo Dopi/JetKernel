@@ -24,7 +24,6 @@
 #include <linux/signal.h>
 #include <linux/resource.h>
 #include <linux/times.h>
-#include <linux/utsname.h>
 #include <linux/smp.h>
 #include <linux/smp_lock.h>
 #include <linux/sem.h>
@@ -443,65 +442,27 @@ sys32_rt_sigqueueinfo(int pid, int sig, compat_siginfo_t __user *uinfo)
  * sys32_execve() executes a new program after the asm stub has set
  * things up for us.  This should basically do what I want it to.
  */
-asmlinkage long sys32_execve(void)
+asmlinkage long sys32_execve(char __user *name, compat_uptr_t __user *argv,
+			     compat_uptr_t __user *envp)
 {
 	struct pt_regs *regs = task_pt_regs(current);
 	char *filename;
-	unsigned long result;
-	int rc;
+	long rc;
 
-	filename = getname(compat_ptr(regs->orig_gpr2));
-	if (IS_ERR(filename)) {
-		result = PTR_ERR(filename);
-                goto out;
-	}
-	rc = compat_do_execve(filename, compat_ptr(regs->gprs[3]),
-			      compat_ptr(regs->gprs[4]), regs);
-	if (rc) {
-		result = rc;
-		goto out_putname;
-	}
+	filename = getname(name);
+	rc = PTR_ERR(filename);
+	if (IS_ERR(filename))
+		return rc;
+	rc = compat_do_execve(filename, argv, envp, regs);
+	if (rc)
+		goto out;
 	current->thread.fp_regs.fpc=0;
 	asm volatile("sfpc %0,0" : : "d" (0));
-	result = regs->gprs[2];
-out_putname:
-        putname(filename);
+	rc = regs->gprs[2];
 out:
-	return result;
+	putname(filename);
+	return rc;
 }
-
-
-#ifdef CONFIG_MODULES
-
-asmlinkage long
-sys32_init_module(void __user *umod, unsigned long len,
-		const char __user *uargs)
-{
-	return sys_init_module(umod, len, uargs);
-}
-
-asmlinkage long
-sys32_delete_module(const char __user *name_user, unsigned int flags)
-{
-	return sys_delete_module(name_user, flags);
-}
-
-#else /* CONFIG_MODULES */
-
-asmlinkage long
-sys32_init_module(void __user *umod, unsigned long len,
-		const char __user *uargs)
-{
-	return -ENOSYS;
-}
-
-asmlinkage long
-sys32_delete_module(const char __user *name_user, unsigned int flags)
-{
-	return -ENOSYS;
-}
-
-#endif  /* CONFIG_MODULES */
 
 asmlinkage long sys32_pread64(unsigned int fd, char __user *ubuf,
 				size_t count, u32 poshi, u32 poslo)
@@ -722,38 +683,6 @@ struct mmap_arg_struct_emu31 {
 	u32	offset;
 };
 
-/* common code for old and new mmaps */
-static inline long do_mmap2(
-	unsigned long addr, unsigned long len,
-	unsigned long prot, unsigned long flags,
-	unsigned long fd, unsigned long pgoff)
-{
-	struct file * file = NULL;
-	unsigned long error = -EBADF;
-
-	flags &= ~(MAP_EXECUTABLE | MAP_DENYWRITE);
-	if (!(flags & MAP_ANONYMOUS)) {
-		file = fget(fd);
-		if (!file)
-			goto out;
-	}
-
-	down_write(&current->mm->mmap_sem);
-	error = do_mmap_pgoff(file, addr, len, prot, flags, pgoff);
-	if (!IS_ERR((void *) error) && error + len >= 0x80000000ULL) {
-		/* Result is out of bounds.  */
-		do_munmap(current->mm, addr, len);
-		error = -ENOMEM;
-	}
-	up_write(&current->mm->mmap_sem);
-
-	if (file)
-		fput(file);
-out:    
-	return error;
-}
-
-
 asmlinkage unsigned long
 old32_mmap(struct mmap_arg_struct_emu31 __user *arg)
 {
@@ -767,7 +696,8 @@ old32_mmap(struct mmap_arg_struct_emu31 __user *arg)
 	if (a.offset & ~PAGE_MASK)
 		goto out;
 
-	error = do_mmap2(a.addr, a.len, a.prot, a.flags, a.fd, a.offset >> PAGE_SHIFT); 
+	error = sys_mmap_pgoff(a.addr, a.len, a.prot, a.flags, a.fd,
+			       a.offset >> PAGE_SHIFT);
 out:
 	return error;
 }
@@ -780,7 +710,7 @@ sys32_mmap2(struct mmap_arg_struct_emu31 __user *arg)
 
 	if (copy_from_user(&a, arg, sizeof(a)))
 		goto out;
-	error = do_mmap2(a.addr, a.len, a.prot, a.flags, a.fd, a.offset);
+	error = sys_mmap_pgoff(a.addr, a.len, a.prot, a.flags, a.fd, a.offset);
 out:
 	return error;
 }
@@ -799,23 +729,6 @@ asmlinkage long sys32_write(unsigned int fd, char __user * buf, size_t count)
 		return -EINVAL; 
 
 	return sys_write(fd, buf, count);
-}
-
-asmlinkage long sys32_clone(void)
-{
-	struct pt_regs *regs = task_pt_regs(current);
-	unsigned long clone_flags;
-	unsigned long newsp;
-	int __user *parent_tidptr, *child_tidptr;
-
-	clone_flags = regs->gprs[3] & 0xffffffffUL;
-	newsp = regs->orig_gpr2 & 0x7fffffffUL;
-	parent_tidptr = compat_ptr(regs->gprs[4]);
-	child_tidptr = compat_ptr(regs->gprs[5]);
-	if (!newsp)
-		newsp = regs->gprs[15];
-	return do_fork(clone_flags, newsp, regs, 0,
-		       parent_tidptr, child_tidptr);
 }
 
 /*

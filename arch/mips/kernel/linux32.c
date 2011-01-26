@@ -67,28 +67,13 @@ SYSCALL_DEFINE6(32_mmap2, unsigned long, addr, unsigned long, len,
 	unsigned long, prot, unsigned long, flags, unsigned long, fd,
 	unsigned long, pgoff)
 {
-	struct file * file = NULL;
 	unsigned long error;
 
 	error = -EINVAL;
 	if (pgoff & (~PAGE_MASK >> 12))
 		goto out;
-	pgoff >>= PAGE_SHIFT-12;
-
-	if (!(flags & MAP_ANONYMOUS)) {
-		error = -EBADF;
-		file = fget(fd);
-		if (!file)
-			goto out;
-	}
-	flags &= ~(MAP_EXECUTABLE | MAP_DENYWRITE);
-
-	down_write(&current->mm->mmap_sem);
-	error = do_mmap_pgoff(file, addr, len, prot, flags, pgoff);
-	up_write(&current->mm->mmap_sem);
-	if (file)
-		fput(file);
-
+	error = sys_mmap_pgoff(addr, len, prot, flags, fd,
+			       pgoff >> (PAGE_SHIFT-12));
 out:
 	return error;
 }
@@ -427,4 +412,10 @@ _sys32_clone(nabi_no_regargs struct pt_regs regs)
 	child_tidptr = (int __user *) __dummy4;
 	return do_fork(clone_flags, newsp, &regs, 0,
 	               parent_tidptr, child_tidptr);
+}
+
+asmlinkage long sys32_lookup_dcookie(u32 a0, u32 a1, char __user *buf,
+	size_t len)
+{
+	return sys_lookup_dcookie(merge_64(a0, a1), buf, len);
 }

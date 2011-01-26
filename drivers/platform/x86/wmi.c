@@ -42,7 +42,6 @@ MODULE_LICENSE("GPL");
 
 #define ACPI_WMI_CLASS "wmi"
 
-#undef PREFIX
 #define PREFIX "ACPI: WMI: "
 
 static DEFINE_MUTEX(wmi_data_lock);
@@ -511,8 +510,8 @@ EXPORT_SYMBOL_GPL(wmi_remove_notify_handler);
 /**
  * wmi_get_event_data - Get WMI data associated with an event
  *
- * @event - Event to find
- * &out - Buffer to hold event data
+ * @event: Event to find
+ * @out: Buffer to hold event data. out->pointer should be freed with kfree()
  *
  * Returns extra data associated with an event in WMI.
  */

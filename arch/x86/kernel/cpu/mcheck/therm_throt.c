@@ -274,8 +274,9 @@ void intel_init_thermal(struct cpuinfo_x86 *c)
 	int tm2 = 0;
 	u32 l, h;
 
-	/* Thermal monitoring depends on ACPI and clock modulation*/
-	if (!cpu_has(c, X86_FEATURE_ACPI) || !cpu_has(c, X86_FEATURE_ACC))
+	/* Thermal monitoring depends on APIC, ACPI and clock modulation */
+	if (!cpu_has_apic || !cpu_has(c, X86_FEATURE_ACPI) ||
+		!cpu_has(c, X86_FEATURE_ACC))
 		return;
 
 	/*
@@ -304,15 +305,22 @@ void intel_init_thermal(struct cpuinfo_x86 *c)
 		return;
 	}
 
-	if (cpu_has(c, X86_FEATURE_TM2) && (l & MSR_IA32_MISC_ENABLE_TM2))
-		tm2 = 1;
-
 	/* Check whether a vector already exists */
 	if (h & APIC_VECTOR_MASK) {
 		printk(KERN_DEBUG
 		       "CPU%d: Thermal LVT vector (%#x) already installed\n",
 		       cpu, (h & APIC_VECTOR_MASK));
 		return;
+	}
+
+	/* early Pentium M models use different method for enabling TM2 */
+	if (cpu_has(c, X86_FEATURE_TM2)) {
+		if (c->x86 == 6 && (c->x86_model == 9 || c->x86_model == 13)) {
+			rdmsr(MSR_THERM2_CTL, l, h);
+			if (l & MSR_THERM2_CTL_TM_SELECT)
+				tm2 = 1;
+		} else if (l & MSR_IA32_MISC_ENABLE_TM2)
+			tm2 = 1;
 	}
 
 	/* We'll mask the thermal vector in the lapic till we're ready: */

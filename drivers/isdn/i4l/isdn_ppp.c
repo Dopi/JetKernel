@@ -1223,7 +1223,7 @@ isdn_ppp_xmit(struct sk_buff *skb, struct net_device *netdev)
 	isdn_net_dev *nd;
 	unsigned int proto = PPP_IP;     /* 0x21 */
 	struct ippp_struct *ipt,*ipts;
-	int slot, retval = 0;
+	int slot, retval = NETDEV_TX_OK;
 
 	mlp = (isdn_net_local *) netdev_priv(netdev);
 	nd = mlp->netdev;       /* get master lp */
@@ -1240,7 +1240,7 @@ isdn_ppp_xmit(struct sk_buff *skb, struct net_device *netdev)
 	if (!(ipts->pppcfg & SC_ENABLE_IP)) {	/* PPP connected ? */
 		if (ipts->debug & 0x1)
 			printk(KERN_INFO "%s: IP frame delayed.\n", netdev->name);
-		retval = 1;
+		retval = NETDEV_TX_BUSY;
 		goto out;
 	}
 
@@ -1261,7 +1261,7 @@ isdn_ppp_xmit(struct sk_buff *skb, struct net_device *netdev)
 	lp = isdn_net_get_locked_lp(nd);
 	if (!lp) {
 		printk(KERN_WARNING "%s: all channels busy - requeuing!\n", netdev->name);
-		retval = 1;
+		retval = NETDEV_TX_BUSY;
 		goto out;
 	}
 	/* we have our lp locked from now on */
@@ -1615,11 +1615,11 @@ static void isdn_ppp_mp_receive(isdn_net_dev * net_dev, isdn_net_local * lp,
 	is = ippp_table[slot];
     	if( ++mp->frames > stats->max_queue_len )
 		stats->max_queue_len = mp->frames;
-
+	
 	if (is->debug & 0x8)
 		isdn_ppp_mp_print_recv_pkt(lp->ppp_slot, skb);
 
-	newseq = isdn_ppp_mp_get_seq(is->mpppcfg & SC_IN_SHORT_SEQ,
+	newseq = isdn_ppp_mp_get_seq(is->mpppcfg & SC_IN_SHORT_SEQ, 
 						skb, is->last_link_seqno);
 
 
@@ -1636,7 +1636,7 @@ static void isdn_ppp_mp_receive(isdn_net_dev * net_dev, isdn_net_local * lp,
 		spin_unlock_irqrestore(&mp->lock, flags);
 		return;
 	}
-
+	
 	/* find the minimum received sequence number over all links */
 	is->last_link_seqno = minseq = newseq;
 	for (lpq = net_dev->queue;;) {
@@ -1667,7 +1667,7 @@ static void isdn_ppp_mp_receive(isdn_net_dev * net_dev, isdn_net_local * lp,
   	start = MP_FLAGS(frag) & MP_BEGIN_FRAG &&
 				MP_SEQ(frag) == mp->seq ? frag : NULL;
 
-	/*
+	/* 
 	 * main fragment traversing loop
 	 *
 	 * try to accomplish several tasks:
@@ -1681,7 +1681,7 @@ static void isdn_ppp_mp_receive(isdn_net_dev * net_dev, isdn_net_local * lp,
 	 *   come to complete such sequence and it should be discarded
 	 *
 	 * loop completes when we accomplished the following tasks:
-	 * - new fragment is inserted in the proper sequence ('newfrag' is
+	 * - new fragment is inserted in the proper sequence ('newfrag' is 
 	 *   set to NULL)
 	 * - we hit a gap in the sequence, so no reassembly/processing is 
 	 *   possible ('start' would be set to NULL)
@@ -1701,7 +1701,7 @@ static void isdn_ppp_mp_receive(isdn_net_dev * net_dev, isdn_net_local * lp,
     		}
 
     		/* insert new fragment before next element if possible. */
-    		if (newfrag != NULL && (nextf == NULL ||
+    		if (newfrag != NULL && (nextf == NULL || 
 						MP_LT(newseq, MP_SEQ(nextf)))) {
       			newfrag->next = nextf;
       			frag->next = nextf = newfrag;
@@ -1718,29 +1718,29 @@ static void isdn_ppp_mp_receive(isdn_net_dev * net_dev, isdn_net_local * lp,
 				start = isdn_ppp_mp_discard(mp, start,frag);
 				nextf = frag->next;
       			}
-    		} else if (MP_LE(thisseq, minseq)) {
+    		} else if (MP_LE(thisseq, minseq)) {		
       			if (MP_FLAGS(frag) & MP_BEGIN_FRAG)
 				start = frag;
       			else {
 				if (MP_FLAGS(frag) & MP_END_FRAG)
 	  				stats->frame_drops++;
 				if( mp->frags == frag )
-					mp->frags = nextf;
+					mp->frags = nextf;	
 				isdn_ppp_mp_free_skb(mp, frag);
 				frag = nextf;
 				continue;
       			}
 		}
-
+		
 		/* if start is non-null and we have end fragment, then
-		 * we have full reassembly sequence -- reassemble
+		 * we have full reassembly sequence -- reassemble 
 		 * and process packet now
 		 */
     		if (start != NULL && (MP_FLAGS(frag) & MP_END_FRAG)) {
       			minseq = mp->seq = (thisseq+1) & MP_LONGSEQ_MASK;
       			/* Reassemble the packet then dispatch it */
 			isdn_ppp_mp_reassembly(net_dev, lp, start, nextf);
-
+      
       			start = NULL;
       			frag = NULL;
 
@@ -1756,9 +1756,9 @@ static void isdn_ppp_mp_receive(isdn_net_dev * net_dev, isdn_net_local * lp,
 		 * below low watermark and set start to the next frag or
 		 * clear start ptr.
 		 */ 
-    		if (nextf != NULL &&
+    		if (nextf != NULL && 
 		    ((thisseq+1) & MP_LONGSEQ_MASK) == MP_SEQ(nextf)) {
-      			/* if we just reassembled and the next one is here,
+      			/* if we just reassembled and the next one is here, 
 			 * then start another reassembly. */
 
       			if (frag == NULL) {
@@ -1789,13 +1789,13 @@ static void isdn_ppp_mp_receive(isdn_net_dev * net_dev, isdn_net_local * lp,
 			/* break in the sequence, no reassembly */
       			start = NULL;
     		}
-
+	  			
     		frag = nextf;
   	}	/* while -- main loop */
-
+	
   	if (mp->frags == NULL)
     		mp->frags = frag;
-
+		
 	/* rather straighforward way to deal with (not very) possible 
 	 * queue overflow */
 	if (mp->frames > MP_MAX_QUEUE_LEN) {
@@ -1896,7 +1896,7 @@ void isdn_ppp_mp_reassembly( isdn_net_dev * net_dev, isdn_net_local * lp,
 
 		if( ippp_table[lp->ppp_slot]->debug & 0x40 )
 			printk(KERN_DEBUG"isdn_mppp: reassembling frames %d "
-				"to %d, len %d\n", MP_SEQ(from),
+				"to %d, len %d\n", MP_SEQ(from), 
 				(MP_SEQ(from)+n-1) & MP_LONGSEQ_MASK, tot_len );
 		if( (skb = dev_alloc_skb(tot_len)) == NULL ) {
 			printk(KERN_ERR "isdn_mppp: cannot allocate sk buff "
@@ -1913,7 +1913,7 @@ void isdn_ppp_mp_reassembly( isdn_net_dev * net_dev, isdn_net_local * lp,
 							 len);
 			frag = from->next;
 			isdn_ppp_mp_free_skb(mp, from);
-			from = frag;
+			from = frag; 
 		}
 	}
    	proto = isdn_ppp_strip_proto(skb);

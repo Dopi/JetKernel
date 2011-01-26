@@ -136,6 +136,11 @@ LIST_HEAD(amd_iommu_list);		/* list of all AMD IOMMUs in the
 					   system */
 
 /*
+ * Set to true if ACPI table parsing and hardware intialization went properly
+ */
+static bool amd_iommu_initialized;
+
+/*
  * Pointer to the device table which is shared by all AMD IOMMUs
  * it is indexed by the PCI device id or the HT unit id and contains
  * information about the domain the device belongs to as well as the
@@ -252,7 +257,7 @@ static void iommu_feature_disable(struct amd_iommu *iommu, u8 bit)
 /* Function to enable the hardware */
 static void iommu_enable(struct amd_iommu *iommu)
 {
-	printk(KERN_INFO "AMD IOMMU: Enabling IOMMU at %s cap 0x%hx\n",
+	printk(KERN_INFO "AMD-Vi: Enabling IOMMU at %s cap 0x%hx\n",
 	       dev_name(&iommu->dev->dev), iommu->cap_ptr);
 
 	iommu_feature_enable(iommu, CONTROL_IOMMU_EN);
@@ -435,6 +440,20 @@ static u8 * __init alloc_command_buffer(struct amd_iommu *iommu)
 }
 
 /*
+ * This function resets the command buffer if the IOMMU stopped fetching
+ * commands from it.
+ */
+void amd_iommu_reset_cmd_buffer(struct amd_iommu *iommu)
+{
+	iommu_feature_disable(iommu, CONTROL_CMDBUF_EN);
+
+	writel(0x00, iommu->mmio_base + MMIO_CMD_HEAD_OFFSET);
+	writel(0x00, iommu->mmio_base + MMIO_CMD_TAIL_OFFSET);
+
+	iommu_feature_enable(iommu, CONTROL_CMDBUF_EN);
+}
+
+/*
  * This function writes the command buffer address to the hardware and
  * enables it.
  */
@@ -450,11 +469,7 @@ static void iommu_enable_command_buffer(struct amd_iommu *iommu)
 	memcpy_toio(iommu->mmio_base + MMIO_CMD_BUF_OFFSET,
 		    &entry, sizeof(entry));
 
-	/* set head and tail to zero manually */
-	writel(0x00, iommu->mmio_base + MMIO_CMD_HEAD_OFFSET);
-	writel(0x00, iommu->mmio_base + MMIO_CMD_TAIL_OFFSET);
-
-	iommu_feature_enable(iommu, CONTROL_CMDBUF_EN);
+	amd_iommu_reset_cmd_buffer(iommu);
 }
 
 static void __init free_command_buffer(struct amd_iommu *iommu)
@@ -880,7 +895,7 @@ static int __init init_iommu_all(struct acpi_table_header *table)
 		switch (*p) {
 		case ACPI_IVHD_TYPE:
 
-			DUMP_printk("IOMMU: device: %02x:%02x.%01x cap: %04x "
+			DUMP_printk("device: %02x:%02x.%01x cap: %04x "
 				    "seg: %d flags: %01x info %04x\n",
 				    PCI_BUS(h->devid), PCI_SLOT(h->devid),
 				    PCI_FUNC(h->devid), h->cap_ptr,
@@ -903,6 +918,8 @@ static int __init init_iommu_all(struct acpi_table_header *table)
 	}
 	WARN_ON(p != end);
 
+	amd_iommu_initialized = true;
+
 	return 0;
 }
 
@@ -924,7 +941,7 @@ static int iommu_setup_msi(struct amd_iommu *iommu)
 
 	r = request_irq(iommu->dev->irq, amd_iommu_int_handler,
 			IRQF_SAMPLE_RANDOM,
-			"AMD IOMMU",
+			"AMD-Vi",
 			NULL);
 
 	if (r) {
@@ -1172,7 +1189,7 @@ int __init amd_iommu_init(void)
 
 
 	if (no_iommu) {
-		printk(KERN_INFO "AMD IOMMU disabled by kernel command line\n");
+		printk(KERN_INFO "AMD-Vi disabled by kernel command line\n");
 		return 0;
 	}
 
@@ -1253,6 +1270,9 @@ int __init amd_iommu_init(void)
 	if (acpi_table_parse("IVRS", init_iommu_all) != 0)
 		goto free;
 
+	if (!amd_iommu_initialized)
+		goto free;
+
 	if (acpi_table_parse("IVRS", init_memory_definitions) != 0)
 		goto free;
 
@@ -1264,22 +1284,31 @@ int __init amd_iommu_init(void)
 	if (ret)
 		goto free;
 
-	ret = amd_iommu_init_dma_ops();
+	if (iommu_pass_through)
+		ret = amd_iommu_init_passthrough();
+	else
+		ret = amd_iommu_init_dma_ops();
+
 	if (ret)
 		goto free;
 
+	amd_iommu_init_api();
+
 	enable_iommus();
 
-	printk(KERN_INFO "AMD IOMMU: device isolation ");
+	if (iommu_pass_through)
+		goto out;
+
+	printk(KERN_INFO "AMD-Vi: device isolation ");
 	if (amd_iommu_isolate)
 		printk("enabled\n");
 	else
 		printk("disabled\n");
 
 	if (amd_iommu_unmap_flush)
-		printk(KERN_INFO "AMD IOMMU: IO/TLB flush on unmap enabled\n");
+		printk(KERN_INFO "AMD-Vi: IO/TLB flush on unmap enabled\n");
 	else
-		printk(KERN_INFO "AMD IOMMU: Lazy IO/TLB flushing enabled\n");
+		printk(KERN_INFO "AMD-Vi: Lazy IO/TLB flushing enabled\n");
 
 out:
 	return ret;

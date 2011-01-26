@@ -89,6 +89,12 @@ struct raparm_hbucket {
 #define RAPARM_HASH_MASK	(RAPARM_HASH_SIZE-1)
 static struct raparm_hbucket	raparm_hash[RAPARM_HASH_SIZE];
 
+static inline int
+nfsd_v4client(struct svc_rqst *rq)
+{
+    return rq->rq_prog == NFS_PROGRAM && rq->rq_vers == 4;
+}
+
 /* 
  * Called from nfsd_lookup and encode_dirent. Check if we have crossed 
  * a mount point.
@@ -115,7 +121,8 @@ nfsd_cross_mnt(struct svc_rqst *rqstp, struct dentry **dpp,
 		path_put(&path);
 		goto out;
 	}
-	if ((exp->ex_flags & NFSEXP_CROSSMOUNT) || EX_NOHIDE(exp2)) {
+	if (nfsd_v4client(rqstp) ||
+		(exp->ex_flags & NFSEXP_CROSSMOUNT) || EX_NOHIDE(exp2)) {
 		/* successfully crossed mount point */
 		/*
 		 * This is subtle: path.dentry is *not* on path.mnt
@@ -684,6 +691,8 @@ nfsd_open(struct svc_rqst *rqstp, struct svc_fh *fhp, int type,
 	__be32		err;
 	int		host_err;
 
+	validate_process_creds();
+
 	/*
 	 * If we get here, then the client has already done an "open",
 	 * and (hopefully) checked permission - so allow OWNER_OVERRIDE
@@ -740,6 +749,7 @@ nfsd_open(struct svc_rqst *rqstp, struct svc_fh *fhp, int type,
 out_nfserr:
 	err = nfserrno(host_err);
 out:
+	validate_process_creds();
 	return err;
 }
 
@@ -764,12 +774,9 @@ static inline int nfsd_dosync(struct file *filp, struct dentry *dp,
 	int (*fsync) (struct file *, struct dentry *, int);
 	int err;
 
-	err = filemap_fdatawrite(inode->i_mapping);
+	err = filemap_write_and_wait(inode->i_mapping);
 	if (err == 0 && fop && (fsync = fop->fsync))
 		err = fsync(filp, dp, 0);
-	if (err == 0)
-		err = filemap_fdatawait(inode->i_mapping);
-
 	return err;
 }
 

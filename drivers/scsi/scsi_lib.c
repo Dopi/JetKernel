@@ -749,9 +749,9 @@ void scsi_io_completion(struct scsi_cmnd *cmd, unsigned int good_bytes)
 			 */
 			req->next_rq->resid_len = scsi_in(cmd)->resid;
 
+			scsi_release_buffers(cmd);
 			blk_end_request_all(req, 0);
 
-			scsi_release_buffers(cmd);
 			scsi_next_command(cmd);
 			return;
 		}
@@ -896,9 +896,12 @@ void scsi_io_completion(struct scsi_cmnd *cmd, unsigned int good_bytes)
 			scsi_print_result(cmd);
 			if (driver_byte(result) & DRIVER_SENSE)
 				scsi_print_sense("", cmd);
+			scsi_print_command(cmd);
 		}
-		blk_end_request_all(req, -EIO);
-		scsi_next_command(cmd);
+		if (blk_end_request_err(req, -EIO))
+			scsi_requeue_command(q, cmd);
+		else
+			scsi_next_command(cmd);
 		break;
 	case ACTION_REPREP:
 		/* Unprep the request and put it back at the head of the queue.

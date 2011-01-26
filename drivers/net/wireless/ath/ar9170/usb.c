@@ -68,8 +68,10 @@ static struct usb_device_id ar9170_usb_ids[] = {
 	{ USB_DEVICE(0x0cf3, 0x1002) },
 	/* Cace Airpcap NX */
 	{ USB_DEVICE(0xcace, 0x0300) },
-	/* D-Link DWA 160A */
+	/* D-Link DWA 160 A1 */
 	{ USB_DEVICE(0x07d1, 0x3c10) },
+	/* D-Link DWA 160 A2 */
+	{ USB_DEVICE(0x07d1, 0x3a09) },
 	/* Netgear WNDA3100 */
 	{ USB_DEVICE(0x0846, 0x9010) },
 	/* Netgear WN111 v2 */
@@ -785,7 +787,7 @@ static int ar9170_usb_probe(struct usb_interface *intf,
 	aru->req_one_stage_fw = ar9170_requires_one_stage(id);
 
 	usb_set_intfdata(intf, aru);
-	SET_IEEE80211_DEV(ar->hw, &udev->dev);
+	SET_IEEE80211_DEV(ar->hw, &intf->dev);
 
 	init_usb_anchor(&aru->rx_submitted);
 	init_usb_anchor(&aru->tx_pending);

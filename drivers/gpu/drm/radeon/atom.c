@@ -107,6 +107,7 @@ static uint32_t atom_iio_execute(struct atom_context *ctx, int base,
 			base += 3;
 			break;
 		case ATOM_IIO_WRITE:
+			(void)ctx->card->reg_read(ctx->card, CU16(base + 1));
 			ctx->card->reg_write(ctx->card, CU16(base + 1), temp);
 			base += 3;
 			break;
@@ -606,7 +607,7 @@ static void atom_op_delay(atom_exec_context *ctx, int *ptr, int arg)
 	uint8_t count = U8((*ptr)++);
 	SDEBUG("   count: %d\n", count);
 	if (arg == ATOM_UNIT_MICROSEC)
-		schedule_timeout_uninterruptible(usecs_to_jiffies(count));
+		udelay(count);
 	else
 		schedule_timeout_uninterruptible(msecs_to_jiffies(count));
 }

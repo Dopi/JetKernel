@@ -356,9 +356,7 @@ static int ext4_block_to_path(struct inode *inode,
 	int n = 0;
 	int final = 0;
 
-	if (i_block < 0) {
-		ext4_warning(inode->i_sb, "ext4_block_to_path", "block < 0");
-	} else if (i_block < direct_blocks) {
+	if (i_block < direct_blocks) {
 		offsets[n++] = i_block;
 		final = direct_blocks;
 	} else if ((i_block -= direct_blocks) < indirect_blocks) {
@@ -786,8 +784,9 @@ static int ext4_alloc_branch(handle_t *handle, struct inode *inode,
 		BUFFER_TRACE(bh, "call get_create_access");
 		err = ext4_journal_get_create_access(handle, bh);
 		if (err) {
+			/* Don't brelse(bh) here; it's done in
+			 * ext4_journal_forget() below */
 			unlock_buffer(bh);
-			brelse(bh);
 			goto failed;
 		}
 
@@ -1950,6 +1949,10 @@ static void ext4_da_page_release_reservation(struct page *page,
 }
 
 /*
+ * Delayed allocation stuff
+ */
+
+/*
  * mpage_da_submit_io - walks through extent of pages and try to write
  * them with writepage() call back
  *
@@ -2158,18 +2161,18 @@ static void ext4_da_block_invalidatepages(struct mpage_da_data *mpd,
 static void ext4_print_free_blocks(struct inode *inode)
 {
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
-	printk(KERN_EMERG "Total free blocks count %lld\n",
-			ext4_count_free_blocks(inode->i_sb));
-	printk(KERN_EMERG "Free/Dirty block details\n");
-	printk(KERN_EMERG "free_blocks=%lld\n",
-			(long long)percpu_counter_sum(&sbi->s_freeblocks_counter));
-	printk(KERN_EMERG "dirty_blocks=%lld\n",
-			(long long)percpu_counter_sum(&sbi->s_dirtyblocks_counter));
-	printk(KERN_EMERG "Block reservation details\n");
-	printk(KERN_EMERG "i_reserved_data_blocks=%u\n",
-			EXT4_I(inode)->i_reserved_data_blocks);
-	printk(KERN_EMERG "i_reserved_meta_blocks=%u\n",
-			EXT4_I(inode)->i_reserved_meta_blocks);
+	printk(KERN_CRIT "Total free blocks count %lld\n",
+	       ext4_count_free_blocks(inode->i_sb));
+	printk(KERN_CRIT "Free/Dirty block details\n");
+	printk(KERN_CRIT "free_blocks=%lld\n",
+	       (long long) percpu_counter_sum(&sbi->s_freeblocks_counter));
+	printk(KERN_CRIT "dirty_blocks=%lld\n",
+	       (long long) percpu_counter_sum(&sbi->s_dirtyblocks_counter));
+	printk(KERN_CRIT "Block reservation details\n");
+	printk(KERN_CRIT "i_reserved_data_blocks=%u\n",
+	       EXT4_I(inode)->i_reserved_data_blocks);
+	printk(KERN_CRIT "i_reserved_meta_blocks=%u\n",
+	       EXT4_I(inode)->i_reserved_meta_blocks);
 	return;
 }
 
@@ -2255,14 +2258,14 @@ static int mpage_da_map_blocks(struct mpage_da_data *mpd)
 		 * writepage and writepages will again try to write
 		 * the same.
 		 */
-		printk(KERN_EMERG "%s block allocation failed for inode %lu "
-				  "at logical offset %llu with max blocks "
-				  "%zd with error %d\n",
-				  __func__, mpd->inode->i_ino,
-				  (unsigned long long)next,
-				  mpd->b_size >> mpd->inode->i_blkbits, err);
-		printk(KERN_EMERG "This should not happen.!! "
-					"Data will be lost\n");
+		ext4_msg(mpd->inode->i_sb, KERN_CRIT,
+			 "delayed block allocation failed for inode %lu at "
+			 "logical offset %llu with max blocks %zd with "
+			 "error %d\n", mpd->inode->i_ino,
+			 (unsigned long long) next,
+			 mpd->b_size >> mpd->inode->i_blkbits, err);
+		printk(KERN_CRIT "This should not happen!!  "
+		       "Data will be lost\n");
 		if (err == -ENOSPC) {
 			ext4_print_free_blocks(mpd->inode);
 		}
@@ -2403,7 +2406,7 @@ static int __mpage_da_writepage(struct page *page,
 		/*
 		 * Rest of the page in the page_vec
 		 * redirty then and skip then. We will
-		 * try to to write them again after
+		 * try to write them again after
 		 * starting a new transaction
 		 */
 		redirty_page_for_writepage(wbc, page);
@@ -2910,10 +2913,9 @@ retry:
 		handle = ext4_journal_start(inode, needed_blocks);
 		if (IS_ERR(handle)) {
 			ret = PTR_ERR(handle);
-			printk(KERN_CRIT "%s: jbd2_start: "
+			ext4_msg(inode->i_sb, KERN_CRIT, "%s: jbd2_start: "
 			       "%ld pages, ino %lu; err %d\n", __func__,
 				wbc->nr_to_write, inode->i_ino, ret);
-			dump_stack();
 			goto out_writepages;
 		}
 
@@ -2947,6 +2949,7 @@ retry:
 			mpd.io_done = 1;
 			ret = MPAGE_DA_EXTENT_TAIL;
 		}
+		trace_ext4_da_write_pages(inode, &mpd);
 		wbc->nr_to_write -= mpd.pages_written;
 
 		ext4_journal_stop(handle);
@@ -2984,9 +2987,10 @@ retry:
 		goto retry;
 	}
 	if (pages_skipped != wbc->pages_skipped)
-		printk(KERN_EMERG "This should not happen leaving %s "
-				"with nr_to_write = %ld ret = %d\n",
-				__func__, wbc->nr_to_write, ret);
+		ext4_msg(inode->i_sb, KERN_CRIT,
+			 "This should not happen leaving %s "
+			 "with nr_to_write = %ld ret = %d\n",
+			 __func__, wbc->nr_to_write, ret);
 
 	/* Update index */
 	index += pages_written;
@@ -3216,6 +3220,8 @@ out:
  */
 int ext4_alloc_da_blocks(struct inode *inode)
 {
+	trace_ext4_alloc_da_blocks(inode);
+
 	if (!EXT4_I(inode)->i_reserved_data_blocks &&
 	    !EXT4_I(inode)->i_reserved_meta_blocks)
 		return 0;
@@ -3836,6 +3842,7 @@ static const struct address_space_operations ext4_ordered_aops = {
 	.direct_IO		= ext4_direct_IO,
 	.migratepage		= buffer_migrate_page,
 	.is_partially_uptodate  = block_is_partially_uptodate,
+	.error_remove_page	= generic_error_remove_page,
 };
 
 static const struct address_space_operations ext4_writeback_aops = {
@@ -3851,6 +3858,7 @@ static const struct address_space_operations ext4_writeback_aops = {
 	.direct_IO		= ext4_direct_IO,
 	.migratepage		= buffer_migrate_page,
 	.is_partially_uptodate  = block_is_partially_uptodate,
+	.error_remove_page	= generic_error_remove_page,
 };
 
 static const struct address_space_operations ext4_journalled_aops = {
@@ -3865,6 +3873,7 @@ static const struct address_space_operations ext4_journalled_aops = {
 	.invalidatepage		= ext4_invalidatepage,
 	.releasepage		= ext4_releasepage,
 	.is_partially_uptodate  = block_is_partially_uptodate,
+	.error_remove_page	= generic_error_remove_page,
 };
 
 static const struct address_space_operations ext4_da_aops = {
@@ -3881,6 +3890,7 @@ static const struct address_space_operations ext4_da_aops = {
 	.direct_IO		= ext4_direct_IO,
 	.migratepage		= buffer_migrate_page,
 	.is_partially_uptodate  = block_is_partially_uptodate,
+	.error_remove_page	= generic_error_remove_page,
 };
 
 void ext4_set_aops(struct inode *inode)
@@ -5642,14 +5652,12 @@ int ext4_mark_inode_dirty(handle_t *handle, struct inode *inode)
  */
 void ext4_dirty_inode(struct inode *inode)
 {
-	handle_t *current_handle = ext4_journal_current_handle();
 	handle_t *handle;
 
 	handle = ext4_journal_start(inode, 2);
 	if (IS_ERR(handle))
 		goto out;
 
-	jbd_debug(5, "marking dirty.  outer handle=%p\n", current_handle);
 	ext4_mark_inode_dirty(handle, inode);
 
 	ext4_journal_stop(handle);

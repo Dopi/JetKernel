@@ -220,6 +220,7 @@ static const struct trans_ctl_table trans_net_ipv4_conf_vars_table[] = {
 	{ NET_IPV4_CONF_PROMOTE_SECONDARIES,	"promote_secondaries" },
 	{ NET_IPV4_CONF_ARP_ACCEPT,		"arp_accept" },
 	{ NET_IPV4_CONF_ARP_NOTIFY,		"arp_notify" },
+	{ NET_IPV4_CONF_SRC_VMARK,		"src_valid_mark" },
 	{}
 };
 
@@ -1521,7 +1522,7 @@ int sysctl_check_table(struct nsproxy *namespaces, struct ctl_table *table)
 			if (!table->ctl_name && table->strategy)
 				set_fail(&fail, table, "Strategy without ctl_name");
 #endif
-#ifdef CONFIG_PROC_FS
+#ifdef CONFIG_PROC_SYSCTL
 			if (table->procname && !table->proc_handler)
 				set_fail(&fail, table, "No proc_handler");
 #endif

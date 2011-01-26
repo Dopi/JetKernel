@@ -50,13 +50,6 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/ext4.h>
 
-static int default_mb_history_length = 1000;
-
-module_param_named(default_mb_history_length, default_mb_history_length,
-		   int, 0644);
-MODULE_PARM_DESC(default_mb_history_length,
-		 "Default number of entries saved for mb_history");
-
 struct proc_dir_entry *ext4_proc_root;
 static struct kset *ext4_kset;
 
@@ -1004,7 +997,7 @@ static ssize_t ext4_quota_read(struct super_block *sb, int type, char *data,
 static ssize_t ext4_quota_write(struct super_block *sb, int type,
 				const char *data, size_t len, loff_t off);
 
-static struct dquot_operations ext4_quota_operations = {
+static const struct dquot_operations ext4_quota_operations = {
 	.initialize	= dquot_initialize,
 	.drop		= dquot_drop,
 	.alloc_space	= dquot_alloc_space,
@@ -1027,7 +1020,7 @@ static struct dquot_operations ext4_quota_operations = {
 	.destroy_dquot	= dquot_destroy,
 };
 
-static struct quotactl_ops ext4_qctl_operations = {
+static const struct quotactl_ops ext4_qctl_operations = {
 	.quota_on	= ext4_quota_on,
 	.quota_off	= vfs_quota_off,
 	.quota_sync	= vfs_quota_sync,
@@ -1094,7 +1087,7 @@ enum {
 	Opt_journal_update, Opt_journal_dev,
 	Opt_journal_checksum, Opt_journal_async_commit,
 	Opt_abort, Opt_data_journal, Opt_data_ordered, Opt_data_writeback,
-	Opt_data_err_abort, Opt_data_err_ignore, Opt_mb_history_length,
+	Opt_data_err_abort, Opt_data_err_ignore,
 	Opt_usrjquota, Opt_grpjquota, Opt_offusrjquota, Opt_offgrpjquota,
 	Opt_jqfmt_vfsold, Opt_jqfmt_vfsv0, Opt_quota, Opt_noquota,
 	Opt_ignore, Opt_barrier, Opt_nobarrier, Opt_err, Opt_resize,
@@ -1143,7 +1136,6 @@ static const match_table_t tokens = {
 	{Opt_data_writeback, "data=writeback"},
 	{Opt_data_err_abort, "data_err=abort"},
 	{Opt_data_err_ignore, "data_err=ignore"},
-	{Opt_mb_history_length, "mb_history_length=%u"},
 	{Opt_offusrjquota, "usrjquota="},
 	{Opt_usrjquota, "usrjquota=%s"},
 	{Opt_offgrpjquota, "grpjquota="},
@@ -1387,13 +1379,6 @@ static int parse_options(char *options, struct super_block *sb,
 			break;
 		case Opt_data_err_ignore:
 			clear_opt(sbi->s_mount_opt, DATA_ERR_ABORT);
-			break;
-		case Opt_mb_history_length:
-			if (match_int(&args[0], &option))
-				return 0;
-			if (option < 0)
-				return 0;
-			sbi->s_mb_history_max = option;
 			break;
 #ifdef CONFIG_QUOTA
 		case Opt_usrjquota:
@@ -1700,13 +1685,6 @@ static int ext4_setup_super(struct super_block *sb, struct ext4_super_block *es,
 			EXT4_INODES_PER_GROUP(sb),
 			sbi->s_mount_opt);
 
-	if (EXT4_SB(sb)->s_journal) {
-		ext4_msg(sb, KERN_INFO, "%s journal on %s",
-		       EXT4_SB(sb)->s_journal->j_inode ? "internal" :
-		       "external", EXT4_SB(sb)->s_journal->j_devname);
-	} else {
-		ext4_msg(sb, KERN_INFO, "no journal");
-	}
 	return res;
 }
 
@@ -2469,7 +2447,6 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 	sbi->s_commit_interval = JBD2_DEFAULT_MAX_COMMIT_AGE * HZ;
 	sbi->s_min_batch_time = EXT4_DEF_MIN_BATCH_TIME;
 	sbi->s_max_batch_time = EXT4_DEF_MAX_BATCH_TIME;
-	sbi->s_mb_history_max = default_mb_history_length;
 
 	set_opt(sbi->s_mount_opt, BARRIER);
 
@@ -2918,12 +2895,12 @@ no_journal:
 			 "available");
 	}
 
-	if (test_opt(sb, DATA_FLAGS) == EXT4_MOUNT_JOURNAL_DATA) {
+	if (test_opt(sb, DELALLOC) &&
+	    (test_opt(sb, DATA_FLAGS) == EXT4_MOUNT_JOURNAL_DATA)) {
 		ext4_msg(sb, KERN_WARNING, "Ignoring delalloc option - "
 			 "requested data journaling mode");
 		clear_opt(sbi->s_mount_opt, DELALLOC);
-	} else if (test_opt(sb, DELALLOC))
-		ext4_msg(sb, KERN_INFO, "delayed allocation enabled");
+	}
 
 	err = ext4_setup_system_zone(sb);
 	if (err) {
@@ -3235,9 +3212,7 @@ static int ext4_load_journal(struct super_block *sb,
 			return -EINVAL;
 	}
 
-	if (journal->j_flags & JBD2_BARRIER)
-		ext4_msg(sb, KERN_INFO, "barriers enabled");
-	else
+	if (!(journal->j_flags & JBD2_BARRIER))
 		ext4_msg(sb, KERN_INFO, "barriers disabled");
 
 	if (!really_read_only && test_opt(sb, UPDATE_JOURNAL)) {
@@ -4022,27 +3997,6 @@ static struct file_system_type ext4_fs_type = {
 	.fs_flags	= FS_REQUIRES_DEV,
 };
 
-#ifdef CONFIG_EXT4DEV_COMPAT
-static int ext4dev_get_sb(struct file_system_type *fs_type, int flags,
-			  const char *dev_name, void *data,struct vfsmount *mnt)
-{
-	printk(KERN_WARNING "EXT4-fs (%s): Update your userspace programs "
-	       "to mount using ext4\n", dev_name);
-	printk(KERN_WARNING "EXT4-fs (%s): ext4dev backwards compatibility "
-	       "will go away by 2.6.31\n", dev_name);
-	return get_sb_bdev(fs_type, flags, dev_name, data, ext4_fill_super,mnt);
-}
-
-static struct file_system_type ext4dev_fs_type = {
-	.owner		= THIS_MODULE,
-	.name		= "ext4dev",
-	.get_sb		= ext4dev_get_sb,
-	.kill_sb	= kill_block_super,
-	.fs_flags	= FS_REQUIRES_DEV,
-};
-MODULE_ALIAS("ext4dev");
-#endif
-
 static int __init init_ext4_fs(void)
 {
 	int err;
@@ -4067,13 +4021,6 @@ static int __init init_ext4_fs(void)
 	err = register_filesystem(&ext4_fs_type);
 	if (err)
 		goto out;
-#ifdef CONFIG_EXT4DEV_COMPAT
-	err = register_filesystem(&ext4dev_fs_type);
-	if (err) {
-		unregister_filesystem(&ext4_fs_type);
-		goto out;
-	}
-#endif
 	return 0;
 out:
 	destroy_inodecache();
@@ -4092,9 +4039,6 @@ out4:
 static void __exit exit_ext4_fs(void)
 {
 	unregister_filesystem(&ext4_fs_type);
-#ifdef CONFIG_EXT4DEV_COMPAT
-	unregister_filesystem(&ext4dev_fs_type);
-#endif
 	destroy_inodecache();
 	exit_ext4_xattr();
 	exit_ext4_mballoc();

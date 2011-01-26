@@ -669,14 +669,14 @@ static void dasd_profile_end(struct dasd_block *block,
  * memory and 2) dasd_smalloc_request uses the static ccw memory
  * that gets allocated for each device.
  */
-struct dasd_ccw_req *dasd_kmalloc_request(char *magic, int cplength,
+struct dasd_ccw_req *dasd_kmalloc_request(int magic, int cplength,
 					  int datasize,
 					  struct dasd_device *device)
 {
 	struct dasd_ccw_req *cqr;
 
 	/* Sanity checks */
-	BUG_ON( magic == NULL || datasize > PAGE_SIZE ||
+	BUG_ON(datasize > PAGE_SIZE ||
 	     (cplength*sizeof(struct ccw1)) > PAGE_SIZE);
 
 	cqr = kzalloc(sizeof(struct dasd_ccw_req), GFP_ATOMIC);
@@ -700,14 +700,13 @@ struct dasd_ccw_req *dasd_kmalloc_request(char *magic, int cplength,
 			return ERR_PTR(-ENOMEM);
 		}
 	}
-	strncpy((char *) &cqr->magic, magic, 4);
-	ASCEBC((char *) &cqr->magic, 4);
+	cqr->magic =  magic;
 	set_bit(DASD_CQR_FLAGS_USE_ERP, &cqr->flags);
 	dasd_get_device(device);
 	return cqr;
 }
 
-struct dasd_ccw_req *dasd_smalloc_request(char *magic, int cplength,
+struct dasd_ccw_req *dasd_smalloc_request(int magic, int cplength,
 					  int datasize,
 					  struct dasd_device *device)
 {
@@ -717,7 +716,7 @@ struct dasd_ccw_req *dasd_smalloc_request(char *magic, int cplength,
 	int size;
 
 	/* Sanity checks */
-	BUG_ON( magic == NULL || datasize > PAGE_SIZE ||
+	BUG_ON(datasize > PAGE_SIZE ||
 	     (cplength*sizeof(struct ccw1)) > PAGE_SIZE);
 
 	size = (sizeof(struct dasd_ccw_req) + 7L) & -8L;
@@ -744,8 +743,7 @@ struct dasd_ccw_req *dasd_smalloc_request(char *magic, int cplength,
 		cqr->data = data;
  		memset(cqr->data, 0, datasize);
 	}
-	strncpy((char *) &cqr->magic, magic, 4);
-	ASCEBC((char *) &cqr->magic, 4);
+	cqr->magic = magic;
 	set_bit(DASD_CQR_FLAGS_USE_ERP, &cqr->flags);
 	dasd_get_device(device);
 	return cqr;
@@ -899,9 +897,6 @@ int dasd_start_IO(struct dasd_ccw_req *cqr)
 	switch (rc) {
 	case 0:
 		cqr->status = DASD_CQR_IN_IO;
-		DBF_DEV_EVENT(DBF_DEBUG, device,
-			      "start_IO: request %p started successful",
-			      cqr);
 		break;
 	case -EBUSY:
 		DBF_DEV_EVENT(DBF_DEBUG, device, "%s",
@@ -999,10 +994,9 @@ static void dasd_handle_killed_request(struct ccw_device *cdev,
 		return;
 	cqr = (struct dasd_ccw_req *) intparm;
 	if (cqr->status != DASD_CQR_IN_IO) {
-		DBF_EVENT(DBF_DEBUG,
-			"invalid status in handle_killed_request: "
-			"bus_id %s, status %02x",
-			dev_name(&cdev->dev), cqr->status);
+		DBF_EVENT_DEVID(DBF_DEBUG, cdev,
+				"invalid status in handle_killed_request: "
+				"%02x", cqr->status);
 		return;
 	}
 
@@ -1010,8 +1004,8 @@ static void dasd_handle_killed_request(struct ccw_device *cdev,
 	if (device == NULL ||
 	    device != dasd_device_from_cdev_locked(cdev) ||
 	    strncmp(device->discipline->ebcname, (char *) &cqr->magic, 4)) {
-		DBF_DEV_EVENT(DBF_DEBUG, device, "invalid device in request: "
-			      "bus_id %s", dev_name(&cdev->dev));
+		DBF_EVENT_DEVID(DBF_DEBUG, cdev, "%s",
+				"invalid device in request");
 		return;
 	}
 
@@ -1050,12 +1044,13 @@ void dasd_int_handler(struct ccw_device *cdev, unsigned long intparm,
 		case -EIO:
 			break;
 		case -ETIMEDOUT:
-			DBF_EVENT(DBF_WARNING, "%s(%s): request timed out\n",
-			       __func__, dev_name(&cdev->dev));
+			DBF_EVENT_DEVID(DBF_WARNING, cdev, "%s: "
+					"request timed out\n", __func__);
 			break;
 		default:
-			DBF_EVENT(DBF_WARNING, "%s(%s): unknown error %ld\n",
-			       __func__, dev_name(&cdev->dev), PTR_ERR(irb));
+			DBF_EVENT_DEVID(DBF_WARNING, cdev, "%s: "
+					"unknown error %ld\n", __func__,
+					PTR_ERR(irb));
 		}
 		dasd_handle_killed_request(cdev, intparm);
 		return;
@@ -1083,8 +1078,8 @@ void dasd_int_handler(struct ccw_device *cdev, unsigned long intparm,
 	device = (struct dasd_device *) cqr->startdev;
 	if (!device ||
 	    strncmp(device->discipline->ebcname, (char *) &cqr->magic, 4)) {
-		DBF_DEV_EVENT(DBF_DEBUG, device, "invalid device in request: "
-			      "bus_id %s", dev_name(&cdev->dev));
+		DBF_EVENT_DEVID(DBF_DEBUG, cdev, "%s",
+				"invalid device in request");
 		return;
 	}
 
@@ -1699,8 +1694,11 @@ static void __dasd_process_request_queue(struct dasd_block *block)
 	 * for that. State DASD_STATE_ONLINE is normal block device
 	 * operation.
 	 */
-	if (basedev->state < DASD_STATE_READY)
+	if (basedev->state < DASD_STATE_READY) {
+		while ((req = blk_fetch_request(block->request_queue)))
+			__blk_end_request_all(req, -EIO);
 		return;
+	}
 	/* Now we try to fetch requests from the request queue */
 	while (!blk_queue_plugged(queue) && (req = blk_peek_request(queue))) {
 		if (basedev->features & DASD_FEATURE_READONLY &&
@@ -2148,7 +2146,7 @@ static int dasd_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 	return 0;
 }
 
-struct block_device_operations
+const struct block_device_operations
 dasd_device_operations = {
 	.owner		= THIS_MODULE,
 	.open		= dasd_open,
@@ -2219,9 +2217,9 @@ int dasd_generic_probe(struct ccw_device *cdev,
 	}
 	ret = dasd_add_sysfs_files(cdev);
 	if (ret) {
-		DBF_EVENT(DBF_WARNING,
-		       "dasd_generic_probe: could not add sysfs entries "
-		       "for %s\n", dev_name(&cdev->dev));
+		DBF_EVENT_DEVID(DBF_WARNING, cdev, "%s",
+				"dasd_generic_probe: could not add "
+				"sysfs entries");
 		return ret;
 	}
 	cdev->handler = &dasd_int_handler;
@@ -2510,8 +2508,6 @@ int dasd_generic_restore_device(struct ccw_device *cdev)
 	device->stopped &= ~DASD_UNRESUMED_PM;
 
 	dasd_schedule_device_bh(device);
-	if (device->block)
-		dasd_schedule_block_bh(device->block);
 
 	if (device->discipline->restore)
 		rc = device->discipline->restore(device);
@@ -2522,6 +2518,9 @@ int dasd_generic_restore_device(struct ccw_device *cdev)
 		 */
 		device->stopped |= DASD_UNRESUMED_PM;
 
+	if (device->block)
+		dasd_schedule_block_bh(device->block);
+
 	dasd_put_device(device);
 	return 0;
 }
@@ -2530,10 +2529,11 @@ EXPORT_SYMBOL_GPL(dasd_generic_restore_device);
 static struct dasd_ccw_req *dasd_generic_build_rdc(struct dasd_device *device,
 						   void *rdc_buffer,
 						   int rdc_buffer_size,
-						   char *magic)
+						   int magic)
 {
 	struct dasd_ccw_req *cqr;
 	struct ccw1 *ccw;
+	unsigned long *idaw;
 
 	cqr = dasd_smalloc_request(magic, 1 /* RDC */, rdc_buffer_size, device);
 
@@ -2547,9 +2547,17 @@ static struct dasd_ccw_req *dasd_generic_build_rdc(struct dasd_device *device,
 
 	ccw = cqr->cpaddr;
 	ccw->cmd_code = CCW_CMD_RDC;
-	ccw->cda = (__u32)(addr_t)rdc_buffer;
-	ccw->count = rdc_buffer_size;
+	if (idal_is_needed(rdc_buffer, rdc_buffer_size)) {
+		idaw = (unsigned long *) (cqr->data);
+		ccw->cda = (__u32)(addr_t) idaw;
+		ccw->flags = CCW_FLAG_IDA;
+		idaw = idal_create_words(idaw, rdc_buffer, rdc_buffer_size);
+	} else {
+		ccw->cda = (__u32)(addr_t) rdc_buffer;
+		ccw->flags = 0;
+	}
 
+	ccw->count = rdc_buffer_size;
 	cqr->startdev = device;
 	cqr->memdev = device;
 	cqr->expires = 10*HZ;
@@ -2561,7 +2569,7 @@ static struct dasd_ccw_req *dasd_generic_build_rdc(struct dasd_device *device,
 }
 
 
-int dasd_generic_read_dev_chars(struct dasd_device *device, char *magic,
+int dasd_generic_read_dev_chars(struct dasd_device *device, int magic,
 				void *rdc_buffer, int rdc_buffer_size)
 {
 	int ret;

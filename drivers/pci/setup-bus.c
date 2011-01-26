@@ -142,7 +142,6 @@ static void pci_setup_bridge(struct pci_bus *bus)
 	struct pci_dev *bridge = bus->self;
 	struct pci_bus_region region;
 	u32 l, bu, lu, io_upper16;
-	int pref_mem64;
 
 	if (pci_is_enabled(bridge))
 		return;
@@ -198,7 +197,6 @@ static void pci_setup_bridge(struct pci_bus *bus)
 	pci_write_config_dword(bridge, PCI_PREF_LIMIT_UPPER32, 0);
 
 	/* Set up PREF base/limit. */
-	pref_mem64 = 0;
 	bu = lu = 0;
 	pcibios_resource_to_bus(bridge, &region, bus->resource[2]);
 	if (bus->resource[2]->flags & IORESOURCE_PREFETCH) {
@@ -206,7 +204,6 @@ static void pci_setup_bridge(struct pci_bus *bus)
 		l = (region.start >> 16) & 0xfff0;
 		l |= region.end & 0xfff00000;
 		if (bus->resource[2]->flags & IORESOURCE_MEM_64) {
-			pref_mem64 = 1;
 			bu = upper_32_bits(region.start);
 			lu = upper_32_bits(region.end);
 			width = 16;
@@ -221,11 +218,9 @@ static void pci_setup_bridge(struct pci_bus *bus)
 	}
 	pci_write_config_dword(bridge, PCI_PREF_MEMORY_BASE, l);
 
-	if (pref_mem64) {
-		/* Set the upper 32 bits of PREF base & limit. */
-		pci_write_config_dword(bridge, PCI_PREF_BASE_UPPER32, bu);
-		pci_write_config_dword(bridge, PCI_PREF_LIMIT_UPPER32, lu);
-	}
+	/* Set the upper 32 bits of PREF base & limit. */
+	pci_write_config_dword(bridge, PCI_PREF_BASE_UPPER32, bu);
+	pci_write_config_dword(bridge, PCI_PREF_LIMIT_UPPER32, lu);
 
 	pci_write_config_word(bridge, PCI_BRIDGE_CONTROL, bus->bridge_ctl);
 }
@@ -309,7 +304,7 @@ static struct resource *find_free_bus_resource(struct pci_bus *bus, unsigned lon
    since these windows have 4K granularity and the IO ranges
    of non-bridge PCI devices are limited to 256 bytes.
    We must be careful with the ISA aliasing though. */
-static void pbus_size_io(struct pci_bus *bus)
+static void pbus_size_io(struct pci_bus *bus, resource_size_t min_size)
 {
 	struct pci_dev *dev;
 	struct resource *b_res = find_free_bus_resource(bus, IORESOURCE_IO);
@@ -336,6 +331,8 @@ static void pbus_size_io(struct pci_bus *bus)
 				size1 += r_size;
 		}
 	}
+	if (size < min_size)
+		size = min_size;
 /* To be fixed in 2.5: we should have sort of HAVE_ISA
    flag in the struct pci_bus. */
 #if defined(CONFIG_ISA) || defined(CONFIG_EISA)
@@ -354,7 +351,8 @@ static void pbus_size_io(struct pci_bus *bus)
 
 /* Calculate the size of the bus and minimal alignment which
    guarantees that all child resources fit in this size. */
-static int pbus_size_mem(struct pci_bus *bus, unsigned long mask, unsigned long type)
+static int pbus_size_mem(struct pci_bus *bus, unsigned long mask,
+			 unsigned long type, resource_size_t min_size)
 {
 	struct pci_dev *dev;
 	resource_size_t min_align, align, size;
@@ -404,6 +402,8 @@ static int pbus_size_mem(struct pci_bus *bus, unsigned long mask, unsigned long 
 			mem64_mask &= r->flags & IORESOURCE_MEM_64;
 		}
 	}
+	if (size < min_size)
+		size = min_size;
 
 	align = 0;
 	min_align = 0;
@@ -483,6 +483,7 @@ void __ref pci_bus_size_bridges(struct pci_bus *bus)
 {
 	struct pci_dev *dev;
 	unsigned long mask, prefmask;
+	resource_size_t min_mem_size = 0, min_io_size = 0;
 
 	list_for_each_entry(dev, &bus->devices, bus_list) {
 		struct pci_bus *b = dev->subordinate;
@@ -512,8 +513,12 @@ void __ref pci_bus_size_bridges(struct pci_bus *bus)
 
 	case PCI_CLASS_BRIDGE_PCI:
 		pci_bridge_check_ranges(bus);
+		if (bus->self->is_hotplug_bridge) {
+			min_io_size  = pci_hotplug_io_size;
+			min_mem_size = pci_hotplug_mem_size;
+		}
 	default:
-		pbus_size_io(bus);
+		pbus_size_io(bus, min_io_size);
 		/* If the bridge supports prefetchable range, size it
 		   separately. If it doesn't, or its prefetchable window
 		   has already been allocated by arch code, try
@@ -521,9 +526,11 @@ void __ref pci_bus_size_bridges(struct pci_bus *bus)
 		   resources. */
 		mask = IORESOURCE_MEM;
 		prefmask = IORESOURCE_MEM | IORESOURCE_PREFETCH;
-		if (pbus_size_mem(bus, prefmask, prefmask))
+		if (pbus_size_mem(bus, prefmask, prefmask, min_mem_size))
 			mask = prefmask; /* Success, size non-prefetch only. */
-		pbus_size_mem(bus, mask, IORESOURCE_MEM);
+		else
+			min_mem_size += min_mem_size;
+		pbus_size_mem(bus, mask, IORESOURCE_MEM, min_mem_size);
 		break;
 	}
 }

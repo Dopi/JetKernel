@@ -82,9 +82,13 @@ static ssize_t  show_##name(struct device *dev,				\
 		struct device_attribute *attr, char *buf)		\
 {									\
 	struct usb_device *udev;					\
+	int retval;							\
 									\
 	udev = to_usb_device(dev);					\
-	return sprintf(buf, "%s\n", udev->name);			\
+	usb_lock_device(udev);						\
+	retval = sprintf(buf, "%s\n", udev->name);			\
+	usb_unlock_device(udev);					\
+	return retval;							\
 }									\
 static DEVICE_ATTR(name, S_IRUGO, show_##name, NULL);
 
@@ -579,7 +583,7 @@ static struct attribute_group dev_string_attr_grp = {
 	.is_visible =	dev_string_attrs_are_visible,
 };
 
-struct attribute_group *usb_device_groups[] = {
+const struct attribute_group *usb_device_groups[] = {
 	&dev_attr_grp,
 	&dev_string_attr_grp,
 	NULL
@@ -805,7 +809,7 @@ static struct attribute_group intf_assoc_attr_grp = {
 	.is_visible =	intf_assoc_attrs_are_visible,
 };
 
-struct attribute_group *usb_interface_groups[] = {
+const struct attribute_group *usb_interface_groups[] = {
 	&intf_attr_grp,
 	&intf_assoc_attr_grp,
 	NULL

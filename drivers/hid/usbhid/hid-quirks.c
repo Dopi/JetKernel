@@ -201,7 +201,7 @@ int usbhid_quirks_init(char **quirks_param)
 	u32 quirks;
 	int n = 0, m;
 
-	for (; quirks_param[n] && n < MAX_USBHID_BOOT_QUIRKS; n++) {
+	for (; n < MAX_USBHID_BOOT_QUIRKS && quirks_param[n]; n++) {
 
 		m = sscanf(quirks_param[n], "0x%hx:0x%hx:0x%x",
 				&idVendor, &idProduct, &quirks);
@@ -280,7 +280,7 @@ u32 usbhid_lookup_quirk(const u16 idVendor, const u16 idProduct)
 	if (idVendor == USB_VENDOR_ID_NCR &&
 			idProduct >= USB_DEVICE_ID_NCR_FIRST &&
 			idProduct <= USB_DEVICE_ID_NCR_LAST)
-			return HID_QUIRK_NOGET;
+			return HID_QUIRK_NO_INIT_REPORTS;
 
 	down_read(&dquirks_rwsem);
 	bl_entry = usbhid_exists_dquirk(idVendor, idProduct);

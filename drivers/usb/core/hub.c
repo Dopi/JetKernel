@@ -78,6 +78,7 @@ struct usb_hub {
 	u8			indicator[USB_MAXCHILDREN];
 	struct delayed_work	leds;
 	struct delayed_work	init_work;
+	void			**port_owners;
 };
 
 
@@ -162,8 +163,10 @@ static inline char *portspeed(int portstatus)
 }
 
 /* Note that hdev or one of its children must be locked! */
-static inline struct usb_hub *hdev_to_hub(struct usb_device *hdev)
+static struct usb_hub *hdev_to_hub(struct usb_device *hdev)
 {
+	if (!hdev || !hdev->actconfig)
+		return NULL;
 	return usb_get_intfdata(hdev->actconfig->interface[0]);
 }
 
@@ -372,7 +375,7 @@ static void kick_khubd(struct usb_hub *hub)
 	unsigned long	flags;
 
 	/* Suppress autosuspend until khubd runs */
-	to_usb_interface(hub->intfdev)->pm_usage_cnt = 1;
+	atomic_set(&to_usb_interface(hub->intfdev)->pm_usage_cnt, 1);
 
 	spin_lock_irqsave(&hub_event_lock, flags);
 	if (!hub->disconnected && list_empty(&hub->event_list)) {
@@ -384,8 +387,10 @@ static void kick_khubd(struct usb_hub *hub)
 
 void usb_kick_khubd(struct usb_device *hdev)
 {
-	/* FIXME: What if hdev isn't bound to the hub driver? */
-	kick_khubd(hdev_to_hub(hdev));
+	struct usb_hub *hub = hdev_to_hub(hdev);
+
+	if (hub)
+		kick_khubd(hub);
 }
 
 
@@ -677,7 +682,8 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 					msecs_to_jiffies(delay));
 
 			/* Suppress autosuspend until init is done */
-			to_usb_interface(hub->intfdev)->pm_usage_cnt = 1;
+			atomic_set(&to_usb_interface(hub->intfdev)->
+					pm_usage_cnt, 1);
 			return;		/* Continues at init2: below */
 		} else {
 			hub_power_on(hub, true);
@@ -854,25 +860,24 @@ static int hub_post_reset(struct usb_interface *intf)
 static int hub_configure(struct usb_hub *hub,
 	struct usb_endpoint_descriptor *endpoint)
 {
+	struct usb_hcd *hcd;
 	struct usb_device *hdev = hub->hdev;
 	struct device *hub_dev = hub->intfdev;
 	u16 hubstatus, hubchange;
 	u16 wHubCharacteristics;
 	unsigned int pipe;
 	int maxp, ret;
-	char *message;
+	char *message = "out of memory";
 
 	hub->buffer = usb_buffer_alloc(hdev, sizeof(*hub->buffer), GFP_KERNEL,
 			&hub->buffer_dma);
 	if (!hub->buffer) {
-		message = "can't allocate hub irq buffer";
 		ret = -ENOMEM;
 		goto fail;
 	}
 
 	hub->status = kmalloc(sizeof(*hub->status), GFP_KERNEL);
 	if (!hub->status) {
-		message = "can't kmalloc hub status buffer";
 		ret = -ENOMEM;
 		goto fail;
 	}
@@ -880,7 +885,6 @@ static int hub_configure(struct usb_hub *hub,
 
 	hub->descriptor = kmalloc(sizeof(*hub->descriptor), GFP_KERNEL);
 	if (!hub->descriptor) {
-		message = "can't kmalloc hub descriptor";
 		ret = -ENOMEM;
 		goto fail;
 	}
@@ -903,6 +907,12 @@ static int hub_configure(struct usb_hub *hub,
 	hdev->maxchild = hub->descriptor->bNbrPorts;
 	dev_info (hub_dev, "%d port%s detected\n", hdev->maxchild,
 		(hdev->maxchild == 1) ? "" : "s");
+
+	hub->port_owners = kzalloc(hdev->maxchild * sizeof(void *), GFP_KERNEL);
+	if (!hub->port_owners) {
+		ret = -ENOMEM;
+		goto fail;
+	}
 
 	wHubCharacteristics = le16_to_cpu(hub->descriptor->wHubCharacteristics);
 
@@ -1052,6 +1062,19 @@ static int hub_configure(struct usb_hub *hub,
 		dev_dbg(hub_dev, "%umA bus power budget for each child\n",
 				hub->mA_per_port);
 
+	/* Update the HCD's internal representation of this hub before khubd
+	 * starts getting port status changes for devices under the hub.
+	 */
+	hcd = bus_to_hcd(hdev->bus);
+	if (hcd->driver->update_hub_device) {
+		ret = hcd->driver->update_hub_device(hcd, hdev,
+				&hub->tt, GFP_KERNEL);
+		if (ret < 0) {
+			message = "can't update HCD hub info";
+			goto fail;
+		}
+	}
+
 	ret = hub_hub_status(hub, &hubstatus, &hubchange);
 	if (ret < 0) {
 		message = "can't get hub status";
@@ -1082,7 +1105,6 @@ static int hub_configure(struct usb_hub *hub,
 
 	hub->urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!hub->urb) {
-		message = "couldn't allocate interrupt urb";
 		ret = -ENOMEM;
 		goto fail;
 	}
@@ -1131,11 +1153,13 @@ static void hub_disconnect(struct usb_interface *intf)
 	hub_quiesce(hub, HUB_DISCONNECT);
 
 	usb_set_intfdata (intf, NULL);
+	hub->hdev->maxchild = 0;
 
 	if (hub->hdev->speed == USB_SPEED_HIGH)
 		highspeed_hubs--;
 
 	usb_free_urb(hub->urb);
+	kfree(hub->port_owners);
 	kfree(hub->descriptor);
 	kfree(hub->status);
 	usb_buffer_free(hub->hdev, sizeof(*hub->buffer), hub->buffer,
@@ -1248,6 +1272,79 @@ hub_ioctl(struct usb_interface *intf, unsigned int code, void *user_data)
 	default:
 		return -ENOSYS;
 	}
+}
+
+/*
+ * Allow user programs to claim ports on a hub.  When a device is attached
+ * to one of these "claimed" ports, the program will "own" the device.
+ */
+static int find_port_owner(struct usb_device *hdev, unsigned port1,
+		void ***ppowner)
+{
+	if (hdev->state == USB_STATE_NOTATTACHED)
+		return -ENODEV;
+	if (port1 == 0 || port1 > hdev->maxchild)
+		return -EINVAL;
+
+	/* This assumes that devices not managed by the hub driver
+	 * will always have maxchild equal to 0.
+	 */
+	*ppowner = &(hdev_to_hub(hdev)->port_owners[port1 - 1]);
+	return 0;
+}
+
+/* In the following three functions, the caller must hold hdev's lock */
+int usb_hub_claim_port(struct usb_device *hdev, unsigned port1, void *owner)
+{
+	int rc;
+	void **powner;
+
+	rc = find_port_owner(hdev, port1, &powner);
+	if (rc)
+		return rc;
+	if (*powner)
+		return -EBUSY;
+	*powner = owner;
+	return rc;
+}
+
+int usb_hub_release_port(struct usb_device *hdev, unsigned port1, void *owner)
+{
+	int rc;
+	void **powner;
+
+	rc = find_port_owner(hdev, port1, &powner);
+	if (rc)
+		return rc;
+	if (*powner != owner)
+		return -ENOENT;
+	*powner = NULL;
+	return rc;
+}
+
+void usb_hub_release_all_ports(struct usb_device *hdev, void *owner)
+{
+	int n;
+	void **powner;
+
+	n = find_port_owner(hdev, 1, &powner);
+	if (n == 0) {
+		for (; n < hdev->maxchild; (++n, ++powner)) {
+			if (*powner == owner)
+				*powner = NULL;
+		}
+	}
+}
+
+/* The caller must hold udev's lock */
+bool usb_device_is_owned(struct usb_device *udev)
+{
+	struct usb_hub *hub;
+
+	if (udev->state == USB_STATE_NOTATTACHED || !udev->parent)
+		return false;
+	hub = hdev_to_hub(udev->parent);
+	return !!hub->port_owners[udev->portnum - 1];
 }
 
 
@@ -1515,12 +1612,12 @@ static inline void announce_device(struct usb_device *udev) { }
 #endif
 
 /**
- * usb_configure_device_otg - FIXME (usbcore-internal)
+ * usb_enumerate_device_otg - FIXME (usbcore-internal)
  * @udev: newly addressed device (in ADDRESS state)
  *
- * Do configuration for On-The-Go devices
+ * Finish enumeration for On-The-Go devices
  */
-static int usb_configure_device_otg(struct usb_device *udev)
+static int usb_enumerate_device_otg(struct usb_device *udev)
 {
 	int err = 0;
 
@@ -1591,7 +1688,7 @@ fail:
 
 
 /**
- * usb_configure_device - Detect and probe device intfs/otg (usbcore-internal)
+ * usb_enumerate_device - Read device configs/intfs/otg (usbcore-internal)
  * @udev: newly addressed device (in ADDRESS state)
  *
  * This is only called by usb_new_device() and usb_authorize_device()
@@ -1602,7 +1699,7 @@ fail:
  * the string descriptors, as they will be errored out by the device
  * until it has been authorized.
  */
-static int usb_configure_device(struct usb_device *udev)
+static int usb_enumerate_device(struct usb_device *udev)
 {
 	int err;
 
@@ -1626,7 +1723,7 @@ static int usb_configure_device(struct usb_device *udev)
 						      udev->descriptor.iManufacturer);
 		udev->serial = usb_cache_string(udev, udev->descriptor.iSerialNumber);
 	}
-	err = usb_configure_device_otg(udev);
+	err = usb_enumerate_device_otg(udev);
 fail:
 	return err;
 }
@@ -1636,8 +1733,8 @@ fail:
  * usb_new_device - perform initial device setup (usbcore-internal)
  * @udev: newly addressed device (in ADDRESS state)
  *
- * This is called with devices which have been enumerated, but not yet
- * configured.  The device descriptor is available, but not descriptors
+ * This is called with devices which have been detected but not fully
+ * enumerated.  The device descriptor is available, but not descriptors
  * for any device configuration.  The caller must have locked either
  * the parent hub (if udev is a normal device) or else the
  * usb_bus_list_lock (if udev is a root hub).  The parent's pointer to
@@ -1660,8 +1757,8 @@ int usb_new_device(struct usb_device *udev)
 	if (udev->parent)
 		usb_autoresume_device(udev->parent);
 
-	usb_detect_quirks(udev);		/* Determine quirks */
-	err = usb_configure_device(udev);	/* detect & probe dev/intfs */
+	usb_detect_quirks(udev);
+	err = usb_enumerate_device(udev);	/* Read descriptors */
 	if (err < 0)
 		goto fail;
 	dev_dbg(&udev->dev, "udev %d, busnum %d, minor = %d\n",
@@ -1706,21 +1803,23 @@ fail:
  */
 int usb_deauthorize_device(struct usb_device *usb_dev)
 {
-	unsigned cnt;
 	usb_lock_device(usb_dev);
 	if (usb_dev->authorized == 0)
 		goto out_unauthorized;
+
 	usb_dev->authorized = 0;
 	usb_set_configuration(usb_dev, -1);
+
+	kfree(usb_dev->product);
 	usb_dev->product = kstrdup("n/a (unauthorized)", GFP_KERNEL);
+	kfree(usb_dev->manufacturer);
 	usb_dev->manufacturer = kstrdup("n/a (unauthorized)", GFP_KERNEL);
+	kfree(usb_dev->serial);
 	usb_dev->serial = kstrdup("n/a (unauthorized)", GFP_KERNEL);
-	kfree(usb_dev->config);
-	usb_dev->config = NULL;
-	for (cnt = 0; cnt < usb_dev->descriptor.bNumConfigurations; cnt++)
-		kfree(usb_dev->rawdescriptors[cnt]);
+
+	usb_destroy_configuration(usb_dev);
 	usb_dev->descriptor.bNumConfigurations = 0;
-	kfree(usb_dev->rawdescriptors);
+
 out_unauthorized:
 	usb_unlock_device(usb_dev);
 	return 0;
@@ -1730,15 +1829,11 @@ out_unauthorized:
 int usb_authorize_device(struct usb_device *usb_dev)
 {
 	int result = 0, c;
+
 	usb_lock_device(usb_dev);
 	if (usb_dev->authorized == 1)
 		goto out_authorized;
-	kfree(usb_dev->product);
-	usb_dev->product = NULL;
-	kfree(usb_dev->manufacturer);
-	usb_dev->manufacturer = NULL;
-	kfree(usb_dev->serial);
-	usb_dev->serial = NULL;
+
 	result = usb_autoresume_device(usb_dev);
 	if (result < 0) {
 		dev_err(&usb_dev->dev,
@@ -1751,10 +1846,18 @@ int usb_authorize_device(struct usb_device *usb_dev)
 			"authorization: %d\n", result);
 		goto error_device_descriptor;
 	}
+
+	kfree(usb_dev->product);
+	usb_dev->product = NULL;
+	kfree(usb_dev->manufacturer);
+	usb_dev->manufacturer = NULL;
+	kfree(usb_dev->serial);
+	usb_dev->serial = NULL;
+
 	usb_dev->authorized = 1;
-	result = usb_configure_device(usb_dev);
+	result = usb_enumerate_device(usb_dev);
 	if (result < 0)
-		goto error_configure;
+		goto error_enumerate;
 	/* Choose and set the configuration.  This registers the interfaces
 	 * with the driver core and lets interface drivers bind to them.
 	 */
@@ -1769,8 +1872,10 @@ int usb_authorize_device(struct usb_device *usb_dev)
 		}
 	}
 	dev_info(&usb_dev->dev, "authorized to connect\n");
-error_configure:
+
+error_enumerate:
 error_device_descriptor:
+	usb_autosuspend_device(usb_dev);
 error_autoresume:
 out_authorized:
 	usb_unlock_device(usb_dev);	// complements locktree
@@ -2849,14 +2954,7 @@ static void hub_port_connect_change(struct usb_hub *hub, int port1,
 			/* For a suspended device, treat this as a
 			 * remote wakeup event.
 			 */
-			if (udev->do_remote_wakeup)
-				status = remote_wakeup(udev);
-
-			/* Otherwise leave it be; devices can't tell the
-			 * difference between suspended and disabled.
-			 */
-			else
-				status = 0;
+			status = remote_wakeup(udev);
 #endif
 
 		} else {

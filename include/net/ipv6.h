@@ -358,6 +358,7 @@ enum ip6_defrag_users {
 	IP6_DEFRAG_LOCAL_DELIVER,
 	IP6_DEFRAG_CONNTRACK_IN,
 	IP6_DEFRAG_CONNTRACK_OUT,
+	IP6_DEFRAG_CONNTRACK_BRIDGE_IN,
 };
 
 struct ip6_create_arg {
@@ -446,6 +447,18 @@ static inline int __ipv6_addr_diff(const void *token1, const void *token2, int a
 static inline int ipv6_addr_diff(const struct in6_addr *a1, const struct in6_addr *a2)
 {
 	return __ipv6_addr_diff(a1, a2, sizeof(struct in6_addr));
+}
+
+static __inline__ void ipv6_select_ident(struct frag_hdr *fhdr)
+{
+	static u32 ipv6_fragmentation_id = 1;
+	static DEFINE_SPINLOCK(ip6_id_lock);
+
+	spin_lock_bh(&ip6_id_lock);
+	fhdr->identification = htonl(ipv6_fragmentation_id);
+	if (++ipv6_fragmentation_id == 0)
+		ipv6_fragmentation_id = 1;
+	spin_unlock_bh(&ip6_id_lock);
 }
 
 /*
@@ -545,7 +558,7 @@ extern int ipv6_find_tlv(struct sk_buff *skb, int offset, int type);
 extern int			ipv6_setsockopt(struct sock *sk, int level, 
 						int optname,
 						char __user *optval, 
-						int optlen);
+						unsigned int optlen);
 extern int			ipv6_getsockopt(struct sock *sk, int level, 
 						int optname,
 						char __user *optval, 
@@ -554,7 +567,7 @@ extern int			compat_ipv6_setsockopt(struct sock *sk,
 						int level,
 						int optname,
 						char __user *optval,
-						int optlen);
+						unsigned int optlen);
 extern int			compat_ipv6_getsockopt(struct sock *sk,
 						int level,
 						int optname,

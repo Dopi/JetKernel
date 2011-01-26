@@ -598,6 +598,20 @@ static struct usb_device_id id_table_combined [] = {
 	{ USB_DEVICE(BANDB_VID, BANDB_USOTL4_PID) },
 	{ USB_DEVICE(BANDB_VID, BANDB_USTL4_PID) },
 	{ USB_DEVICE(BANDB_VID, BANDB_USO9ML2_PID) },
+	{ USB_DEVICE(BANDB_VID, BANDB_USOPTL4_PID) },
+	{ USB_DEVICE(BANDB_VID, BANDB_USPTL4_PID) },
+	{ USB_DEVICE(BANDB_VID, BANDB_USO9ML2DR_2_PID) },
+	{ USB_DEVICE(BANDB_VID, BANDB_USO9ML2DR_PID) },
+	{ USB_DEVICE(BANDB_VID, BANDB_USOPTL4DR2_PID) },
+	{ USB_DEVICE(BANDB_VID, BANDB_USOPTL4DR_PID) },
+	{ USB_DEVICE(BANDB_VID, BANDB_485USB9F_2W_PID) },
+	{ USB_DEVICE(BANDB_VID, BANDB_485USB9F_4W_PID) },
+	{ USB_DEVICE(BANDB_VID, BANDB_232USB9M_PID) },
+	{ USB_DEVICE(BANDB_VID, BANDB_485USBTB_2W_PID) },
+	{ USB_DEVICE(BANDB_VID, BANDB_485USBTB_4W_PID) },
+	{ USB_DEVICE(BANDB_VID, BANDB_TTL5USB9M_PID) },
+	{ USB_DEVICE(BANDB_VID, BANDB_TTL3USB9M_PID) },
+	{ USB_DEVICE(BANDB_VID, BANDB_ZZ_PROG1_USB_PID) },
 	{ USB_DEVICE(FTDI_VID, EVER_ECO_PRO_CDS) },
 	{ USB_DEVICE(FTDI_VID, FTDI_4N_GALAXY_DE_1_PID) },
 	{ USB_DEVICE(FTDI_VID, FTDI_4N_GALAXY_DE_2_PID) },
@@ -744,8 +758,7 @@ static int  ftdi_sio_probe(struct usb_serial *serial,
 					const struct usb_device_id *id);
 static int  ftdi_sio_port_probe(struct usb_serial_port *port);
 static int  ftdi_sio_port_remove(struct usb_serial_port *port);
-static int  ftdi_open(struct tty_struct *tty,
-			struct usb_serial_port *port, struct file *filp);
+static int  ftdi_open(struct tty_struct *tty, struct usb_serial_port *port);
 static void ftdi_close(struct usb_serial_port *port);
 static void ftdi_dtr_rts(struct usb_serial_port *port, int on);
 static int  ftdi_write(struct tty_struct *tty, struct usb_serial_port *port,
@@ -1694,8 +1707,7 @@ static int ftdi_submit_read_urb(struct usb_serial_port *port, gfp_t mem_flags)
 	return result;
 }
 
-static int ftdi_open(struct tty_struct *tty,
-			struct usb_serial_port *port, struct file *filp)
+static int ftdi_open(struct tty_struct *tty, struct usb_serial_port *port)
 { /* ftdi_open */
 	struct usb_device *dev = port->serial->dev;
 	struct ftdi_private *priv = usb_get_serial_port_data(port);

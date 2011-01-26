@@ -858,6 +858,9 @@ ia32_do_mmap (struct file *file, unsigned long addr, unsigned long len, int prot
 
 	prot = get_prot32(prot);
 
+	if (flags & MAP_HUGETLB)
+		return -ENOMEM;
+
 #if PAGE_SHIFT > IA32_PAGE_SHIFT
 	mutex_lock(&ia32_mmap_mutex);
 	{
@@ -1270,7 +1273,7 @@ putreg (struct task_struct *child, int regno, unsigned int value)
 	      case PT_CS:
 		if (value != __USER_CS)
 			printk(KERN_ERR
-			       "ia32.putreg: attempt to to set invalid segment register %d = %x\n",
+			       "ia32.putreg: attempt to set invalid segment register %d = %x\n",
 			       regno, value);
 		break;
 	      default:
