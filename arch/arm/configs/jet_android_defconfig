@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
 # Linux kernel version: 2.6.29
-# Mon Dec 27 19:23:24 2010
+# Wed Jan 26 22:56:50 2011
 #
 CONFIG_ARM=y
 CONFIG_SYS_SUPPORTS_APM_EMULATION=y
@@ -1375,7 +1375,9 @@ CONFIG_NEW_SENSORS=y
 CONFIG_ACCEL=y
 # CONFIG_ACCEL_BMA020 is not set
 CONFIG_ACCEL_KXSD9=y
-# CONFIG_COMPASS is not set
+CONFIG_COMPASS=y
+# CONFIG_COMPASS_AK8973B is not set
+CONFIG_COMPASS_AK8973=y
 # CONFIG_OPTICAL is not set
 
 #
