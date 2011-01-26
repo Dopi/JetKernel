@@ -1,0 +1,13 @@
+#
+## CMM configuration
+##
+#
+##menu "S3C_CMM Support"
+
+config S3C_CMM
+    bool "Codec Memory Manager"
+    depends on CPU_S3C6410
+    default n
+	help
+	    S3C_CMM
+#endmenu

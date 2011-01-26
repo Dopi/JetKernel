@@ -12,6 +12,9 @@
  * published by the Free Software Foundation.
 */
 
+#ifndef __ASM_PLAT_S3C64XX_GPIO_BANK_A_H
+#define __ASM_PLAT_S3C64XX_GPIO_BANK_A_H __FILE__
+
 #define S3C64XX_GPACON			(S3C64XX_GPA_BASE + 0x00)
 #define S3C64XX_GPADAT			(S3C64XX_GPA_BASE + 0x04)
 #define S3C64XX_GPAPUD			(S3C64XX_GPA_BASE + 0x08)
@@ -46,3 +49,4 @@
 #define S3C64XX_GPA7_UART_nRTS1		(0x02 << 28)
 #define S3C64XX_GPA7_EINT_G1_7		(0x07 << 28)
 
+#endif	/* __ASM_PLAT_S3C64XX_GPIO_BANK_A_H */

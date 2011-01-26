@@ -1,0 +1,50 @@
+comment "Select CIS module type"
+	depends on VIDEO_SAMSUNG
+
+
+config VIDEO_SAMSUNG_S5K3AA
+	tristate "S5K3AA (Samsung 1.3M CIS module, 1280x1024)"
+	depends on VIDEO_SAMSUNG
+	help
+	  TBA
+
+config VIDEO_SAMSUNG_S5K3BA
+	tristate "S5K3BA (Samsung 2.0M CIS module, 1600x1200)"
+	depends on VIDEO_SAMSUNG
+	help
+	  TBA
+
+config VIDEO_SAMSUNG_S5K4BA
+	tristate "S5K4BA (Samsung 2.0M CIS module, 1600x1200)"
+	depends on VIDEO_SAMSUNG
+	help
+	  TBA
+
+config VIDEO_SAMSUNG_ADV7180
+	tristate "ADV7180 video decoder"
+	depends on VIDEO_SAMSUNG
+	help
+	  TBA
+
+config VIDEO_SAMSUNG_APTINA_MT9P012
+	tristate "MT9P012 (Aptina 5.0M CIS module, 2592x1944)"
+	depends on VIDEO_SAMSUNG
+	help
+	  TBA
+
+config VIDEO_SAMSUNG_S5K4CA
+	tristate "S5K4CA (3.0M CIS module, 2048x1536)"
+	depends on VIDEO_SAMSUNG
+	help
+	  TBA
+
+config VIDEO_SAMSUNG_PO4010
+	tristate "PO4010N (0.1M CIS module, 352x288)"
+	depends on VIDEO_SAMSUNG
+	help
+	  TBA
+
+config VIDEO_SAMSUNG_AIT848
+	tristate "AIT848 (5.0M CIS module, 2560x1920)"
+	depends on VIDEO_SAMSUNG
+	help

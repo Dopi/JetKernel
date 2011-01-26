@@ -1,0 +1,85 @@
+
+; Script to investigate segmentation violations and other faults
+; see Linux Awareness Manual, chapter 
+;     "Debugging Linux"->"Trapping Segmentation Violation"
+
+; Call this script to set the appropriate breakpoints
+; and call it again to set the register set to the place
+; where the fault happened.
+
+; The registers are set temporarily; as soon as debugging
+; is continued (Step, Go, ...), the original registers
+; are restored.
+
+ ; see arch/arm/mm/fault.c
+ 
+ local &bad_area &die
+
+ ; page fault
+ &user_fault=address.offset(__do_user_fault+0x18)   ; +0x18 to set up local variables
+ &kernel_fault=address.offset(__do_kernel_fault+0x10)
+ Break.Set &user_fault
+ Break.Set &kernel_fault
+ 
+ ; kernel oops (die)
+ &die=address.offset(die+0x38)
+ Break.Set &die
+ 
+ ; kernel panic
+ Break.Set panic
+ 
+ ; if halted on segmentation violation
+ if (r(pc)==&user_fault)||(r(pc)==&kernel_fault)
+ (
+    print "failed at 0x" v.value(regs.uregs[15])
+    gosub swap_registers
+    enddo
+ )
+
+ ; if halted on kernel oops (die)
+ if r(pc)==&die
+ (
+    print v.string(str) " at 0x" v.value(regs.uregs[15])
+    gosub swap_registers
+    enddo
+ )
+
+ enddo
+
+
+swap_registers:
+
+ ; set register set temporarily to faulty state
+
+ local &r0  &r1  &r2  &r3  &r4  &r5  &r6  &r7 
+ local &r8  &r9  &r10 &r11 &r12 &r13 &r14
+ local &pc  &cpsr
+ local &i
+
+ ; first get all register values from local variable "regs"
+
+ &i=0.
+ while &i<15.
+ (
+   ; collect all registers to script variables &r0-&r14
+   &ic=string.cut("&i",-1)   ; to cut trailing dot
+   &r&ic=v.value(regs.uregs[&ic]) ; &r0=v.v(regs.uregs[0])
+   &i=&i+1
+ )
+ &pc=v.value(regs.uregs[15])
+ &cpsr=v.value(regs.uregs[16])
+
+; second write values into registers temporarily
+
+ Register.Set cpsr &cpsr /Task Temporary    ; set CPSR first! (regbank)
+ &i=0.
+ while &i<15.
+ (
+   &ic=string.cut("&i",-1)  ; to cut trailing dot
+   &&value=&r&ic            ; && for recursive macro parsing
+   Register.Set r&ic &value /Task Temporary  ; r.s r0 &r0
+   &i=&i+1
+ )
+ Register.Set pc &pc /Task Temporary
+
+ return

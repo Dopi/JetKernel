@@ -1,0 +1,13 @@
+#
+## G2D subsystem configuration
+##
+#
+##menu "G2D Support"
+
+config VIDEO_G2D
+    bool "Samsung FIMG-2D Driver"
+    depends on CPU_S3C6410
+    default n
+	help
+	    FIMG-2D
+#endmenu

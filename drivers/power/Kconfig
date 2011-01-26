@@ -22,6 +22,18 @@ config PDA_POWER
 	  one or two external power supplies (AC/USB) connected to main and
 	  backup batteries, and optional builtin charger.
 
+config BATTERY_S3C6410
+	tristate "Battery driver (S3C6410)"
+	depends on ARCH_S3C64XX 
+	help
+	  Say Y to enable support for batteries with s3c6410 chip.
+
+config BATTERY_S3C6410_FAKE
+    tristate "Fake battery driver (S3C6410)"
+	depends on ARCH_S3C64XX 
+    help
+      Say Y to enable support for fake batteries.
+
 config APM_POWER
 	tristate "APM emulation for class batteries"
 	depends on APM_EMULATION

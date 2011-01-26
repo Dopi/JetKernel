@@ -17,6 +17,7 @@
 /*
  * Controller registers
  */
+#define SUPPORT_CLK_GATING 1
 
 #define SDHCI_DMA_ADDRESS	0x00
 
@@ -236,6 +237,12 @@ struct sdhci_host {
 #define SDHCI_QUIRK_DATA_TIMEOUT_USES_SDCLK		(1<<24)
 
 	int			irq;		/* Device IRQ */
+	int			irq_cd;		/* SD Card Detection IRQ */
+
+	unsigned int 		hwport;
+	struct clk		*clk_io;	/* clock for io bus */
+	struct clk		*clk_bus;
+	
 	void __iomem *		ioaddr;		/* Mapped address */
 
 	const struct sdhci_ops	*ops;		/* Low level hw interface */
@@ -285,8 +292,14 @@ struct sdhci_host {
 	struct tasklet_struct	finish_tasklet;
 
 	struct timer_list	timer;		/* Timer for timeouts */
+#if SUPPORT_CLK_GATING
+	struct timer_list	busy_check_timer;
+#endif
 
 	unsigned long		private[0] ____cacheline_aligned;
+#ifdef CONFIG_CPU_FREQ
+        struct notifier_block           freq_transition;
+#endif
 };
 
 
@@ -403,6 +416,7 @@ static inline void *sdhci_priv(struct sdhci_host *host)
 
 extern int sdhci_add_host(struct sdhci_host *host);
 extern void sdhci_remove_host(struct sdhci_host *host, int dead);
+extern void sdhci_set_clock(struct sdhci_host *host, unsigned int clock);
 
 #ifdef CONFIG_PM
 extern int sdhci_suspend_host(struct sdhci_host *host, pm_message_t state);

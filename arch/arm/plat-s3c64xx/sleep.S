@@ -33,9 +33,12 @@
 	 *
 	 * entry:
 	 *	r0 = pointer to the save block
+	 * exit:
+	 *	r0 = exit code: 1 => stored data
+	 *			0 => resumed from sleep
 	*/
 
-ENTRY(s3c_cpu_save)
+ENTRY(s3c6410_cpu_save)
 	stmfd	sp!, { r4 - r12, lr }
 
 	mrc	p15, 0, r4, c13, c0, 0	@ FCSE/PID
@@ -48,17 +51,13 @@ ENTRY(s3c_cpu_save)
 	mrc	p15, 0, r11, c1, c0, 2	@ Co-processor access controls
 
 	stmia	r0, { r4 - r13 }	@ Save CP registers and SP
+	mov	r0, #0
+	ldmfd	sp, { r4 - r12, pc }	@ return, not disturbing SP
 
-	@@ save our state to ram
-	bl	s3c_pm_cb_flushcache
-
-	@@ call final suspend code
-	ldr	r0, =pm_cpu_sleep
-	ldr	pc, [r0]
-	
 	@@ return to the caller, after the MMU is turned on.
 	@@ restore the last bits of the stack and return.
 resume_with_mmu:
+	mov	r0, #1
 	ldmfd	sp!, { r4 - r12, pc }	@ return, from sp from s3c_cpu_save
 
 	.data
@@ -69,8 +68,8 @@ resume_with_mmu:
 	 * the value can be written to (the .text segment is RO).
 	*/
 
-	.global	s3c_sleep_save_phys
-s3c_sleep_save_phys:
+	.global	s3c6410_sleep_save_phys
+s3c6410_sleep_save_phys:
 	.word	0
 
 	/* Sleep magic, the word before the resume entry point so that the
@@ -87,7 +86,7 @@ s3c_sleep_save_phys:
 	 * the kernel C code to finish the resume code.
 	*/
 
-ENTRY(s3c_cpu_resume)
+ENTRY(s3c6410_cpu_resume)
 	msr	cpsr_c, #PSR_I_BIT | PSR_F_BIT | SVC_MODE
 	ldr	r2, =LL_UART		/* for debug */
 
@@ -122,7 +121,7 @@ ENTRY(s3c_cpu_resume)
 	@@mcr	p15, 0, r0, c8, c7, 0		@ invalidate I + D TLBs
 	@@mcr	p15, 0, r0, c7, c7, 0		@ Invalidate I + D caches
 
-	ldr	r0, s3c_sleep_save_phys
+	ldr	r0, s3c6410_sleep_save_phys
 	ldmia	r0, { r4 - r13 }
 
 	mcr	p15, 0, r4, c13, c0, 0	@ FCSE/PID
@@ -142,3 +141,4 @@ ENTRY(s3c_cpu_resume)
 	mov	pc, r2				/* jump back */
 
 	.end
+

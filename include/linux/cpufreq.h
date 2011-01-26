@@ -127,6 +127,9 @@ struct cpufreq_freqs {
 	unsigned int cpu;	/* cpu nr */
 	unsigned int old;
 	unsigned int new;
+#ifdef CONFIG_ARCH_S3C64XX
+	unsigned int new_hclk;
+#endif /* CONFIG_ARCH_S3C64XX */
 	u8 flags;		/* flags of cpufreq_driver, see below. */
 };
 

@@ -1,0 +1,118 @@
+; -------- Module Debugging (2.6) --------------
+;          (AutoLoader version)
+
+; This script waits for a module to be started,
+; loads the symbols and halts the module at init_module()
+
+; Start this script with the module name (without .ko) as argument.
+; Examples: do mod_debug mymod
+
+; Prerequisites:
+; - Linux must be configured with CONFIG_KALLSYMS=y
+; - Linux must be booted
+; - Linux awareness must be configured
+; - Autoloader must be configured
+
+
+; define local macros
+ global &magic
+ local  &module &breakaddr &init
+
+; get the module name as parameter to the script
+ entry  &module
+ 
+
+; Activate autoloader for modules:
+ TASK.sYmbol.Option AutoLoad Module
+ 
+
+; Delete possibly existing breakpoints of previous module runs
+ 
+ if y.exist("\\&module")
+   Break.Delete y.secrange(\\&module\.text)
+
+
+; Wait for module to be loaded.
+; The module must be started by executing insmod at the Linux console.
+
+ ; We cannot load module symbols as long as we don't
+ ; know to which address it is loaded. So we wait for
+ ; the initialization of the module
+
+ if run()
+   Break    ; halt target for breakpoint setting
+ 
+ ; sys_init_module() is called for every module to start,
+ ; and starts notifier_call_chain() after loading, but
+ ; right before initializing the module. 
+ ; The conditional breakpoint halts only, if the desired
+ ; module is found in the module table.
+ 
+ if y.exist(blocking_notifier_call_chain)
+   &breakaddr=address.offset(blocking_notifier_call_chain)  ; since 2.6.17
+ else
+   &breakaddr=address.offset(notifier_call_chain)
+ Break.Delete &breakaddr                ; delete previous set breakpoints
+ Break.Set &breakaddr /CONDition task.mod.magic("&module")!=0xffffffff
+
+ ON PBREAKAT &breakaddr goto continue1  ; if breakpoint reached: continue
+ Go         ; let the target run and load the module
+ print "waiting for &module to be started..."
+
+ stop       ; halt script until breakpoint reached
+ 
+ ; breakpoint hit, continue script
+continue1:
+
+ Break.Delete &breakaddr
+ 
+ 
+; Yep! The module is loaded and we found it.
+
+; Now load the module symbols with relocation 
+
+ print "module &module started, loading symbols..."
+
+ sYmbol.AutoLOAD.CLEAR "&module"   ; clear possibly previous set
+ sYmbol.AutoLoad.CHECK             ; force new autoloader list
+ sYmbol.AutoLoad.TOUCH "&module"   ; force loading of process symbols
+
+
+; Now try set a breakpoint onto the module's init routine
+
+ ; get the address of the module's init routine
+
+ &magic=task.mod.magic("&module")
+ &init=v.value(((struct module*)&magic)->init)
+ 
+ if &init==0
+ (
+   print "no init routine of module &module found"
+   enddo
+ )
+ 
+ ; Set a breakpoint onto the module's init routine
+ Break.Set &init
+
+ ON PBREAKAT &init goto continue2  ; if breakpoint reached: continue
+ Go         ; let the target run and start the module
+ print "waiting for reaching module init..."
+
+ stop       ; halt script until breakpoint reached
+
+ ; breakpoint hit, continue script
+continue2: 
+         
+ Break.Delete &init
+
+
+ print "done."
+ 
+; NOTE: if finished debugging with a module, or if reloading
+ ; the module, you have to delete the symbols and restart the
+ ; module debugging. Delete the symbols with
+ ; sYmbol.AutoLoad.CLEAR "&module"
+
+
+ enddo
+ 

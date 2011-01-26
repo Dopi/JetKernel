@@ -1,0 +1,9 @@
+#
+## Makefile for MFC device driver designed by Samsung Electronics 2007
+##
+config VIDEO_MFC
+	bool "Samsung MFC (Multi Format Codec - FIMV 1.0) Driver"
+	depends on CPU_S3C6410
+	default n
+	---help---
+		This is a Samsung Multi Format Codecs (MFC) FIMV V1.0 - driver for Samsung S3C64XX

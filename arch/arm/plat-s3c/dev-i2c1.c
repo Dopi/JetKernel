@@ -1,6 +1,6 @@
 /* linux/arch/arm/plat-s3c/dev-i2c1.c
  *
- * Copyright 2008,2009 Simtec Electronics
+ * Copyright 2008 Simtec Electronics
  *	Ben Dooks <ben@simtec.co.uk>
  *	http://armlinux.simtec.co.uk/
  *
@@ -15,13 +15,13 @@
 #include <linux/string.h>
 #include <linux/platform_device.h>
 
-#include <mach/irqs.h>
 #include <mach/map.h>
 
 #include <plat/regs-iic.h>
 #include <plat/iic.h>
 #include <plat/devs.h>
 #include <plat/cpu.h>
+#include <plat/irqs.h>
 
 static struct resource s3c_i2c_resource[] = {
 	[0] = {
@@ -37,28 +37,28 @@ static struct resource s3c_i2c_resource[] = {
 };
 
 struct platform_device s3c_device_i2c1 = {
-	.name		  = "s3c2410-i2c",
+	.name		  = "s3c-i2c",
 	.id		  = 1,
 	.num_resources	  = ARRAY_SIZE(s3c_i2c_resource),
 	.resource	  = s3c_i2c_resource,
 };
 
-static struct s3c2410_platform_i2c default_i2c_data1 __initdata = {
+static struct s3c_platform_i2c default_i2c_data1 __initdata = {
 	.flags		= 0,
 	.bus_num	= 1,
 	.slave_addr	= 0x10,
 	.frequency	= 100*1000,
-	.sda_delay	= 100,
+	.sda_delay	= S3C_IICLC_SDA_DELAY5 | S3C_IICLC_FILTER_ON,
 };
 
-void __init s3c_i2c1_set_platdata(struct s3c2410_platform_i2c *pd)
+void __init s3c_i2c1_set_platdata(struct s3c_platform_i2c *pd)
 {
-	struct s3c2410_platform_i2c *npd;
+	struct s3c_platform_i2c *npd;
 
 	if (!pd)
 		pd = &default_i2c_data1;
 
-	npd = kmemdup(pd, sizeof(struct s3c2410_platform_i2c), GFP_KERNEL);
+	npd = kmemdup(pd, sizeof(struct s3c_platform_i2c), GFP_KERNEL);
 	if (!npd)
 		printk(KERN_ERR "%s: no memory for platform data\n", __func__);
 	else if (!npd->cfg_gpio)

@@ -36,6 +36,13 @@
 
 #include <asm/uaccess.h>
 
+#define LOCAL_CONFIG_PRINT_THREAD_NAME
+#ifdef LOCAL_CONFIG_PRINT_THREAD_NAME
+#define EXTRA_BUF_SIZE (TASK_COMM_LEN+4)
+#else
+#define EXTRA_BUF_SIZE 0
+#endif
+
 /*
  * for_each_console() allows you to iterate on each console
  */
@@ -50,6 +57,10 @@ void asmlinkage __attribute__((weak)) early_printk(const char *fmt, ...)
 }
 
 #define __LOG_BUF_LEN	(1 << CONFIG_LOG_BUF_SHIFT)
+
+#ifdef        CONFIG_DEBUG_LL
+extern void printascii(char *);
+#endif
 
 /* printk's without a loglevel use this.. */
 #define DEFAULT_MESSAGE_LOGLEVEL 4 /* KERN_WARNING */
@@ -144,6 +155,100 @@ static char *log_buf = __log_buf;
 static int log_buf_len = __LOG_BUF_LEN;
 static unsigned logged_chars; /* Number of chars produced since last read+clear operation */
 
+/* RAM Dump Info */
+#include <linux/sec_log.h>
+
+static struct struct_kernel_log_mark kernel_log_mark = { 
+	.special_mark_1 = (('*' << 24) | ('^' << 16) | ('^' << 8) | ('*' << 0)),
+	.special_mark_2 = (('I' << 24) | ('n' << 16) | ('f' << 8) | ('o' << 0)),
+	.special_mark_3 = (('H' << 24) | ('e' << 16) | ('r' << 8) | ('e' << 0)),
+	.special_mark_4 = (('k' << 24) | ('l' << 16) | ('o' << 8) | ('g' << 0)),
+	.p__log_buf = __log_buf
+};
+
+#ifdef CONFIG_SEC_LOG_BUF
+
+#include <linux/io.h>
+#include <linux/platform_device.h>
+
+#include <plat/reserved_mem.h>
+
+
+static struct sec_log_buf s_log_buf;			
+
+extern struct class *sec_class;
+
+extern struct device *sec_log_dev;
+
+
+static ssize_t sec_log_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return log_buf_len; 
+}
+
+static DEVICE_ATTR(log, S_IRUGO |S_IWUGO | S_IRUSR | S_IWUSR, sec_log_show, NULL);
+
+void sec_log_buf_init(void)
+{
+	char *start;
+	int i, count, copy_log_len, copy_log_start;
+
+	start = (char *)ioremap(SEC_LOG_BUF_START, SEC_LOG_BUF_SIZE);
+
+	s_log_buf.flag = (unsigned int *)start;
+	s_log_buf.count = (unsigned int *)(start + 4);
+	s_log_buf.data = (char *)(start + SEC_LOG_BUF_FLAG_SIZE);
+
+	sec_log_dev = device_create_drvdata(sec_class, NULL, 0, NULL, "sec_log");
+	if (IS_ERR(sec_log_dev))
+		pr_err("Failed to create device(sec_log)!\n");
+
+	if (device_create_file(sec_log_dev, &dev_attr_log))
+		pr_err("Failed to create device file(log)!\n");
+	
+	if (*s_log_buf.flag == SEC_LOG_BUF_MAGIC) {
+		if (log_end < log_buf_len) {
+			copy_log_start = 0;
+			copy_log_len = log_end;
+		}	
+		else {
+			copy_log_start = log_end;
+			copy_log_len = log_buf_len;
+		}
+
+		count = (*s_log_buf.count & LOG_BUF_MASK);
+
+		for (i = 0; i < copy_log_len; i++) {
+			*(s_log_buf.data + ((count + i) & LOG_BUF_MASK)) =
+				*(log_buf + ((copy_log_start + i) & LOG_BUF_MASK));	
+		}
+
+		*s_log_buf.count = ((*s_log_buf.count + copy_log_len) & LOG_BUF_MASK);
+
+		log_buf = s_log_buf.data;
+
+#if 1
+		/* RAM Dump Info */
+		kernel_log_mark.p__log_buf =
+		    (void *)(SEC_LOG_BUF_START + SEC_LOG_BUF_FLAG_SIZE);
+#endif
+
+		log_start = (log_start + count);
+		con_start = (con_start + count);
+		log_end = (log_end + count);
+	}	
+
+
+}
+
+#endif /* CONFIG_SEC_LOG_BUF */
+
+
+void* get_kernel_log_mark(void)
+{
+	return &kernel_log_mark;
+}
+
 #ifdef CONFIG_KEXEC
 /*
  * This appends the listed symbols to /proc/vmcoreinfo
@@ -198,6 +303,8 @@ static int __init log_buf_len_setup(char *str)
 		printk(KERN_NOTICE "log_buf_len: %d\n", log_buf_len);
 	}
 out:
+	/* RAM Dump Info */
+	kernel_log_mark.p__log_buf = log_buf;
 	return 1;
 }
 
@@ -255,6 +362,53 @@ static inline void boot_delay_msec(void)
 {
 }
 #endif
+
+/*
+ * Return the number of unread characters in the log buffer.
+ */
+static int log_buf_get_len(void)
+{
+	return logged_chars;
+}
+
+/*
+ * Clears the ring-buffer
+ */
+void log_buf_clear(void)
+{
+	logged_chars = 0;
+}
+
+/*
+ * Copy a range of characters from the log buffer.
+ */
+int log_buf_copy(char *dest, int idx, int len)
+{
+	int ret, max;
+	bool took_lock = false;
+
+	if (!oops_in_progress) {
+		spin_lock_irq(&logbuf_lock);
+		took_lock = true;
+	}
+
+	max = log_buf_get_len();
+	if (idx < 0 || idx >= max) {
+		ret = -1;
+	} else {
+		if (len > max - idx)
+			len = max - idx;
+		ret = len;
+		idx += (log_end - max);
+		while (len-- > 0)
+			dest[len] = LOG_BUF(idx + len);
+	}
+
+	if (took_lock)
+		spin_unlock_irq(&logbuf_lock);
+
+	return ret;
+}
 
 /*
  * Commands to do_syslog:
@@ -516,6 +670,10 @@ static void emit_log_char(char c)
 {
 	LOG_BUF(log_end) = c;
 	log_end++;
+#ifdef CONFIG_SEC_LOG_BUF
+	if (s_log_buf.count)
+		(*s_log_buf.count)++;
+#endif
 	if (log_end - log_start > log_buf_len)
 		log_start = log_end - log_buf_len;
 	if (log_end - con_start > log_buf_len)
@@ -714,6 +872,9 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 	printed_len += vscnprintf(printk_buf + printed_len,
 				  sizeof(printk_buf) - printed_len, fmt, args);
 
+#ifdef	CONFIG_DEBUG_LL
+	printascii(printk_buf);
+#endif
 
 	p = printk_buf;
 
@@ -753,13 +914,20 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 
 			if (printk_time) {
 				/* Follow the token with the time */
-				char tbuf[50], *tp;
+				char tbuf[50+EXTRA_BUF_SIZE], *tp;
 				unsigned tlen;
 				unsigned long long t;
 				unsigned long nanosec_rem;
 
 				t = cpu_clock(printk_cpu);
 				nanosec_rem = do_div(t, 1000000000);
+#ifdef LOCAL_CONFIG_PRINT_THREAD_NAME				
+				if (console_loglevel >= 9)
+				tlen = sprintf(tbuf, "[%5lu.%06lu](%15s) ",
+						(unsigned long) t,
+						nanosec_rem / 1000, current->comm);
+				else
+#endif					
 				tlen = sprintf(tbuf, "[%5lu.%06lu] ",
 						(unsigned long) t,
 						nanosec_rem / 1000);

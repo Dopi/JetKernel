@@ -535,10 +535,23 @@ config SERIAL_S3C6400
 
 config SERIAL_S5PC100
 	tristate "Samsung S5PC100 Serial port support"
-	depends on SERIAL_SAMSUNG && CPU_S5PC100
+	depends on SERIAL_SAMSUNG && (CPU_S5PC100 || CPU_S5PC110 || CPU_S5P6442)
 	default y
 	help
 	  Serial port support for the Samsung S5PC100 SoCs
+
+config SERIAL_S5PC1XX_HSUART
+        bool "Support for High speed UART(3Mbps) on S5PC1XX serial port"
+        depends on SERIAL_S5PC100=y
+        select SERIAL_CORE
+          help
+          Allow High speed UART on the S5PC1XX on-board serial ports
+
+config S5P_UART_DMA_EN
+        bool "Support for UART DMA Tx and Rx"
+        depends on SERIAL_S5PC100=y
+          help
+          Allow UART on S5PC1XX to use DMA. (instead of being interrupt driven.)
 
 config SERIAL_MAX3100
 	tristate "MAX3100 support"

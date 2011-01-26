@@ -18,4 +18,6 @@
 /* currently we just include the platform support */
 #include <plat/gpio-core.h>
 
+extern void s3c64xx_gpiolib_init(void);
+
 #endif /* __ASM_ARCH_GPIO_CORE_H */

@@ -1,0 +1,15 @@
+#
+## G2D subsystem configuration
+##
+#
+
+#menu "G2D Support"
+
+config VIDEO_JPEG
+    bool "Samsung JPEG Driver"
+    depends on CPU_S3C6410
+    default n
+	help
+	    JPEG
+
+#endmenu

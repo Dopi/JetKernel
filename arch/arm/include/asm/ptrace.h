@@ -150,7 +150,11 @@ struct pt_regs {
  */
 static inline int valid_user_regs(struct pt_regs *regs)
 {
-	if (user_mode(regs) && (regs->ARM_cpsr & PSR_I_BIT) == 0) {
+	long mode = regs->ARM_cpsr & MODE_MASK;
+
+	if (((mode == USR_MODE) ||
+	     ((elf_hwcap & HWCAP_26BIT) && (mode == USR26_MODE))) &&
+	    (regs->ARM_cpsr & PSR_I_BIT) == 0) {
 		regs->ARM_cpsr &= ~(PSR_F_BIT | PSR_A_BIT);
 		return 1;
 	}

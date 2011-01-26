@@ -12,6 +12,9 @@
  * published by the Free Software Foundation.
 */
 
+#ifndef __ASM_PLAT_S3C64XX_GPIO_BANK_F_H
+#define __ASM_PLAT_S3C64XX_GPIO_BANK_F_H __FILE__
+
 #define S3C64XX_GPFCON			(S3C64XX_GPF_BASE + 0x00)
 #define S3C64XX_GPFDAT			(S3C64XX_GPF_BASE + 0x04)
 #define S3C64XX_GPFPUD			(S3C64XX_GPF_BASE + 0x08)
@@ -69,3 +72,4 @@
 
 #define S3C64XX_GPF15_PWM_TOUT1		(0x02 << 30)
 
+#endif	/* __ASM_PLAT_S3C64XX_GPIO_BANK_F_H */

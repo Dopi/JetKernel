@@ -12,6 +12,12 @@
 
 #include <linux/mmc/core.h>
 
+// TODO-JJ 
+struct mmc_card_pm {
+	int (*suspend) (void);
+	int (*resume) (void);
+};
+
 struct mmc_cid {
 	unsigned int		manfid;
 	char			prod_name[8];

@@ -1,4 +1,4 @@
-/* linux/include/asm-arm/plat-s3c/map.h
+/* linux/arch/arm/plat-s3c/include/plat/map-base.h
  *
  * Copyright 2003, 2007 Simtec Electronics
  *	http://armlinux.simtec.co.uk/
@@ -32,15 +32,14 @@
 
 #define S3C_VA_IRQ	S3C_ADDR(0x00000000)	/* irq controller(s) */
 #define S3C_VA_SYS	S3C_ADDR(0x00100000)	/* system control */
-#define S3C_VA_MEM	S3C_ADDR(0x00200000)	/* memory control */
+#define S3C_VA_MEM	S3C_ADDR(0x00200000)	/* system control */
 #define S3C_VA_TIMER	S3C_ADDR(0x00300000)	/* timer block */
 #define S3C_VA_WATCHDOG	S3C_ADDR(0x00400000)	/* watchdog */
+#define S3C_VA_LCD	S3C_ADDR(0x00600000)	/* LCD */
 #define S3C_VA_UART	S3C_ADDR(0x01000000)	/* UART */
-
-/* This is used for the CPU specific mappings that may be needed, so that
- * they do not need to directly used S3C_ADDR() and thus make it easier to
- * modify the space for mapping.
- */
-#define S3C_ADDR_CPU(x)	S3C_ADDR(0x00500000 + (x))
+#define S3C_VA_SROMC	S3C_ADDR(0x01100000)	/* SROM SFR */
+#define S3C_VA_SYSTIMER	S3C_ADDR(0x01200000)	/* SROM SFR */
+#define S3C_VA_NAND     S3C_ADDR(0x01400000)    /* NAND */
+#define S3C_VA_ONENAND	S3C_ADDR(0x01800000)	/* onenand */
 
 #endif /* __ASM_PLAT_MAP_H */

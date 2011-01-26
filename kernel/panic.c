@@ -22,6 +22,9 @@
 #include <linux/init.h>
 #include <linux/nmi.h>
 #include <linux/dmi.h>
+#ifdef CONFIG_KERNEL_DEBUG_SEC
+#include <linux/kernel_sec_common.h>
+#endif
 
 int panic_on_oops;
 static unsigned long tainted_mask;
@@ -29,7 +32,10 @@ static int pause_on_oops;
 static int pause_on_oops_flag;
 static DEFINE_SPINLOCK(pause_on_oops_lock);
 
-int panic_timeout;
+#ifndef CONFIG_PANIC_TIMEOUT
+#define CONFIG_PANIC_TIMEOUT 0
+#endif
+int panic_timeout = CONFIG_PANIC_TIMEOUT;
 
 ATOMIC_NOTIFIER_HEAD(panic_notifier_list);
 
@@ -102,12 +108,23 @@ NORET_TYPE void panic(const char * fmt, ...)
 		 */
 		printk(KERN_EMERG "Rebooting in %d seconds..", panic_timeout);
 
+// Open source implementation
+#ifndef CONFIG_KERNEL_DEBUG_SEC
 		for (i = 0; i < panic_timeout*1000; ) {
 			touch_nmi_watchdog();
 			i += panic_blink(i);
 			mdelay(1);
 			i++;
 		}
+#else
+		/*
+		 * TODO : debugLevel considerationi should be done. (tkhwang)
+		 *        bluescreen display will be necessary.
+		 */
+		kernel_sec_save_final_context();
+		kernel_sec_set_upload_cause(UPLOAD_CAUSE_KERNEL_PANIC);
+		kernel_sec_hw_reset(false);
+#endif			
 		/*
 		 * This will not be a clean reboot, with everything
 		 * shutting down.  But if there is a chance of

@@ -9,18 +9,15 @@
 config PLAT_S3C64XX
 	bool
 	depends on ARCH_S3C64XX
-	default y
-	select CPU_V6
 	select PLAT_S3C
 	select ARM_VIC
+	default y
 	select NO_IOPORT
 	select ARCH_REQUIRE_GPIOLIB
 	select S3C_GPIO_TRACK
 	select S3C_GPIO_PULL_UPDOWN
 	select S3C_GPIO_CFG_S3C24XX
 	select S3C_GPIO_CFG_S3C64XX
-	select S3C_DEV_NAND
-	select USB_ARCH_HAS_OHCI
 	help
 	  Base platform code for any Samsung S3C64XX device
 
@@ -28,21 +25,17 @@ if PLAT_S3C64XX
 
 # Configuration options shared by all S3C64XX implementations
 
-config CPU_S3C6400_INIT
+config CPU_S3C64XX_INIT
 	bool
 	help
 	  Common initialisation code for the S3C6400 that is shared
 	  by other CPUs in the series, such as the S3C6410.
 
-config CPU_S3C6400_CLOCK
+config CPU_S3C64XX_CLOCK
 	bool
 	help
 	  Common clock support code for the S3C6400 that is shared
 	  by other CPUs in the series, such as the S3C6410.
-
-config S3C64XX_DMA
-	bool "S3C64XX DMA"
-	select S3C_DMA
 
 # platform specific device setup
 
@@ -60,14 +53,34 @@ config S3C64XX_SETUP_I2C1
 	help
 	  Common setup code for i2c bus 1.
 
-config S3C64XX_SETUP_FB_24BPP
+config S3C64XX_ADCTS
 	bool
+	default y
 	help
-	  Common setup code for S3C64XX with an 24bpp RGB display helper.
+	  Common setup code for adc and touchscreen
 
-config S3C64XX_SETUP_SDHCI_GPIO
-	bool
+
+config PWM
+	tristate "Pulse Width Modulation (PWM) Timer support"
+
+config S3C6410_PWM
+         bool "S3C6410 PWM support"
+         depends on CPU_S3C6410 && PWM
+         help
+           S3C6410 PWM support.
+
+config S3C64XX_DOMAIN_GATING
+	bool "Support S3C64XX Domain Gating"
+	depends on PM
+	default n
 	help
-	  Common setup code for S3C64XX SDHCI GPIO configurations
+	  domain power enable / disble when each domain is not active / idle
+
+config S3C64XX_DOMAIN_GATING_DEBUG
+	bool "Support S3C64XX Domain Gating Debug"
+	depends on S3C64XX_DOMAIN_GATING
+	default n
+	help
+	  s3c64xx domain gating debug message enable / disable
 
 endif

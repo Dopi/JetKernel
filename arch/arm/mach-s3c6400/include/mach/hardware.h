@@ -11,6 +11,10 @@
 #ifndef __ASM_ARCH_HARDWARE_H
 #define __ASM_ARCH_HARDWARE_H __FILE__
 
-/* currently nothing here, placeholder */
+#ifdef CONFIG_MACH_INSTINCTQ
+#include <mach/instinctq.h> 
+#elif CONFIG_MACH_INFOBOWLQ
+#include <mach/infobowlq.h> 
+#endif
 
-#endif /* __ASM_ARCH_IRQ_H */
+#endif /* __ASM_ARCH_HARDWARE_H */

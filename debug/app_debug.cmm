@@ -1,0 +1,125 @@
+; -------- Application Debugging --------------
+;          (AutoLoader version)
+
+; This script waits for an application to be started,
+; loads the symbols and halts the application at main()
+
+; NOTE: Linux and the Linux awareness must be up.
+
+; Start this script with the process name as argument.
+; Examples: do app_debug hello
+
+; Prerequisites:
+; - Linux must be booted
+; - Linux awareness must be configured
+; - Autoloader must be configured
+
+
+; define local macros
+ local &process &breakaddr
+ 
+; get the process name as parameter to the script
+ entry &process
+
+
+; Activate autoloader for processes:
+ TASK.sYmbol.Option AutoLoad Process
+ 
+
+; Delete possibly existing breakpoints of previous process runs
+ 
+ if y.exist("\\&process")
+   Break.Delete y.secrange(\\&process\.text)
+
+
+; Wait for process to be loaded.
+; The process must be started by executing it at the Linux console.
+
+ ; We cannot load process symbols as long as we don't
+ ; know the address translation. The MMU for the new
+ ; process is set up, right before set_binfmt() is called
+
+ if run()
+   Break    ; halt target for breakpoint setting
+ 
+ ; set_binfmt() is called for every process to start -
+ ; the conditional breakpoint halts only, if the desired
+ ; process is found in the process table.
+ 
+ &breakaddr=address.offset(set_binfmt)
+ Break.Delete &breakaddr                ; delete previous set breakpoints
+ Break.Set &breakaddr /CONDition task.proc.spaceid("&process")!=0xffffffff
+ 
+ ON PBREAKAT &breakaddr goto continue1  ; if breakpoint reached: continue
+ Go         ; let the target run and load the process
+ print "waiting for &process to be started..."
+
+ stop       ; halt script until breakpoint reached
+ 
+ ; breakpoint hit, continue script
+continue1:
+
+ Break.Delete &breakaddr    // delete breakpoint
+ ON PBREAKAT &breakaddr     // delete script action
+
+
+; Yep! The process is loaded and we found it.
+
+; Now load the process symbols to the space id of the process
+
+ print "process &process started, loading symbols..."
+
+ sYmbol.AutoLOAD.CLEAR "&process"   ; clear possibly previous set
+ sYmbol.AutoLoad.CHECK              ; force new autoloader list
+ sYmbol.AutoLoad.TOUCH "&process"   ; force loading of process symbols
+ 
+
+; Now set a breakpoint at it's main entry point.
+ 
+ ; NOTE: The code is still not available, so we MUST set 
+ ; onchip breakpoints, because those are the only ones
+ ; operating on virtual addresses
+
+ ; There may be more "main" symbols in the system,
+ ; we're searching for the right one.
+ 
+ Eval 0
+ sYmbol.ForEach "Eval address.offset(*)" \\&process\*\main
+ &breakaddr=eval()
+
+ if &breakaddr==0
+ (
+   print "symbol 'main' of process &process not found"
+   enddo
+ )
+
+ &breakaddr=&breakaddr+4        ; +4 to let the page load (demand paging!)
+ Break.Set &breakaddr /Onchip   ; set breakpoint on main
+
+ ON PBREAKAT &breakaddr goto continue2  ; if breakpoint reached: continue
+ Go         ; let the target run and start the process
+ print "waiting for reaching main..."
+
+ stop       ; halt script until breakpoint reached
+
+ ; breakpoint hit, continue script
+continue2: 
+         
+ Break.Delete &breakaddr    // delete breakpoint
+ ON PBREAKAT &breakaddr     // delete script action
+
+ ; reload process symbols to get correct address range
+ 
+ sYmbol.AutoLoad.CHECK              ; force new autoloader list
+ sYmbol.AutoLoad.TOUCH "&process"   ; force loading of process symbols
+
+ print "done."
+ 
+; NOTE: if finished debugging with a process, or if restarting
+ ; the process, you have to delete the symbols and restart the
+ ; application debugging. Delete the symbols with
+ ; sYmbol.AutoLoad.CLEAR "&process"
+
+
+ enddo
+ 

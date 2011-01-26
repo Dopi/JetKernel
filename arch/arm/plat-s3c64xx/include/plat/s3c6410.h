@@ -13,13 +13,16 @@
 */
 
 #ifdef CONFIG_CPU_S3C6410
+extern void s3c64xx_common_init_uarts(struct s3c_uartcfg *cfg, int no);
+extern void s3c64xx_setup_clocks(void);
 
 extern  int s3c6410_init(void);
 extern void s3c6410_init_irq(void);
 extern void s3c6410_map_io(void);
 extern void s3c6410_init_clocks(int xtal);
+extern void s3c6410_register_clocks(void);
 
-#define s3c6410_init_uarts s3c6400_common_init_uarts
+#define s3c6410_init_uarts s3c64xx_common_init_uarts
 
 #else
 #define s3c6410_init_clocks NULL

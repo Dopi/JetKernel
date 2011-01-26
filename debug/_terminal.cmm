@@ -1,0 +1,35 @@
+local &buffaddr
+local &staddr
+local &edaddr
+local &curroffset
+local &nextoffset
+local &memstring
+
+&buffaddr=v.value(__log_buf)
+
+&staddr=&buffaddr
+&edaddr=&buffaddr+0x40000
+&curroffset=&staddr
+&nextoffset
+&memstring
+
+gosub UseDataString
+gosub end
+
+UseDataString:
+area.create terminal 200. 10000.
+area.select terminal
+area terminal
+;area.reset
+
+WHILE &curroffset<&edaddr
+(
+ &nextoffset=&curroffset+0x1000
+ data.string &curroffset--&nextoffset
+ &curroffset=&nextoffset
+)
+return
+
+end:
+ENDDO
+

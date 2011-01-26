@@ -1466,6 +1466,7 @@ static inline struct sk_buff *__dev_alloc_skb(unsigned int length,
 }
 
 extern struct sk_buff *dev_alloc_skb(unsigned int length);
+extern struct sk_buff *dev_alloc_skb_kernel(unsigned int length);
 
 extern struct sk_buff *__netdev_alloc_skb(struct net_device *dev,
 		unsigned int length, gfp_t gfp_mask);

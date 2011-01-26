@@ -1,0 +1,1143 @@
+; Linux specific menu
+
+add
+menu
+(
+  popup "&Linux"
+  (
+    default
+    menuitem "Display &Tasks"   "TASK.DTask"
+    popup "Other Task Displays"
+    (
+        menuitem "Display &Processes" "TASK.Process"
+        menuitem "Display p&s-like"   "TASK.PS pid tty time stat cmd"
+    )
+    menuitem "Display &Modules" "TASK.MODule"
+    popup "Display &File System"
+    (
+        menuitem "Display FS Types"         "TASK.FS.Types"
+        menuitem "Display Mount Points"     "TASK.FS.Mount"
+        menuitem "Display Mounted Devices"  "TASK.FS.MountDevs"
+        menuitem "Display /proc"            "TASK.FS.PROC"
+    )
+    separator
+    popup "&Process Debugging"
+    (
+      menuitem "&Load Symbols..."
+      (
+        dialog
+        (
+          header "TASK.sYmbol.LOAD"
+          pos 0. 0. 30. 3.
+          box "Process name"
+          pos 1. 1. 20. 1.
+procl:    defedit "" ""
+          pos 22. 1. 7. 1.
+          button "Browse..."
+          (
+            dialog.file "*"
+            entry %line &file
+            dialog.set procl "&file"
+          )
+          pos 6. 3. 7. 1.
+          defbutton "Ok"
+          (
+            local &procl &cwd
+            &procl=dialog.string(procl)
+            TASK.sYmbol.LOAD "&procl"
+            dialog.end
+          )
+          pos 17. 3. 7. 1.
+          button "Cancel"  "dialog.end"
+        )
+      )
+      menuitem "&Delete Symbols..."
+      (
+        dialog
+        (
+          header "TASK.sYmbol.DELete"
+          pos 0. 0. 30. 3.
+          box "Process name"
+          pos 1. 1. 20. 1.
+procd:    defedit "" ""
+          pos 22. 1. 7. 1.
+          button "Browse..."
+          (
+            dialog.file "*"
+            entry %line &file
+            dialog.set procd "&file"
+          )
+          pos 6. 3. 7. 1.
+          defbutton "Ok"
+          (
+            local &procd
+            &procd=dialog.string(procd)
+            TASK.sYmbol.DELete "&procd"
+            dialog.end
+          )
+          pos 17. 3. 7. 1.
+          button "Cancel"  "dialog.end"
+        )
+      )
+      menuitem "Debug Process on main..."
+      (
+        global &breakaddr
+        &breakaddr=0
+        if (task.watch.active()==1)
+        (
+          dialog.ok "Please close TASK.Watch window" "before using this menu item"
+          enddo
+        )
+        if (task.y.o(autoload)&0x1)!=1
+        (
+          dialog.ok "Please configure autoloader" "to check processes"
+          enddo
+        )
+        dialog
+        (
+          header "Debug Process on main"
+          pos 0. 0. 24. 3.
+          box "process name"
+          pos 1. 1. 22. 1.
+proc:     defhotedit "" 
+          (
+            if dialog.string(proc)!=""
+              dialog.enable bok
+            else
+              dialog.disable bok
+          )
+          pos 1. 3. 22. 1.
+exec:     checkbox "send command to TERM window" ""
+          pos 2. 4.5 8.
+bok:      defbutton "Ok"
+          (
+            local &process
+            screen.always
+            dialog.disable bok
+            dialog.disable proc
+            &process=dialog.string(proc)
+            dialog.set mess "Checking process &process..."
+            if run()
+              Break
+            if task.proc.spaceid("&process")!=0xffffffff
+            (
+              sYmbol.AutoLOAD.CLEAR "&process"
+              sYmbol.AutoLoad.CHECK
+              sYmbol.AutoLOAD.TOUCH "&process"
+              if y.exist(\\&process)
+                dialog.ok "Process &process already running." "Symbols loaded."
+              else
+                dialog.ok "Process &process already running." "No symbol file found."
+              JUMPTO close
+            )
+            dialog.set mess "Please start process &process"
+            &breakaddr=address.offset(set_binfmt)
+            Break.Delete &breakaddr
+            Break.Set &breakaddr /CONDition task.proc.spaceid("&process")!=0xffffffff
+            ON PBREAKAT &breakaddr goto breaked1
+            Go
+            if dialog.boolean(exec)
+              TERM.OUT "&process" 0x0a
+            stop
+breaked1:          
+            dialog.set mess "Process &process started. Loading symbols..."
+            Break.Delete &breakaddr
+            ON PBREAKAT &breakaddr
+            &breakaddr=0
+            sYmbol.AutoLOAD.CLEAR "&process"
+            sYmbol.AutoLOAD.CHECK
+            sYmbol.AutoLOAD.TOUCH "&process"
+            Eval 0
+            sYmbol.ForEach "Eval address.offset(*)" \\&process\*\main
+            &breakaddr=eval()
+            if &breakaddr==0
+            (
+              dialog.ok "Symbol 'main' of process &process not found."
+              JUMPTO close
+            )
+            &breakaddr=&breakaddr+4
+            dialog.set mess "Waiting for reaching main..."
+            Break.Set &breakaddr /Onchip
+            ;sYmbol.ForEach "Break.Set " \\&process\*\main ; don't use &breakaddr -- to retain T:/R:
+            ON PBREAKAT &breakaddr goto breaked2
+            Go
+            stop
+breaked2:          
+            JUMPTO close
+          )
+          pos 14. 4.5 8.
+          button "Cancel" "JUMPTO close"
+          pos 0. 6. 24. 1.
+mess:     edit "Please enter process name" ""
+          close "JUMPTO close"
+        )
+        dialog.disable bok
+        dialog.disable mess
+        stop
+close:
+        if &breakaddr!=0
+        (
+          if run()
+            Break
+          Break.Delete &breakaddr
+          ON PBREAKAT &breakaddr
+          &breakaddr=0
+        )
+        dialog.end
+        enddo
+      )
+      addhere
+      popup "&Watch Processes"
+      (
+        menuitem "&Add..."
+        (
+          dialog
+          (
+            header "TASK.Watch.Add"
+            pos 0. 0. 24. 3.
+            box "Process name"
+            pos 1. 1. 22. 1.
+wproca:     defedit "" ""
+            pos 2. 3. 7. 1.
+            defbutton "Ok"
+            (
+              local &wproca
+              &wproca=dialog.string(wproca)
+              TASK.Watch.View "&wproca"
+              dialog.end
+            )
+            pos 15. 3. 7. 1.
+            button "Cancel"  "dialog.end"
+          )
+        )
+        menuitem "&Remove..."
+        (
+          dialog
+          (
+            header "TASK.Watch.DELete"
+            pos 0. 0. 24. 3.
+            box "Process name"
+            pos 1. 1. 22. 1.
+wprocd:     defedit "" ""
+            pos 2. 3. 7. 1.
+            defbutton "Ok"
+            (
+              local &wprocd
+              &wprocd=dialog.string(wprocd)
+              TASK.Watch.DELete "&wprocd"
+              dialog.end
+            )
+            pos 15. 3. 7. 1.
+            button "Cancel"  "dialog.end"
+          )
+        )
+      )
+      separator
+      menuitem "Scan Process MMU Pages..."
+      (
+        dialog
+        (
+            header "MMU.TaskPageTable.SCAN"
+            pos 0. 0. 24. 3.
+            box "Process name"
+            pos 1. 1. 22. 1.
+wproca:     defedit "" ""
+            pos 2. 3. 7. 1.
+            defbutton "Ok"
+            (
+              local &wproca
+              &wproca=dialog.string(wproca)
+              MMU.TaskPageTable.SCAN "&wproca"
+              dialog.end
+            )
+            pos 15. 3. 7. 1.
+            button "Cancel"  "dialog.end"
+        )
+      )
+      menuitem "Scan All MMU Tables" "MMU.SCANALL"
+      ;separator
+      ;menuitem "Help Process Debugging" "HELP __RTOS_LINUX__S_User_Processes"
+    )
+    popup "&Module Debugging"
+    (
+      menuitem "&Load Symbols..."
+      (
+        dialog
+        (
+          header "TASK.sYmbol.LOADMod"
+          pos 0. 0. 30. 3.
+          box "Module name"
+          pos 1. 1. 20. 1.
+modl:     defedit "" ""
+          pos 22. 1. 7. 1.
+          button "Browse..."
+          (
+            dialog.file "*.ko"
+            entry %line &file
+            dialog.set modl "&file"
+          )
+          pos 6. 3. 7. 1.
+          defbutton "Ok"
+          (
+            local &modl
+            &modl=dialog.string(modl)
+            TASK.sYmbol.LOADMod "&modl"
+            dialog.end
+          )
+          pos 17. 3. 7. 1.
+          button "Cancel"  "dialog.end"
+        )
+      )
+      menuitem "&Delete Symbols..."
+      (
+        dialog
+        (
+          header "TASK.sYmbol.DELeteMod"
+          pos 0. 0. 30. 3.
+          box "Module name"
+          pos 1. 1. 20. 1.
+modd:     defedit "" ""
+          pos 22. 1. 7. 1.
+          button "Browse..."
+          (
+            dialog.file "*.ko"
+            entry %line &file
+            dialog.set modd "&file"
+          )
+          pos 6. 3. 7. 1.
+          defbutton "Ok"
+          (
+            local &modd
+            &modd=dialog.string(modd)
+            TASK.sYmbol.DELeteMod "&modd"
+            dialog.end
+          )
+          pos 17. 3. 7. 1.
+          button "Cancel"  "dialog.end"
+        )
+      )
+      menuitem "Debug Module on init (2.4)..."
+      (
+        global &breakaddr
+        &breakaddr=0
+        if (task.y.o(autoload)&0x4)!=0x4
+        (
+          dialog.ok "Please configure autoloader" "to check kernel modules"
+          enddo
+        )
+        dialog
+        (
+          header "Debug Module on init"
+          pos 0. 0. 24. 3.
+          box "module name (without .o)"
+          pos 1. 1. 22. 1.
+modu:     defhotedit "" 
+          (
+            if dialog.string(modu)!=""
+              dialog.enable bok
+            else
+              dialog.disable bok
+          )
+          pos 2. 3. 8.
+bok:      defbutton "Ok"
+          (
+            local &module
+            screen.always
+            dialog.disable bok
+            dialog.disable modu
+            &module=dialog.string(modu)
+            dialog.set mess "Checking module &module..."
+            if run()
+              Break
+            if task.mod.magic("&module")!=0xffffffff
+            (
+              sYmbol.AutoLOAD.CLEAR "&module"
+              sYmbol.AutoLoad.CHECK
+              sYmbol.AutoLOAD.TOUCH "&module"
+              if y.exist(\\&module)
+                dialog.ok "Module &module already loaded." "Symbols loaded."
+              else
+                dialog.ok "Module &module already loaded." "No symbol file found."
+              dialog.end
+              enddo
+            )
+            dialog.set mess "Please insert module &module"
+            &breakaddr=address.offset(sys_init_module\1)
+            Break.Set &breakaddr /CONDition task.mod.magic("&module")!=0xffffffff
+            on pbreakat &breakaddr goto breaked1
+            Go
+            stop
+breaked1:          
+            dialog.set mess "Module &module started. Loading symbols..."
+            Break.Delete &breakaddr
+            &breakaddr=0
+            sYmbol.AutoLOAD.CLEAR "&module"
+            sYmbol.AutoLOAD.CHECK
+            sYmbol.AutoLOAD.TOUCH "&module"
+            &magic=task.mod.magic("&module")
+            &breakaddr=v.value(((struct module*)&magic)->init)
+            if &breakaddr==0
+            (
+              dialog.ok "Init routine of module &module not found."
+              dialog.end
+              enddo
+            )
+            dialog.set mess "Waiting for reaching init..."
+            Break.Set &breakaddr
+            on pbreakat &breakaddr goto breaked2
+            Go
+            stop
+breaked2:          
+            Break.Delete &breakaddr
+            &breakaddr=0
+            dialog.end
+          )
+          pos 14. 3. 8.
+          button "Cancel" 
+          (
+            if &breakaddr!=0
+            (
+              if run()
+                Break
+              b.d &breakaddr
+            )
+            dialog.end
+            end
+          )
+          pos 0. 5. 24. 1.
+mess:     edit "Please enter module name" ""
+        )
+        dialog.disable bok
+        dialog.disable mess
+      )
+      menuitem "Debug Module on init (2.6)..."
+      (
+        global &breakaddr
+        &breakaddr=0
+        if (task.y.o(autoload)&0x4)!=0x4
+        (
+          dialog.ok "Please configure autoloader" "to check kernel modules"
+          enddo
+        )
+        dialog
+        (
+          header "Debug Module on init"
+          pos 0. 0. 24. 3.
+          box "module name (without .ko)"
+          pos 1. 1. 22. 1.
+modu:     defhotedit "" 
+          (
+            if dialog.string(modu)!=""
+              dialog.enable bok
+            else
+              dialog.disable bok
+          )
+          pos 2. 3. 8.
+bok:      defbutton "Ok"
+          (
+            local &module
+            screen.always
+            dialog.disable bok
+            dialog.disable modu
+            &module=dialog.string(modu)
+            dialog.set mess "Checking module &module..."
+            if run()
+              Break
+            if task.mod.magic("&module")!=0xffffffff
+            (
+              sYmbol.AutoLOAD.CLEAR "&module"
+              sYmbol.AutoLoad.CHECK
+              sYmbol.AutoLOAD.TOUCH "&module"
+              if y.exist(\\&module)
+                dialog.ok "Module &module already loaded." "Symbols loaded."
+              else
+                dialog.ok "Module &module already loaded." "No symbol file found."
+              dialog.end
+              enddo
+            )
+            dialog.set mess "Please insert module &module"
+            if y.exist(blocking_notifier_call_chain)
+              &breakaddr=address.offset(blocking_notifier_call_chain)
+            else
+              &breakaddr=address.offset(notifier_call_chain)
+            Break.Set &breakaddr /CONDition task.mod.magic("&module")!=0xffffffff
+            on pbreakat &breakaddr goto breaked1
+            Go
+            stop
+breaked1:          
+            dialog.set mess "Module &module started. Loading symbols..."
+            Break.Delete &breakaddr
+            &breakaddr=0
+            sYmbol.AutoLOAD.CLEAR "&module"
+            sYmbol.AutoLOAD.CHECK
+            sYmbol.AutoLOAD.TOUCH "&module"
+            &magic=task.mod.magic("&module")
+            &breakaddr=v.value(((struct module*)&magic)->init)
+            if &breakaddr==0
+            (
+              dialog.ok "Init routine of module &module not found."
+              dialog.end
+              enddo
+            )
+            dialog.set mess "Waiting for reaching init..."
+            Break.Set &breakaddr
+            on pbreakat &breakaddr goto breaked2
+            Go
+            stop
+breaked2:          
+            Break.Delete &breakaddr
+            &breakaddr=0
+            dialog.end
+          )
+          pos 14. 3. 8.
+          button "Cancel" 
+          (
+            if &breakaddr!=0
+            (
+              if run()
+                Break
+              b.d &breakaddr
+            )
+            dialog.end
+            end
+          )
+          pos 0. 5. 24. 1.
+mess:     edit "Please enter module name" ""
+        )
+        dialog.disable bok
+        dialog.disable mess
+      )
+      separator
+      menuitem "Scan All MMU Tables" "MMU.SCANALL"
+    )
+    popup "&Library Debugging"
+    (
+      menuitem "&Load Symbols..."
+      (
+        dialog
+        (
+          header "TASK.sYmbol.LOADLib"
+          pos 0. 0. 30. 3.
+          box "Process name"
+          pos 1. 1. 28. 1.
+libpl:    defedit "" ""
+          pos 0. 3. 30. 3.
+          box "Library name"
+          pos 1. 4. 20. 1.
+libll:    defedit "" ""
+          pos 22. 4. 7. 1.
+          button "Browse..."
+          (
+            dialog.file "*.so"
+            entry %line &file
+            dialog.set libll "&file"
+          )
+          pos 6. 6. 7. 1.
+          defbutton "Ok"
+          (
+            local &libpl &libll
+            &libpl=dialog.string(libpl)
+            &libll=dialog.string(libll)
+            TASK.sYmbol.LOADLib "&libpl" "&libll"
+            dialog.end
+          )
+          pos 17. 6. 7. 1.
+          button "Cancel"  "dialog.end"
+        )
+      )
+      menuitem "&Delete Symbols..."
+      (
+        dialog
+        (
+          header "TASK.sYmbol.DELeteLib"
+          pos 0. 0. 30. 3.
+          box "Process name"
+          pos 1. 1. 28. 1.
+libpd:    defedit "" ""
+          pos 0. 3. 30. 3.
+          box "Library name"
+          pos 1. 4. 20. 1.
+libld:    defedit "" ""
+          pos 22. 4. 7. 1.
+          button "Browse..."
+          (
+            dialog.file "*.so"
+            entry %line &file
+            dialog.set libld "&file"
+          )
+          pos 6. 6. 7. 1.
+          defbutton "Ok"
+          (
+            local &libpd &libld
+            &libpd=dialog.string(libpd)
+            &libld=dialog.string(libld)
+            TASK.sYmbol.DELeteLib "&libpd" "&libld"
+            dialog.end
+          )
+          pos 17. 6. 7. 1.
+          button "Cancel"  "dialog.end"
+        )
+      )
+      separator
+      menuitem "Scan Process MMU Pages..."
+      (
+        dialog
+        (
+            header "MMU.TaskPageTable.SCAN"
+            pos 0. 0. 24. 3.
+            box "Process name"
+            pos 1. 1. 22. 1.
+wproca:     defedit "" ""
+            pos 2. 3. 7. 1.
+            defbutton "Ok"
+            (
+              local &wproca
+              &wproca=dialog.string(wproca)
+              MMU.TaskPageTable.SCAN "&wproca"
+              dialog.end
+            )
+            pos 15. 3. 7. 1.
+            button "Cancel"  "dialog.end"
+        )
+      )
+      menuitem "Scan All MMU Tables" "MMU.SCANALL"
+    )
+    separator
+    popup "&Autoloader"
+    (
+        menuitem "List Components"  "sYmbol.AutoLoad.List"
+        menuitem "Check Now!"       "sYmbol.AutoLoad.CHECK"
+        menuitem "Set Loader Script"
+        (
+            dialog
+            (
+                header "sYmbol.AutoLoad.CHECKLINUX"
+                pos 0. 0. 40. 3.
+                box "autoload batch script"
+                pos 1. 1. 30. 1
+cmmfile:        edit "autoload.cmm" ""
+                pos 32. 1. 7. 1.
+                button "Browse..."
+                (
+                    dialog.file "*.cmm"
+                    entry %line &file
+                    dialog.set cmmfile "&file"
+                )
+                pos 1. 3. 16. 1.
+checkon:        checkbox "automatic check" ""
+                pos 10. 4.5 8.
+                defbutton "Ok"
+                (
+                    local &log &cmm
+                    &cmm=dialog.string(cmmfile)
+                    sYmbol.AutoLoad.CHECKLINUX "do &cmm "
+                    sYmbol.AutoLoad.CHECK       ; trigger check manually
+                    if dialog.boolean(checkon)
+                        sYmbol.AutoLoad.CHECK ON    ; automatic check enabled
+                    else
+                        sYmbol.AutoLoad.CHECK OFF   ; automatic check disabled
+                    dialog.end
+                )
+                pos 22. 4.5 8.
+                button "Cancel" "dialog.end"
+            )
+        )
+        menuitem "Set Components Checked"
+        (
+            dialog
+            (
+                header "TASK.sYmbol.Option AutoLoad"
+                pos 0. 0. 25.
+                proc: checkbox "Process (Processes)"
+                (
+                    if dialog.boolean(proc)
+                        TASK.sYmbol.Option AutoLoad Process
+                    else
+                        TASK.sYmbol.Option AutoLoad NoProcess
+                )
+                mod:  checkbox "Module (Modules)"
+                (
+                    if dialog.boolean(mod)
+                        TASK.sYmbol.Option AutoLoad Module
+                    else
+                        TASK.sYmbol.Option AutoLoad NoModule
+                )
+                lib:  checkbox "Library (All Libraries)"
+                (
+                    if dialog.boolean(lib)
+                        TASK.sYmbol.Option AutoLoad Library
+                    else
+                        TASK.sYmbol.Option AutoLoad NoLibrary
+                    dialog.set clib "FALSE"
+                )
+                clib: checkbox "CurrLib (Libraries of Current Process)"
+                (
+                    if dialog.boolean(clib)
+                        TASK.sYmbol.Option AutoLoad CurrLib
+                    else
+                        TASK.sYmbol.Option AutoLoad NoLibrary
+                    dialog.set lib "FALSE"
+                )
+            )
+            dialog.set proc ((task.y.o(autoload)&0x1)!=0)
+            dialog.set mod  ((task.y.o(autoload)&0x4)!=0)
+            dialog.set lib  ((task.y.o(autoload)&0x2)!=0)
+            dialog.set clib ((task.y.o(autoload)&0x8)!=0)
+        )
+    )
+    separator
+    menuitem "&Linux Terminal" 
+    (
+      if !window.name(term)
+      (
+        winpos ,,,,,, term
+        TERM
+      )
+      else
+        wintop term
+    )
+    menuitem "Configure Terminal..."
+    (
+      if window.name(term)
+        dialog.ok "Please close terminal window first!"
+      else
+      (
+        dialog
+        (
+          header "TERM.Protocol"
+          pos 0. 0. 9.
+          tp.be:  choosebox "BufferE"
+          (
+              dialog.disable tp.com.dev
+              dialog.disable tp.com.bd
+              dialog.enable tp.be.out
+              dialog.enable tp.be.in
+          )
+          pos 10. 0. 5.
+          text "out:"
+          pos 15. 0. 6.
+          tp.be.out: edit "T32OUTBUF" ""
+          pos 23. 0. 6.
+          text "in:"
+          pos 29. 0. 6.
+          tp.be.in:  edit "T32INBUF" ""
+          pos 0. 1. 9.
+          tp.dcc: choosebox "DCC"
+          (
+              dialog.disable tp.com.dev
+              dialog.disable tp.com.bd
+              dialog.disable tp.be.out
+              dialog.disable tp.be.in
+          )
+          pos 0. 2. 9.
+          tp.com: choosebox "COM"
+          (
+              dialog.disable tp.be.out
+              dialog.disable tp.be.in
+              dialog.enable tp.com.dev
+              dialog.enable tp.com.bd
+          )
+          pos 10. 2. 5.
+          text "device:"
+          pos 15. 2. 6.
+          tp.com.dev: edit "COM1" ""
+          pos 23. 2. 6.
+          text "baudrate:"
+          pos 29. 2. 6.
+          tp.com.bd:  edit "115200." ""
+          pos 9. 3.5 7.
+          defbutton "Ok"
+          (
+            &tpbeout=dialog.string(tp.be.out)
+            &tpbein=dialog.string(tp.be.in)
+            &tpcomdev=dialog.string(tp.com.dev)
+            &tpcombd=dialog.string(tp.com.bd)
+            if dialog.boolean(tp.be)
+              TERM.METHOD BufferE &tpbeout &tpbein
+            else if dialog.boolean(tp.dcc)
+              TERM.METHOD DCC
+            else if dialog.boolean(tp.com)
+              TERM.METHOD COM &tpcomdev &tpcombd 8 NONE 1STOP NONE
+            dialog.end
+          )
+          pos 19. 3.5 7.
+          button "Cancel"  "dialog.end"
+        )
+        dialog.disable tp.be.out
+        dialog.disable tp.be.in
+        dialog.disable tp.com.dev
+        dialog.disable tp.com.bd
+        if cpufamily()!="ARM"
+          dialog.disable tp.dcc
+      )
+    )
+    ;separator
+    ;popup "&Stack Coverage"
+    ;(
+    ;  menuitem "&List Stacks"
+    ;  (
+    ;    if icd()||simulator()
+    ;      TASK.STacK.PATtern 0
+    ;    TASK.STacK
+    ;  )
+    ;  menuitem "Add Task"        "TASK.STacK.ADD"
+    ;  menuitem "Remove Task"     "TASK.STacK.ReMove"
+    ;  enable ice()||fire()
+    ;  menuitem "&Reset Coverage" "TASK.STacK.RESet"
+    ;)
+    separator
+    menuitem "Help Linux Awareness" "HELP __RTOS_LINUX_S_"
+  )
+  popup "Trace"
+  (
+    popup "List"
+    (
+      separator
+      menuitem "&Task Switches"     "Trace.List List.TASK"
+      menuitem "&Default and Tasks" "Trace.List List.TASK DEFault"
+    )
+  )
+  popup "Perf"
+  (
+    separator
+    popup "&Task Runtime"
+    (
+      menuitem "&Prepare"
+      (
+        if t.method.analyzer()
+        (
+          Analyzer.AutoInit on
+        )
+        if (ice()||fire())&&!a.mode.flow()
+        (
+          Analyzer.ReProgram
+          (
+            Sample.Enable if AlphaBreak&&Write
+          )
+          Break.Delete /Alpha
+          Break.Set task.config(magic)++(task.config(magicsize)-1) /Alpha
+        )
+        if a.mode.flow()
+        (
+          Break.Delete /TraceEnable
+          Break.Set task.config(magic) /TraceEnable
+        )
+      )
+      menuitem "[:perf]Show &Numerical"   "Trace.STATistic.TASK"
+      menuitem "[:achart]Show as &Timing" "Trace.CHART.TASK"
+      menuitem "[:achart]Tracking with Trace &List"
+      (
+        Trace.List List.TASK DEFault /Track
+        Trace.CHART.TASK /Track
+      )
+    )
+    popup "Task &Function Runtime"
+    (
+      menuitem "&Prepare"
+      (
+        if t.method.analyzer()
+        (
+          Analyzer.AutoInit on
+          Analyzer.STATistic.PreFetch on
+        )
+
+        if (ice()||fire())&&!a.mode.flow()
+        (
+          if a.config.hac()
+          (
+             Analyzer.ReProgram
+             (
+               Sample.Enable if AlphaBreak
+               Sample.Enable if BetaBreak
+               Mark.A        if AlphaBreak
+               Mark.B        if BetaBreak
+             )
+          )
+          else
+          (
+             Analyzer.ReProgram
+             (
+               Sample.Enable if AlphaBreak||BetaBreak
+               Mark.A if AlphaBreak
+               Mark.B if BetaBreak
+             )
+          )
+          Break.Delete /Alpha /Beta /Charly
+          Break.SetFunc
+          Break.Set task.config(magic)++(task.config(magicsize)-1) /Alpha
+        )
+        if a.mode.flow()
+        (
+          Break.Delete /TraceData
+          Break.Set task.config(magic) /TraceData
+        )
+      )
+      menuitem "[:perf]Show &Numerical"     "Trace.STATistic.TASKFUNC"
+      menuitem "[:perf]Show as &Tree"       "Trace.STATistic.TASKTREE"
+      menuitem "[:perf]Show &Detailed Tree" "Trace.STATistic.TASKTREE ALL"
+      menuitem "[:achart]Show as &Timing"   "Trace.CHART.TASKFUNC"
+      menuitem "[:alist]Show N&esting"      "Trace.List List.TASK FUNC TI.FUNC"
+    )
+    popup "Task &Status"
+    (
+      menuitem "&Prepare"
+      (
+        if t.method.analyzer()
+        (
+          Analyzer.AutoInit on
+        )
+        if (ice()||fire())&&!a.mode.flow()
+        (
+          Analyzer.ReProgram
+          (
+            Sample.Enable if AlphaBreak&&Write
+          )
+          Break.Delete /Alpha
+          Break.Set task.config(magic)++(task.config(magicsize)-1) /Alpha
+          TASK.TASKState
+        )
+      )
+      menuitem "[:perf]Show &Numerical"   "Trace.STATistic.TASKSTATE"
+      menuitem "[:achart]Show as &Timing" "Trace.CHART.TASKSTATE"
+      menuitem "[:achart]Tracking with Trace &List"
+      (
+        Trace.List List.TASK DEFault /Track
+        Trace.CHART.TASKSTATE /Track
+      )
+    )
+  )
+  popup "&Help"
+  (
+    menuitem "Linux Awareness Manual" "HELP __RTOS_LINUX_S_"
+  )
+)
+
+
+menu "task.dt"
+(
+  default
+  menuitem "Display detailed"
+  (
+    &address=address.offset(track.address())
+    TASK.DTask &address
+  )
+  menuitem "Display task struct"
+  (
+    &address=address.offset(track.address())
+    Var.View %m %s (struct task_struct*)&address
+  )
+  separator
+  menuitem "Display Stack Frame"  "Var.Frame /Locals /Caller /Task track.address()"
+  menuitem "Display Registers"    "Register /Task track.address()"
+  menuitem "Switch Context"       "Register.TASK track.address()"
+  separator
+  menuitem "Load Process Symbols"   "TASK.sYmbol.LOAD track.address()"
+  menuitem "Delete Process Symbols" "TASK.sYmbol.DELete track.address()"
+  menuitem "Add to Watched Processes"
+  (
+      &address=address.offset(track.address())
+      TASK.Watch.View &address
+  )
+  menuitem "Delete from Watched Processes" "TASK.Watch.DELete track.address()"
+  ;separator
+  ;menuitem "Add to Stack Cov"  "TASK.STK.ADD address.offset(track.address())"
+  ;menuitem "Rm from Stack Cov" "TASK.STK.RM  address.offset(track.address())"
+  separator
+  menuitem "Scan MMU Pages"
+  (
+    &address=address.offset(track.address())
+    MMU.TaskPageTable.SCAN &address
+  )
+  separator
+  menuitem "Dump task entry"
+  (
+    &address=address.offset(track.address())
+    Data.dump &address /l /dialog
+  )
+  separator
+  menuitem "Kill task"
+  (
+    local &rkmagic &rktname
+    &rkmagic=address.offset(track.address())
+    &rktname=task.proc.name(&rkmagic)
+    dialog.yesno "Really kill task &rktname?"
+    entry &yn
+    if &yn
+    (
+      var.set (*(((struct task_struct*)&rkmagic))).pending.signal.sig[0]=0x100
+      print "Signal SIGKILL sent to task &rktname"
+    )
+  )
+  separator
+  enable t.method.analyzer()
+  menuitem "Trace this task"
+  (
+    local &magic
+    if run()
+      break
+    &magic=address.offset(track.address())
+    if etm.contextcomp()>0
+      Break.Set 0--0xffffffff /TraceEnable /TASK &magic
+    else
+    (
+      Break.Set task.config(magic) /Write /Data &magic /TraceON
+      Break.Set task.config(magic) /Write /Data !&magic /TraceOFF
+    )
+  )
+)
+
+
+menu "task.mod"
+(
+  default
+  ;menuitem "Display detailed"
+  ;(
+  ;  &address=address.offset(track.address())
+  ;  TASK.MODule &address
+  ;)
+  menuitem "Display module struct"
+  (
+    &address=address.offset(track.address())
+    Var.View %m %s (struct module*)&address
+  )
+  separator
+  menuitem "Load Module Symbols"   "TASK.sYmbol.LOADMod track.address()"
+  menuitem "Delete Module Symbols" "TASK.sYmbol.DELeteMod track.address()"
+  separator
+  menuitem "Dump module entry"
+  (
+    &address=address.offset(track.address())
+    Data.dump &address /l /dialog
+  )
+)
+
+
+menu "task.fs.t"
+(
+  default
+  menuitem "Display detailed"
+  (
+    &address=address.offset(track.address())
+    TASK.FS.Types &address
+  )
+  menuitem "Display type struct"
+  (
+    &address=address.offset(track.address())
+    Var.View %m %s (struct file_system_type*)&address
+  )
+  separator
+  menuitem "Dump type entry"
+  (
+    &address=address.offset(track.address())
+    Data.dump &address /l /dialog
+  )
+)
+
+
+menu "task.fs.md"
+(
+  default
+  menuitem "Display detailed"
+  (
+    &address=address.offset(track.address())
+    TASK.FS.MountDevs &address
+  )
+  menuitem "Display superblock struct"
+  (
+    &address=address.offset(track.address())
+    Var.View %m %s (struct super_block*)&address
+  )
+  separator
+  menuitem "Dump superblock entry"
+  (
+    &address=address.offset(track.address())
+    Data.dump &address /l /dialog
+  )
+)
+
+
+menu "task.fs.proc"
+(
+  ;default
+  ;menuitem "Display detailed"
+  ;(
+  ;  &address=address.offset(track.address())
+  ;  TASK.FS.PROC &address
+  ;)
+  menuitem "Display proc struct"
+  (
+    &address=address.offset(track.address())
+    Var.View %m %s (struct proc_dir_entry*)&address
+  )
+  separator
+  menuitem "Dump proc dir entry"
+  (
+    &address=address.offset(track.address())
+    Data.dump &address /l /dialog
+  )
+)
+
+
+menu "task.fs.m"
+(
+  default
+  ;menuitem "Display detailed"
+  ;(
+  ;  &address=address.offset(track.address())
+  ;  TASK.FS.Mount &address
+  ;)
+  menuitem "Display mount struct"
+  (
+    &address=address.offset(track.address())
+    Var.View %o %h %s (struct vfsmount*)&address
+  )
+  separator
+  menuitem "Dump mount entry"
+  (
+    &address=address.offset(track.address())
+    Data.dump &address /l /dialog
+  )
+)
+
+
+menu "task.lib"
+(
+  default
+  ;menuitem "Display detailed"
+  ;(
+  ;  &address=address.offset(track.address())
+  ;  TASK.DTask &address
+  ;)
+  menuitem "Display Library struct"
+  (
+    &address=address.offset(track.address())
+    Var.View %m %s (struct vm_area_struct*)&address
+  )
+  separator
+  menuitem "Load Library Symbols"   "TASK.sYmbol.LOADLib track.string() track.address()"
+  menuitem "Delete Library Symbols" "TASK.sYmbol.DELeteLib track.string() track.address()"
+  separator
+  menuitem "Dump Library entry"
+  (
+    &address=address.offset(track.address())
+    Data.dump &address /l /dialog
+  )
+)
+
+
+menu "task.w"
+(
+  default
+  menuitem "Display Process"
+  (
+    &address=address.offset(track.address())
+    TASK.DTask &address
+  )
+  menuitem "Delete from List" 
+  (
+    &name=track.string()
+    TASK.Watch.DELete "&name"
+  )
+)
+
+

@@ -1,0 +1,9 @@
+#
+## Makefile for MFC device driver designed by Samsung Electronics 2007
+##
+config VIDEO_PP
+	bool "Samsung PP (Post Processor) Driver"
+	depends on CPU_S3C6410
+	default n
+	---help---
+		This is a Samsung Post Processor - driver for Samsung S3C64XX

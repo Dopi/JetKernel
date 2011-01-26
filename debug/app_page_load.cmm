@@ -1,0 +1,142 @@
+; -------- Force Page Load of Applications --------------
+
+; NOTE: Linux and the Linux awareness must be up.
+;       The debugger must be halted within the process.
+
+; start this script with an optonal parameter:
+; parameter: patch location.
+
+; examples: do app_page_load
+;           do app_page_load main
+
+
+ ; parameter: patch location
+ entry &patchaddr
+
+ ; local variables
+ local &task &process &spaceid 
+ local &codeaddr &codesize &codeend
+ local &dataaddr &datasize &dataend
+ local &org_pc &org_r2 &org_r3 &org_r4
+ local &org_code1 &org_code2 &org_code3 &org_code4 
+
+ ; check if debugger is halted
+ if run()
+ (
+   print "Error: debugger must be halted inside process"
+   enddo
+ )
+
+ ; get current process and spaceid
+ &task=data.long(D:task.config(magic))
+ &process=task.proc.name(&task)
+ &spaceid=task.proc.spaceid("&process")
+ 
+ ; check for kernel space
+ if &spaceid==0
+ (
+   print "&process runs in kernel space - no pade load"
+   enddo
+ )
+
+ ; check process sanity
+ if &task!=task.proc.magic("&process")
+    print "Warning: &process not unique - threads or multiple processes?"
+ 
+ ; get characteristics of the desired process
+ &codeaddr=task.proc.codeaddr("&process")
+ &codesize=task.proc.codesize("&process")
+ &codeend=((&codeaddr+&codesize-1)&0xfffff000)+0x1000
+ &dataaddr=task.proc.dataaddr("&process")
+ &datasize=task.proc.datasize("&process")
+ &dataend=((&dataaddr+&datasize-1)&0xfffff000)+0x1000
+ &dataaddr=&dataaddr&0xfffff000
+ 
+ ; if not specified: patch location is current PC
+ if ("&patchaddr"=="")
+    &patchaddr=r(pc)
+ else
+    &patchaddr=address.offset(R:&patchaddr)
+ 
+ ; force symbol loader to check function code *before* it is patched
+ ; (patched code may confuse the symbol system of TRACE32)
+ &var=y.name(&spaceid:&patchaddr)
+ if "&var"!=""
+ (
+   WINPOS ,,,,,, vinfo Iconic
+   Var.INFO &var
+   Printer.File
+   wp.v.info &var
+   WINCLEAR vinfo
+ )
+ 
+ ; save original register contents and patched code
+ &org_pc=r(pc)
+ &org_r2=r(r2)
+ &org_r3=r(r3)
+ &org_r4=r(r4)
+ &org_code1=data.long(R:&spaceid:&patchaddr)
+ &org_code2=data.long(R:&spaceid:&patchaddr+4)
+ &org_code3=data.long(R:&spaceid:&patchaddr+8)
+ &org_code4=data.long(R:&spaceid:&patchaddr+0xc)
+ 
+ ; remove possible breakpoints at patch location
+ Break.Delete R:&patchaddr++0x13
+ 
+ ; now write loop that loads the pages
+ ; (if XScale, use D: due to cache problems)
+ Data.Assemble R:&patchaddr ldr  r2,[r3]
+ Data.Assemble ,            add  r3,r3,#0x1000
+ Data.Assemble ,            cmp  r3,r4
+ Data.Assemble ,            bne  $-0xc
+ 
+ ; set breakpoint at end of loop
+ Break.Set R:&patchaddr+0x10
+ 
+ ; set registers to code start and end address
+ Register.Set R3 &codeaddr
+ Register.Set R4 &codeend
+ 
+ ; set PC to patch address
+ Register.Set PC &patchaddr
+ 
+ ; let the patch run
+ Go
+ print "loading code pages of process &process at &codeaddr..."
+ wait !run()
+
+ ; set registers to data start and end address
+ Register.Set R3 &dataaddr
+ Register.Set R4 &dataend
+ 
+ ; set PC to patch address
+ Register.Set PC &patchaddr
+ 
+ ; let the patch run
+ Go
+ print "loading data pages of process &process at &dataaddr..."
+ wait !run()
+
+ ; delete used breakpoint
+ Break.Delete R:&patchaddr+0x10
+ 
+ ; restore code
+ Data.Set R:&patchaddr     %Long &org_code1
+ Data.Set R:&patchaddr+4   %Long &org_code2
+ Data.Set R:&patchaddr+8   %Long &org_code3
+ Data.Set R:&patchaddr+0xc %Long &org_code4
+
+ ; restore registers
+ Register.Set PC &org_pc
+ Register.Set R2 &org_r2
+ Register.Set R3 &org_r3
+ Register.Set R4 &org_r4
+ 
+ ; scan new loaded process pages
+ print "scanning new pages of &process..."
+ MMU.TaskPageTable.SCAN "&process"
+ 
+ print "done."
+ 
+ enddo
+ 

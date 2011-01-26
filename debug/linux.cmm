@@ -1,0 +1,187 @@
+;--------------------------------------------------------------------------
+;
+;   Linux Example Script for TRACE32 RTOS debugger
+;
+;   This batchfile serves as a generic example startup script. 
+;
+;   In this example, we assume an ARM920T board with 32MB RAM at 0x20000000
+;
+;--------------------------------------------------------------------------
+
+
+ local &srcdrive
+ local &srcpath
+ &srcdrive="S:"
+ &srcpath="&srcdrive"+"\samba\linux"
+
+
+ screen.on
+
+             
+; Debugger Reset
+
+ winpage.reset
+ area.reset
+ WINPOS 0. 26. 75. 8. 0. 0. W000
+ area
+ 
+ print "resetting..."
+ 
+ RESet
+
+
+; Initializing Debugger
+ 
+ print "initializing..."
+SYStem.CPU arm1176jzf
+SYStem.JC RTCK
+SYStem.Option mmu off
+SYStem.Option dacr on
+SYStem.Option enreset off
+SYStem.Option trst off
+SYStem.MultiCore IRPRE 4
+SYStem.MultiCore DRPRE 1
+SYStem.MultiCore ETBIRPOST 5
+SYStem.MultiCore ETBDRPOST 1
+
+ SYStem.Option DACR ON          ; give Debugger global write permissions
+ ; add hardware specific options here
+ TrOnchip.Set DABORT OFF        ; used by Linux for page miss!
+ TrOnchip.Set PABORT OFF        ; used by Linux for page miss!
+ TrOnchip.Set UNDEF OFF         ; may be used by Linux for FPU detection
+ SYStem.Option MMUSPACES ON     ; enable space ids to virtual addresses
+
+ SYStem.m.a
+
+ SETUP.IMASKASM ON              ; lock interrupts while single stepping
+ 
+
+; Load the Linux kernel
+
+ ; If you are using a flashed kernel, or if you're loading 
+ ; your kernel via TFTP, use the boot monitor to do so.
+ 
+ ; Use the next lines (loading the kernel, setting registers
+ ; and boot parameters) only to load the kernel into
+ ; RAM using the debugger.
+
+ ; vmlinux starts physically at RAM start + 0x8000 
+ ; We have to adjust it from the virtual start address 
+ ; to the physical start address
+ ; i.e.: Data.LOAD.Elf vmlinux <physical start>-<virtual start>
+
+ ;print "loading Linux kernel..."
+ ;Data.LOAD.Elf vmlinux 0x20008000-0xc0008000 /nosymbol
+
+ ;Register.RESet
+
+ ; Set PC on start address of image
+ ;Register.Set PC 0x20008000
+ 
+ ; Set machine type in R1; see arch/arm/tools/mach-types
+ ;Register.Set R1 0xfb
+ 
+ ; Set boot parameter tags for linux boot
+ ;do atag-list
+
+
+; Loading initial ram disk (initrd)
+
+ ; Use the next lines only, if you want to use an initrd,
+ ; and if you want to download this with the debugger.
+
+ ; Load ram file system image into ram disk
+ ; The load address is either hardcoded in arch/arm/<board>/arch.c,
+ ; or must be passed by a boot parameter, or as command line option
+ 
+; print "loading ramdisk..."
+ ;Data.LOAD.Binary ramdisk.img.gz 0x22000000 /noclear /nosymbol
+ 
+
+; Load the Linux kernel symbols into the debugger
+ ; use /strippart and /path to map source paths, if necessary
+ 
+ print "loading Linux kernel symbols..."
+ Data.LOAD.Elf ../vmlinux /nocode /strippart 12. 
+
+
+; Open a Code Window -- we like to see something
+
+ WINPOS 0. 0. 75. 20.
+ Data.List
+ screen
+ 
+
+; Declare the MMU format to the debugger
+ ; - table format is "LINUX"
+ ; - table base address is at label "swapper_pg_dir"
+ ; - kernel address translation
+ ; Map the virtual kernel symbols to physical addresses to give 
+ ; the debugger access to it before CPU MMU is initialized
+ ; Here, we assume 32MB RAM at physical address 0x20000000
+
+ print "initializing debugger MMU..."
+ ;MMU.FORMAT LINUX swapper_pg_dir 0xc0000000--0xcfffffff 0x50000000
+ 
+ ; prepare debugger translation
+; TRANSlation.Create 0xc0000000--0xcfffffff 0x50000000   ; map kernel pages at RAM start
+; TRANSlation.COMMON 0xc0000000--0xffffffff              ; common area for kernel and processes
+; TRANSlation.TableWalk ON       ; debugger uses a table walk to decode virtual addresses
+; TRANSlation.ON                 ; switch on debugger(!) address translation 
+ 
+
+; Initialize Linux Awareness
+
+ ; Note that the Linux awareness needs the kernel symbols to work
+ 
+ print "initializing Linux support..."
+ TASK.CONFIG linux          ; loads Linux awareness (linux.t32)
+ MENU.ReProgram linux       ; loads Linux menu (linux.men)
+ HELP.FILTER.Add rtoslinux  ; add linux awareness manual to help filter
+
+; TASK.sYmbol.Option MMUSCAN OFF  ; not necessary with tablewalk
+ 
+ ; switch on symbol autoloader
+ 
+ sYmbol.AutoLoad.CHECKLINUX "do "+os.ppd()+"/autoload "
+ 
+ ; Group kernel area to be displayed with red bar
+ GROUP.Create "kernel" 0xc0000000--0xffffffff /RED
+
+
+; Ok, we're done, let's start Linux
+ 
+ Go
+ print "starting Linux... (please wait)"
+ wait 8.s
+ Break
+ 
+ print "done."     ; done with loading and starting Linux
+
+ 
+; -------- Application Debugging --------------
+; ------------- e.g. "hello" ------------------
+
+ ; activate autoloader for processes:
+ ;TASK.sYmbol.Option AutoLoad Process
+
+ ;print "please log in and start 'system_server'"
+
+ ; script based
+   ; using the script based application debugging
+   ; gives more control over the single commands
+   ; see file "app_debug.cmm"
+   
+ ;  do app_debug system_server
+   
+ ; process watch system
+   ; the process watch system automates the actions
+   ; for application debugging
+   
+   ;WINPOS 55. 25. 40. 4.
+   ;TASK.Watch.View "system_server"
+
+   ;Go
+
+ enddo
+ 

@@ -142,4 +142,14 @@ config USB_DABUSB
 	  module will be called dabusb.
 endif # DAB
 
+if CPU_S3C6410
+source "drivers/media/s3c6410/mfc/Kconfig"
+source "drivers/media/s3c6410/pp/Kconfig"
+source "drivers/media/s3c6410/jpeg/Kconfig"
+source "drivers/media/s3c6410/g3d/Kconfig"
+source "drivers/media/s3c6410/g2d/Kconfig"
+source "drivers/media/s3c6410/camera/Kconfig"
+source "drivers/media/s3c6410/cmm/Kconfig"
+endif
+
 endif # MEDIA_SUPPORT

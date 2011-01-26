@@ -1,0 +1,49 @@
+; -------- Loading Library Symbols --------------
+
+; NOTE: Linux and the Linux awareness must be up.
+
+; start this script with the following arguments:
+; first argument:  process name
+; second argument: symbol file (with path, if necessary)
+;                  the file name MUST match the library name
+; third argument:  additional load option, if necessary
+
+; examples: do lib_symbol hello /nfsroot/lib/libc.so /gcc3
+
+ entry &process &librarypath &option
+
+ local &library &spaceid &address
+
+ ; get the library name from the symbol file path
+ &library=os.file.name("&librarypath")
+
+; Delete possibly existing symbols
+ 
+ &libname=string.mid("&library",0,string.scan("&library",".so",1))
+ if y.exist("\\&libname")
+   sYmbol.Delete \\&libname
+
+ if run()
+   Break
+
+ ; Now load the symbols of the module into the debugger
+
+ &spaceid=task.proc.spaceid("&process")
+
+ if &spaceid==0xffffffff
+ (
+    print "Sorry: process &process not found."
+    enddo
+ )
+
+ &address=task.lib.address("&library",task.proc.magic("&process"))
+
+ if &address==0xffffffff
+ (
+    print "Sorry: library &library not found."
+    enddo
+ )
+
+ print "loading &library symbols..."
+  
+ Data.LOAD.Elf &librarypath &spaceid:&address /nocode /noclear &option

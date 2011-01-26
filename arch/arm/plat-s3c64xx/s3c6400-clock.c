@@ -133,65 +133,6 @@ static struct clksrc_clk clk_mout_mpll = {
 	.sources	= &clk_src_mpll,
 };
 
-static unsigned int armclk_mask;
-
-static unsigned long s3c64xx_clk_arm_get_rate(struct clk *clk)
-{
-	unsigned long rate = clk_get_rate(clk->parent);
-	u32 clkdiv;
-
-	/* divisor mask starts at bit0, so no need to shift */
-	clkdiv = __raw_readl(S3C_CLK_DIV0) & armclk_mask;
-
-	return rate / (clkdiv + 1);
-}
-
-static unsigned long s3c64xx_clk_arm_round_rate(struct clk *clk,
-						unsigned long rate)
-{
-	unsigned long parent = clk_get_rate(clk->parent);
-	u32 div;
-
-	if (parent < rate)
-		return parent;
-
-	div = (parent / rate) - 1;
-	if (div > armclk_mask)
-		div = armclk_mask;
-
-	return parent / (div + 1);
-}
-
-static int s3c64xx_clk_arm_set_rate(struct clk *clk, unsigned long rate)
-{
-	unsigned long parent = clk_get_rate(clk->parent);
-	u32 div;
-	u32 val;
-
-	if (rate < parent / (armclk_mask + 1))
-		return -EINVAL;
-
-	rate = clk_round_rate(clk, rate);
-	div = clk_get_rate(clk->parent) / rate;
-
-	val = __raw_readl(S3C_CLK_DIV0);
-	val &= ~armclk_mask;
-	val |= (div - 1);
-	__raw_writel(val, S3C_CLK_DIV0);
-
-	return 0;
-
-}
-
-static struct clk clk_arm = {
-	.name		= "armclk",
-	.id		= -1,
-	.parent		= &clk_mout_apll.clk,
-	.get_rate	= s3c64xx_clk_arm_get_rate,
-	.set_rate	= s3c64xx_clk_arm_set_rate,
-	.round_rate	= s3c64xx_clk_arm_round_rate,
-};
-
 static unsigned long s3c64xx_clk_doutmpll_get_rate(struct clk *clk)
 {
 	unsigned long rate = clk_get_rate(clk->parent);
@@ -302,8 +243,8 @@ static int s3c64xx_setrate_clksrc(struct clk *clk, unsigned long rate)
 		return -EINVAL;
 
 	val = __raw_readl(reg);
-	val &= ~(0xf << sclk->divider_shift);
-	val |= (div - 1) << sclk->divider_shift;
+	val &= ~(0xf << sclk->shift);
+	val |= (div - 1) << sclk->shift;
 	__raw_writel(val, reg);
 
 	return 0;
@@ -328,8 +269,6 @@ static int s3c64xx_setparent_clksrc(struct clk *clk, struct clk *parent)
 		clksrc |= src_nr << sclk->shift;
 
 		__raw_writel(clksrc, S3C_CLK_SRC);
-
-		clk->parent = parent;
 		return 0;
 	}
 
@@ -345,7 +284,7 @@ static unsigned long s3c64xx_roundrate_clksrc(struct clk *clk,
 	if (rate > parent_rate)
 		rate = parent_rate;
 	else {
-		div = parent_rate / rate;
+		div = rate / parent_rate;
 
 		if (div == 0)
 			div = 1;
@@ -581,33 +520,6 @@ static struct clksrc_clk clk_irda = {
 	.reg_divider	= S3C_CLK_DIV2,
 };
 
-static struct clk *clkset_camif_list[] = {
-	&clk_h2,
-};
-
-static struct clk_sources clkset_camif = {
-	.sources	= clkset_camif_list,
-	.nr_sources	= ARRAY_SIZE(clkset_camif_list),
-};
-
-static struct clksrc_clk clk_camif = {
-	.clk	= {
-		.name		= "camera",
-		.id		= -1,
-		.ctrlbit        = S3C_CLKCON_SCLK_CAM,
-		.enable		= s3c64xx_sclk_ctrl,
-		.set_parent	= s3c64xx_setparent_clksrc,
-		.get_rate	= s3c64xx_getrate_clksrc,
-		.set_rate	= s3c64xx_setrate_clksrc,
-		.round_rate	= s3c64xx_roundrate_clksrc,
-	},
-	.shift		= 0,
-	.mask		= 0,
-	.sources	= &clkset_camif,
-	.divider_shift	= S3C6400_CLKDIV0_CAM_SHIFT,
-	.reg_divider	= S3C_CLK_DIV0,
-};
-
 /* Clock initialisation code */
 
 static struct clksrc_clk *init_parents[] = {
@@ -624,7 +536,6 @@ static struct clksrc_clk *init_parents[] = {
 	&clk_audio0,
 	&clk_audio1,
 	&clk_irda,
-	&clk_camif,
 };
 
 static void __init_or_cpufreq s3c6400_set_clksrc(struct clksrc_clk *clk)
@@ -677,9 +588,6 @@ void __init_or_cpufreq s3c6400_setup_clocks(void)
 
 	printk(KERN_DEBUG "%s: xtal is %ld\n", __func__, xtal);
 
-	/* For now assume the mux always selects the crystal */
-	clk_ext_xtal_mux.parent = xtal_clk;
-
 	epll = s3c6400_get_epll(xtal);
 	mpll = s3c6400_get_pll(xtal, __raw_readl(S3C_MPLL_CON));
 	apll = s3c6400_get_pll(xtal, __raw_readl(S3C_APLL_CON));
@@ -700,7 +608,6 @@ void __init_or_cpufreq s3c6400_setup_clocks(void)
 	clk_fout_epll.rate = epll;
 	clk_fout_apll.rate = apll;
 
-	clk_h2.rate = hclk2;
 	clk_h.rate = hclk;
 	clk_p.rate = pclk;
 	clk_f.rate = fclk;
@@ -728,29 +635,13 @@ static struct clk *clks[] __initdata = {
 	&clk_audio0.clk,
 	&clk_audio1.clk,
 	&clk_irda.clk,
-	&clk_camif.clk,
-	&clk_arm,
 };
 
-/**
- * s3c6400_register_clocks - register clocks for s3c6400 and above
- * @armclk_divlimit: Divisor mask for ARMCLK
- *
- * Register the clocks for the S3C6400 and above SoC range, such
- * as ARMCLK and the clocks which have divider chains attached.
- *
- * This call does not setup the clocks, which is left to the
- * s3c6400_setup_clocks() call which may be needed by the cpufreq
- * or resume code to re-set the clocks if the bootloader has changed
- * them.
- */
-void __init s3c6400_register_clocks(unsigned armclk_divlimit)
+void __init s3c6400_register_clocks(void)
 {
 	struct clk *clkp;
 	int ret;
 	int ptr;
-
-	armclk_mask = armclk_divlimit;
 
 	for (ptr = 0; ptr < ARRAY_SIZE(clks); ptr++) {
 		clkp = clks[ptr];

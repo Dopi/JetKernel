@@ -16,7 +16,7 @@
 #include <linux/io.h>
 #include <linux/gpio.h>
 
-#include <mach/gpio-core.h>
+#include <plat/gpio-core.h>
 
 #ifdef CONFIG_S3C_GPIO_TRACK
 struct s3c_gpio_chip *s3c_gpios[S3C_GPIO_END];
@@ -28,7 +28,7 @@ static __init void s3c_gpiolib_track(struct s3c_gpio_chip *chip)
 
 	gpn = chip->chip.base;
 	for (i = 0; i < chip->chip.ngpio; i++, gpn++) {
-		BUG_ON(gpn >= ARRAY_SIZE(s3c_gpios));
+		BUG_ON(gpn > ARRAY_SIZE(s3c_gpios));
 		s3c_gpios[gpn] = chip;
 	}
 }
@@ -139,15 +139,6 @@ __init void s3c_gpiolib_add(struct s3c_gpio_chip *chip)
 		gc->set = s3c_gpiolib_set;
 	if (!gc->get)
 		gc->get = s3c_gpiolib_get;
-
-#ifdef CONFIG_PM
-	if (chip->pm != NULL) {
-		if (!chip->pm->save || !chip->pm->resume)
-			printk(KERN_ERR "gpio: %s has missing PM functions\n",
-			       gc->label);
-	} else
-		printk(KERN_ERR "gpio: %s has no PM function\n", gc->label);
-#endif
 
 	/* gpiochip_add() prints own failure message on error. */
 	ret = gpiochip_add(gc);
