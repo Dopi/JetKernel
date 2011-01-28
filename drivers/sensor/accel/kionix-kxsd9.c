@@ -30,7 +30,7 @@
 #include <mach/param.h>
 #include <linux/random.h>
 #include <plat/gpio-cfg.h>
-#include <mach/jet_rev02.h>
+#include <mach/jet.h>
 
 #include <asm/mach-types.h>
 #include <asm/io.h>
