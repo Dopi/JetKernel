@@ -233,6 +233,21 @@ struct platform_device sec_device_opt = {
 	.id		= -1,
 };
 
+struct platform_device sec_device_max8906 = {
+	.name   = "max8906",
+	.id		= -1,
+};
+
+struct platform_device sec_device_rtc = {
+	.name   = "rtc-samsungjet",
+	.id		= -1,
+};
+
+/* struct platform_device sec_device_snd = { */
+/* 	.name   = "max9880", */
+/* 	.id		= -1, */
+/* }; */
+
 static struct sec_headset_port sec_headset_port[] = {
         {
 		{ // HEADSET detect info
@@ -348,6 +363,7 @@ static struct platform_device *instinctq_devices[] __initdata = {
 #endif
 	&s3c_device_lcd,
 	&s3c_device_keypad,
+	&sec_device_max8906,
 	&s3c_device_usbgadget,
 	&s3c_device_camif,
 	&s3c_device_mfc,
@@ -361,8 +377,9 @@ static struct platform_device *instinctq_devices[] __initdata = {
 	&sec_device_battery,
 	&sec_device_rfkill,
 	&sec_device_btsleep,  // BT_SLEEP_ENABLER
-	&s3c_device_rtc, // by Anubis
+	&sec_device_rtc, // by Anubis
 	&sec_device_headset,
+	/* &sec_device_snd, */
 	&sec_device_opt,
 };
 
@@ -930,6 +947,7 @@ static int instinctq_gpio_table[][6] = {
 	{ GPIO_BT_HOST_WAKE,	GPIO_BT_HOST_WAKE_AF,	GPIO_LEVEL_NONE, S3C_GPIO_PULL_DOWN, 0, 0 },
 #if (CONFIG_INSTINCTQ_REV >= CONFIG_INSTINCTQ_REV00)
 	{ GPIO_BT_WAKE, 	GPIO_BT_WAKE_AF, 	GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE },
+	{ GPIO_ALPS_ON, 	GPIO_ALPS_ON_AF, 	GPIO_LEVEL_HIGH, S3C_GPIO_PULL_NONE, 0, 0 }, 
 #endif
 
 	/* GPN */

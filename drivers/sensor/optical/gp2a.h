@@ -36,7 +36,7 @@
 #define SHARP_GP2AP_CLOSE   _IO(SHARP_GP2AP_IOC_MAGIC,2)      
 
 /* input device for proximity sensor */
-#define USE_INPUT_DEVICE 	0  /* 0 : No Use  ,  1: Use  */
+#define USE_INPUT_DEVICE 	1  /* 0 : No Use  ,  1: Use  */
 
 
 #define INT_CLEAR    1 /* 0 = by polling operation, 1 = by interrupt operation */

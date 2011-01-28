@@ -61,7 +61,7 @@ struct max9880_setup_data {
 	unsigned short i2c_address;
 };
 
-extern struct snd_soc_codec_dai max9880_dai;
+extern struct snd_soc_dai max9880_dai;
 extern struct snd_soc_codec_device soc_codec_dev_max9880;
 
 #endif

@@ -43,6 +43,9 @@
  *
  * 2010-08-01: Dopi <Dopi711@googlemail.com>
  *      - added calibration code
+ *
+ * 2010-11-15: Vaclav Peroutka <vaclavpe@gmail.com>
+ *      - added function for reading AIN0-AIN3
  */
 
 #include <linux/errno.h>
@@ -56,6 +59,7 @@
 #include <linux/platform_device.h>
 #include <linux/clk.h>
 #include <linux/earlysuspend.h>
+#include <linux/spinlock.h>
 
 #include <asm/io.h>
 #include <asm/irq.h>
@@ -66,6 +70,8 @@
 #include <mach/irqs.h>
 
 #include <plat/gpio-cfg.h>
+
+spinlock_t adc_lock = SPIN_LOCK_UNLOCKED;
 
 #define CONFIG_TOUCHSCREEN_S3C_DEBUG
 #undef CONFIG_TOUCHSCREEN_S3C_DEBUG
@@ -94,14 +100,10 @@
 #endif // TOUCHSCREEN_S3C_GET_CALIBRATION
 
 #ifdef CONFIG_S3C_TS_CALIBRATION
-	int xmin = 1090;
-	int xmax = 2854; 
-//	int xmin = 0;
-//	int xmax = S3C_ADCDAT0_XPDATA_MASK_12BIT;	// FIXME: only valid for 12bit 
-	int ymin = 1100;
-	int ymax = 3040;	
-//	int ymin = 0;
-//	int ymax = S3C_ADCDAT1_YPDATA_MASK_12BIT;	// FIXME: only valid for 12bit 
+	int xmin = 0;
+	int xmax = S3C_ADCDAT0_XPDATA_MASK_12BIT;	// FIXME: only valid for 12bit 
+	int ymin = 0;
+	int ymax = S3C_ADCDAT1_YPDATA_MASK_12BIT;	// FIXME: only valid for 12bit 
 
 module_param(xmin, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(xmin, "S3C-TS calibration x minimum value");
@@ -360,6 +362,8 @@ static irqreturn_t stylus_updown(int irqno, void *param)
 	unsigned long data1;
 	int updown;
 
+	spin_lock( &adc_lock);
+
 	data0 = readl(ts_base+S3C_ADCDAT0);
 	data1 = readl(ts_base+S3C_ADCDAT1);
 
@@ -478,6 +482,7 @@ start_conversion:
 	} else {
 		mod_timer(&touch_timer, jiffies+1);
 		writel(WAIT4INT(1), ts_base+S3C_ADCTSC);
+		spin_unlock( &adc_lock);
 	}
 
 int_clear:
@@ -498,6 +503,69 @@ static struct s3c_ts_mach_info *s3c_ts_get_platdata(struct device *dev)
 
 	return &s3c_ts_default_cfg;
 }
+
+static unsigned long data_for_ADCCON;
+static unsigned long data_for_ADCTSC;
+
+int s3c_ts_get_adc_data(int channel)
+{	
+	int adc_value = 0;
+	int i = 0;
+	unsigned long int data0, data1;
+
+
+	spin_lock(&adc_lock);
+	/* save data */
+	disable_irq(IRQ_ADC);
+	disable_irq(IRQ_PENDN);
+	del_timer(&touch_timer);
+
+	data_for_ADCCON = readl(ts_base+S3C_ADCCON);
+	data_for_ADCTSC = readl(ts_base+S3C_ADCTSC);
+
+	/* do real measurement */
+	writel( 0x3fc4, ts_base+S3C_ADCCON); // standby
+	writel( 0x58, ts_base+S3C_ADCTSC);
+	data0 = (data_for_ADCCON & 0xffffffc0); // save prescaler etc value for ADCCON
+
+	writel(data0 | S3C_ADCCON_SELMUX(channel) | S3C_ADCCON_STDBM, ts_base+S3C_ADCCON); // set channel
+	writel(data0 | S3C_ADCCON_SELMUX(channel), ts_base+S3C_ADCCON); // go out from STANDBY
+
+	data0 = readl(ts_base+S3C_ADCCON);
+	writel(data0 | S3C_ADCCON_ENABLE_START, ts_base+S3C_ADCCON); // start confersion
+	
+	do {
+		udelay(10);
+		data0 = readl(ts_base+S3C_ADCCON);
+		//printk("S3C-TS: ADCCON=0x%08lX\n",data0);
+		if (!(data0 & S3C_ADCCON_ENABLE_START) && (data0 & S3C_ADCCON_ECFLG)) {
+			data1 = readl(ts_base+S3C_ADCDAT0);
+			break;
+		} else {
+			if (++i > 150) {
+			  //	  printk("%s:E: read ADC failed(i=%d,port=%d, ADCON=0x%08lX)\n",__func__, (int)i, channel,data0);
+			  goto __end__;
+			}
+		}
+	} while (1);
+	adc_value = data1 & S3C_ADCDAT0_XPDATA_MASK_12BIT;
+	printk("%s : AIN%d ,Converted Value: %08lX\n", __FUNCTION__, channel, data1);
+
+ __end__:
+	/* restore data for TS */
+	writel(data_for_ADCCON, ts_base+S3C_ADCCON);
+	writel(data_for_ADCTSC, ts_base+S3C_ADCTSC);
+
+	spin_unlock( &adc_lock);
+
+	add_timer(&touch_timer);
+	enable_irq(IRQ_ADC);
+	enable_irq(IRQ_PENDN);
+
+	return adc_value;
+}
+EXPORT_SYMBOL(s3c_ts_get_adc_data); 
+
 
 /*
  * The functions for inserting/removing us as a module.
@@ -686,6 +754,14 @@ static int __init s3c_ts_probe(struct platform_device *pdev)
 	register_early_suspend(&ts->early_suspend);
 #endif	/* CONFIG_HAS_EARLYSUSPEND */
 
+	size = s3c_ts_get_adc_data(0);
+	printk("ADC channel 0 = 0x%03X\n",size);
+	size = s3c_ts_get_adc_data(1);
+	printk("ADC channel 1 = 0x%03X\n",size);
+	size = s3c_ts_get_adc_data(2);
+	printk("ADC channel 2 = 0x%03X\n",size);
+	size = s3c_ts_get_adc_data(3);
+	printk("ADC channel 3 = 0x%03X\n",size);
 	return 0;
 
 fail:

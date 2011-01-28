@@ -24,12 +24,18 @@
 #include <linux/input.h>
 #include <linux/workqueue.h>
 
-
+extern int s3c_ts_get_adc_data(int channel);
 
 #include "gp2a.h"
 
+/* This pin is used in Samsung Jet */
+#define GPIO_LUM_PWM GPIO_ALPS_ON
+#define ALS_ADC_CHANNEL (0)
+
+/*Jet: XM0OEATA - AP_PS_HOLD, PS_VOUT_30 - IRQ(20) */
+
 /*********** for debug **********************************************************/
-#if 0 
+#if 1
 #define gprintk(fmt, x... ) printk( "%s(%d): " fmt, __FUNCTION__ ,__LINE__, ## x)
 #else
 #define gprintk(x...) do { } while (0)
@@ -147,18 +153,9 @@ static void gp2a_work_func_light(struct work_struct *work)
 
 	/* read adc data from s3c64xx */
 
-	if(system_rev < 0x40)
-	{
-		adc = s3c_adc_get_adc_data(ADC_CHANNEL);
-	}
-	else
-	{
-
-		adc = s3c_adc_get_adc_data(6);
-
-	}
-	gprintk("adc = %d \n",adc);
-	gprintk("cur_state = %d\n",cur_state);
+	adc = s3c_ts_get_adc_data(ALS_ADC_CHANNEL);
+	gprintk("GP2A adc = %d \n",adc);
+	gprintk("GP2A cur_state = %d\n",cur_state);
 	
 	/* decision to check value whether it is suitable for current state */
 	if(adc < light_state[cur_state].adc_bottom_limit)
@@ -177,20 +174,20 @@ static void gp2a_work_func_light(struct work_struct *work)
 		/* ask to move state upward */
 
 		top = true;
-		gprintk("top flag is set \n");
+		gprintk("GP2A top flag is set \n");
 	}
 
 	/* process to move state downward  */
 	for(i=cur_state;i<STATE_NUM && bottom;i++)
 	{
-		gprintk("for i = %d \n",i);
+		gprintk("GP2A for i = %d \n",i);
 
 		/* decison to change state more */
 		/* if condition is true, it is unavailable to move state any more */
 		if(adc > light_state[i+1].adc_bottom_limit)
 		{
 			new_state = i +1;
-			gprintk("state is changed. cur_state is %d \n",cur_state);
+			gprintk("GP2A state is changed. cur_state is %d \n",cur_state);
 			break;
 		}
 	}
@@ -198,13 +195,13 @@ static void gp2a_work_func_light(struct work_struct *work)
 	/* process to move state upward */
 	for(i=cur_state;i>0&&top;i--)
 	{
-		gprintk("for i = %d \n",i);
+		gprintk("GP2A for i = %d \n",i);
 		/* decision to change state more */
 		/* if condition is true, it is unavailable to move state any more */
 		if(adc < light_state[i-1].adc_top_limit)
 		{
 			new_state = i - 1;
-			gprintk("state is changed. cur_state is %d \n",cur_state);
+			gprintk("GP2A state is changed. cur_state is %d \n",cur_state);
 			break;
 		}
 
@@ -229,7 +226,7 @@ static void gp2a_work_func_light(struct work_struct *work)
 
 		if(new_state != STATE_INIT)
 		{
-			printk("[LIGHT_SENSOR] Light_sensor state is changed. Old state = %d  -> New state = %d \n",cur_state,new_state);
+			printk("GP2A [LIGHT_SENSOR] Light_sensor state is changed. Old state = %d  -> New state = %d \n",cur_state,new_state);
 			cur_state = new_state;
 		}
 		backlight_level_ctrl(light_state[cur_state].brightness);
@@ -286,7 +283,7 @@ static void gp2a_work_func_prox(struct work_struct *work)
 
 	/* Read VO & INT Clear */
 	
-	gprintk("[PROXIMITY] %s : \n",__func__);
+	gprintk("GP2A [PROXIMITY] %s : \n",__func__);
 
 	if(INT_CLEAR)
 	{
@@ -301,8 +298,10 @@ static void gp2a_work_func_prox(struct work_struct *work)
 	/* Report proximity information */
 	proximity_value = vout;
 
-	report_value_for_prx(proximity_value);
-	
+	//report_value_for_prx(proximity_value);
+	input_report_abs(gp2a->input_dev, ABS_DISTANCE,proximity_value );
+	input_sync(gp2a->input_dev);
+ 
 	if(proximity_value ==0)
 	{
 		timeB = ktime_get();
@@ -370,18 +369,18 @@ irqreturn_t gp2a_irq_handler(int irq, void *dev_id)
 
 	struct gp2a_data *gp2a = dev_id;
 
-	printk("[PROXIMITY] gp2a->irq = %d\n",gp2a->irq);
+	printk("GP2A [PROXIMITY] gp2a->irq = %d\n",gp2a->irq);
 
 	if(gp2a->irq !=-1)
 	{
 		disable_irq(gp2a->irq);
-		gprintk("[PROXIMITY] disable_irq \n");
+		gprintk("GP2A [PROXIMITY] disable_irq \n");
 
 		queue_work(gp2a_wq, &gp2a->work_prox);
 
 	}
 	
-	printk("[PROXIMITY] IRQ_HANDLED \n");
+	printk("GP2A [PROXIMITY] IRQ_HANDLED \n");
 	return IRQ_HANDLED;
 
 
@@ -394,7 +393,7 @@ static int opt_attach(struct i2c_adapter *adap, int addr, int kind)
 	int ret,err=0;
 
 	
-	gprintk("\n");
+	gprintk("GP2A \n");
 	if ( !i2c_check_functionality(adap,I2C_FUNC_SMBUS_BYTE_DATA) ) {
 		printk(KERN_INFO "byte op is not permited.\n");
 		return err;
@@ -402,7 +401,7 @@ static int opt_attach(struct i2c_adapter *adap, int addr, int kind)
 	c = kzalloc(sizeof(struct i2c_client),GFP_KERNEL);
 	if (!c)
 	{
-		printk("kzalloc error \n");
+		printk("GP2A kzalloc error \n");
 		return -ENOMEM;
 
 	}
@@ -416,16 +415,16 @@ static int opt_attach(struct i2c_adapter *adap, int addr, int kind)
 
 	if ((ret = i2c_attach_client(c)) < 0)
 	{
-		printk("i2c_attach_client error\n");
+		printk("GP2A i2c_attach_client error\n");
 		goto error;
 	}
 	opt_i2c_client = c;
 
-	gprintk("\n");
+	gprintk("GP2A \n");
 	return ret;
 
 error:
-	printk("in %s , ret = %d \n",__func__,ret);
+	printk("GP2A in %s , ret = %d \n",__func__,ret);
 	kfree(c);
 	return err;
 }
@@ -433,7 +432,7 @@ error:
 static int opt_attach_adapter(struct i2c_adapter *adap)
 {
 	int ret;
-	gprintk("\n");
+	gprintk("GP2A \n");
 	ret =  i2c_probe(adap, &opt_addr_data, opt_attach);
 	return ret;
 }
@@ -445,7 +444,7 @@ static int opt_i2c_init(void)
 	
 	if( i2c_add_driver(&opt_i2c_driver))
 	{
-		printk("i2c_add_driver failed \n");
+		printk("GP2A i2c_add_driver failed \n");
 		return -ENODEV;
 	}
 
@@ -475,7 +474,7 @@ static int opt_i2c_read(u8 reg, u8 *val, unsigned int len )
 	
     if (err >= 0) return 0;
 
-    printk("%s %d i2c transfer error\n", __func__, __LINE__);
+    printk("GP2A %s %d i2c transfer error\n", __func__, __LINE__);
     return err;
 }
 
@@ -502,7 +501,7 @@ static int opt_i2c_write( u8 reg, u8 *val )
 
     if (err >= 0) return 0;
 
-    printk("%s %d i2c transfer error\n", __func__, __LINE__);
+    printk("GP2A %s %d i2c transfer error\n", __func__, __LINE__);
     return err;
 }
 
@@ -510,7 +509,7 @@ static int opt_i2c_write( u8 reg, u8 *val )
 
 static void gp2a_chip_init(void)
 {
-	gprintk("\n");
+	gprintk("GP2A \n");
 
 	/* Power On */
 	if (gpio_is_valid(GPIO_LUM_PWM))
@@ -538,7 +537,7 @@ static void gp2a_chip_init(void)
 	/* check HW revision */
 	if(system_rev == 0x30)
 	{
-		printk("[OPT_sensor]This HW is rev03 or later \n");
+		printk("GP2A [OPT_sensor]This HW is rev03 or later \n");
 		light_state[0].adc_bottom_limit = ADC_CUT_HIGH_M900_R3 - ADC_CUT_GAP_M900_R3/2;
 		light_state[1].adc_bottom_limit = ADC_CUT_LOW_M900_R3  - ADC_CUT_GAP_M900_R3/2;
 		light_state[1].adc_top_limit = ADC_CUT_HIGH_M900_R3    + ADC_CUT_GAP_M900_R3/2;
@@ -548,7 +547,7 @@ static void gp2a_chip_init(void)
 		
 	if(system_rev > 0x30)
 	{
-		printk("[OPT_sensor]This HW is rev04 or later \n");
+		printk("GP2A [OPT_sensor]This HW is rev04 or later \n");
 		light_state[0].adc_bottom_limit = ADC_CUT_HIGH_M900_R4 - ADC_CUT_GAP_M900_R4/2;
 		light_state[1].adc_bottom_limit = ADC_CUT_LOW_M900_R4  - ADC_CUT_GAP_M900_R4/2;
 		light_state[1].adc_top_limit = ADC_CUT_HIGH_M900_R4    + ADC_CUT_GAP_M900_R4/2;
@@ -576,7 +575,7 @@ static void gp2a_on(struct gp2a_data *gp2a, int type)
 	printk(KERN_INFO "[OPTICAL] gp2a_on(%d)\n",type);
 	if(type == PROXIMITY)
 	{
-		gprintk("[PROXIMITY] go nomal mode : power on \n");
+		gprintk("GP2A [PROXIMITY] go nomal mode : power on \n");
 		value = 0x18;
 		opt_i2c_write((u8)(REGS_CON),&value);
 
@@ -586,7 +585,7 @@ static void gp2a_on(struct gp2a_data *gp2a, int type)
 		value = 0x03;
 		opt_i2c_write((u8)(REGS_OPMOD),&value);
 
-		gprintk("enable irq for proximity\n");
+		gprintk("GP2A enable irq for proximity\n");
 		enable_irq(gp2a ->irq);
 
 		value = 0x00;
@@ -622,9 +621,9 @@ static void gp2a_off(struct gp2a_data *gp2a, int type)
 	if(type == PROXIMITY || type == ALL)
 	{
 	
-		gprintk("[PROXIMITY] go power down mode  \n");
+		gprintk("GP2A [PROXIMITY] go power down mode  \n");
 		
-		gprintk("disable irq for proximity \n");
+		gprintk("GP2A disable irq for proximity \n");
 		disable_irq(gp2a ->irq);
 		
 		value = 0x02;
@@ -636,7 +635,7 @@ static void gp2a_off(struct gp2a_data *gp2a, int type)
 
 	if(type ==LIGHT)
 	{
-		printk("[LIGHT_SENSOR] timer cancel for light sensor\n");
+		printk("GP2A [LIGHT_SENSOR] timer cancel for light sensor\n");
 		hrtimer_cancel(&gp2a->timer);
 		light_enable = OFF;
 		cur_state = STATE_INIT;
@@ -702,14 +701,14 @@ static ssize_t lightsensor_file_cmd_store(struct device *dev,
 	else if(value==3 && proximity_enable == OFF)
 	{
 		gp2a_on(gp2a,PROXIMITY);
-		printk("[PROXIMITY] Temporary : Power ON\n");
+		printk("GP2A [PROXIMITY] Temporary : Power ON\n");
 
 
 	}
 	else if(value==2 && proximity_enable == ON)
 	{
 		gp2a_off(gp2a,PROXIMITY);
-		printk("[PROXIMITY] Temporary : Power OFF\n");
+		printk("GP2A [PROXIMITY] Temporary : Power OFF\n");
 
 	}
 	/* for factory simple test mode */
@@ -744,7 +743,7 @@ static int gp2a_opt_probe( struct platform_device* pdev )
 	}
 
 
-	gprintk("in %s \n",__func__);
+	gprintk("GP2A in %s \n",__func__);
 	
 	/* init i2c */
 	opt_i2c_init();
@@ -796,7 +795,7 @@ static int gp2a_opt_probe( struct platform_device* pdev )
     INIT_WORK(&gp2a->work_prox, gp2a_work_func_prox);
     INIT_WORK(&gp2a->work_light, gp2a_work_func_light);
 	
-	gprintk("Workqueue Settings complete\n");
+	gprintk("GP2A Workqueue Settings complete\n");
 
 	/* misc device Settings */
 	ret = misc_register(&proximity_device);
@@ -862,8 +861,16 @@ static int gp2a_opt_probe( struct platform_device* pdev )
 	}       
 	gp2a->irq = irq;
 
-	gprintk("INT Settings complete\n");
-
+	gprintk("GP2A INT Settings complete\n");
+	/* mdelay(2000); */
+	/* i = s3c_ts_get_adc_data(0); */
+	/* printk("GP2A ADC channel 0 = 0x%03X\n",i); */
+	/* i = s3c_ts_get_adc_data(1); */
+	/* printk("GP2A ADC channel 1 = 0x%03X\n",i); */
+	/* i = s3c_ts_get_adc_data(2); */
+	/* printk("GP2A ADC channel 2 = 0x%03X\n",i); */
+	/* i = s3c_ts_get_adc_data(3); */
+	/* printk("GP2A ADC channel 3 = 0x%03X\n",i); */
 
 	/* maintain power-down mode before using sensor */
 
@@ -877,12 +884,12 @@ static int gp2a_opt_suspend( struct platform_device* pdev, pm_message_t state )
 	struct gp2a_data *gp2a = platform_get_drvdata(pdev);
 	
 	unsigned char value;
-	gprintk("[%s] : \n",__func__);
+	gprintk("GP2A [%s] : \n",__func__);
 
 	if(light_enable)
 	{
 
-		gprintk("[%s] : hrtimer_cancle \n",__func__);
+		gprintk("GP2A [%s] : hrtimer_cancle \n",__func__);
 		hrtimer_cancel(&gp2a->timer);
 	}
 
@@ -907,7 +914,7 @@ static int gp2a_opt_resume( struct platform_device* pdev )
 	struct gp2a_data *gp2a = platform_get_drvdata(pdev);
 	u8 value;
 	
-	printk("[%s] : \n",__func__);
+	printk("GP2A [%s] : \n",__func__);
 	/* wake_up source handler */
 	if(proximity_enable)
 	{
@@ -931,12 +938,12 @@ static int gp2a_opt_resume( struct platform_device* pdev )
 
 	    wake_lock_timeout(&prx_wake_lock,3 * HZ);
 		timeA = ktime_get();
-		printk("[%s] : wake_lock_timeout 3 Sec \n",__func__);
+		printk("GP2A [%s] : wake_lock_timeout 3 Sec \n",__func__);
 
 		/*
 		if(!gpio_get_value(GPIO_PS_VOUT))
 		{
-			printk("[%s] : call irq_handler forcely \n",__func__);
+			printk("GP2A [%s] : call irq_handler forcely \n",__func__);
 			gp2a_irq_handler(gp2a->irq,gp2a);
 			
 
@@ -951,7 +958,7 @@ static int gp2a_opt_resume( struct platform_device* pdev )
 	
 	if(light_enable)
 	{
-		gprintk("[%s] : hrtimer_start \n",__func__);
+		gprintk("GP2A [%s] : hrtimer_start \n",__func__);
 	    hrtimer_start(&gp2a->timer,ktime_set(light_init_period/2,0),HRTIMER_MODE_REL);
 	}
 

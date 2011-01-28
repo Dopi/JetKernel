@@ -66,6 +66,12 @@ config SND_S3C64XX_SOC_I2S_REC_DOWNSAMPLING
 	help
 	 Say Y if you want to add support for Rec Downsampling with the AK4671.
 
+config  SND_S3C64XX_SOC_MAX9880
+	tristate "Jet SoC I2S Audio - MAX9880"
+	depends on SND_S3C64XX_SOC || SND_S3C64XX_SOC_SOL
+	select SND_S3C_I2S_V32
+	select SND_SOC_MAX9880
+
 
 config  SND_SMDK6410_WM8580
 	tristate "WM8580-I2S on SMDK6410"
