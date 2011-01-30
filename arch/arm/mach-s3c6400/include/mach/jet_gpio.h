@@ -96,7 +96,7 @@
 #define GPIO_I2S_CLK				S3C64XX_GPD(0)
 #define GPIO_I2S_CLK_AF				3		// I2S CLK[0]
 
-// S3C64XX_GPD(1)
+// S3C64XX_GPD(1)	N.C.
 
 #define GPIO_I2S_LRCLK				S3C64XX_GPD(2)  // AP_I2S_SYNC
 #define GPIO_I2S_LRCLK_AF			3		// I2S LRCLK[0]
@@ -110,20 +110,20 @@
 
 /* S3C64XX_GPE(0) ~ S3C64XX_GPE(4) */
 
-//#define GPIO_BT_RST_N				S3C64XX_GPE(0)
-//#define GPIO_BT_RST_N_AF			1
+#define GPIO_VT_PCM_CLK				S3C64XX_GPE(0)
+#define GPIO_VT_PCM_CLK_AF			2		// PCM SCLK[1] 
 
 #define GPIO_WLAN_WAKE				S3C64XX_GPE(1)
-#define GPIO_WLAN_WAKE_AF			1  // output
-//#define GPIO_BOOT				S3C64XX_GPE(1)
-//#define GPIO_BOOT_AF				0		// 0 = Input
+#define GPIO_WLAN_WAKE_AF			1  		// 1 = output
 
-//#define GPIO_WLAN_RST_N				S3C64XX_GPE(2)
-//#define GPIO_WLAN_RST_N_AF			1
+#define GPIO_VT_PCM_SYNC			S3C64XX_GPE(2)
+#define GPIO_VT_PCM_SYNC_AF			2		// PCM SYNC[1]
 
-// S3C64XX_GPE(3)
+#define GPIO_VT_PCM_IN				S3C64XX_GPE(3)
+#define GPIO_VT_PCM_IN_AF			2		// PCM IN[1]
 
-// S3C64XX_GPE(4)
+#define GPIO_VT_PCM_OUT				S3C64XX_GPE(4)
+#define GPIO_VT_PCM_OUT_AF			2		// PCM OUT[1]
 
 
 /* S3C64XX_GPF(0) ~ S3C64XX_GPF(15) */
@@ -355,11 +355,11 @@
 #define GPIO_KEYSENSE_3				S3C64XX_GPK(11)
 #define GPIO_KEYSENSE_3_AF			3
 
-//#define GPIO_KEYSENSE_4				S3C64XX_GPK(12)
-//#define GPIO_KEYSENSE_4_AF			3
+#define GPIO_CAM_VGA_nRST			S3C64XX_GPK(12)
+#define GPIO_CAM_VGA_nRST_AF			1		// 1 = output
 
-//#define GPIO_KEYSENSE_5				S3C64XX_GPK(13)
-//#define GPIO_KEYSENSE_5_AF			3
+#define GPIO_CAM_VGA_nSTBY			S3C64XX_GPK(13)
+#define GPIO_CAM_VGA_nSTBY_AF			1		// 1 = output
 
 #define GPIO_MSENSE_RST_N			S3C64XX_GPK(14)
 #define GPIO_MSENSE_RST_N_AF			1
@@ -439,8 +439,8 @@
 #define GPIO_ONEDRAM_INT_N			S3C64XX_GPN(0)
 #define GPIO_ONEDRAM_INT_N_AF			2
 
-//#define GPIO_WLAN_HOST_WAKE			S3C64XX_GPN(1)
-//#define GPIO_WLAN_HOST_WAKE_AF			2
+#define GPIO_MAX8906_AMP_EN			S3C64XX_GPN(1)	
+#define GPIO_MAX8906_AMP_EN_AF			1		// 1 = output
 
 #define GPIO_MSENSE_INT				S3C64XX_GPN(2)
 #define GPIO_MSENSE_INT_AF			2
@@ -497,10 +497,10 @@
 #define GPIO_RESOUT_N				S3C64XX_GPO(3)
 #define GPIO_RESOUT_N_AF			3		// Ext. Interrupt Group7 [3]
 
-// S3C64XX_GPO(4) ~ S3C64XX_GPO(5)
+// S3C64XX_GPO(4)
 
-#define GPIO_LCD_CS_N				S3C64XX_GPO(6)
-#define GPIO_LCD_CS_N_AF			1
+#define GPIO_PCM_SEL				S3C64XX_GPO(5)	// switch to select PCM connection from/to BT module (CP=MSM or VT=S3C6410_PCM1)
+#define GPIO_PCM_SEL_AF				1		// 1 = output
 
 #define GPIO_LCD_SDI			    	S3C64XX_GPO(7)
 #define GPIO_LCD_SDI_AF				1
@@ -539,6 +539,9 @@
 
 #define GPIO_UART_SEL				S3C64XX_GPQ(2)
 #define GPIO_UART_SEL_AF			1
+
+#define GPIO_VT_CP_SW				S3C64XX_GPQ(4)	// switch to select source for speaker output (CP=MSM or VT=MAX9880) 
+#define GPIO_VT_CP_SW_AF			1		// 1 = output	
 
 #define GPIO_LCD_ID				S3C64XX_GPQ(5)
 #define GPIO_LCD_ID_AF				0
