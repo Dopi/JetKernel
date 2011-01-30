@@ -739,12 +739,6 @@ EXPORT_SYMBOL(s3c_setup_keypad_cfg_gpio);
 void s3c_setup_uart_cfg_gpio(unsigned char port)
 {
 	if (port == 0) {
-		s3c_gpio_cfgpin(GPIO_AP_FLM_RXD, S3C_GPIO_SFN(GPIO_AP_FLM_RXD_AF));
-		s3c_gpio_setpull(GPIO_AP_FLM_RXD, S3C_GPIO_PULL_NONE);
-		s3c_gpio_cfgpin(GPIO_AP_FLM_TXD, S3C_GPIO_SFN(GPIO_AP_FLM_TXD_AF));
-		s3c_gpio_setpull(GPIO_AP_FLM_TXD, S3C_GPIO_PULL_NONE);
-	}
-	if (port == 1) {
 		s3c_gpio_cfgpin(GPIO_BT_RXD, S3C_GPIO_SFN(GPIO_BT_RXD_AF));
 		s3c_gpio_setpull(GPIO_BT_RXD, S3C_GPIO_PULL_NONE);
 		s3c_gpio_cfgpin(GPIO_BT_TXD, S3C_GPIO_SFN(GPIO_BT_TXD_AF));
@@ -754,11 +748,17 @@ void s3c_setup_uart_cfg_gpio(unsigned char port)
 		s3c_gpio_cfgpin(GPIO_BT_RTS, S3C_GPIO_SFN(GPIO_BT_RTS_AF));
 		s3c_gpio_setpull(GPIO_BT_RTS, S3C_GPIO_PULL_NONE);
 	}
-	else if (port == 2) {
+	else if (port == 1) {
 		s3c_gpio_cfgpin(GPIO_AP_RXD, S3C_GPIO_SFN(GPIO_AP_RXD_AF));
 		s3c_gpio_setpull(GPIO_AP_RXD, S3C_GPIO_PULL_NONE);
 		s3c_gpio_cfgpin(GPIO_AP_TXD, S3C_GPIO_SFN(GPIO_AP_TXD_AF));
 		s3c_gpio_setpull(GPIO_AP_TXD, S3C_GPIO_PULL_NONE);
+	}
+	else if (port == 2) {
+		s3c_gpio_cfgpin(GPIO_AP_FLM_RXD, S3C_GPIO_SFN(GPIO_AP_FLM_RXD_AF));
+		s3c_gpio_setpull(GPIO_AP_FLM_RXD, S3C_GPIO_PULL_NONE);
+		s3c_gpio_cfgpin(GPIO_AP_FLM_TXD, S3C_GPIO_SFN(GPIO_AP_FLM_TXD_AF));
+		s3c_gpio_setpull(GPIO_AP_FLM_TXD, S3C_GPIO_PULL_NONE);
 	}
 }
 EXPORT_SYMBOL(s3c_setup_uart_cfg_gpio);
@@ -766,12 +766,6 @@ EXPORT_SYMBOL(s3c_setup_uart_cfg_gpio);
 void s3c_reset_uart_cfg_gpio(unsigned char port)
 {
 	if (port == 0) {
-		s3c_gpio_cfgpin(GPIO_AP_FLM_RXD, S3C_GPIO_SFN(GPIO_AP_FLM_RXD_AF));
-		s3c_gpio_setpull(GPIO_AP_FLM_RXD, S3C_GPIO_PULL_NONE);
-		s3c_gpio_cfgpin(GPIO_AP_FLM_TXD, S3C_GPIO_SFN(GPIO_AP_FLM_TXD_AF));
-		s3c_gpio_setpull(GPIO_AP_FLM_TXD, S3C_GPIO_PULL_NONE);
-	}
-	if (port == 1) {
 		s3c_gpio_cfgpin(GPIO_BT_RXD, S3C_GPIO_INPUT);
 		s3c_gpio_setpull(GPIO_BT_RXD, S3C_GPIO_PULL_DOWN);
 		s3c_gpio_cfgpin(GPIO_BT_TXD, S3C_GPIO_INPUT);
@@ -782,11 +776,17 @@ void s3c_reset_uart_cfg_gpio(unsigned char port)
 		gpio_set_value(GPIO_BT_RTS, GPIO_LEVEL_LOW);
 		s3c_gpio_setpull(GPIO_BT_RTS, S3C_GPIO_PULL_NONE);
 	}
-	else if (port == 2) {
+	else if (port == 1) {
 		s3c_gpio_cfgpin(GPIO_AP_RXD, S3C_GPIO_SFN(GPIO_AP_RXD_AF));
 		s3c_gpio_setpull(GPIO_AP_RXD, S3C_GPIO_PULL_NONE);
 		s3c_gpio_cfgpin(GPIO_AP_TXD, S3C_GPIO_SFN(GPIO_AP_TXD_AF));
 		s3c_gpio_setpull(GPIO_AP_TXD, S3C_GPIO_PULL_NONE);
+	}
+	else if (port == 2) {
+		s3c_gpio_cfgpin(GPIO_AP_FLM_RXD, S3C_GPIO_SFN(GPIO_AP_FLM_RXD_AF));
+		s3c_gpio_setpull(GPIO_AP_FLM_RXD, S3C_GPIO_PULL_NONE);
+		s3c_gpio_cfgpin(GPIO_AP_FLM_TXD, S3C_GPIO_SFN(GPIO_AP_FLM_TXD_AF));
+		s3c_gpio_setpull(GPIO_AP_FLM_TXD, S3C_GPIO_PULL_NONE);
 	}
 }
 EXPORT_SYMBOL(s3c_reset_uart_cfg_gpio);
@@ -954,6 +954,7 @@ static int instinctq_gpio_table[][6] = {
 	{ GPIO_ONEDRAM_INT_N, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 //	{ GPIO_WLAN_HOST_WAKE, GPIO_WLAN_HOST_WAKE_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_DOWN, 0, 0 },
 	{ GPIO_MSENSE_INT, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
+	{ GPIO_FM_LDO_ON, 	GPIO_FM_LDO_ON_AF,	GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_POWER_N, 0, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 //	{ GPIO_PHONE_ON, 	GPIO_PHONE_ON_AF, 	GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 	{ GPIO_PHONE_ACTIVE, 	GPIO_PHONE_ACTIVE_AF, 	GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
@@ -1048,7 +1049,7 @@ static int instinctq_sleep_gpio_table[][6] = {
 //	{ GPIO_PDA_ACTIVE, GPIO_PDA_ACTIVE_AF, GPIO_LEVEL_LOW, S3C_GPIO_PULL_NONE, 0, 0 }, 
 
 	/* GPN */
-//	{ GPIO_HALL_SW, GPIO_HALL_SW_AF, GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
+	{ GPIO_FM_LDO_ON, 	0, 			GPIO_LEVEL_NONE, S3C_GPIO_PULL_DOWN, 0, 0 },
 //	{ GPIO_PHONE_ON, 	0, 			GPIO_LEVEL_NONE, S3C_GPIO_PULL_DOWN, 0, 0 },
 //	{ GPIO_PWR_I2C_SCL, 	0, 			GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },
 //	{ GPIO_PWR_I2C_SDA, 	0, 			GPIO_LEVEL_NONE, S3C_GPIO_PULL_NONE, 0, 0 },

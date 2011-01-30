@@ -448,8 +448,8 @@
 #define GPIO_PDA_ACTIVE				S3C64XX_GPN(3)
 #define GPIO_PDA_ACTIVE_AF			1
 
-#define GPIO_HALL_SW				S3C64XX_GPN(4)  // dgahn.smd: TOCHK
-#define GPIO_HALL_SW_AF				2
+#define GPIO_FM_LDO_ON				S3C64XX_GPN(4)
+#define GPIO_FM_LDO_ON_AF			1		// 1 = output
 
 #define GPIO_POWER_N				S3C64XX_GPN(5)
 #define GPIO_POWER_N_AF				2		
@@ -458,10 +458,10 @@
 #define GPIO_PHONE_ON_AF			1		// 1 = Output
 
 #define GPIO_PHONE_ACTIVE			S3C64XX_GPN(7)
-#define GPIO_PHONE_ACTIVE_AF			2		// 0 = Input
+#define GPIO_PHONE_ACTIVE_AF			2		// 2 = Interrupt
 
-//#define GPIO_TOUCH_INT				S3C64XX_GPN(8)
-//#define GPIO_TOUCH_INT_AF			2
+#define GPIO_PMIC_INT_N				S3C64XX_GPN(8)
+#define GPIO_PMIC_INT_N_AF			2
 
 #define GPIO_PWR_I2C_SCL			S3C64XX_GPN(9)	// PWR_SCL_3.0V
 #define GPIO_PWR_I2C_SCL_AF			0		// should be output (1) but all other sources init it as input (0)
@@ -491,7 +491,8 @@
 
 // S3C64XX_GPO(1)
 
-// S3C64XX_GPO(2)
+#define GPIO_CP_BOOT_SEL			S3C64XX_GPO(2)	// aka. as FLM_SEL
+#define GPIO_CP_BOOT_SEL_AF			1		// 1 = Output
 
 #define GPIO_RESOUT_N				S3C64XX_GPO(3)
 #define GPIO_RESOUT_N_AF			3		// Ext. Interrupt Group7 [3]
