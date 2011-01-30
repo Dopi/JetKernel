@@ -502,6 +502,9 @@
 #define GPIO_PCM_SEL				S3C64XX_GPO(5)	// switch to select PCM connection from/to BT module (CP=MSM or VT=S3C6410_PCM1)
 #define GPIO_PCM_SEL_AF				1		// 1 = output
 
+#define GPIO_LCD_CS_N			    	S3C64XX_GPO(6)
+#define GPIO_LCD_CS_N_AF			1		// 1 = output
+
 #define GPIO_LCD_SDI			    	S3C64XX_GPO(7)
 #define GPIO_LCD_SDI_AF				1
 
