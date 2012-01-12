@@ -709,7 +709,7 @@ static void s3c_serial_set_termios(struct uart_port *port,
 
 	spin_lock_irqsave(&port->lock, flags);
 
-	dbg("setting ulcon to %08x, brddiv to %d\n", ulcon, quot);
+	dbg("setting ulcon to %08x, brddiv to %d\n", ulcon, ubrdiv);
 
 	wr_regl(port, S3C_ULCON, ulcon);
 	wr_regl(port, S3C_UBRDIV, ubrdiv);
@@ -1415,7 +1415,7 @@ static int __init
 s3c_serial_console_setup(struct console *co, char *options)
 {
 	struct uart_port *port;
-	int baud = 9600;
+	int baud = 115200; //KB 9600;
 	int bits = 8;
 	int parity = 'n';
 	int flow = 'n';

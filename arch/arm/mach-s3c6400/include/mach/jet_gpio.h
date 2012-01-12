@@ -446,7 +446,7 @@
 #define GPIO_MSENSE_INT_AF			2
 
 #define GPIO_PDA_ACTIVE				S3C64XX_GPN(3)
-#define GPIO_PDA_ACTIVE_AF			1
+#define GPIO_PDA_ACTIVE_AF			2
 
 #define GPIO_FM_LDO_ON				S3C64XX_GPN(4)
 #define GPIO_FM_LDO_ON_AF			1		// 1 = output
@@ -473,7 +473,7 @@
 #define GPIO_EAR_SEND_END_AF			2
 
 #define GPIO_JACK_INT_N				S3C64XX_GPN(12)
-#define GPIO_JACK_INT_N_AF			2
+#define GPIO_JACK_INT_N_AF			1
 
 #define GPIO_BOOT_EINT13			S3C64XX_GPN(13)
 #define GPIO_BOOT_EINT13_AF			2

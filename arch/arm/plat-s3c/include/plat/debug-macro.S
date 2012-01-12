@@ -15,8 +15,8 @@
  * most widely re-used */
 
 	.macro fifo_level_s3c2440 rd, rx
-		ldr	\rd, [ \rx, # S3C2410_UFSTAT ]
-		and	\rd, \rd, #S3C2440_UFSTAT_TXMASK
+		ldr	\rd, [ \rx, # S3C_UFSTAT ]
+		and	\rd, \rd, #S3C_UFSTAT_TXMASK
 	.endm
 
 #ifndef fifo_level
@@ -24,8 +24,8 @@
 #endif
 
 	.macro  fifo_full_s3c2440 rd, rx
-		ldr	\rd, [ \rx, # S3C2410_UFSTAT ]
-		tst	\rd, #S3C2440_UFSTAT_TXFULL
+		ldr	\rd, [ \rx, # S3C_UFSTAT ]
+		tst	\rd, #S3C_UFSTAT_TXFULL
 	.endm
 
 #ifndef fifo_full
@@ -33,12 +33,12 @@
 #endif
 
 	.macro	senduart,rd,rx
-		strb 	\rd, [\rx, # S3C2410_UTXH ]
+		strb 	\rd, [\rx, # S3C_UTXH ]
 	.endm
 
 	.macro	busyuart, rd, rx
-		ldr	\rd, [ \rx, # S3C2410_UFCON ]
-		tst	\rd, #S3C2410_UFCON_FIFOMODE	@ fifo enabled?
+		ldr	\rd, [ \rx, # S3C_UFCON ]
+		tst	\rd, #S3C_UFCON_FIFOMODE	@ fifo enabled?
 		beq	1001f				@
 		@ FIFO enabled...
 1003:
@@ -48,16 +48,16 @@
 
 1001:
 		@ busy waiting for non fifo
-		ldr	\rd, [ \rx, # S3C2410_UTRSTAT ]
-		tst	\rd, #S3C2410_UTRSTAT_TXFE
+		ldr	\rd, [ \rx, # S3C_UTRSTAT ]
+		tst	\rd, #S3C_UTRSTAT_TXFE
 		beq	1001b
 
 1002:		@ exit busyuart
 	.endm
 
 	.macro	waituart,rd,rx
-		ldr	\rd, [ \rx, # S3C2410_UFCON ]
-		tst	\rd, #S3C2410_UFCON_FIFOMODE	@ fifo enabled?
+		ldr	\rd, [ \rx, # S3C_UFCON ]
+		tst	\rd, #S3C_UFCON_FIFOMODE	@ fifo enabled?
 		beq	1001f				@
 		@ FIFO enabled...
 1003:
@@ -67,8 +67,8 @@
 		b	1002f
 1001:
 		@ idle waiting for non fifo
-		ldr	\rd, [ \rx, # S3C2410_UTRSTAT ]
-		tst	\rd, #S3C2410_UTRSTAT_TXFE
+		ldr	\rd, [ \rx, # S3C_UTRSTAT ]
+		tst	\rd, #S3C_UTRSTAT_TXFE
 		beq	1001b
 
 1002:		@ exit busyuart

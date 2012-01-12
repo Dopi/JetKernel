@@ -467,7 +467,7 @@ config SERIAL_SAMSUNG_UARTS
 	
 config SERIAL_SAMSUNG_DEBUG
 	bool "Samsung SoC serial debug"
-	depends on SERIAL_SAMSUNG && DEBUG_LL
+	depends on SERIAL_SAMSUNG
 	help
 	  Add support for debugging the serial driver. Since this is
 	  generally being used as a console, we use our own output

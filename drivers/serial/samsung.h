@@ -92,8 +92,11 @@ console_initcall(s3c_serial_console_init)
 #define s3c_console_init(drv, inf) extern void no_console(void)
 #endif
 
+//#define CONFIG_SERIAL_SAMSUNG_DEBUG
 #ifdef CONFIG_SERIAL_SAMSUNG_DEBUG
 
+#define dbg(x...) printk(x)
+#if 0
 extern void printascii(const char *);
 
 static void dbg(const char *fmt, ...)
@@ -107,7 +110,7 @@ static void dbg(const char *fmt, ...)
 
 	printascii(buff);
 }
-
+#endif
 #else
 #define dbg(x...) do { } while (0)
 #endif
